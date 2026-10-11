@@ -7,31 +7,21 @@ from urllib.parse import urlparse
 import requests
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.canvas_lms.settings import CANVAS_ENDPOINTS, CanvasEndpointConfig
+from sources.sdk import (
+    ClientConfig,
+    HeaderLinkPaginator,
+    IncrementalConfig,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    build_dependent_resource,
+    coerce_datetime_to_utc,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    HeaderLinkPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    IncrementalConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.canvas_lms.settings import CANVAS_ENDPOINTS, CanvasEndpointConfig
 
 REQUEST_TIMEOUT_SECONDS = 30
 

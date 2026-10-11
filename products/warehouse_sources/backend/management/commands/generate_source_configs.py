@@ -113,8 +113,16 @@ class SourceConfigGenerator:
         self.generate_source_config(source_type, source_config)
         return self._build_module()
 
+    @staticmethod
+    def _config_import(source_type: ExternalDataSourceType) -> str:
+        # A vendor in the top-level `sources` package imports shared code only from `sources.sdk` (tach).
+        source_module = source_module_path(source_type)
+        if source_module is not None and source_module.startswith(f"{TOP_LEVEL_SOURCES_PACKAGE}."):
+            return f"from {TOP_LEVEL_SOURCES_PACKAGE}.sdk import config"
+        return "from products.warehouse_sources.backend.temporal.data_imports.sources.common import config"
+
     def generate_source_config(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> None:
-        self.imports.add("from products.warehouse_sources.backend.temporal.data_imports.sources.common import config")
+        self.imports.add(self._config_import(source_type))
 
         class_name = self._get_config_class_name(source_type)
         fields = []

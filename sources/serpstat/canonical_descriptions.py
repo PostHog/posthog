@@ -1,7 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
+from sources.sdk import CanonicalDescriptions
 from sources.serpstat.settings import DOCS_BASE, ENDPOINTS
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

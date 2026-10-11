@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aviator import source as source_module
 from sources.aviator._config import AviatorSourceConfig
 from sources.aviator.source import AviatorSource
+from sources.sdk import SourceInputs
 
 
 def _source_inputs(

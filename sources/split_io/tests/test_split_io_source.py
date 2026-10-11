@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-
+from sources.sdk import UNVERSIONED_API_VERSION
 from sources.split_io._config import SplitIoSourceConfig
 from sources.split_io.settings import SPLIT_IO_API_VERSION_V2
 from sources.split_io.source import SplitIoSource

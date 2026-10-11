@@ -1,24 +1,22 @@
 from typing import Optional, cast
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.facade.source_config import (
+from sources.databricks._config import DatabricksSourceConfig
+from sources.databricks.databricks import DatabricksImplementation, clean_databricks_host
+from sources.sdk import (
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceRegistry,
+    SQLSource,
+    ValidateDatabaseHostMixin,
+    capture_exception,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-from sources.databricks._config import DatabricksSourceConfig
-from sources.databricks.databricks import DatabricksImplementation, clean_databricks_host
 
 _DATABRICKS_IMPLEMENTATION = DatabricksImplementation()
 

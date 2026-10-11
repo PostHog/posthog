@@ -9,9 +9,6 @@ from unittest.mock import MagicMock, patch
 from requests import Request, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.dub.dub import (
     NO_PARTNER_PROGRAM_MESSAGE,
     DubCursorPaginator,
@@ -24,6 +21,7 @@ from sources.dub.dub import (
     validate_credentials,
 )
 from sources.dub.settings import DUB_ENDPOINTS, ENDPOINTS, PARTNER_PROGRAM_ENDPOINTS
+from sources.sdk import EndpointResource, ResumableSourceManager
 
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:

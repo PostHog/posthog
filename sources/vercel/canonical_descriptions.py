@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from Vercel's public REST API reference (https://vercel.com/docs/rest-api/reference).
 # Partial coverage is fine — any column not listed here falls back to LLM enrichment, which is

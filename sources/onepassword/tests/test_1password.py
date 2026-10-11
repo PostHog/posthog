@@ -10,8 +10,6 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-
 from sources.onepassword import onepassword
 from sources.onepassword.onepassword import (
     OnePasswordResumeConfig,
@@ -21,6 +19,7 @@ from sources.onepassword.onepassword import (
     onepassword_source,
 )
 from sources.onepassword.settings import ONEPASSWORD_ENDPOINTS
+from sources.sdk import RESTClient
 
 # onepassword_source builds its (capture-disabled) session via make_tracked_session in the
 # onepassword module and hands it to the RESTClient, so patch it there.

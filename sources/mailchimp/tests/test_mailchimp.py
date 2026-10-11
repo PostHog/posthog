@@ -10,8 +10,6 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError, ProxyError, RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.mailchimp.mailchimp import (
     MAX_RETRY_ATTEMPTS,
     MailchimpResumeConfig,
@@ -28,6 +26,7 @@ from sources.mailchimp.mailchimp import (
 )
 from sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
 from sources.mailchimp.source import MailchimpSource
+from sources.sdk import ResumableSourceManager
 
 
 class TestExtractDataCenter:

@@ -1,10 +1,7 @@
 from dataclasses import field
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 APIFY_BASE_URL = "https://api.apify.com/v2"
 

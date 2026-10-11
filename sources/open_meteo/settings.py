@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, PartitionFormat, incremental_field
 
 # Open-Meteo splits its products across subdomains rather than paths. Commercial customers get a
 # `customer-` prefixed host with reserved capacity, selected by supplying an API key.

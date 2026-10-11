@@ -1,6 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 API_BASE_URL = "https://api.humanitec.io/"
 API_DOCS_URL = "https://api-docs.humanitec.com/"

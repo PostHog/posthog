@@ -8,8 +8,6 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.canvas_lms import canvas_lms as canvas_lms_module
 from sources.canvas_lms.canvas_lms import (
     CanvasHostNotAllowedError,
@@ -20,6 +18,7 @@ from sources.canvas_lms.canvas_lms import (
     normalize_domain,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 

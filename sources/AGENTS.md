@@ -22,9 +22,12 @@ A new vendor still needs its `ExternalDataSourceType` enum member.
 
 ## Imports
 
-Import shared code with absolute imports from `products.warehouse_sources` (for example `...sources.common`).
+Import shared code only from `sources.sdk`. Tests can also import from `sources.sdk.testing`.
 Import your own directory as `sources.<vendor>`. Do not import another vendor.
-`sources/sdk` re-exports the shared code. A later change moves every vendor import to `sources.sdk`, and then tach (`sources.*` in `tach.toml`) forbids all other imports.
+tach (`sources.*` in `tach.toml`) checks vendor code, and import-linter (`pyproject.toml`) also checks vendor tests.
+If you need a shared name that the SDK does not have, add it to `sources/sdk/__init__.py` (or `testing.py`) from its origin module.
+`sources/sdk/internals.py` holds names from product modules that tach does not expose. Do not add to it if a module that the product exposes has the name.
+A `mock.patch` target names the origin module, not `sources.sdk`: a patch on a re-export changes nothing.
 
 ## Tests
 

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the Easypromos REST API v2 reference (https://easypromos-apiref.redoc.ly/). Keyed by
 # the endpoint/schema name from `get_schemas`. Partial coverage is fine — anything omitted falls

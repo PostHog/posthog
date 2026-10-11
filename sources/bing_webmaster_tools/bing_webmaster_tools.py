@@ -7,11 +7,9 @@ from urllib.parse import urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.bing_webmaster_tools.settings import BASE_URL, ENDPOINT_CONFIGS
+from sources.sdk import SourceResponse, make_tracked_session
+from sources.sdk.internals import NamingConvention
 
 REQUEST_TIMEOUT_SECONDS = 60
 

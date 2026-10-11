@@ -5,12 +5,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.bugherd.bugherd import (
     BugherdResumeConfig,
     _format_bugherd_datetime,
@@ -20,6 +14,7 @@ from sources.bugherd.bugherd import (
     validate_credentials,
 )
 from sources.bugherd.settings import BUGHERD_BASE_URL, BUGHERD_ENDPOINTS
+from sources.sdk import PageNumberPaginator, ResumableSourceManager, SinglePagePaginator
 
 
 class _FakeDltResource:

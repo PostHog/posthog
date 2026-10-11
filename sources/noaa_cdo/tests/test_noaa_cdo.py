@@ -9,13 +9,11 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests import Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.noaa_cdo._config import NoaaCdoSourceConfig
 from sources.noaa_cdo.noaa_cdo import noaa_cdo_source
 from sources.noaa_cdo.settings import AUTH_ERROR, REQUEST_ERROR
 from sources.noaa_cdo.source import NoaaCdoSource
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 
 def sync_items(response: SourceResponse) -> Iterable[Any]:

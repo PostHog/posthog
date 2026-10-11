@@ -5,11 +5,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.bigcommerce._config import BigCommerceSourceConfig
 from sources.bigcommerce.settings import ENDPOINTS, INCREMENTAL_FIELDS, PARTITION_FIELDS
 from sources.bigcommerce.source import BigCommerceSource
+from sources.sdk import ResumableSourceManager
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 

@@ -1,22 +1,5 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.open_meteo._config import OpenMeteoSourceConfig
 from sources.open_meteo.open_meteo import (
     OpenMeteoResumeConfig,
@@ -24,6 +7,22 @@ from sources.open_meteo.open_meteo import (
     validate_credentials as validate_open_meteo_credentials,
 )
 from sources.open_meteo.settings import ENDPOINTS, OPEN_METEO_ENDPOINTS
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+)
 
 CAPTION = """Pull weather and air quality data from [Open-Meteo](https://open-meteo.com) into the PostHog Data warehouse, so you can join it against your own events.
 

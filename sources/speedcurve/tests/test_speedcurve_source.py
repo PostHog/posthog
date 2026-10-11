@@ -1,5 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
-
+from sources.sdk.testing import build_default_sync_settings
 from sources.speedcurve._config import SpeedcurveSourceConfig
 from sources.speedcurve.source import SpeedcurveSource
 

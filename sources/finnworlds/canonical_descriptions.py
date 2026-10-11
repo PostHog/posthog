@@ -7,9 +7,7 @@ enrichment. The connector injects `ticker` (and `period` for fundamentals) onto 
 appear as columns even though they originate from the request, not the record body.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 DOCS_URL = "https://finnworlds.com/documentation/"
 

@@ -9,11 +9,8 @@ import responses
 from requests.exceptions import HTTPError
 from responses import matchers
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import ResumableSourceManager, SourceInputs, UnknownResourceError
+from sources.sdk.testing import error_message_matches
 from sources.telli._config import TelliSourceConfig
 from sources.telli.source import TelliSource
 from sources.telli.telli import TelliResumeConfig, telli_source

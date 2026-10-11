@@ -2,25 +2,21 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resources
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-    RESTAPIConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.qonto._config import QontoSourceConfig
 from sources.qonto.settings import AUTH_ERROR, ENDPOINTS, INCREMENTAL_FIELDS, PERMISSION_ERROR
+from sources.sdk import (
+    APIKeyAuth,
+    Endpoint,
+    EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resources,
+)
 
 
 @frozen

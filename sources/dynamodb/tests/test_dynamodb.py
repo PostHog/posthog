@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.dynamodb.dynamodb import (
     DynamoDBAPIError,
     DynamoDBClient,
@@ -25,6 +23,7 @@ from sources.dynamodb.dynamodb import (
     validate_region,
 )
 from sources.dynamodb.settings import MAX_RETRY_ATTEMPTS
+from sources.sdk import ResumableSourceManager
 
 _MODULE = "sources.dynamodb.dynamodb"
 

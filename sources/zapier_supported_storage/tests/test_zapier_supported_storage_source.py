@@ -1,9 +1,4 @@
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
+from sources.sdk import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 from sources.zapier_supported_storage._config import ZapierSupportedStorageSourceConfig
 from sources.zapier_supported_storage.source import ZapierSupportedStorageSource
 

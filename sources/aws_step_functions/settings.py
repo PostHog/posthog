@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 API_VERSION = "2016-11-23"
 TARGET_PREFIXES = {API_VERSION: "AWSStepFunctions"}

@@ -7,27 +7,22 @@ from urllib.parse import quote
 
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.guru.settings import GURU_ENDPOINTS, GuruEndpointConfig
+from sources.sdk import (
+    ClientConfig,
+    DependentEndpointConfig,
     Endpoint,
     EndpointResource,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.guru.settings import GURU_ENDPOINTS, GuruEndpointConfig
 
 GURU_BASE_URL = "https://api.getguru.com/api/v1"
 GURU_API_HOST = "api.getguru.com"

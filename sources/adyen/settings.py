@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 # Adyen splits its read APIs across three hosts with independent versions, so each endpoint
 # names the API it belongs to rather than sharing one base URL.

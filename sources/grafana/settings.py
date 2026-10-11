@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # `/api/search` accepts a limit of up to 5000; the teams / service-accounts search endpoints
 # default `perpage` to 1000. 1000 everywhere keeps individual responses comfortably sized.

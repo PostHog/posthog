@@ -1,8 +1,7 @@
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.gitlab.source import GitLabSource
+from sources.sdk.testing import error_message_matches
 
 
 class TestGitLabSource:

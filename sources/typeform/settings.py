@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 DEFAULT_TYPEFORM_API_BASE_URL = "https://api.typeform.com"
 ALLOWED_TYPEFORM_API_BASE_URLS = (

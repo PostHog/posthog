@@ -5,26 +5,22 @@ from urllib.parse import quote
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.mintlify._config import MintlifySourceConfig
 from sources.mintlify.settings import API_VERSION, BASE_URL, ENDPOINTS, HTTP_ERRORS, INCREMENTAL_FIELDS
+from sources.sdk import (
+    BasePaginator,
+    BearerTokenAuth,
+    JSONResponseCursorPaginator,
+    OffsetPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 
 @frozen

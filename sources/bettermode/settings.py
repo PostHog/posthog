@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # `posts` exposes a genuine server-side timestamp filter: `filterBy` accepts the typed
 # PostListFilterByEnum keys createdAt / publishedAt / updatedAt with a `gte` operator

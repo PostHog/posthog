@@ -29,28 +29,22 @@ from urllib.parse import urlparse
 
 from requests import Response
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.netlify.settings import NETLIFY_ENDPOINTS, NetlifyEndpointConfig
+from sources.sdk import (
     Endpoint,
     EndpointResource,
+    HeaderLinkPaginator,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    capture_exception,
+    make_tracked_session,
+    rename_parent_fields,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    HeaderLinkPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.netlify.settings import NETLIFY_ENDPOINTS, NetlifyEndpointConfig
 
 NETLIFY_BASE_URL = "https://api.netlify.com/api/v1"
 _NETLIFY_PARSED_BASE = urlparse(NETLIFY_BASE_URL)

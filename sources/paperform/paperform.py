@@ -3,29 +3,22 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.paperform.settings import PAPERFORM_ENDPOINTS, PaperformEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    coerce_datetime_to_utc,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.paperform.settings import PAPERFORM_ENDPOINTS, PaperformEndpointConfig
 
 PAPERFORM_BASE_URL = "https://api.paperform.co/v1"
 # Paginated list endpoints cap `limit` at 100 (default 20); the largest page minimises round trips

@@ -12,18 +12,13 @@ import structlog
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
-    append_partition_key_to_table,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.pinecone._config import PineconeSourceConfig
 from sources.pinecone.source import PineconeSource
+from sources.sdk import SourceInputs, UnknownResourceError
+from sources.sdk.internals import append_partition_key_to_table, table_from_py_list
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+    from sources.sdk import SourceResponse
 
 
 def source_inputs(endpoint: str) -> SourceInputs:

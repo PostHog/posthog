@@ -4,23 +4,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    APIKeyAuth,
-    HttpBasicAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.clip._config import ClipSourceConfig
 from sources.clip.settings import (
     AUTH_ERROR,
@@ -29,6 +12,20 @@ from sources.clip.settings import (
     PERMISSION_ERROR,
     SETTLEMENT_HISTORY_DAYS,
     TRANSACTION_WINDOW,
+)
+from sources.sdk import (
+    APIKeyAuth,
+    EndpointResource,
+    HttpBasicAuth,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resources,
+    schema_for_resource,
 )
 
 

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Teamtailor public API docs (https://docs.teamtailor.com/).
 # JSON:API resources nest their columns under `attributes`, plus a top-level `id` and `type`.

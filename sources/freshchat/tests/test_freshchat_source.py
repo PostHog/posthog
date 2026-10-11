@@ -5,10 +5,9 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.freshchat._config import FreshchatSourceConfig
 from sources.freshchat.source import FreshchatSource
+from sources.sdk import SourceInputs
 
 PATCH_VALIDATE = "sources.freshchat.source.validate_freshchat_credentials"
 

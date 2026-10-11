@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Coupa hard-caps GET responses at 50 records per page.
 PAGE_SIZE = 50

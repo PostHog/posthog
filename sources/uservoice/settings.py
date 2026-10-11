@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # UserVoice caps `per_page` at 100 on its Admin API v2 list actions (default 20). Always request the
 # max to minimise round trips.

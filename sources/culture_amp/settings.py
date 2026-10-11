@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 CULTURE_AMP_BASE_URL = "https://api.cultureamp.com/v1"
 CULTURE_AMP_TOKEN_URL = f"{CULTURE_AMP_BASE_URL}/oauth2/token"

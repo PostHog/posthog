@@ -1,19 +1,15 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.sdk import (
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.shipmail.settings import SHIPMAIL_ENDPOINTS
 
 SHIPMAIL_BASE_URL = "https://shipmail.to/api/v1"

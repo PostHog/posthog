@@ -1,27 +1,26 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.openweather._config import OpenWeatherSourceConfig
 from sources.openweather.openweather import (
     openweather_source,
     validate_credentials as validate_openweather_credentials,
 )
 from sources.openweather.settings import API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0, endpoints_for_version
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+)
 
 
 @SourceRegistry.register

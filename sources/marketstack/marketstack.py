@@ -2,19 +2,16 @@ import dataclasses
 from datetime import date
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.marketstack.settings import MARKETSTACK_ENDPOINTS
+from sources.sdk import (
+    OffsetPaginator,
+    ResponseAction,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.marketstack.settings import MARKETSTACK_ENDPOINTS
 
 # Opaque Marketstack version labels (never parsed/ordered). Each version is served under its own
 # path segment; the source pin selects the base URL. v1 is deprecated (vendor sunset 2025-06-30);

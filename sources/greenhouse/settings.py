@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Harvest embeds the API version as the first path segment (`/v1/candidates`, `/v3/candidates`).
 GREENHOUSE_V1 = "v1"

@@ -5,27 +5,21 @@ from typing import Any, Optional
 import requests
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.dub.settings import DUB_BASE_URL, DUB_ENDPOINTS, PARTNER_PROGRAM_ENDPOINTS, DubEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
+    PageNumberPaginator,
     ResponseAction,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.dub.settings import DUB_BASE_URL, DUB_ENDPOINTS, PARTNER_PROGRAM_ENDPOINTS, DubEndpointConfig
 
 REQUEST_TIMEOUT_SECONDS = 30
 # /folders rejects a larger page with a 422.

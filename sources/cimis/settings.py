@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # CIMIS (California Irrigation Management Information System) Web API base URL.
 # https://et.water.ca.gov/Rest/Index

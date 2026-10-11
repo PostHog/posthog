@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # A version's publish time never changes once released, so it's a stable partition key for the
 # versions stream. Exposed as the raw ISO 8601 string crates.io already returns (`created_at`).

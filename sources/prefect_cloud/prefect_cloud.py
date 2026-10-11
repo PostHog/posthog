@@ -3,18 +3,15 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.prefect_cloud.settings import PAGE_LIMIT, PREFECT_CLOUD_ENDPOINTS, PrefectCloudEndpointConfig
+from sources.sdk import (
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.prefect_cloud.settings import PAGE_LIMIT, PREFECT_CLOUD_ENDPOINTS, PrefectCloudEndpointConfig
 
 PREFECT_CLOUD_API_BASE = "https://api.prefect.cloud/api"
 

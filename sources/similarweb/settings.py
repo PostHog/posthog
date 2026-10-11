@@ -1,10 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, frozen, incremental_field
 
 BASE_URL = "https://api.similarweb.com"
 

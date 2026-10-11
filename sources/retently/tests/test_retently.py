@@ -10,11 +10,10 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_client
-
 from sources.retently import retently
 from sources.retently.retently import RetentlyResumeConfig, _format_start_date, retently_source, validate_credentials
 from sources.retently.settings import ENDPOINTS
+from sources.sdk.testing import rest_client
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

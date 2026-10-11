@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.factorial.factorial import (
     API_VERSION_2026_04_01,
     PAGE_SIZE,
@@ -18,6 +16,7 @@ from sources.factorial.factorial import (
     factorial_source,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 _MODULE = "sources.factorial.factorial"
 _SESSION_FACTORY = f"{_MODULE}.make_tracked_session"

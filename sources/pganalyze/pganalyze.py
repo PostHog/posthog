@@ -6,11 +6,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.security.url_validation import is_url_allowed
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.pganalyze.queries import ISSUES_QUERY, SERVERS_QUERY
 from sources.pganalyze.settings import (
     PGANALYZE_API_URL,
@@ -18,6 +13,7 @@ from sources.pganalyze.settings import (
     PGANALYZE_MAX_RETRY_ATTEMPTS,
     PGANALYZE_REQUEST_TIMEOUT_SECONDS,
 )
+from sources.sdk import SourceResponse, is_url_allowed, make_tracked_session
 
 
 class PgAnalyzeRetryableError(Exception):

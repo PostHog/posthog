@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.active_campaign.active_campaign import (
     PAGE_SIZE,
     ActiveCampaignPaginator,
@@ -18,6 +16,7 @@ from sources.active_campaign.active_campaign import (
     validate_credentials,
 )
 from sources.active_campaign.settings import ACTIVE_CAMPAIGN_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 def _full_page() -> list[dict[str, Any]]:

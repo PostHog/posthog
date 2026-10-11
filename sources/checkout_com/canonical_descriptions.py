@@ -7,9 +7,7 @@ Keyed by the schema names `get_schemas` returns: the endpoint names in `checkout
 entries only describe the injected metadata columns; the rest fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Every `{type}_report` table carries these columns, injected from the report listing
 # alongside the report file's own columns.

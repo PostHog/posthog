@@ -4,9 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager, VersionDeprecation
 from sources.shopify._config import ShopifyAuthMethodConfig, ShopifySourceConfig
 from sources.shopify.constants import ORDERS, SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07
 from sources.shopify.shopify import shopify_source

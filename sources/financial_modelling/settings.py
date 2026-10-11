@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Financial Modeling Prep "stable" API host. The legacy `/api/v3/` paths still work, but every
 # endpoint here is expressed relative to the stable base. Auth is an `apikey` query param appended

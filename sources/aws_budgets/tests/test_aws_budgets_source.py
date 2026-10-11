@@ -6,8 +6,6 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_budgets import (
     aws_budgets as transport_module,
     source as source_module,
@@ -21,6 +19,7 @@ from sources.aws_budgets.aws_budgets import (
 )
 from sources.aws_budgets.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.aws_budgets.source import AwsBudgetsSource
+from sources.sdk import SourceInputs
 
 
 def make_inputs(

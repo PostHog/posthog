@@ -3,21 +3,18 @@ from typing import Any
 
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.kisi.settings import BASE_URL, ENDPOINTS, MAX_OFFSET, OFFSET_ERROR, PAGE_SIZE, PARTITION_KEYS, PRIMARY_KEYS
+from sources.sdk import (
+    APIKeyAuth,
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
-from sources.kisi.settings import BASE_URL, ENDPOINTS, MAX_OFFSET, OFFSET_ERROR, PAGE_SIZE, PARTITION_KEYS, PRIMARY_KEYS
 
 
 @frozen

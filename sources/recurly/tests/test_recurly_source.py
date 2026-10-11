@@ -3,11 +3,9 @@ from typing import cast
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.recurly._config import RecurlySourceConfig
 from sources.recurly.source import RecurlySource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 class TestRecurlySource:

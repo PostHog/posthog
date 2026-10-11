@@ -1,12 +1,7 @@
 from dataclasses import field
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 # Sigma's list endpoints default `limit` to 50 and cap it at 1000; always ask for the max to
 # minimize round trips per sync.

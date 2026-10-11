@@ -1,9 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType, VersionDeprecation
 from sources.shipstation._config import ShipStationSourceConfig
 from sources.shipstation.settings import SHIPSTATION_V1, SHIPSTATION_V2
 from sources.shipstation.source import ShipStationSource

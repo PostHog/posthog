@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.squarespace.settings import SQUARESPACE_ENDPOINTS
 from sources.squarespace.squarespace import (
     MAX_CURSOR_RESTARTS,

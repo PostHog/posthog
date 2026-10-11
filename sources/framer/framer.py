@@ -23,12 +23,9 @@ from websockets.headers import build_authorization_basic
 from websockets.sync.client import connect as websocket_connect
 from websockets.uri import Proxy, get_proxy, parse_proxy, parse_uri
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.framer import devalue
 from sources.framer.settings import DEPLOYMENTS_MAX_PAGES, DEPLOYMENTS_PAGE_SIZE, PRIMARY_KEYS
+from sources.sdk import SourceResponse, capture_exception
 
 FRAMER_HEADLESS_WS_URL = "wss://api.framer.com/channel/headless-plugin"
 

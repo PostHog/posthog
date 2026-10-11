@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `FLEETIO_ENDPOINTS`, which match th
 `ExternalDataSchema.name` of a synced Fleetio table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _COMMON_COLUMNS = {
     "id": "Unique identifier for the record in Fleetio.",

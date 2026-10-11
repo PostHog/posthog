@@ -2,26 +2,23 @@ from typing import Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.facade.source_config import (
+from sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.tenjin._config import TenjinSourceConfig
 from sources.tenjin.settings import DESCRIPTIONS, ENDPOINTS, INCREMENTAL_FIELDS
 from sources.tenjin.tenjin import (

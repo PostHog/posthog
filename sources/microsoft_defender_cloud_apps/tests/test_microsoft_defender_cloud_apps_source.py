@@ -3,11 +3,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-
 from sources.microsoft_defender_cloud_apps._config import MicrosoftDefenderCloudAppsSourceConfig
 from sources.microsoft_defender_cloud_apps.microsoft_defender_cloud_apps import DefenderClient
 from sources.microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSource
+from sources.sdk import ValidateDatabaseHostMixin
 
 
 @pytest.mark.parametrize(

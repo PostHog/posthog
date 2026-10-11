@@ -2,11 +2,10 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.intruder import source as source_module
 from sources.intruder._config import IntruderSourceConfig
 from sources.intruder.source import IntruderSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestSourceConfig:

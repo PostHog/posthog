@@ -4,12 +4,10 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
 from sources.databricks._config import DatabricksSourceConfig
 from sources.databricks.databricks import DatabricksImplementation, filter_databricks_incremental_fields
 from sources.databricks.source import DatabricksSource
+from sources.sdk import IncrementalFieldType, SourceInputs
 
 _CONNECT_PATH = "sources.databricks.databricks.databricks_sql.connect"
 _SLEEP_PATH = "sources.databricks.databricks.time.sleep"

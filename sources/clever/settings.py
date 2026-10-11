@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 CLEVER_API_VERSION_V3_0 = "v3.0"
 CLEVER_API_VERSION_V3_1 = "v3.1"

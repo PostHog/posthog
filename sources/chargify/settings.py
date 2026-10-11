@@ -1,6 +1,6 @@
 import dataclasses
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 
 @dataclasses.dataclass(frozen=True)

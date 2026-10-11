@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are taken from the StatusCake API v1 docs (https://developers.statuscake.com/api/).
 # The "test_id" column on every per-test history table is injected by the connector (the raw

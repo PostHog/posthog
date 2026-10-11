@@ -3,10 +3,9 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.auth0._config import Auth0SourceConfig
 from sources.auth0.source import Auth0Source
+from sources.sdk import SourceInputs
 
 SOURCE_MODULE = "sources.auth0.source"
 

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _REST_DOCS = "https://adobe-commerce.redoc.ly/2.4.7-admin/tag"
 

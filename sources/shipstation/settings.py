@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # ShipStation runs two live vendor APIs. v1 is the original ssapi.shipstation.com API (HTTP Basic
 # with an API key + secret, US Pacific DateTimes). v2 is the ShipStation API v2 (ShipEngine-based)

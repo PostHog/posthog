@@ -1,29 +1,26 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.develocity._config import DevelocitySourceConfig
 from sources.develocity.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.develocity.develocity import DevelocityResumeConfig, develocity_source, validate_credentials
 from sources.develocity.settings import API_DOCS_URL, ENDPOINTS, INCREMENTAL_FIELDS, INVALID_KEY, MISSING_PERMISSION
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+)
 
 
 @SourceRegistry.register

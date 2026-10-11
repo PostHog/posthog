@@ -9,11 +9,10 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.lodgify.lodgify import LodgifyResumeConfig, lodgify_source, validate_credentials
 from sources.lodgify.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.lodgify.source import LodgifySource
+from sources.sdk import ResumableSourceManager
 
 
 @pytest.fixture

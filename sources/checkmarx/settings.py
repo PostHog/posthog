@@ -2,9 +2,7 @@ from dataclasses import field
 from datetime import timedelta
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 
 @frozen

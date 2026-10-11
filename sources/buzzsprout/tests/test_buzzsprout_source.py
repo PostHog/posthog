@@ -1,10 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.buzzsprout._config import BuzzsproutSourceConfig
 from sources.buzzsprout.settings import ENDPOINTS
 from sources.buzzsprout.source import BuzzsproutSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestBuzzsproutSource:

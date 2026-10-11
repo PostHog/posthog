@@ -8,10 +8,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.autumn.autumn import AutumnResumeConfig, _build_request_body, autumn_source, validate_credentials
 from sources.autumn.settings import AUTUMN_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 WATERMARK_MS = 1704067200000
 

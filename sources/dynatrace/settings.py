@@ -2,9 +2,7 @@ from dataclasses import field
 from datetime import timedelta
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Dynatrace timestamps (startTime, endTime, timestamp, firstSeenTms, ...) are integers in UTC
 # milliseconds, not ISO datetimes, so no endpoint declares a datetime partition key — an epoch-ms

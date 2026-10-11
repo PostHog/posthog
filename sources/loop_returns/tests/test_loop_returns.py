@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 from requests import Request, Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.loop_returns.loop_returns import (
     LoopReturnsPaginator,
     LoopReturnsResumeConfig,
@@ -21,6 +19,7 @@ from sources.loop_returns.loop_returns import (
     validate_credentials,
 )
 from sources.loop_returns.settings import LOOP_RETURNS_ENDPOINTS, RETURN_STATES
+from sources.sdk import ResumableSourceManager
 
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 API_KEY = "loop_test_key"

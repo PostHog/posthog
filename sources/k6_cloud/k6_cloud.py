@@ -6,28 +6,21 @@ from urllib.parse import urlencode, urljoin, urlparse
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.k6_cloud.settings import K6_CLOUD_ENDPOINTS, PAGE_SIZE, K6CloudEndpointConfig
+from sources.sdk import (
     BaseNextUrlPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.k6_cloud.settings import K6_CLOUD_ENDPOINTS, PAGE_SIZE, K6CloudEndpointConfig
 
 # Grafana Cloud k6 pins the current REST API under a single global host + version path.
 K6_CLOUD_HOST = "api.k6.io"

@@ -2,18 +2,15 @@ from typing import Optional
 
 from requests import PreparedRequest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.my_hours.settings import MY_HOURS_ENDPOINTS
+from sources.sdk import (
+    AuthConfigBase,
     RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.my_hours.settings import MY_HOURS_ENDPOINTS
 
 MY_HOURS_BASE_URL = "https://api2.myhours.com/api"
 # Cheap list endpoint used to confirm an API key is genuine. The key is account-wide, so one probe

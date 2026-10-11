@@ -1,6 +1,6 @@
 from typing import Literal, TypedDict
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.rokt.com"
 TOKEN_URL = f"{BASE_URL}/auth/oauth2/token"

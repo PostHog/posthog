@@ -4,25 +4,6 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.heroku.settings import (
     DEFAULT_PAGE_SIZE,
     HEROKU_BASE_URL,
@@ -30,6 +11,21 @@ from sources.heroku.settings import (
     MAX_PAGES_PER_LIST,
     TEAM_USAGE_LOOKBACK_MONTHS,
     HerokuEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
 
 # Every Platform API request must pin version 3 via the Accept header. Non-secret, so it rides

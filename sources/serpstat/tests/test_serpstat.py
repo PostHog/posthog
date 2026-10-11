@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.serpstat._config import SerpstatSourceConfig
 from sources.serpstat.serpstat import SerpstatResumeConfig, serpstat_resource
 from sources.serpstat.settings import AUTH_ERROR, MAX_PAGES, PAGE_SIZE, QUOTA_ERROR, REQUEST_ERROR

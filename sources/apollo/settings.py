@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {

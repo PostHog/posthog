@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from sources.sdk import Endpoint
 
 API_DOCS_URL = "https://api.komodor.com/api/docs/index.html"
 REGION_URLS = {"us": "https://api.komodor.com", "eu": "https://api.eu.komodor.com"}

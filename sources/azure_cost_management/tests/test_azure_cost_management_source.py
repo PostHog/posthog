@@ -3,13 +3,11 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.azure_cost_management._config import AzureCostManagementSourceConfig
 from sources.azure_cost_management.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.azure_cost_management.settings import AZURE_COST_MANAGEMENT_ENDPOINTS, COST_LOOKBACK_SECONDS, ENDPOINTS
 from sources.azure_cost_management.source import AzureCostManagementSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 SOURCE_MODULE = "sources.azure_cost_management.source"
 

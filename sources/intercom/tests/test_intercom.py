@@ -9,13 +9,6 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    JSONResponsePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-
 from sources.intercom import intercom as intercom_module
 from sources.intercom.intercom import (
     INTERCOM_API_BASE,
@@ -37,6 +30,7 @@ from sources.intercom.intercom import (
     validate_credentials,
 )
 from sources.intercom.settings import INTERCOM_ENDPOINTS
+from sources.sdk import JSONResponseCursorPaginator, JSONResponsePaginator, PageNumberPaginator, SinglePagePaginator
 
 
 def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Response:

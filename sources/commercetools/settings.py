@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every queryable commercetools resource supports `where` predicates and
 # sorting on lastModifiedAt, so the incremental menu is shared.

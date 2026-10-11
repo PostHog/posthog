@@ -10,8 +10,6 @@ import requests
 import structlog
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_budgets import aws_budgets
 from sources.aws_budgets.aws_budgets import (
     AwsBudgetsError,
@@ -27,6 +25,7 @@ from sources.aws_budgets.aws_budgets import (
     send_operation,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 

@@ -4,20 +4,17 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.factorial.settings import FACTORIAL_ENDPOINTS
+from sources.sdk import (
+    BasePaginator,
     Endpoint,
     EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.factorial.settings import FACTORIAL_ENDPOINTS
 
 # Factorial uses a single global host (no per-account subdomains) and dated API versions carried as a
 # path segment. Each label is a stable release; newer versions add or drop response fields (which the

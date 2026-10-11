@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.clever.clever import CleverPaginator, CleverResumeConfig, clever_source, validate_credentials
 from sources.clever.settings import CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1, clever_base_url
+from sources.sdk import ResumableSourceManager
 
 CLEVER_SESSION_PATCH = "sources.clever.clever.make_tracked_session"
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

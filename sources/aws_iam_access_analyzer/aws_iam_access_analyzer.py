@@ -11,13 +11,6 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_iam_access_analyzer._config import AwsIamAccessAnalyzerSourceConfig
 from sources.aws_iam_access_analyzer.settings import (
     API_VERSION,
@@ -28,6 +21,7 @@ from sources.aws_iam_access_analyzer.settings import (
     PARTITION_KEY,
     TIMESTAMP_COLUMNS,
 )
+from sources.sdk import BoundedRetry, ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 

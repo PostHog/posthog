@@ -1,7 +1,6 @@
 from typing import Literal, NotRequired, TypedDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from sources.sdk import IncrementalFieldType, incremental_field
 
 BASE_URL = "https://api.peec.ai/customer"
 PAGE_SIZE = 1000

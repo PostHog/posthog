@@ -4,25 +4,20 @@ from typing import Any, Optional
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    JSONResponsePaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.surveymonkey.settings import DEFAULT_PAGE_SIZE, SURVEYMONKEY_ENDPOINTS
 
 # SurveyMonkey lists wrap rows in a `data` array and expose the next page as a full URL under

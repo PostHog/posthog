@@ -1,8 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
 from sources.microsoft_clarity.settings import ENDPOINT_NAME
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     ENDPOINT_NAME: {

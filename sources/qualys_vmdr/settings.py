@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Opaque vendor version labels — never parsed or ordered. Only the KnowledgeBase Vulnerability API
 # is versioned past 2.0: Qualys is retiring its 2.0 (EOS Dec 2025) in favor of 4.0, which serves the

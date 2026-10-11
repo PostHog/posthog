@@ -8,9 +8,7 @@ fields), so column coverage focuses on the documented built-in fields. Columns a
 back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "people": {

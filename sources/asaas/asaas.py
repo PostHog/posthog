@@ -1,20 +1,16 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.asaas.settings import INCREMENTAL_DATE_PARAM, INCREMENTAL_FIELDS, TABLE_NAMES
+from sources.sdk import (
+    EndpointResource,
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-from sources.asaas.settings import INCREMENTAL_DATE_PARAM, INCREMENTAL_FIELDS, TABLE_NAMES
 
 SANDBOX_BASE_URL = "https://api-sandbox.asaas.com"
 PRODUCTION_BASE_URL = "https://api.asaas.com"

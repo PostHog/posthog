@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Bloomerang's v2 list endpoints cap `take` at 50 (confirmed via the Parsons client library, which
 # clamps page_size to this maximum).

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions from the Medusa v2 Admin API reference (https://docs.medusajs.com/api/admin).
 # Keyed by the endpoint names in settings.MEDUSA_ENDPOINTS.

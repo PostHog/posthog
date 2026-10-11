@@ -3,14 +3,12 @@ from typing import cast
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.power_bi_admin._config import PowerBiAdminSourceConfig
 from sources.power_bi_admin.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.power_bi_admin.power_bi_admin import ADMIN_API_DENIED_ERROR, PowerBiAdminResumeConfig
 from sources.power_bi_admin.settings import ACTIVITY_EVENTS_ENDPOINT, ENDPOINTS, POWER_BI_ADMIN_ENDPOINTS
 from sources.power_bi_admin.source import PowerBiAdminSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 MODULE = "sources.power_bi_admin.source"
 

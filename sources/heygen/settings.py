@@ -1,9 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, SortMode, frozen
 
 BASE_URL = "https://api.heygen.com"
 

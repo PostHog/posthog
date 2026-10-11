@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.clay.clay import (
     REQUEST_TIMEOUT_SECONDS,
     ClayResumeConfig,
@@ -17,6 +15,7 @@ from sources.clay.clay import (
     parse_table_ids,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 TABLE_ID = "t_0te9i4tZEHwc9hihBXu"
 

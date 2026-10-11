@@ -8,12 +8,9 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.oncehub.oncehub import PAGE_SIZE, OncehubResumeConfig, oncehub_source, validate_credentials
 from sources.oncehub.settings import ENDPOINTS, ONCEHUB_ENDPOINTS
+from sources.sdk import RESTClientRetryableError
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

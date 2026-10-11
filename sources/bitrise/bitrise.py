@@ -6,26 +6,21 @@ from urllib.parse import urlencode
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.bitrise.settings import BITRISE_ENDPOINTS
+from sources.sdk import (
     ClientConfig,
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rename_parent_fields,
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.bitrise.settings import BITRISE_ENDPOINTS
 
 BITRISE_BASE_URL = "https://api.bitrise.io/v0.1"
 # Bitrise list endpoints cap `limit` at 50.

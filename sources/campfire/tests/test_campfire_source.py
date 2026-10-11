@@ -4,13 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.campfire import source as source_module
 from sources.campfire._config import CampfireSourceConfig
 from sources.campfire.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.campfire.settings import ENDPOINTS
 from sources.campfire.source import CampfireSource
+from sources.sdk import SourceInputs
 
 
 def _source_inputs(

@@ -10,8 +10,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.cdc_open_data.cdc_open_data import (
     CdcOpenDataResumeConfig,
     _auth_config,
@@ -21,6 +19,7 @@ from sources.cdc_open_data.cdc_open_data import (
     validate_cdc_open_data_credentials,
 )
 from sources.cdc_open_data.settings import PAGE_SIZE, SODA2_API_VERSION, SODA3_API_VERSION
+from sources.sdk import ResumableSourceManager
 
 
 class TestFormatWhereValue:

@@ -9,11 +9,9 @@ from unittest.mock import MagicMock, patch
 from requests import Request, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.acast.acast import acast_source, validate_credentials
 from sources.acast.source import AcastSource
+from sources.sdk import SourceResponse, UnknownResourceError
 
 
 def items(response: SourceResponse) -> Iterable[Any]:

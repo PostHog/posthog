@@ -3,18 +3,15 @@ from typing import Any, cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.acast.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PERMISSION_ERROR, PRIMARY_KEYS
+from sources.sdk import (
     EndpointResource,
     RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    SourceResponse,
     rename_parent_fields,
+    rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.acast.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PERMISSION_ERROR, PRIMARY_KEYS
 
 
 def acast_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:

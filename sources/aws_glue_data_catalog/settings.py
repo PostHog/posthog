@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 GLUE_API_VERSION = "2017-03-31"
 TARGET_PREFIXES = {GLUE_API_VERSION: "AWSGlue"}

@@ -12,9 +12,6 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.prompting_company._config import PromptingCompanySourceConfig
 from sources.prompting_company.prompting_company import (
     PromptingCompanyResumeConfig,
@@ -22,6 +19,7 @@ from sources.prompting_company.prompting_company import (
     validate_credentials,
 )
 from sources.prompting_company.source import PromptingCompanySource
+from sources.sdk import SourceInputs, SourceResponse, UnknownResourceError
 
 TRANSPORT = "sources.prompting_company.prompting_company"
 

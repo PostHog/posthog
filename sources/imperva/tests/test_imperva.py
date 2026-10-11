@@ -9,13 +9,11 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests import HTTPError, Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.imperva._config import ImpervaSourceConfig
 from sources.imperva.imperva import ImpervaAPIError, ImpervaAuth, ImpervaResumeConfig, imperva_source, make_resource
 from sources.imperva.settings import DAY_MS
 from sources.imperva.source import ImpervaSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 SITES_URL = "https://api.imperva.com/sites-mgmt/v3/sites"
 STATS_URL = "https://my.imperva.com/api/stats/v1"

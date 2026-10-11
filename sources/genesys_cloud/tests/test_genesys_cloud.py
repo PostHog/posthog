@@ -8,12 +8,9 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
-
 from sources.genesys_cloud import genesys_cloud
 from sources.genesys_cloud.genesys_cloud import GenesysCloudResumeConfig, genesys_cloud_source, validate_credentials
+from sources.sdk import OAuth2AuthRequestError
 
 SESSION_PATCH = "sources.genesys_cloud.genesys_cloud.make_tracked_session"
 NOW = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)

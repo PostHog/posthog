@@ -5,8 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.upstash import source as upstash_source_module
 from sources.upstash._config import UpstashSourceConfig
 from sources.upstash.source import UpstashSource

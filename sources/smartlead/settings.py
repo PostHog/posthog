@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 BASE_URL = "https://server.smartlead.ai/api/v1"
 

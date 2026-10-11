@@ -8,12 +8,6 @@ import pyarrow as pa
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
-    append_partition_key_to_table,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.checkout_com.checkout_com import CheckoutComResumeConfig
 from sources.checkout_com.payments import (
     FINANCIAL_ACTIONS_UNAVAILABLE_MARKER,
@@ -24,6 +18,8 @@ from sources.checkout_com.payments import (
     CheckoutComUnresolvedReferencesError,
     checkout_com_payments_source,
 )
+from sources.sdk import ResumableSourceManager
+from sources.sdk.internals import PARTITION_KEY, append_partition_key_to_table
 
 PAGE_LIMIT_PATCH = "sources.checkout_com.payments.SEARCH_PAGE_LIMIT"
 LOOKUP_BUDGET_PATCH = "sources.checkout_com.payments.MAX_FANOUT_LOOKUPS_PER_SYNC"

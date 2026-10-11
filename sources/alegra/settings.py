@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 API_BASE_URL = "https://api.alegra.com/api/{version}/"
 PAGE_SIZE = 30

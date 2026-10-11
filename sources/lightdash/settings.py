@@ -1,13 +1,7 @@
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField, frozen, incremental_field
 
 # Lightdash documents no default/max page size for its paginated endpoints (org/users,
 # dataCatalog/metrics); 100 keeps individual pages small without excessive round trips.

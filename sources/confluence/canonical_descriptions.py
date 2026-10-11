@@ -6,9 +6,7 @@ Sourced from the official Confluence Cloud REST API v2 reference
 Confluence table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by most Confluence v2 content objects; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

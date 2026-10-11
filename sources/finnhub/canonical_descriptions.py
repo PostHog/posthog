@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Finnhub API docs (https://finnhub.io/docs/api). Keyed by the
 # endpoint name returned by `get_schemas`. Partial coverage is fine — anything missing falls back to LLM

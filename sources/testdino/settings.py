@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 API_VERSION = "v1"
 API_BASE_URL = f"https://api.testdino.com/api/{API_VERSION}/public"

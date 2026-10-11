@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 G2_API_VERSION = "v2"
 G2_BASE_URL = "https://data.g2.com"

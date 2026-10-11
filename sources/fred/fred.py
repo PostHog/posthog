@@ -7,11 +7,8 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.fred.settings import FRED_ENDPOINTS, FredEndpointConfig
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 # FRED is a single global deployment with no tenant subdomain and no version segment: the
 # `/fred/v2/` family added in late 2025 only covers release-level bulk observations, which

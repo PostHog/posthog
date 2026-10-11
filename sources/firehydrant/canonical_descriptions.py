@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated table/column descriptions sourced from the FireHydrant API docs
 # (https://docs.firehydrant.com/reference/firehydrant-api). Keys are the endpoint/schema names

@@ -7,9 +7,7 @@ Columns absent here fall back to LLM enrichment. Every fan-out row carries a `pr
 identifying the Deepgram project it belongs to.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://developers.deepgram.com/reference/management-api"
 

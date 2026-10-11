@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Scopes requested when minting the client-credentials token. Scopes are fixed
 # on the developer app at creation, so the caption tells users to grant these.

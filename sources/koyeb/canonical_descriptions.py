@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Koyeb public API reference (https://developer.koyeb.com/public),
 # generated from the spec at https://api.prod.koyeb.com/public.swagger.json.

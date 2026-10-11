@@ -1,30 +1,5 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    AuthConfigBase,
-    BearerTokenAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.resend._config import ResendSourceConfig
 from sources.resend.oauth import ResendIntegrationAuth, resolve_resend_oauth_token
 from sources.resend.resend import (
@@ -33,6 +8,28 @@ from sources.resend.resend import (
     validate_credentials as validate_resend_credentials,
 )
 from sources.resend.settings import ENDPOINTS
+from sources.sdk import (
+    AuthConfigBase,
+    BearerTokenAuth,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    OAuthMixin,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+)
 
 
 @SourceRegistry.register

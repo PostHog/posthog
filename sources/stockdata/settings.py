@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # StockData.org windows the price feeds server-side with `date_from` and the news feed with
 # `published_after`, so those endpoints sync incrementally. Dividends and splits document no date

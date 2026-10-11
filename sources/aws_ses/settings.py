@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # SES is a regional service: the user-configured region is interpolated into both the request
 # host and the SigV4 signing scope.

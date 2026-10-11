@@ -6,22 +6,19 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.sdk import (
     BasePaginator,
+    EndpointResource,
     JSONResponsePaginator,
     OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.sendgrid.settings import MESSAGE_ACTIVITY_BACKFILL_DAYS, SENDGRID_ENDPOINTS, SendGridEndpointConfig
 
 logger = logging.getLogger(__name__)

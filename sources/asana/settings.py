@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 # How an endpoint's request URLs are derived (drives the rest_source resource chain):
 #   "none"          -> a single top-level list endpoint (no parent fan-out)

@@ -2,30 +2,22 @@ from typing import Any, Optional
 
 from requests import PreparedRequest, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.kickscale.settings import DEFAULT_PAGE_SIZE, KICKSCALE_BASE_URL, KICKSCALE_ENDPOINTS
+from sources.sdk import (
+    AuthConfigBase,
     ClientConfig,
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    coerce_datetime_to_utc,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.kickscale.settings import DEFAULT_PAGE_SIZE, KICKSCALE_BASE_URL, KICKSCALE_ENDPOINTS
 
 
 @frozen

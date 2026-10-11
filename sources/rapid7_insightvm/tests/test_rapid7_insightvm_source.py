@@ -1,10 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-
 from sources.rapid7_insightvm._config import Rapid7InsightvmSourceConfig
 from sources.rapid7_insightvm.settings import ENDPOINTS
 from sources.rapid7_insightvm.source import Rapid7InsightvmSource
+from sources.sdk import ReleaseStatus
 
 SOURCE = "sources.rapid7_insightvm.source"
 

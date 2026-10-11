@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # The YouTube Analytics API is a single global host; `reports.query` is the only endpoint we call.
 YOUTUBE_ANALYTICS_HOST = "https://youtubeanalytics.googleapis.com"

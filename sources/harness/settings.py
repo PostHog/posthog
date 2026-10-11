@@ -1,6 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 REGIONS = {
     "us": "https://app.harness.io",

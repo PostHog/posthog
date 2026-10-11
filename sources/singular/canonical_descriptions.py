@@ -6,9 +6,7 @@ Sourced from the Singular Reporting API reference and the Metrics and Dimensions
 with, so only the default ones are described here. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 REPORTING_API_URL = "https://support.singular.net/hc/en-us/articles/360045245692-Reporting-API-Reference"
 

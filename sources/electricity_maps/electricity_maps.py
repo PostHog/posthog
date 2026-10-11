@@ -6,24 +6,22 @@ from dateutil import parser as dateutil_parser
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.electricity_maps.settings import (
     BASE_URL,
     DEFAULT_HISTORY_DAYS,
     ENDPOINT_PATHS,
     REQUEST_TIMEOUT_SECONDS,
     WINDOW_DAYS,
+)
+from sources.sdk import (
+    BasePaginator,
+    EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 # Zone identifiers are short uppercase codes like DE, DK-DK1, US-CAL-CISO. The value goes into a

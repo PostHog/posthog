@@ -1,8 +1,6 @@
 # Descriptions sourced from the official Heroku Platform API v3 reference
 # (https://devcenter.heroku.com/articles/platform-api-reference).
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "apps": {

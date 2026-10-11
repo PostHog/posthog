@@ -47,14 +47,6 @@ from urllib.parse import quote
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
-    PartitionFormat,
-    PartitionMode,
-    SourceResponse,
-)
-
 from sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
     _error_details,
@@ -63,6 +55,7 @@ from sources.checkout_com.checkout_com import (
     _make_auth,
 )
 from sources.checkout_com.reports import _make_api_session, _next_pagination_token, _strip_links
+from sources.sdk import OAuth2Auth, PartitionFormat, PartitionMode, ResumableSourceManager, SourceResponse
 
 PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "financial_actions", "customers", "instruments")
 

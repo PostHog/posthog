@@ -8,28 +8,25 @@ from typing import Any, Optional
 from dateutil import parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.openai_ads.settings import (
     INSIGHTS_PAGE_SIZE,
     LIST_PAGE_SIZE,
     OPENAI_ADS_BASE_URL,
     OPENAI_ADS_ENDPOINTS,
     OpenAIAdsEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    BearerTokenAuth,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    SyncWindow,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 # Shared with the source's 401 and 403 entries in `get_non_retryable_errors` so a rejected key reads

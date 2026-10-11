@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the Appfigures v2 API docs (https://docs.appfigures.com/api/reference/v2).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

@@ -9,9 +9,8 @@ from parameterized import parameterized
 from requests import Request, Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.lingo_dev.lingo_dev import LingoDevPaginator, LingoDevResumeConfig, lingo_dev_source, validate_credentials
+from sources.sdk import ResumableSourceManager
 
 
 class TestLingoDevPaginator:

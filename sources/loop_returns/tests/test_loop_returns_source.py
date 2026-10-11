@@ -3,12 +3,10 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.loop_returns._config import LoopReturnsSourceConfig
 from sources.loop_returns.loop_returns import LoopReturnsResumeConfig
 from sources.loop_returns.source import LoopReturnsSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 VALIDATE_PATH = "sources.loop_returns.source.validate_loop_returns_credentials"
 

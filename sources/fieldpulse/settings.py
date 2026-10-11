@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import incremental_field
 
 BASE_URL = "https://ywe3crmpll.execute-api.us-east-2.amazonaws.com/stage/"
 API_DOCS_URL = "https://documenter.getpostman.com/view/35988189/2sA3XLEjFd"

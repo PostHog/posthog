@@ -177,8 +177,8 @@ authoritative — they're applied directly (`description_source="canonical"`) an
 Add a `canonical_descriptions.py` **accompanying the source** (sibling of `source.py` / `settings.py`):
 
 ```python
-# products/warehouse_sources/backend/temporal/data_imports/sources/{source}/canonical_descriptions.py
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
+# sources/{source}/canonical_descriptions.py
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Charge": {  # key = ExternalDataSchema.name (the endpoint name from get_schemas / ENDPOINTS)
@@ -196,7 +196,7 @@ Then override the hook on the source class with a lazy import of the sibling fil
 
 ```python
 def get_canonical_descriptions(self) -> CanonicalDescriptions:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
+    from sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
     return CANONICAL_DESCRIPTIONS
 ```
 
@@ -238,12 +238,11 @@ The richer the table list, the better the docs — so pair this with `canonical_
 
 Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
 catalog (a category rail + tile grid). A test (`tests/test_source_categories.py`) fails if any registered
-source has no category, so this is non-optional. Import `SourceConfig` and `DataWarehouseSourceCategory` from
-`products.warehouse_sources.backend.facade.source_config`, and `name` from the facade `ExternalDataSourceType`:
+source has no category, so this is non-optional. A vendor in `sources/` imports `SourceConfig`,
+`DataWarehouseSourceCategory` and `ExternalDataSourceType` from `sources.sdk`:
 
 ```python
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from sources.sdk import DataWarehouseSourceCategory, ExternalDataSourceType, SourceConfig
 ...
 return SourceConfig(
     name=ExternalDataSourceType.STRIPE,

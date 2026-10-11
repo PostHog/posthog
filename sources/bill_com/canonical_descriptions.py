@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `ENDPOINTS`, which match the `Exter
 synced BILL table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Every BILL object carries these; merged into each entry rather than repeated.
 _COMMON_COLUMNS = {

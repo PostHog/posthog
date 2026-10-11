@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every Lob list object carries a stable, immutable `date_created` timestamp. We use it both as the
 # partition key (it never changes once a resource is created) and, where the endpoint can be sorted

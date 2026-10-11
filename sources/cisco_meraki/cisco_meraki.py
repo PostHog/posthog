@@ -4,22 +4,6 @@ from urllib.parse import urlsplit
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.cisco_meraki.settings import (
     AUTH_ERROR,
     ENDPOINTS,
@@ -29,11 +13,22 @@ from sources.cisco_meraki.settings import (
     REGION_ERROR,
     REGION_HOSTS,
 )
+from sources.sdk import (
+    APIKeyAuth,
+    ClientConfig,
+    RESTAPIConfig,
+    RESTClient,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_adapter,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
     from sources.cisco_meraki._config import CiscoMerakiSourceConfig
+    from sources.sdk import ResumableSourceManager
 
 
 @frozen

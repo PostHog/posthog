@@ -8,11 +8,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.confluent_cloud.settings import (
     CONFLUENT_CLOUD_BASE_URL,
     CONFLUENT_CLOUD_ENDPOINTS,
@@ -24,6 +19,7 @@ from sources.confluent_cloud.settings import (
     QUERY_GROUP_LIMIT,
     QUERY_WINDOW,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, SyncWindow, make_tracked_session
 
 
 class ConfluentCloudRetryableError(Exception):

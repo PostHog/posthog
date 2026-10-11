@@ -1,23 +1,24 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.neo4j._config import Neo4jSourceConfig
 from sources.neo4j.canonical_descriptions import NODE_DESCRIPTION, RELATIONSHIP_DESCRIPTION
 from sources.neo4j.neo4j import Neo4jClient, neo4j_source, validate_credentials
 from sources.neo4j.settings import API_VERSION, NON_RETRYABLE_ERRORS
+from sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
+)
 
 
 @SourceRegistry.register

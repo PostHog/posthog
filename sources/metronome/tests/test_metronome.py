@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, Mock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.temporal.common.shutdown import WorkerShuttingDownError
-
 from sources.metronome.metronome import (
     EPOCH_RFC_3339,
     MetronomeCursorPaginator,
@@ -32,6 +30,7 @@ from sources.metronome.settings import (
     usage_history_window,
 )
 from sources.metronome.source import MetronomeSource
+from sources.sdk import WorkerShuttingDownError
 
 TRANSPORT = "sources.metronome.metronome"
 

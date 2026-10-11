@@ -12,9 +12,8 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
+from sources.sdk.internals import validate_incremental_sync
 from sources.tenjin import tenjin
 from sources.tenjin.settings import TENJIN_REPORTS
 from sources.tenjin.tenjin import (

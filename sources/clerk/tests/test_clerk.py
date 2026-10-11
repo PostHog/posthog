@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.clerk.clerk import (
     ClerkPaginator,
     ClerkResumeConfig,
@@ -20,6 +18,7 @@ from sources.clerk.clerk import (
     validate_credentials,
 )
 from sources.clerk.settings import CLERK_ENDPOINTS, RETIRED_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 class TestClerkPaginator:

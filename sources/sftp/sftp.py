@@ -13,22 +13,20 @@ import re2
 import paramiko
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+from sources.sdk import (
     CHUNK_SIZE,
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
     ConfiguredFileFormat,
     FileDelimiterError,
+    SourceResponse,
+    from_private_key,
+    frozen,
     is_format_inferable,
     iter_file_rows,
     normalize_delimiter,
     resolve_file_format,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.sftp.settings import (
     CONNECT_TIMEOUT_SECONDS,
     MAX_DIRECTORIES,

@@ -8,13 +8,10 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    DEFAULT_RETRY_ATTEMPTS,
-    RESTClientRetryableError,
-)
-
 from sources.eventee.eventee import EVENTEE_BASE_URL, eventee_source, validate_credentials
 from sources.eventee.settings import ENDPOINTS, EVENTEE_ENDPOINTS
+from sources.sdk import RESTClientRetryableError
+from sources.sdk.testing import DEFAULT_RETRY_ATTEMPTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

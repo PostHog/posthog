@@ -6,9 +6,7 @@ from `constants.py` `SHOPIFY_GRAPHQL_OBJECTS`), which match the `ExternalDataSch
 Shopify table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by most Shopify GraphQL objects; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

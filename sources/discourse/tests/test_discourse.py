@@ -8,10 +8,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.discourse import discourse
 from sources.discourse.discourse import (
     POSTS_PAGE_SIZE,
@@ -25,6 +21,7 @@ from sources.discourse.discourse import (
     validate_credentials,
 )
 from sources.discourse.settings import USER_ACTIONS_PAGE_SIZE
+from sources.sdk import RESTClientRetryableError
 
 # RESTClient builds its pipeline session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

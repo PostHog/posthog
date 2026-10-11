@@ -1,11 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.back_market._config import BackMarketSourceConfig
 from sources.back_market.back_market import BackMarketResumeConfig
 from sources.back_market.source import BackMarketSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestBackMarketSource:

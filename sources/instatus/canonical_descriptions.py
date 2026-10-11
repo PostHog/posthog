@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are taken from the Instatus REST API docs (https://instatus.com/help/api). The
 # "page_id" column on every page-scoped table is injected by the connector (it carries the parent

@@ -1,10 +1,7 @@
 from dataclasses import field
 from datetime import date
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 # The endpoints that fan out over the configured coin list rather than being fetched once, named so
 # the fan-out and row-shaping paths reference them without repeating the string.

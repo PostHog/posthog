@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Dataverse Web API version pinned in the request path (`/api/data/v9.2/`). Microsoft keeps older
 # minor versions addressable, so this is a real version choice rather than a cosmetic `/v1/`.

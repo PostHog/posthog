@@ -1,10 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.serpstat._config import SerpstatSourceConfig
 from sources.serpstat.settings import AUTH_ERROR, QUOTA_ERROR
 from sources.serpstat.source import SerpstatSource

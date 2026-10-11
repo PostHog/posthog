@@ -7,11 +7,10 @@ from unittest.mock import patch
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_iam_access_analyzer import aws_iam_access_analyzer as transport
 from sources.aws_iam_access_analyzer.source import AwsIamAccessAnalyzerSource
 from sources.aws_iam_access_analyzer.tests.test_aws_iam_access_analyzer import CONFIG, PARENT_A, FakeManager, response
+from sources.sdk import SourceInputs
 
 
 @pytest.mark.parametrize("incremental", [False, True])

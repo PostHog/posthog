@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, Mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.heygen.heygen import HeyGenResumeConfig, heygen_source, probe_endpoint
 from sources.heygen.tests.utils import sync_items
+from sources.sdk import ResumableSourceManager
 
 
 @pytest.mark.parametrize("terminal_token", [None, ""])

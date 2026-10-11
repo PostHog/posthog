@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are taken from the Twilio Segment Public API docs (https://docs.segmentapis.com). The
 # Public API is the workspace configuration/admin/metadata API, not the event or Profile data plane.

@@ -2,7 +2,7 @@
 
 import dataclasses
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Maxio Advanced Billing sites are hosted per-region on different domains. The
 # subdomain is the site's "site name"; the region is chosen when the account is

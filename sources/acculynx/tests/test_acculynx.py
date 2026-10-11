@@ -10,11 +10,9 @@ from unittest.mock import MagicMock
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.acculynx.acculynx import AcculynxResumeConfig, DateWindow, appointment_range, validate_credentials
 from sources.acculynx.source import AcculynxSource
+from sources.sdk import RESTClient, ResumableSourceManager
 
 
 class SyncSourceResponse(Protocol):

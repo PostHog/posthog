@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are taken from the Paperform/Papersign API docs
 # (https://paperform.readme.io/reference/papersign). Partial coverage is fine — any column not

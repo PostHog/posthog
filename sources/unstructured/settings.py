@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Unstructured's Platform API paths always carry a trailing slash; hitting them without it returns a
 # 307 redirect (which also downgrades the scheme), so keep the slash to talk to the API directly.

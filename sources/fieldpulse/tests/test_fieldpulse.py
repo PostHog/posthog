@@ -9,12 +9,10 @@ from unittest.mock import MagicMock, patch
 import requests
 import requests_mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.fieldpulse.fieldpulse import FieldpulseResumeConfig, fieldpulse_source, validate_credentials
 from sources.fieldpulse.settings import AUTH_ERROR, BASE_URL
 from sources.fieldpulse.source import FieldpulseSource
+from sources.sdk import ResumableSourceManager, UnknownResourceError
 
 
 def items(source: Any) -> list[Any]:

@@ -4,11 +4,9 @@ from typing import cast
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.cloudability._config import CloudabilitySourceConfig
 from sources.cloudability.source import CloudabilitySource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 class TestCloudabilitySource:

@@ -9,16 +9,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.circleci_insights.settings import (
     CIRCLECI_INSIGHTS_ENDPOINTS,
     DEFAULT_REPORTING_WINDOW,
     REPORTING_WINDOWS,
     CircleciInsightsEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 CIRCLECI_BASE_URL = "https://circleci.com/api/v2"
 REQUEST_TIMEOUT_SECONDS = 60

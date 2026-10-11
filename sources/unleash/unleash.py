@@ -6,22 +6,18 @@ from urllib.parse import urlparse
 
 import requests
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.sdk import (
     Endpoint,
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    _is_host_safe,
+    is_cloud,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.unleash.settings import UNLEASH_ENDPOINTS
 
 # The feature search endpoint documents a default limit of 50; 100 verified working against a

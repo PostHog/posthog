@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.orb.orb import (
     OrbCursorPaginator,
     OrbResumeConfig,
@@ -18,6 +16,7 @@ from sources.orb.orb import (
     validate_credentials,
 )
 from sources.orb.settings import ENDPOINTS, ORB_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 def _response(body: dict[str, Any]) -> MagicMock:

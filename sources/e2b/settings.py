@@ -1,12 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 # Cursor pagination: `limit` maxes out at 100 on every paginated E2B list endpoint. It is also the
 # cap on how many sandbox ids `/sandboxes/metrics` accepts per call, so one page of sandboxes

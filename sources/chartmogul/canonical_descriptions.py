@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `CHARTMOGUL_ENDPOINTS`, which match
 `ExternalDataSchema.name` of a synced ChartMogul table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "customers": {

@@ -5,19 +5,16 @@ from urllib.parse import quote
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.sdk import (
+    APIKeyAuth,
+    EndpointResource,
     RESTAPIConfig,
+    RESTClient,
+    SourceResponse,
+    create_response_hooks,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.tyntec_sms.settings import (
     LIST_ENDPOINTS,
     MAX_REQUEST_IDS,

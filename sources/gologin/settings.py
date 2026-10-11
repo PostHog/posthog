@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from sources.sdk import Endpoint
 
 BASE_URL = "https://api.gologin.com"
 REQUEST_TIMEOUT = (10.0, 60.0)

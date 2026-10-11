@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the Less Annoying CRM v2 API docs
 # (https://account.lessannoyingcrm.com/api_docs/v2). Keyed by the schema/endpoint name from

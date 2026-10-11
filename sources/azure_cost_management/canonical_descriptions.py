@@ -6,9 +6,7 @@ Sourced from the official Microsoft.CostManagement REST reference
 synced table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _QUERY_DOCS_URL = "https://learn.microsoft.com/en-us/rest/api/cost-management/query/usage"
 _FORECAST_DOCS_URL = "https://learn.microsoft.com/en-us/rest/api/cost-management/forecast/usage"

@@ -1,28 +1,21 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.loops.settings import LOOPS_ENDPOINTS, PAGE_SIZE, LoopsEndpointConfig
+from sources.sdk import (
     ClientConfig,
+    DependentEndpointConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.loops.settings import LOOPS_ENDPOINTS, PAGE_SIZE, LoopsEndpointConfig
 
 BASE_URL = "https://app.loops.so/api"
 

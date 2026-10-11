@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # FRED's earliest addressable real-time date. `/fred/releases/dates` otherwise defaults
 # `realtime_start` to the first day of the current year, which would clip the calendar to

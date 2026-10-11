@@ -1,7 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
+from sources.sdk import CanonicalDescriptions
 from sources.trunk_io.settings import MERGE_QUEUE_PULL_REQUESTS, TEST_COLLECTIONS, TESTS
 
 _FLAKY_TESTS_DOCS_URL = "https://docs.trunk.io/flaky-tests/api"

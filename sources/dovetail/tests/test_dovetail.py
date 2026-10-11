@@ -6,9 +6,6 @@ import pytest
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.dovetail.dovetail import (
     DovetailResumeConfig,
     _format_incremental_value,
@@ -17,6 +14,7 @@ from sources.dovetail.dovetail import (
     validate_credentials,
 )
 from sources.dovetail.settings import DOVETAIL_BASE_URL
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 BASE_URL = DOVETAIL_BASE_URL
 

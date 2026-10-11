@@ -2,21 +2,17 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.gologin.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PERMISSION_ERROR, REQUEST_TIMEOUT
+from sources.sdk import (
+    BearerTokenAuth,
     RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.gologin.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PERMISSION_ERROR, REQUEST_TIMEOUT
 
 
 @frozen

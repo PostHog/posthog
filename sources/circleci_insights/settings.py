@@ -1,10 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, SortMode, frozen
 
 # Reporting windows the Insights aggregate endpoints accept. CircleCI retains Insights data
 # for roughly 90 days, so last-90-days is both the default and the maximum coverage.

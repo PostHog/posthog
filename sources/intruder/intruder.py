@@ -1,21 +1,18 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.intruder.settings import INTRUDER_ENDPOINTS, IntruderEndpointConfig
+from sources.sdk import (
+    ClientConfig,
+    JSONResponsePaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.intruder.settings import INTRUDER_ENDPOINTS, IntruderEndpointConfig
 
 INTRUDER_BASE_URL = "https://api.intruder.io/v1"
 # Intruder caps authenticated requests at 5000/hour, so we page as large as the API allows to keep

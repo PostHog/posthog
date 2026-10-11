@@ -3,10 +3,6 @@ import json
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
-
 from sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
 from sources.azure_application_insights.source import (
     APP_ERROR,
@@ -14,6 +10,7 @@ from sources.azure_application_insights.source import (
     PERMISSION_ERROR,
     AzureApplicationInsightsSource,
 )
+from sources.sdk import OAuth2AuthRequestError
 
 
 @pytest.mark.parametrize(

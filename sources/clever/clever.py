@@ -3,18 +3,16 @@ from urllib.parse import parse_qs, urlsplit
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.clever.settings import CLEVER_ENDPOINTS, CLEVER_PAGE_SIZE, clever_base_url
+from sources.sdk import (
+    BasePaginator,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-from sources.clever.settings import CLEVER_ENDPOINTS, CLEVER_PAGE_SIZE, clever_base_url
 
 
 @frozen

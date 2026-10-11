@@ -13,14 +13,6 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.appdynamics.settings import (
     APPDYNAMICS_ENDPOINTS,
     APPLICATIONS_PATH,
@@ -32,6 +24,14 @@ from sources.appdynamics.settings import (
     METRIC_TREE_MAX_REQUESTS_PER_APPLICATION,
     MIN_WINDOW_SPLIT_MS,
     AppdynamicsEndpointConfig,
+)
+from sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    TrackedHTTPAdapter,
+    _is_host_safe,
+    frozen,
+    make_tracked_session,
 )
 
 REQUEST_TIMEOUT = 60

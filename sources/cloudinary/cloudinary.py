@@ -1,19 +1,16 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.cloudinary.settings import CLOUDINARY_ENDPOINTS
+from sources.sdk import (
+    EndpointResource,
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.cloudinary.settings import CLOUDINARY_ENDPOINTS
 
 CLOUDINARY_API_HOSTS = {
     "global": "https://api.cloudinary.com",

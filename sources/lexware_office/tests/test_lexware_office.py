@@ -7,10 +7,8 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.lexware_office.lexware_office import LexwareOfficeResumeConfig, lexware_office_source
+from sources.sdk import RESTClient, ResumableSourceManager
 
 BASE = "https://api.lexware.io/v1"
 

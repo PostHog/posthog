@@ -10,10 +10,6 @@ from unittest import mock
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_guardduty import aws_guardduty
 from sources.aws_guardduty._config import AwsGuarddutySourceConfig
 from sources.aws_guardduty.aws_guardduty import (
@@ -28,6 +24,7 @@ from sources.aws_guardduty.aws_guardduty import (
     watermark_milliseconds,
 )
 from sources.aws_guardduty.source import AwsGuarddutySource
+from sources.sdk import ResumableSourceManager, SourceInputs, UnknownResourceError
 
 VERSION = "2017-11-28"
 UPDATED_AT = dt.datetime(2025, 1, 1, tzinfo=dt.UTC)

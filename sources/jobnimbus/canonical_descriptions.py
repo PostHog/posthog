@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the JobNimbus Open API docs (https://documenter.getpostman.com/view/3919598/S11PpG4x).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

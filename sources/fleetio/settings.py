@@ -1,9 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # Every Fleetio index endpoint caps `per_page` at 100 (default 50), so always request the max.
 PER_PAGE = 100

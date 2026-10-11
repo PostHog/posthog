@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 import requests
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from sources.sdk import (
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.systeme._config import SystemeSourceConfig
 from sources.systeme.source import SystemeSource
 from sources.systeme.systeme import SystemeResumeConfig, systeme_source, validate_credentials

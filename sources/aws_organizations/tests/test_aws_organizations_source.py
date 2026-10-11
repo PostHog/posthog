@@ -5,8 +5,6 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_organizations import (
     aws_organizations as transport_module,
     source as source_module,
@@ -14,6 +12,7 @@ from sources.aws_organizations import (
 from sources.aws_organizations._config import AwsOrganizationsSourceConfig
 from sources.aws_organizations.settings import ORGANIZATIONS_API_VERSION
 from sources.aws_organizations.source import AwsOrganizationsSource
+from sources.sdk import SourceInputs
 
 
 def make_inputs(schema_name: str) -> SourceInputs:

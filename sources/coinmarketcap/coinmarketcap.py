@@ -5,20 +5,6 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.coinmarketcap.settings import (
     COINMARKETCAP_BATCH_ENDPOINTS,
     COINMARKETCAP_ENDPOINTS,
@@ -30,6 +16,16 @@ from sources.coinmarketcap.settings import (
     CoinMarketCapBatchEndpointConfig,
     CoinUniverse,
     RowShape,
+)
+from sources.sdk import (
+    EndpointResource,
+    OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 # All requests go to CoinMarketCap's Pro API host.

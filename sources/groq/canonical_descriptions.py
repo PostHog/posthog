@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from Groq's OpenAI-compatible API docs (https://console.groq.com/docs/api-reference).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

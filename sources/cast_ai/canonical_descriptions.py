@@ -5,9 +5,7 @@ resource names in `settings.py` `CASTAI_ENDPOINTS`, which match the `ExternalDat
 a synced CAST AI table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Cost fields shared by both the cluster-level and per-workload cost breakdowns.
 _COST_BREAKDOWN_COLUMNS = {

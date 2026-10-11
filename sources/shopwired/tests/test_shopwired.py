@@ -8,8 +8,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-
+from sources.sdk import RESTClient
 from sources.shopwired.settings import PAGE_SIZE
 from sources.shopwired.shopwired import ShopWiredResumeConfig, shopwired_source, to_unix_timestamp, validate_credentials
 

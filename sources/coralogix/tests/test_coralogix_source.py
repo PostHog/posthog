@@ -2,10 +2,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
-
 from sources.coralogix._config import CoralogixSourceConfig
 from sources.coralogix.source import CoralogixSource
+from sources.sdk import SourceFieldSelectConfig
 
 
 def _config(

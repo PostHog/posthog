@@ -5,9 +5,7 @@ in `settings.py` `AHA_ENDPOINTS`, which match the `ExternalDataSchema.name` of a
 Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields common to most Aha! record types.
 _COMMON_COLUMNS = {

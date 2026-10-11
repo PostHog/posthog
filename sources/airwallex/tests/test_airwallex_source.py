@@ -4,10 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.airwallex.source import AirwallexSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType, SourceInputs
 
 SOURCE_MODULE = "sources.airwallex.source"
 

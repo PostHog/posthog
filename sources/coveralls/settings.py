@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # A build's creation time never changes, so it's a stable incremental cursor and partition key.
 _CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [

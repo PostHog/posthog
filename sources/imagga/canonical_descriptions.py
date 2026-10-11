@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from Imagga's public API docs (https://docs.imagga.com/#usage). The /usage response is
 # normalized into two tables; column names below reflect that normalization (nested objects are

@@ -1,24 +1,19 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.octolens.settings import OCTOLENS_ENDPOINTS, OctolensEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.octolens.settings import OCTOLENS_ENDPOINTS, OctolensEndpointConfig
 
 OCTOLENS_BASE_URL = "https://app.octolens.com"
 # Documented maximum page size on the mentions feed (1-100, default 20).

@@ -2,10 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.decagon._config import DecagonSourceConfig
 from sources.decagon.source import DecagonSource
+from sources.sdk.testing import error_message_matches
 
 
 class TestDecagonSource:

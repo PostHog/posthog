@@ -2,25 +2,20 @@ from typing import Any
 
 from requests import RequestException
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.getdx._config import GetdxSourceConfig
 from sources.getdx.settings import BASE_URL, ENDPOINTS, PRIMARY_KEYS
+from sources.sdk import (
+    Endpoint,
+    Resource,
+    ResponseAction,
+    RESTAPIConfig,
+    RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+)
 
 AUTH_ERROR = "DX authentication failed. Check your organization token in Admin > Organization tokens."
 PERMISSION_ERROR = "DX access was denied. Check the token scopes and your DX plan for this table."

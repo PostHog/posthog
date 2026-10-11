@@ -10,16 +10,10 @@ from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClient,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.mintlify._config import MintlifySourceConfig
 from sources.mintlify.mintlify import MintlifyResumeConfig, mintlify_source, validate_credentials
 from sources.mintlify.source import MintlifySource
+from sources.sdk import RESTClient, RESTClientRetryableError, ResumableSourceManager, UnknownResourceError
 
 
 @pytest.fixture

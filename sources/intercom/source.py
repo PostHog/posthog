@@ -1,22 +1,5 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldOauthConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.intercom._config import IntercomSourceConfig
 from sources.intercom.intercom import (
     IntercomResumeConfig,
@@ -24,6 +7,22 @@ from sources.intercom.intercom import (
     validate_credentials as validate_intercom_credentials,
 )
 from sources.intercom.settings import INCREMENTAL_FIELDS, INTERCOM_ENDPOINTS
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    OAuthMixin,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+)
 
 
 @SourceRegistry.register

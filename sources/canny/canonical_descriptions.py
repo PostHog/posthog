@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are taken from Canny's official API reference (https://developers.canny.io/api-reference).
 # Keys match the endpoint names returned by `get_schemas` / declared in settings.py.

@@ -16,13 +16,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import ResumableSourceManager, SourceResponse, capture_exception, make_tracked_session
+from sources.sdk.internals import Batcher
 from sources.vercel.settings import VERCEL_ENDPOINTS, VercelEndpointConfig
 
 VERCEL_BASE_URL = "https://api.vercel.com"

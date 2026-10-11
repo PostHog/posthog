@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the PayFit Partner API reference (https://developers.payfit.io/reference).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

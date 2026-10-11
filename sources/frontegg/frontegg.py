@@ -2,19 +2,18 @@ from typing import Any
 
 from requests import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.frontegg._config import FronteggSourceConfig
 from sources.frontegg.settings import ENDPOINTS, REGION_ERROR, REGIONS
+from sources.sdk import (
+    OAuth2Auth,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+)
 
 
 @frozen

@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 SKIO_GRAPHQL_URL = "https://graphql.skio.com/v1/graphql"
 

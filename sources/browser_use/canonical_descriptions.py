@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the Browser Use v3 and v4 OpenAPI specs
 # (https://api.browser-use.com/api/v3/openapi.json, https://api.browser-use.com/api/v4/openapi.json).

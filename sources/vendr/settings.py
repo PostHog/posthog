@@ -1,9 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 # Vendr's documented maximum page size for every list endpoint (default is 10 if unset).
 PAGE_SIZE = 100

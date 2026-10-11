@@ -6,18 +6,6 @@ from urllib.parse import urlencode
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.gainsight_px.settings import (
     EPOCH_MILLIS_FIELDS,
     EVENT_BACKFILL_DAYS,
@@ -25,6 +13,16 @@ from sources.gainsight_px.settings import (
     EVENT_WINDOW_DAYS,
     GAINSIGHT_PX_ENDPOINTS,
     GAINSIGHT_PX_HOSTS,
+)
+from sources.sdk import (
+    BasePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 # Gainsight PX carries the API key in this custom header. Passing it through the framework `auth`

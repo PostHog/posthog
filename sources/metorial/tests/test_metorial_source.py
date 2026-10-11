@@ -2,11 +2,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.metorial._config import MetorialSourceConfig
 from sources.metorial.source import MetorialSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType, SourceInputs
 
 _SOURCE_MODULE = "sources.metorial.source"
 

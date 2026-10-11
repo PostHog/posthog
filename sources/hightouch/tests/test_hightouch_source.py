@@ -1,10 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
 from sources.hightouch._config import HightouchSourceConfig
 from sources.hightouch.settings import ENDPOINTS, SYNC_RUNS_LOOKBACK_SECONDS
 from sources.hightouch.source import HightouchSource
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestHightouchSource:

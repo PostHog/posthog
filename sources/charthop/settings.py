@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Vendor API versions this source implements, as opaque labels (never parsed or ordered).
 # ``v1`` is the legacy pin (the base-class `UNVERSIONED_API_VERSION`); ``v2`` adopts ChartHop's

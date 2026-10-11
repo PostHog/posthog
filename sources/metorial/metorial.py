@@ -4,18 +4,18 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
-
 from sources.metorial.settings import METORIAL_ENDPOINTS
+from sources.sdk import (
+    BasePaginator,
+    EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SortMode,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
+)
 
 METORIAL_BASE_URL = "https://api.metorial.com"
 # Pin the API version so response shapes don't shift under us when Metorial changes an environment's

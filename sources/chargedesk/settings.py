@@ -1,9 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # Column holding the content hash that keys the log endpoints, neither of which returns an id.
 LOG_ID_COLUMN = "log_id"

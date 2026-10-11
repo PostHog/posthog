@@ -7,8 +7,7 @@ from parameterized import parameterized
 from requests import RequestException, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.uk_companies_house.settings import (
     CHARGES,
     COMPANIES,

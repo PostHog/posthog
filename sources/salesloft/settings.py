@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Salesloft v2 resources. Endpoint set + incremental support mirror the canonical
 # Airbyte connector (`source-salesloft`), which is the authoritative reference for

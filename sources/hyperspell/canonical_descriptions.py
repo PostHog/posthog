@@ -1,8 +1,6 @@
 # Descriptions sourced from the Hyperspell OpenAPI spec (https://api.hyperspell.com/openapi.json)
 # and API docs (https://docs.hyperspell.com/).
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "memories": {

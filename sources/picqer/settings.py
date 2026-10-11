@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Picqer caps every list endpoint at 100 results per page and advances with the `offset`
 # query param. There is no `limit`/`per_page` override, so the page size is fixed.

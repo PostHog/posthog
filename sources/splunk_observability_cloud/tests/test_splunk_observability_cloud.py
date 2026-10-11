@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.splunk_observability_cloud.settings import PAGE_SIZE
 from sources.splunk_observability_cloud.splunk_observability_cloud import (
     SplunkObservabilityCloudResumeConfig,

@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import incremental_field
 
 BASE_URL = "https://api.7shifts.com/v2/"
 ENDPOINTS = ("locations", "departments", "roles", "users", "shifts", "time_punches")

@@ -1,8 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Zero has no documented API version — every endpoint lives under a bare, unversioned /api/ path.
 ZERO_BASE_URL = "https://api.zero.inc"

@@ -3,12 +3,10 @@ from typing import Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.openalex._config import OpenalexSourceConfig
 from sources.openalex.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from sources.openalex.source import OpenalexSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 SOURCE_MODULE = "sources.openalex.source"
 

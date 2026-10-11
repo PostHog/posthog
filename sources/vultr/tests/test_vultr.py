@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-
+from sources.sdk import Resource
 from sources.vultr.vultr import VULTR_PER_PAGE, _redact_secrets, validate_credentials, vultr_source
 
 VULTR_MODULE = "sources.vultr.vultr"

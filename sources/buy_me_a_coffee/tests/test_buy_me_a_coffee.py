@@ -12,15 +12,10 @@ from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.buy_me_a_coffee._config import BuyMeACoffeeSourceConfig
 from sources.buy_me_a_coffee.buy_me_a_coffee import BuyMeACoffeeResumeConfig, validate_credentials
 from sources.buy_me_a_coffee.source import BuyMeACoffeeSource
+from sources.sdk import RESTClientRetryableError, SourceInputs, UnknownResourceError
 
 
 @override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT=6379)

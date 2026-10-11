@@ -1,16 +1,13 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+from sources.sdk import (
     DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    IncrementalField,
     PageNumberPaginator,
+    PaginatorConfig,
+    SortMode,
+    frozen,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import PaginatorConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
 
 BASE_URL = "https://api.turso.tech"
 

@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # CoinMarketCap caps `limit` at 5000 records per page across its list endpoints.
 # A larger page size means fewer HTTP calls (kinder to the per-minute rate limit);

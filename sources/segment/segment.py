@@ -7,10 +7,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 from sources.segment.settings import REGION_BASE_URLS, SEGMENT_ENDPOINTS, SegmentEndpointConfig
 
 # Segment's Public API caps a page at 1000 items (default 200). We request the max to minimize the

@@ -1,7 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
+from sources.sdk import CanonicalDescriptions
 from sources.semantic_scholar.settings import API_DOCS_URL
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

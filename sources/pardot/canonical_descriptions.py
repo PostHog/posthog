@@ -1,8 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
 from sources.pardot.settings import PARDOT_ENDPOINTS
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_BASE = "https://developer.salesforce.com/docs/marketing/pardot/guide"
 

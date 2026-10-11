@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the official EasyPost API docs (https://docs.easypost.com). Partial coverage is fine —
 # any uncovered endpoint/column falls back to LLM enrichment.

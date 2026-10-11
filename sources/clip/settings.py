@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import incremental_field
 
 BASE_URL = "https://api-gw.payclip.com"
 TRANSACTION_WINDOW = timedelta(days=30)

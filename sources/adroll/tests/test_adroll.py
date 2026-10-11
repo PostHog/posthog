@@ -7,12 +7,9 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.adroll.adroll import MAX_RETRY_ATTEMPTS, AdRollResumeConfig, adroll_source, validate_credentials
 from sources.adroll.settings import ADROLL_ENDPOINTS, ENDPOINTS
+from sources.sdk import RESTClientRetryableError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

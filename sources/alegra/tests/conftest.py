@@ -7,9 +7,8 @@ import pytest
 import structlog
 from requests import PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.alegra._config import AlegraSourceConfig
+from sources.sdk import SourceInputs
 
 
 @pytest.fixture

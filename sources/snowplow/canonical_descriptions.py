@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Snowplow BDP Console API OpenAPI spec
 # (https://console.snowplowanalytics.com/api/msc/v1/docs/docs.yaml).

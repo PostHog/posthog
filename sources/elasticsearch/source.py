@@ -1,21 +1,5 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.elasticsearch._config import ElasticsearchSourceConfig
 from sources.elasticsearch.elasticsearch import (
     NON_JSON_RESPONSE_ERROR,
@@ -24,6 +8,23 @@ from sources.elasticsearch.elasticsearch import (
     hostname_of,
     list_indices,
     validate_credentials as validate_elasticsearch_credentials,
+)
+from sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    ValidateDatabaseHostMixin,
 )
 
 

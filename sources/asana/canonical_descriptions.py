@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `ASANA_ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced Asana table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by most Asana objects; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

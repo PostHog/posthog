@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the official Inngest REST API reference: https://api-docs.inngest.com
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

@@ -5,25 +5,18 @@ from typing import Any, Optional
 import requests
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2Auth,
-    OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
+from sources.sdk import (
     ClientConfig,
     Endpoint,
+    JSONResponsePaginator,
+    OAuth2Auth,
+    OAuth2AuthRequestError,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
 
 RAMP_HOSTS = {
     "production": "https://api.ramp.com",

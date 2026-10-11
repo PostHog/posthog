@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 # DigitalOcean caps `per_page` at 200; use the max to minimize round trips against the
 # 5,000 req/hour + 250 req/minute rate limits.

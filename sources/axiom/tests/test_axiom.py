@@ -8,16 +8,10 @@ import structlog
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.axiom._config import AxiomSourceConfig
 from sources.axiom.axiom import AxiomResumeConfig, axiom_source
 from sources.axiom.source import AxiomSource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceInputs, UnknownResourceError
 
 
 @pytest.fixture

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Snyk REST API reference (https://apidocs.snyk.io/). Rows are the
 # JSON:API record with its `attributes` flattened to the root; fan-out tables additionally carry

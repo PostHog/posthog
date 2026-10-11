@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Stigg API reference (https://docs.stigg.io and the OpenAPI spec
 # served at https://api.stigg.io/api/v1). Partial coverage is fine; uncovered columns fall back

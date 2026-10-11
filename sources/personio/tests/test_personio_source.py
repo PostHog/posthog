@@ -1,13 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-
 from sources.personio._config import PersonioSourceConfig
 from sources.personio.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from sources.personio.source import PersonioSource
+from sources.sdk import OAUTH2_PERMANENT_ERROR_MARKER
 
 
 class TestPersonioSource:

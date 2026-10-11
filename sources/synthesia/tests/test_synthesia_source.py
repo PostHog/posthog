@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.synthesia._config import SynthesiaSourceConfig
 from sources.synthesia.source import SynthesiaSource
 from sources.synthesia.synthesia import SynthesiaResumeConfig

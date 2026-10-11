@@ -3,13 +3,10 @@ import pytest
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.onehundredms._config import OneHundredMsSourceConfig
 from sources.onehundredms.onehundredms import validate_credentials
 from sources.onehundredms.source import OneHundredMsSource
+from sources.sdk import RESTClientRetryableError
 
 
 @pytest.mark.parametrize("status,expected", [(200, None), (401, "app access key"), (403, "denied access")])

@@ -10,8 +10,7 @@ from unittest.mock import patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import UnknownResourceError
 from sources.trustradius.source import TrustradiusSource
 from sources.trustradius.trustradius import trustradius_source, validate_credentials
 

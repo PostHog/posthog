@@ -7,10 +7,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.unleash import unleash
 from sources.unleash.unleash import (
     PAGE_SIZE,

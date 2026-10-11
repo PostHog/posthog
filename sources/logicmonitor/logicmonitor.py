@@ -8,23 +8,20 @@ from urllib.parse import urlsplit
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.logicmonitor._config import LogicmonitorSourceConfig
 from sources.logicmonitor.settings import API_VERSION, ENDPOINTS, FIELDS, MAX_ALERTS_PER_WINDOW, PAGE_SIZE, PRIMARY_KEYS
+from sources.sdk import (
+    BearerTokenAuth,
+    OffsetPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+)
 
 AUTH_ERROR = "LogicMonitor rejected the bearer token. Check the token and its expiration date."
 PERMISSION_ERROR = "LogicMonitor denied access. Give the token's user view permission for the selected resource."
@@ -65,7 +62,7 @@ def portal_url(value: str) -> str:
 
 
 def validate_portal_host(value: str, team_id: int) -> tuple[bool, str | None]:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- keeps Django models off the source registration path
+    from sources.sdk import (  # noqa: PLC0415 -- keeps Django models off the source registration path
         ValidateDatabaseHostMixin,
     )
 

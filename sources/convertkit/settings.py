@@ -1,13 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType, SortMode, frozen
 
 DEFAULT_PAGE_SIZE = 1000  # v4 max per_page
 

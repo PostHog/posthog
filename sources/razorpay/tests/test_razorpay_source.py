@@ -3,13 +3,11 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.razorpay._config import RazorpaySourceConfig
 from sources.razorpay.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.razorpay.settings import ENDPOINTS
 from sources.razorpay.source import RazorpaySource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _source_inputs(

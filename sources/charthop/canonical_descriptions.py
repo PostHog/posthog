@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official ChartHop API reference (https://api.charthop.com/swagger).
 # Person, job, and group rows are field-based (including org-specific custom fields), so only their

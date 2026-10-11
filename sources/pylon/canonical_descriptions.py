@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the official Pylon API reference (https://docs.usepylon.com/pylon-docs/developer/api).
 # Keyed by the schema/endpoint name returned by get_schemas (matches ENDPOINTS in settings.py).

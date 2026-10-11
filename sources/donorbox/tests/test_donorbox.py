@@ -10,14 +10,10 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.donorbox._config import DonorboxSourceConfig
 from sources.donorbox.donorbox import DonorboxResumeConfig, donorbox_source, validate_credentials
 from sources.donorbox.source import DonorboxSource
+from sources.sdk import RESTClient, ResumableSourceManager, SourceResponse, UnknownResourceError
 
 
 def response(body: object, status: int = 200) -> Response:

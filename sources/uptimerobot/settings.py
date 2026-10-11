@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # UptimeRobot v2 caps `limit` at 50 on every paginated list endpoint.
 PAGE_LIMIT = 50

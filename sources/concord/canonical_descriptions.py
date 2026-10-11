@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from Concord's public API docs (https://api.doc.concordnow.com). Keyed by the
 # endpoint names ConcordSource.get_schemas returns. Partial coverage is fine — anything omitted

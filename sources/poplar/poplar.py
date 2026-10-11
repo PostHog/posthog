@@ -4,28 +4,23 @@ from typing import Any
 
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.poplar.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PoplarEndpoint
+from sources.sdk import (
+    BearerTokenAuth,
     ClientConfig,
     Endpoint,
+    PageNumberPaginator,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
-from sources.poplar.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PoplarEndpoint
 
 REQUEST_TIMEOUT_SECONDS = 30
 

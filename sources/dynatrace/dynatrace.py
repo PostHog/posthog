@@ -8,24 +8,22 @@ from urllib.parse import urlencode, urlparse
 import requests
 from requests import Request, Response
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.dynatrace.settings import (
     DYNATRACE_ENDPOINTS,
     ENDPOINT_SCOPES,
     TAGGED_ENTITY_TYPES,
     DynatraceEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    is_cloud,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 # Cheap probe used to confirm the token is genuine at source-create. A 403 still proves the token

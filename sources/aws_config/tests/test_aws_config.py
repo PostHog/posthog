@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_config import aws_config
 from sources.aws_config._config import AwsConfigSourceConfig
 from sources.aws_config.aws_config import (
@@ -21,6 +19,7 @@ from sources.aws_config.aws_config import (
     aws_config_source,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 def make_config(**overrides: Any) -> AwsConfigSourceConfig:

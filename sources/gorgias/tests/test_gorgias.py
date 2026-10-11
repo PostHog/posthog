@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.gorgias.gorgias import (
     GorgiasResumeConfig,
     get_base_url,
@@ -17,6 +15,7 @@ from sources.gorgias.gorgias import (
     validate_credentials,
 )
 from sources.gorgias.settings import ENDPOINTS, GORGIAS_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 GORGIAS_MODULE = "sources.gorgias.gorgias"
 

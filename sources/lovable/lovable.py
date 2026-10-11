@@ -3,24 +3,22 @@ from typing import Any, Optional
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.lovable.settings import (
     LOVABLE_API_BASE_URL,
     LOVABLE_URL_VERSION_SEGMENT,
     LovableEndpointConfig,
     version_config,
+)
+from sources.sdk import (
+    APIKeyAuth,
+    JSONResponseCursorPaginator,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    validate_via_probe,
 )
 
 API_KEY_HEADER = "Lovable-API-Key"

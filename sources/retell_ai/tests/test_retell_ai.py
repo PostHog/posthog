@@ -10,12 +10,11 @@ from unittest.mock import MagicMock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.retell_ai._config import RetellAISourceConfig
 from sources.retell_ai.retell_ai import RetellAIResumeConfig
 from sources.retell_ai.source import RetellAISource
 from sources.retell_ai.tests.conftest import response
+from sources.sdk import SourceInputs
 
 
 @pytest.mark.parametrize(

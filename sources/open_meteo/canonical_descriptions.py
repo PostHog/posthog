@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Stamped onto every row by the connector; not part of the raw Open-Meteo response.
 _INJECTED_COLUMNS = {

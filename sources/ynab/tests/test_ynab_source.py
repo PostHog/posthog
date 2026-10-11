@@ -3,8 +3,7 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import UnknownResourceError
 from sources.ynab._config import YnabSourceConfig
 from sources.ynab.source import YnabSource
 

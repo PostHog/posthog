@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # How an endpoint paginates. Codefresh is inconsistent across resources:
 #   - "offset": limit/offset query params, terminate when a page is short (projects, pipelines,

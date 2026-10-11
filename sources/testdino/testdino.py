@@ -3,26 +3,21 @@ from typing import Any
 
 from requests import HTTPError, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.sdk import (
+    BearerTokenAuth,
+    Endpoint,
     PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTAPIConfig,
     RESTClient,
     RESTClientNonRetryableError,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.testdino._config import TestDinoSourceConfig
 from sources.testdino.settings import (
     API_BASE_URL,

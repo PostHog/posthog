@@ -14,10 +14,7 @@ from django.test import override_settings
 import requests
 from requests_oauthlib import OAuth1
 
-from posthog.models.integration.model import Integration
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import Integration, SourceResponse
 from sources.twitter_ads.settings import PLACEMENTS
 from sources.twitter_ads.twitter_ads import TwitterAdsClient, TwitterAdsResumeConfig, twitter_ads_source
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # The Hub caps list endpoints at 1000 rows per page; larger pages don't return more.
 PAGE_SIZE = 1000

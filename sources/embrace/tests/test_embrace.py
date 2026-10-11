@@ -11,16 +11,10 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClient,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.embrace._config import EmbraceSourceConfig
 from sources.embrace.embrace import EmbraceClient, EmbraceResumeConfig, embrace_source, validate_credentials
 from sources.embrace.source import EmbraceSource
+from sources.sdk import RESTClient, RESTClientRetryableError, ResumableSourceManager, SourceInputs
 
 NOW = datetime(2026, 1, 31, 12, 30, tzinfo=UTC)
 END = int(datetime(2026, 1, 31, 11, tzinfo=UTC).timestamp())

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Frill serves every resource as a GET list endpoint under https://api.frill.co/v1 with
 # cursor pagination (`after` param, `limit` capped at 100). No list endpoint exposes a

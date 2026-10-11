@@ -8,8 +8,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.datadog import datadog as ddog
 from sources.datadog.datadog import (
     DEFAULT_SITE,
@@ -27,6 +25,7 @@ from sources.datadog.datadog import (
     validate_credentials,
 )
 from sources.datadog.settings import DATADOG_ENDPOINTS
+from sources.sdk import UnknownResourceError
 
 
 class TestBaseUrl:

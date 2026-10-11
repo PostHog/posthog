@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Prefect Cloud caps `limit` on the /filter endpoints at 200 (the server's default API limit).
 PAGE_LIMIT = 200

@@ -11,9 +11,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.decagon.decagon import (
     DECAGON_PAGE_SIZE,
     DecagonContractError,
@@ -25,6 +22,8 @@ from sources.decagon.decagon import (
 )
 from sources.decagon.settings import DECAGON_ENDPOINTS, DecagonEndpointConfig
 from sources.decagon.source import DecagonSource
+from sources.sdk import ResumableSourceManager
+from sources.sdk.testing import error_message_matches
 
 DECAGON_MODULE = "sources.decagon.decagon"
 SETTINGS_MODULE = "sources.decagon.settings"

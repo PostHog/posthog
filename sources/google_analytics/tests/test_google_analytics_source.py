@@ -4,13 +4,11 @@ from unittest import mock
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.models.integration import Integration
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.google_analytics._config import GoogleAnalyticsSourceConfig
 from sources.google_analytics.settings import GOOGLE_ANALYTICS_REPORT_SCHEMAS, CustomReportError, parse_custom_reports
 from sources.google_analytics.source import GoogleAnalyticsSource
+from sources.sdk import Integration
+from sources.sdk.testing import error_message_matches
 
 
 def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:

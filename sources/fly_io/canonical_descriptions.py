@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Fly.io Machines API docs (https://fly.io/docs/machines/api/).
 # Keyed by endpoint/schema name (matching ENDPOINTS). Any column not listed here falls back to

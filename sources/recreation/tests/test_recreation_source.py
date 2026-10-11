@@ -3,12 +3,10 @@ from typing import Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.recreation._config import RecreationSourceConfig
 from sources.recreation.settings import RECREATION_ENDPOINTS
 from sources.recreation.source import RecreationSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _source_inputs(schema_name: str) -> SourceInputs:

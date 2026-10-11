@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the ConfigCat Public Management API docs
 # (https://api.configcat.com/docs). Partial coverage is fine — uncovered columns fall back to LLM

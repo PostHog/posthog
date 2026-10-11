@@ -5,9 +5,7 @@ the endpoint names in `settings.py` `COPPER_ENDPOINTS`, which match the `Externa
 a synced Copper table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by most Copper records; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

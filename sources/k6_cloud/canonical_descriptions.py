@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are taken verbatim from the Grafana Cloud k6 v6 OpenAPI spec
 # (https://api.k6.io/cloud/v6/openapi). Keyed by the endpoint name from `get_schemas`.

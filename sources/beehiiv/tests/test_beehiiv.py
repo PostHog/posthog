@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.beehiiv.beehiiv import BeehiivResumeConfig, beehiiv_source, get_resource, validate_credentials
 from sources.beehiiv.settings import ENDPOINTS, MAX_PAGE
+from sources.sdk import ResumableSourceManager
 
 REST_CLIENT_SESSION = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source"

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 
 @dataclass(frozen=True)

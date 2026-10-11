@@ -11,11 +11,8 @@ import structlog
 from fakeredis import FakeRedis
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.givebutter.givebutter import GivebutterResumeConfig, givebutter_source
+from sources.sdk import RESTClient, ResumableSourceManager, SourceInputs, SourceResponse
 
 API = "https://api.givebutter.com/v1/"
 

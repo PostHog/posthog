@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Workday's REST collection endpoints default to 20 objects per page and cap `limit` at 100.
 DEFAULT_PAGE_SIZE = 100

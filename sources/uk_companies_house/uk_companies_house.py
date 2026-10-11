@@ -7,15 +7,14 @@ from requests import Request, RequestException, Response
 from requests.exceptions import HTTPError
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.sdk import (
     BasePaginator,
+    HttpBasicAuth,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
+    make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.uk_companies_house.settings import BASE_URL, ENDPOINT_SPECS, ITEMS_PER_PAGE, REQUEST_TIMEOUT, EndpointSpec
 
 # Company numbers are eight characters at Companies House: digits, or a two letter registrar

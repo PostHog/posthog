@@ -1,19 +1,16 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.razorpay.settings import API_BASE_URL, ENDPOINT_CONFIGS, PAGE_SIZE
+from sources.sdk import (
+    EndpointResource,
+    OffsetPaginator,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-from sources.razorpay.settings import API_BASE_URL, ENDPOINT_CONFIGS, PAGE_SIZE
 
 # Razorpay has no updated-at filter, so incremental syncs window on created_at only. Re-read a
 # trailing overlap each run to catch status transitions on recently created records (e.g.

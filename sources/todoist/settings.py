@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Todoist's unified v1 REST API. The legacy REST v2 (/rest/v2) and Sync v8/v9 endpoints are
 # being shut down in early 2026, so everything here targets /api/v1.

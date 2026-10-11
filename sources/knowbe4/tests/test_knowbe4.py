@@ -6,13 +6,9 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-
 from sources.knowbe4.knowbe4 import build_base_url, get_resource, knowbe4_source, validate_credentials
 from sources.knowbe4.settings import KNOWBE4_ENDPOINTS
+from sources.sdk import PageNumberPaginator, SinglePagePaginator
 
 
 class _FakeDltResource:

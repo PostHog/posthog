@@ -1,9 +1,8 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.cloudinary.cloudinary import CloudinaryResumeConfig, cloudinary_source, validate_credentials
+from sources.sdk import SourceResponse
 
 _MODULE = "sources.cloudinary.cloudinary"
 

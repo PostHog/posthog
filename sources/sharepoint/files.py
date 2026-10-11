@@ -14,24 +14,20 @@ import re2
 import requests
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.excel_parsing import (
-    MAX_EXCEL_FILE_BYTES,
-    ExcelFileError,
-    iter_worksheet_rows,
-    list_worksheets,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+from sources.sdk import (
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
     FORMAT_ERROR,
+    MAX_EXCEL_FILE_BYTES,
+    ExcelFileError,
     FileFormatError,
+    SourceResponse,
+    frozen,
     iter_file_rows,
+    iter_worksheet_rows,
+    list_worksheets,
     resolve_file_format,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.sharepoint.settings import (
     ENDPOINTS,
     EXCEL_EXTENSIONS,

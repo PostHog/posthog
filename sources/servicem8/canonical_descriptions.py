@@ -5,9 +5,7 @@ Keyed by the display names in `settings.py` `ENDPOINT_PATHS`, which match the
 `ExternalDataSchema.name` of a synced ServiceM8 table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields present on almost every ServiceM8 object; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

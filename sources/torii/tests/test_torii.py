@@ -7,8 +7,7 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.torii.settings import ENDPOINTS
 from sources.torii.torii import ToriiResumeConfig, torii_source, validate_credentials
 

@@ -2,26 +2,23 @@ from typing import cast
 
 from requests import RequestException
 
-from products.warehouse_sources.backend.facade.source_config import (
+from sources.sdk import (
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    RESTClientRetryableError,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.serpstat._config import SerpstatSourceConfig
 from sources.serpstat.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.serpstat.serpstat import SerpstatResumeConfig, serpstat_resource

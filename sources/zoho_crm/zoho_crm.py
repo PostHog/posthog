@@ -5,19 +5,16 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from sources.sdk import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceResponse,
     _looks_like_json,
     _safe_url,
+    coerce_datetime_to_utc,
+    make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.zoho_crm.settings import MODIFIED_TIME_FIELD, ZOHO_CRM_ENDPOINTS, ZohoCRMEndpointConfig
 
 DEFAULT_API_VERSION = "v8"

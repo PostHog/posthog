@@ -10,8 +10,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.qualtrics import qualtrics as qualtrics_module
 from sources.qualtrics.qualtrics import (
     EXPORT_FAILED_ERROR,
@@ -34,6 +32,7 @@ from sources.qualtrics.qualtrics import (
     validate_credentials,
     validate_host,
 )
+from sources.sdk import ResumableSourceManager
 
 HOST = "iad1.qualtrics.com"
 BASE = f"https://{HOST}/API/v3"

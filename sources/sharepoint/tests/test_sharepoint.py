@@ -17,14 +17,13 @@ from parameterized import parameterized
 from structlog.testing import capture_logs
 from urllib3.response import HTTPResponse
 
-from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.excel_parsing import (
+from sources.sdk import (
     EXCEL_ERROR,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExcelFileError,
+    ResumableSourceManager,
+    SourceInputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.sharepoint._config import SharePointSourceConfig
 from sources.sharepoint.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.sharepoint.files import SharePointFile, discover_files, files_by_table, sharepoint_file_source

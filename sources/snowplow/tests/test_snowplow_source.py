@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.snowplow import source as source_module
 from sources.snowplow._config import SnowplowSourceConfig
 from sources.snowplow.source import SnowplowSource

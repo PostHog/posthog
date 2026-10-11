@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _COMMON_MAILPIECE_COLUMNS = {
     "id": "Unique identifier for the mailpiece, prefixed by its type (e.g. `ltr_`, `psc_`).",

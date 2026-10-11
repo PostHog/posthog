@@ -7,9 +7,7 @@ cross-checked against the vendor's own admin help docs (https://bloomerang.com/a
 resource names in `settings.py` `ENDPOINTS`. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://bloomerang.com/api/rest-api"
 

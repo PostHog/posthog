@@ -4,21 +4,18 @@ from typing import Any, Optional, cast
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.humanitix.settings import HUMANITIX_ENDPOINTS, PAGE_SIZE, HumanitixEndpointConfig
+from sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
+)
 
 HUMANITIX_BASE_URL = "https://api.humanitix.com/v1"
 # Cheap endpoint used to confirm the API key is genuine. The key is account-wide, so one probe

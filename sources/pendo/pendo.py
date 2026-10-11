@@ -6,11 +6,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.pendo.settings import DEFAULT_REGION, PENDO_ENDPOINTS, PENDO_REGION_BASE_URLS
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 AGGREGATION_PATH = "/api/v1/aggregation"
 # Pendo's aggregation endpoint isn't a bulk export tool (4 GB / 5-minute caps), so we page

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the Jenkins remote access API (https://www.jenkins.io/doc/book/using/remote-access-api/).
 # Keyed by the endpoint/schema name from settings.ENDPOINTS.

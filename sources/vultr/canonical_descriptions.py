@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Vultr API v2 reference (https://www.vultr.com/api/) and the official govultr client.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

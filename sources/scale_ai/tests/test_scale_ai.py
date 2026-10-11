@@ -8,11 +8,6 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    DEFAULT_RETRY_ATTEMPTS,
-    RESTClientRetryableError,
-)
-
 from sources.scale_ai.scale_ai import (
     ScaleAIResumeConfig,
     _build_params,
@@ -21,6 +16,8 @@ from sources.scale_ai.scale_ai import (
     validate_credentials,
 )
 from sources.scale_ai.settings import SCALE_AI_ENDPOINTS
+from sources.sdk import RESTClientRetryableError
+from sources.sdk.testing import DEFAULT_RETRY_ATTEMPTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

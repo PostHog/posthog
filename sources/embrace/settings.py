@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import incremental_field
 
 API_DOCS_URL = "https://embrace.io/docs/metrics-forwarding/metrics-api/"
 REGION_HOSTS = {

@@ -9,13 +9,7 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceResponse, UnknownResourceError
 from sources.speedcurve.source import SpeedcurveSource
 from sources.speedcurve.speedcurve import SpeedcurveResumeConfig, speedcurve_source, validate_credentials
 

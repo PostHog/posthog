@@ -1,10 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import Endpoint, IncrementalField, SortMode, frozen
 
 API_VERSION = "2026-08-17"
 BASE_URLS = {

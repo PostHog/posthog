@@ -10,13 +10,8 @@ from dateutil import parser as dateutil_parser
 from requests import Session
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.debugbear.settings import BEFORE_PARAM, RUM_BACKFILL_DAYS, RUM_GROUP_BY_TIME, RUM_PAGE_VIEWS_PAGE_SIZE
+from sources.sdk import SourceResponse, coerce_datetime_to_utc, make_tracked_session
 
 logger = structlog.get_logger(__name__)
 

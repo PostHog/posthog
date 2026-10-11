@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Konnect serves its APIs from region-specific hosts; the region must match the org's geo
 # or the token authenticates against the wrong control plane and returns no data.

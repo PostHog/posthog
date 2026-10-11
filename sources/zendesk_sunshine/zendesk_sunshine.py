@@ -7,30 +7,21 @@ from urllib.parse import urlencode, urljoin
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponsePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    coerce_datetime_to_utc,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.zendesk_sunshine.settings import (
     BASE_PATH_BY_VERSION,
     DEFAULT_PAGE_SIZE,

@@ -1,8 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 DEFAULT_BASE_URL = "https://api.growthbook.io/api"
 PAGE_SIZE = 100

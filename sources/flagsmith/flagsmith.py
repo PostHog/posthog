@@ -10,11 +10,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.flagsmith.settings import FLAGSMITH_ENDPOINTS, FlagsmithEndpointConfig, ParentResource
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 DEFAULT_BASE_URL = "https://api.flagsmith.com"
 

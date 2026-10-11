@@ -5,9 +5,7 @@ names in `settings.py` `AIVEN_ENDPOINTS`, which match the `ExternalDataSchema.na
 Aiven table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "projects": {

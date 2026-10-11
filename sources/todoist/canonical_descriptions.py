@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the official Todoist unified v1 API documentation (https://developer.todoist.com/api/v1).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

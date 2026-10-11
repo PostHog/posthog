@@ -4,11 +4,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.dropbox_sign import source as source_module
 from sources.dropbox_sign._config import DropboxSignSourceConfig
 from sources.dropbox_sign.source import DropboxSignSource
+from sources.sdk import SourceInputs
 
 
 def _inputs(schema_name: str = "templates") -> SourceInputs:

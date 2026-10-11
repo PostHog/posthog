@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 PaginationKind = Literal["cursor", "page", "single"]
 

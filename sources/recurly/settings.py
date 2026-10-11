@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Recurly's API key authenticates to a single site; the host selects the data residency region.
 RECURLY_BASE_URLS: dict[str, str] = {

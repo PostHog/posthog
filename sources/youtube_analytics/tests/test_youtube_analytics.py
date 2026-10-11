@@ -9,8 +9,7 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.youtube_analytics.settings import CHANNEL_DAILY, DEMOGRAPHICS, GEOGRAPHY, MAX_RESULTS_PER_PAGE, TOP_VIDEOS
 from sources.youtube_analytics.youtube_analytics import (
     YouTubeAnalyticsClient,

@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, call
 import responses
 from responses import matchers
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.telli.telli import TelliResumeConfig, telli_source
 
 

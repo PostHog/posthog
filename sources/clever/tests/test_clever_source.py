@@ -2,12 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.clever import source as source_module
 from sources.clever._config import CleverSourceConfig
 from sources.clever.settings import CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1
 from sources.clever.source import CleverSource
+from sources.sdk import SourceInputs
 
 
 def _inputs(

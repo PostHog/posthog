@@ -8,10 +8,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.sendowl.sendowl import PER_PAGE, SendowlResumeConfig, check_access, sendowl_source
 from sources.sendowl.settings import ENDPOINTS, SENDOWL_ENDPOINTS
 

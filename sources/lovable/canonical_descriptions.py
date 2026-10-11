@@ -5,9 +5,7 @@ names in `settings.py` `LOVABLE_VERSIONS`, which match the `ExternalDataSchema.n
 Lovable table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://api.lovable.dev/v1/docs"
 

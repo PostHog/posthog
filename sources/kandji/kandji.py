@@ -6,27 +6,20 @@ from urllib.parse import parse_qsl, urlsplit
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.kandji.settings import EU_API_HOST_TEMPLATE, KANDJI_ENDPOINTS, US_API_HOST_TEMPLATE, KandjiEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    OffsetPaginator,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.kandji.settings import EU_API_HOST_TEMPLATE, KANDJI_ENDPOINTS, US_API_HOST_TEMPLATE, KandjiEndpointConfig
 
 REGION_TEMPLATES = {
     "us": US_API_HOST_TEMPLATE,

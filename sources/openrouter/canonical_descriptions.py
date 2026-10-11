@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the OpenRouter OpenAPI spec (https://openrouter.ai/openapi.json). Applied directly as
 # authoritative table/column descriptions; any field not covered here falls back to LLM enrichment.

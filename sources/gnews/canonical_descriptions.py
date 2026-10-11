@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Column descriptions taken from the GNews article schema (https://gnews.io/docs/v4). The nested
 # `source` object is flattened onto each row (see gnews.py:_flatten_article), so its fields are

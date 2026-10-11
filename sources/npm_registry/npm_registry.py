@@ -9,10 +9,6 @@ from urllib.parse import quote
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.npm_registry.settings import (
     EARLIEST_DOWNLOAD_DATE,
     MAX_DOWNLOADS_WINDOW_DAYS,
@@ -22,6 +18,7 @@ from sources.npm_registry.settings import (
     NPM_REGISTRY_ENDPOINTS,
     NpmRegistryEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 NPM_DOWNLOADS_BASE_URL = "https://api.npmjs.org"
 NPM_REGISTRY_BASE_URL = "https://registry.npmjs.org"

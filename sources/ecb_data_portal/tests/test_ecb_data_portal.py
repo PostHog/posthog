@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.ecb_data_portal.ecb_data_portal import (
     ECBResumeConfig,
     _coerce_start_period,
@@ -17,6 +15,7 @@ from sources.ecb_data_portal.ecb_data_portal import (
     check_connection,
     ecb_data_portal_source,
 )
+from sources.sdk import ResumableSourceManager
 
 SESSION_FACTORY = "sources.ecb_data_portal.ecb_data_portal.make_tracked_session"
 TODAY_FACTORY = "sources.ecb_data_portal.ecb_data_portal._today"

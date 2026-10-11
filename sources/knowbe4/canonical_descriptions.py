@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from KnowBe4's Reporting API docs (https://developer.knowbe4.com/rest/reporting). Columns
 # not covered here fall back to LLM enrichment, so partial coverage is fine; keys match the

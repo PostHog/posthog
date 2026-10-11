@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 BASE_URL = "https://app.referralhero.com/api/v2/"
 API_DOCS_URL = "https://support.referralhero.com/integrate/rest-api/endpoints-reference"

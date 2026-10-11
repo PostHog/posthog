@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.power_bi_admin.power_bi_admin import (
     ADMIN_API_DENIED_ERROR,
     PowerBiAdminClient,
@@ -22,6 +20,7 @@ from sources.power_bi_admin.power_bi_admin import (
     validate_credentials,
 )
 from sources.power_bi_admin.settings import ACTIVITY_EVENTS_ENDPOINT, ODATA_PAGE_SIZE, POWER_BI_ADMIN_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.power_bi_admin.power_bi_admin"
 

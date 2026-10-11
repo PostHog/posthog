@@ -12,10 +12,6 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.mixpanel.settings import (
     DEFAULT_EXPORT_LOOKBACK_DAYS,
     EXPORT_API_PATH_SEGMENT,
@@ -24,6 +20,7 @@ from sources.mixpanel.settings import (
     REGION_HOSTS,
     RegionHosts,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 # Rows buffered before yielding a batch. The pipeline batches again downstream, but
 # yielding in chunks keeps memory bounded while streaming the JSONL export.

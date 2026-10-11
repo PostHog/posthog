@@ -1,18 +1,15 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.optimizely.settings import OPTIMIZELY_ENDPOINTS, OptimizelyEndpointConfig
+from sources.sdk import (
+    ClientConfig,
+    HeaderLinkPaginator,
+    Resource,
     RESTAPIConfig,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    HeaderLinkPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.optimizely.settings import OPTIMIZELY_ENDPOINTS, OptimizelyEndpointConfig
 
 OPTIMIZELY_API_HOST = "api.optimizely.com"
 OPTIMIZELY_BASE_URL = f"https://{OPTIMIZELY_API_HOST}/v2"

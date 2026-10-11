@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-
 from sources.goldcast.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.goldcast.settings import ENDPOINTS
 from sources.goldcast.source import GoldcastSource
+from sources.sdk import SourceFieldInputConfig
 
 
 def _config(access_key: str = "tok") -> Any:

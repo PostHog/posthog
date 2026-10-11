@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # X-Series v2.0 list pages cap at 200 items.
 PAGE_SIZE = 200

@@ -11,11 +11,6 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from urllib3.exceptions import InvalidHeader
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_waf._config import AwsWafSourceConfig
 from sources.aws_waf.settings import (
     ACCESS_DENIED_CODES,
@@ -26,9 +21,10 @@ from sources.aws_waf.settings import (
     WAF_API_VERSION,
     WafEndpoint,
 )
+from sources.sdk import SourceResponse, frozen, make_tracked_session
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+    from sources.sdk import ResumableSourceManager
 
 
 @frozen

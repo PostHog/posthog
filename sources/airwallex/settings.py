@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Airwallex splits its list endpoints across two pagination conventions.
 # "page_num": zero-based page numbers plus `has_more` in the body.

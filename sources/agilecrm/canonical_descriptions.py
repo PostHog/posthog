@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated, documentation-sourced descriptions for Agile CRM's well-known tables. Keyed by the schema
 # name returned by `get_schemas` (matching the `ENDPOINTS` catalog). Partial coverage is fine — any

@@ -4,10 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.emailoctopus import source as source_module
 from sources.emailoctopus.source import EmailOctopusSource
+from sources.sdk import SourceInputs
 
 
 def _config() -> Any:

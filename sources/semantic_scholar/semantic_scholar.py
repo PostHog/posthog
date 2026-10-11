@@ -4,25 +4,20 @@ from requests import Response
 from requests.exceptions import HTTPError, RequestException
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTClient,
-    RESTClientRetryableError,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.sdk import (
+    APIKeyAuth,
     ClientConfig,
     EndpointResource,
+    RESTClient,
+    RESTClientRetryableError,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.semantic_scholar._config import SemanticScholarSourceConfig
 from sources.semantic_scholar.settings import (
     API_ROOT,

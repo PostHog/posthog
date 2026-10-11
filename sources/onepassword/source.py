@@ -1,27 +1,5 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.onepassword._config import OnePasswordSourceConfig
 from sources.onepassword.onepassword import (
     ONEPASSWORD_REGION_HOSTS,
@@ -30,6 +8,25 @@ from sources.onepassword.onepassword import (
     onepassword_source,
 )
 from sources.onepassword.settings import ENDPOINTS, INCREMENTAL_FIELDS, ONEPASSWORD_ENDPOINTS
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+)
 
 
 @SourceRegistry.register

@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Insightly objects share a common audit-field schema: DATE_CREATED_UTC is stamped once at
 # creation (stable — safe to partition on) and DATE_UPDATED_UTC advances on every edit (the

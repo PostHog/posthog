@@ -2,30 +2,27 @@ from typing import Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.source_config import (
+from sources.sdk import (
+    EXCEL_ERROR,
+    FORMAT_ERROR,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
+    CanonicalDescriptions,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
-)
-from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.excel_parsing import EXCEL_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FORMAT_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.sharepoint._config import SharePointSourceConfig
 from sources.sharepoint.files import (
     SharePointFilePatternError,

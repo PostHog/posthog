@@ -4,23 +4,18 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.safetyculture.settings import SAFETYCULTURE_ENDPOINTS
+from sources.sdk import (
+    BasePaginator,
+    Endpoint,
+    JSONResponsePaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    resolve_request_url,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.utils import (
-    resolve_request_url,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.safetyculture.settings import SAFETYCULTURE_ENDPOINTS
 
 SAFETYCULTURE_BASE_URL = "https://api.safetyculture.io"
 # Cheap feed used to confirm an API token is genuine. Feed access is permission-scoped, so a 403

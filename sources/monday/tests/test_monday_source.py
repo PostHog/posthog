@@ -4,11 +4,10 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.monday._config import MondaySourceConfig
 from sources.monday.monday import MONDAY_VERSION_2026_07, MONDAY_VERSION_V2
 from sources.monday.source import MondaySource
+from sources.sdk.testing import error_message_matches
 
 
 class TestMondaySource:

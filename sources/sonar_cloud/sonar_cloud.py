@@ -5,20 +5,17 @@ from urllib.parse import urlencode
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.sdk import (
     BasePaginator,
     PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.sonar_cloud.settings import MAX_PAGE_SIZE, REGION_HOSTS, RESULT_CAP, SONAR_CLOUD_ENDPOINTS
 
 logger = structlog.get_logger(__name__)

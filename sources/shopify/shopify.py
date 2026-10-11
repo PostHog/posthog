@@ -11,14 +11,14 @@ from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    ValidatedRowFilter,
+    capture_exception,
+    frozen,
+    make_tracked_session,
+)
 from sources.shopify.constants import CREATED_AT, ID, resolve_schema_name
 from sources.shopify.settings import ENDPOINT_CONFIGS
 from sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap

@@ -8,11 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.honeycomb.settings import HONEYCOMB_ENDPOINTS, HoneycombEndpointConfig, HoneycombScope
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 # Honeycomb hosts a separate API instance per region; keys are region-specific, so requests
 # against the wrong host 401 even with a valid key.

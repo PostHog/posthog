@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Retently API docs (https://www.retently.com/api/).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

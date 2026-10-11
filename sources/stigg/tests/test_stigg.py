@@ -7,10 +7,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.stigg.settings import ENDPOINTS, STIGG_ENDPOINTS
 from sources.stigg.stigg import PAGE_SIZE, StiggResumeConfig, stigg_source, validate_credentials
 

@@ -1,6 +1,6 @@
 import dataclasses
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Groq exposes an OpenAI-compatible REST API under a single global base URL. The queryable
 # (list) endpoints are job/asset bookkeeping: batch jobs, uploaded files, and the model catalog.

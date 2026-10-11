@@ -8,8 +8,7 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.transistor.settings import TRANSISTOR_BASE_URL
 from sources.transistor.transistor import (
     RequestThrottle,

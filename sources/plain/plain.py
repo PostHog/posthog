@@ -5,11 +5,9 @@ from dateutil import parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.plain.queries import QUERIES, THREADS_LIST_QUERY, TIMELINE_ENTRIES_QUERY, VIEWER_QUERY
 from sources.plain.settings import PLAIN_API_URL, PLAIN_DEFAULT_PAGE_SIZE, PLAIN_ENDPOINTS
+from sources.sdk import SourceResponse, make_tracked_session
 
 
 class PlainRetryableError(Exception):

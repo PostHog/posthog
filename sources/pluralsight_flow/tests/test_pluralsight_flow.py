@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.pluralsight_flow.pluralsight_flow import (
     PluralsightFlowResumeConfig,
     _format_incremental_value,
@@ -17,6 +15,7 @@ from sources.pluralsight_flow.pluralsight_flow import (
     pluralsight_flow_source,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 class TestNormalizeWorkspace:

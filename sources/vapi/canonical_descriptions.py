@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Vapi API reference (https://docs.vapi.ai/api-reference)
 # and the OpenAPI spec served at https://api.vapi.ai/api-json.

@@ -1,11 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.demodesk._config import DemodeskSourceConfig
 from sources.demodesk.source import DemodeskSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 _VALIDATE = "sources.demodesk.source.validate_demodesk_credentials"
 

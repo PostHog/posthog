@@ -1,22 +1,18 @@
 from collections.abc import Iterator
 from typing import Any, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.sdk import (
+    BearerTokenAuth,
+    ClientConfig,
     RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.telli.settings import BASE_URL, ENDPOINTS
 
 

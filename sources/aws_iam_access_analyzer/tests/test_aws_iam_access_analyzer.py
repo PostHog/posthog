@@ -9,8 +9,6 @@ from unittest.mock import patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_iam_access_analyzer import aws_iam_access_analyzer as transport
 from sources.aws_iam_access_analyzer._config import AwsIamAccessAnalyzerSourceConfig
 from sources.aws_iam_access_analyzer.aws_iam_access_analyzer import (
@@ -22,6 +20,7 @@ from sources.aws_iam_access_analyzer.aws_iam_access_analyzer import (
     validate_credentials,
 )
 from sources.aws_iam_access_analyzer.settings import API_VERSION
+from sources.sdk import ResumableSourceManager
 
 CONFIG = AwsIamAccessAnalyzerSourceConfig(
     aws_access_key_id="AKIAEXAMPLE",

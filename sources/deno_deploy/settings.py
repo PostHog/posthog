@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # How the transport should page and shape a given endpoint's response:
 # - "list":      a plain paginated list (Link: <url>; rel="next" header), rows used as-is.

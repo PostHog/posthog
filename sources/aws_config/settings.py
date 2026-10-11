@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 CONFIG_API_VERSION = "2014-11-12"
 TARGET_PREFIXES = {CONFIG_API_VERSION: "StarlingDoveService"}

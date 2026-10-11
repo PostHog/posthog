@@ -1,5 +1,4 @@
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-
+from sources.sdk import ReleaseStatus
 from sources.select_star.source import SelectStarSource
 
 

@@ -1,26 +1,6 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.mighty_networks._config import MightyNetworksSourceConfig
 from sources.mighty_networks.mighty_networks import (
     MightyNetworksResumeConfig,
@@ -29,6 +9,23 @@ from sources.mighty_networks.mighty_networks import (
     validate_credentials as validate_mighty_networks_credentials,
 )
 from sources.mighty_networks.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+)
 
 # A Mighty Networks network id is a positive integer path segment (e.g. .../networks/1234/members).
 _NETWORK_ID_RE = re.compile(r"^[0-9]+$")

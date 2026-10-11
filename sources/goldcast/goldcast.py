@@ -1,26 +1,19 @@
 from collections.abc import Callable
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.goldcast.settings import GOLDCAST_ENDPOINTS, GoldcastEndpointConfig
+from sources.sdk import (
     ApiKeyAuthConfig,
     EndpointResource,
+    Resource,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.goldcast.settings import GOLDCAST_ENDPOINTS, GoldcastEndpointConfig
 
 GOLDCAST_BASE_URL = "https://customapi.goldcast.io"
 

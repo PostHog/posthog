@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
-
 from sources.care_quality_commission import care_quality_commission as cqc
 from sources.care_quality_commission.care_quality_commission import (
     CQC_BASE_URL,
@@ -19,6 +17,7 @@ from sources.care_quality_commission.care_quality_commission import (
     get_rows,
 )
 from sources.care_quality_commission.settings import CQC_ENDPOINTS
+from sources.sdk.testing import boundary_checkpoint
 
 
 class _FakeResumableManager:

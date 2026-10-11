@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 MAX_WINDOW_DAYS = 30
 # The Analytics API caps a range at 30 inclusive calendar days. Windows are millisecond ranges that

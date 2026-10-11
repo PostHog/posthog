@@ -9,8 +9,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.auth0 import auth0 as auth0_module
 from sources.auth0.auth0 import (
     Auth0HostNotAllowedError,
@@ -30,6 +28,7 @@ from sources.auth0.auth0 import (
     validate_credentials,
 )
 from sources.auth0.settings import AUTH0_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 DOMAIN = "tenant.us.auth0.com"
 TOKEN_JSON = {"access_token": "tok", "expires_in": 86400, "token_type": "Bearer"}

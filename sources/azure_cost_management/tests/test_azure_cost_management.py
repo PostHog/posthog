@@ -8,9 +8,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-
 from sources.azure_cost_management.azure_cost_management import (
     LOGIN_HOST,
     MANAGEMENT_HOST,
@@ -32,6 +29,7 @@ from sources.azure_cost_management.azure_cost_management import (
     validate_credentials,
 )
 from sources.azure_cost_management.settings import AZURE_COST_MANAGEMENT_ENDPOINTS, ENDPOINTS
+from sources.sdk import ResumableSourceManager, SyncWindow
 
 TRANSPORT_MODULE = "sources.azure_cost_management.azure_cost_management"
 

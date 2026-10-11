@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Opinion Stage Public Result API (JSON:API). Rows are the raw JSON:API
 # resource objects, so the top-level columns are `id`, `type`, and the nested `attributes` object.

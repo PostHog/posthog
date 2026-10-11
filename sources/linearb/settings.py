@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Curated set of Git/DORA metrics pulled from the Measurements V2 endpoint. Names are taken from the
 # public metric glossary; each entry pairs a metric with the aggregation LinearB documents for it

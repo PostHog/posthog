@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 API_VERSION = "2014-11-06"
 API_DOCS_URL = "https://docs.aws.amazon.com/systems-manager/latest/APIReference/Welcome.html"

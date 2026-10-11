@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # `document/list`, `document/teamlist` and `document/behalfList` all return the same row shape.
 _DOCUMENT_COLUMNS: dict[str, str] = {

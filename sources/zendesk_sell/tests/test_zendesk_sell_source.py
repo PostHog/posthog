@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import SourceResponse
 from sources.zendesk_sell import source as source_module
 from sources.zendesk_sell.settings import ENDPOINTS
 from sources.zendesk_sell.source import ZendeskSellSource

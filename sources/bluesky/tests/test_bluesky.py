@@ -7,9 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.bluesky.bluesky import BlueskyResumeConfig, bluesky_source, get_resource, validate_credentials
+from sources.sdk import ResumableSourceManager
 
 
 class TestGetResource:

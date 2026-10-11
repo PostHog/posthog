@@ -7,12 +7,9 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.canny.canny import PAGE_SIZE, CannyBodyAuth, CannyResumeConfig, canny_source, validate_credentials
 from sources.canny.settings import CANNY_API_VERSION_V1, CANNY_API_VERSION_V2, ENDPOINTS
+from sources.sdk import RESTClientRetryableError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

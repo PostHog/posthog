@@ -1,9 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, SortMode, frozen
 
 # Which parent a fan-out endpoint is queried once per. Everything below a product is addressed by
 # GUID only, so the deeper resources are reached by walking products first. `config_environment`

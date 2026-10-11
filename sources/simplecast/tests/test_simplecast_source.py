@@ -3,8 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-
+from sources.sdk import UNVERSIONED_API_VERSION
 from sources.simplecast._config import SimpleCastSourceConfig
 from sources.simplecast.settings import SIMPLECAST_API_VERSION_2_0
 from sources.simplecast.source import SimpleCastSource

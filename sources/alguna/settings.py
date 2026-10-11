@@ -1,9 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 # Alguna list endpoints paginate with limit/offset.
 PAGE_LIMIT = 100

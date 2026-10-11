@@ -2,23 +2,19 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.heygen.settings import BASE_URL, ENDPOINTS
+from sources.sdk import (
+    APIKeyAuth,
+    EndpointResource,
     RESTAPIConfig,
     RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.heygen.settings import BASE_URL, ENDPOINTS
 
 INVALID_API_KEY = "Your HeyGen API key is invalid or expired. Update the key and reconnect."
 

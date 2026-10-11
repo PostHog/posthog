@@ -10,10 +10,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.bunny.bunny import (
     BUNNY_BASE_URL,
     BUNNY_STREAM_BASE_URL,
@@ -23,6 +19,7 @@ from sources.bunny.bunny import (
     check_access,
 )
 from sources.bunny.settings import BUNNY_ENDPOINTS, ENDPOINTS, LOG_RETENTION, LOG_WINDOW_MARGIN
+from sources.sdk import RESTClientRetryableError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

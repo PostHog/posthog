@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Cost Explorer is a global service reached through us-east-1, so both the endpoint and the
 # SigV4 signing region are fixed.

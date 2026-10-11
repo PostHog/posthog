@@ -2,29 +2,21 @@ from typing import Any, cast
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.referralhero.settings import AUTH_ERRORS, BASE_URL, ENDPOINTS
+from sources.sdk import (
+    BearerTokenAuth,
     Endpoint,
     EndpointResource,
     PaginatorConfig,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rename_parent_fields,
+    rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.referralhero.settings import AUTH_ERRORS, BASE_URL, ENDPOINTS
 
 
 @frozen

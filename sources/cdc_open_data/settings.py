@@ -7,9 +7,7 @@ the user configures, not a vendor-defined catalog.
 
 import re
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, IncrementalFieldType, incremental_field
 
 CDC_BASE_URL = "https://data.cdc.gov"
 

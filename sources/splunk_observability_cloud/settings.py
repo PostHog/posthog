@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Splunk Observability Cloud (formerly SignalFx) REST endpoints live under /v2 on the
 # realm-scoped API host. Most list/search endpoints paginate with offset/limit and wrap

@@ -9,8 +9,6 @@ from unittest.mock import MagicMock
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.honeybadger.honeybadger import (
     HONEYBADGER_BASE_URL,
     MAX_RATE_LIMIT_SLEEP_SECONDS,
@@ -24,6 +22,7 @@ from sources.honeybadger.honeybadger import (
     validate_credentials,
 )
 from sources.honeybadger.settings import HONEYBADGER_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 # 2023-11-14T22:13:20Z
 WATERMARK_TS = 1_700_000_000

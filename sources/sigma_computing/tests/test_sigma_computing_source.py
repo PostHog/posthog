@@ -1,7 +1,6 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 from sources.sigma_computing._config import SigmaComputingSourceConfig
 from sources.sigma_computing.settings import REGION_HOSTS
 from sources.sigma_computing.source import REGION_OPTIONS, SigmaComputingSource

@@ -1,7 +1,6 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 from sources.tinyemail._config import TinyemailSourceConfig
 from sources.tinyemail.settings import ENDPOINTS
 from sources.tinyemail.source import TinyemailSource

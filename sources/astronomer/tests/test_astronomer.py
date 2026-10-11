@@ -8,16 +8,10 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.astronomer._config import AstronomerSourceConfig
 from sources.astronomer.astronomer import AstronomerResumeConfig, astronomer_source, validate_credentials
 from sources.astronomer.source import AstronomerSource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceResponse, UnknownResourceError
 
 BASE = "https://api.astronomer.io/v1/organizations/example-org"
 CONFIG = AstronomerSourceConfig(api_token="test-token", organization_id="example-org")

@@ -8,14 +8,11 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.microsoft_defender_cloud_apps._config import MicrosoftDefenderCloudAppsSourceConfig
 from sources.microsoft_defender_cloud_apps.microsoft_defender_cloud_apps import DefenderResumeConfig
 from sources.microsoft_defender_cloud_apps.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse, ValidateDatabaseHostMixin
 
 PORTAL_URL = "https://defender.example.com"
 

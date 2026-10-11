@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.maxio.maxio import (
     MaxioPaginator,
     MaxioResumeConfig,
@@ -19,6 +17,7 @@ from sources.maxio.maxio import (
     validate_credentials,
 )
 from sources.maxio.settings import PAGE_SIZE
+from sources.sdk import ResumableSourceManager
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:

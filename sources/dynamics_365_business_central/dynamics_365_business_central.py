@@ -4,30 +4,23 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2Auth,
-    OAuth2AuthRequestError,
-    strip_oauth2_permanent_marker,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.dynamics_365_business_central.settings import (
     BUSINESS_CENTRAL_ENDPOINTS,
     COMPANIES_ENDPOINT,
     BusinessCentralEndpoint,
+)
+from sources.sdk import (
+    Endpoint,
+    EndpointResource,
+    JSONResponsePaginator,
+    OAuth2Auth,
+    OAuth2AuthRequestError,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resources,
+    strip_oauth2_permanent_marker,
 )
 
 BUSINESS_CENTRAL_HOST = "api.businesscentral.dynamics.com"

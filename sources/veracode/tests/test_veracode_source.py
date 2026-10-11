@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.veracode._config import VeracodeSourceConfig
 from sources.veracode.source import VeracodeSource
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # SurveyMonkey caps `per_page` per endpoint (responses/bulk maxes out at 100). We use a
 # single conservative value everywhere to avoid 400s, since daily call quotas are low and

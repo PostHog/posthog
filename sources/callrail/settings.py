@@ -1,11 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType, ResponseAction
 
 # Max allowed by the API. Larger pages mean fewer requests against the per-account hourly/daily
 # rate limits (1,000/hour and 10,000/day across the whole account).

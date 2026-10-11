@@ -4,9 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.airbrake.source import AirbrakeSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestAirbrakeSource:

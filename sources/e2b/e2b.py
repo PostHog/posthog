@@ -5,33 +5,25 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    create_auth,
-    create_paginator,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.e2b.settings import E2B_ENDPOINTS, E2B_PAGE_LIMIT, E2BEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    Resource,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    create_auth,
+    create_paginator,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.e2b.settings import E2B_ENDPOINTS, E2B_PAGE_LIMIT, E2BEndpointConfig
 
 # E2B exposes a single global base URL; there are no regional hosts.
 E2B_BASE_URL = "https://api.e2b.app"

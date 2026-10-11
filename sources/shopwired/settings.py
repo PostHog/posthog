@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # List endpoints accept a `count` of up to 100 (default 50); the largest page minimises round trips
 # against ShopWired's leaky-bucket rate limit (burst 40, 2 requests/second sustained).

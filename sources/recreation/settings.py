@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 RIDB_BASE_URL = "https://ridb.recreation.gov/api/v1"
 

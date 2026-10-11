@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the EmailOctopus v2 API docs (https://emailoctopus.com/api-documentation/v2). The
 # schema is fixed across teams, so document it once rather than paying an LLM to re-derive it.

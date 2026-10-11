@@ -8,13 +8,11 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.growthbook._config import GrowthBookSourceConfig
 from sources.growthbook.growthbook import GrowthBookResumeConfig
 from sources.growthbook.source import GrowthBookSource
+from sources.sdk import RESTClient, SourceInputs
+from sources.sdk.testing import error_message_matches
 
 
 @pytest.mark.parametrize("resume_offset", [None, 100])

@@ -6,11 +6,7 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-
+from sources.sdk import PageNumberPaginator, SinglePagePaginator
 from sources.tinyemail.tinyemail import (
     INVALID_CREDENTIALS_MESSAGE,
     get_resource,

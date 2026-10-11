@@ -5,25 +5,19 @@ from typing import Any, Optional
 
 from requests import Session
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.sdk import (
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.twitter.settings import BASE_URL, EARLIEST_START_TIME, TWITTER_ENDPOINTS, TwitterEndpointConfig
 
 # An X handle is 1-15 characters of `[A-Za-z0-9_]`. The handle is interpolated into a request URL,

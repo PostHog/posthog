@@ -8,18 +8,16 @@ import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_iterator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from sources.doit._config import DoItSourceConfig
+from sources.sdk import (
     DEFAULT_RETRY,
+    IncrementalField,
+    IncrementalFieldType,
+    SourceResponse,
+    frozen,
     make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
-
-from sources.doit._config import DoItSourceConfig
+from sources.sdk.internals import NamingConvention, table_from_iterator
 
 # DoIt's API sits behind Cloudflare, which returns 52x origin errors (e.g. 524 when the origin
 # times out under load or during maintenance) instead of the standard 502/503/504. These are

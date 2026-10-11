@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the public legacy Leadfeeder (Dealfront) API reference
 # (https://docs.leadfeeder.com/api/). Keyed by the endpoint names `get_schemas` returns.

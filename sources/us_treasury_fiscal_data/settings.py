@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 BASE_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/"
 API_DOCS_URL = "https://fiscaldata.treasury.gov/api-documentation/"

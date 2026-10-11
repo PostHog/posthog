@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 # Gainsight NXT runs one deployment per tenant, reached either on a Gainsight subdomain
 # (acme.gainsightcloud.com) or on a customer-mapped custom domain. There is no fixed host table, so

@@ -5,31 +5,24 @@ from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    make_parent_key_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.coassemble.settings import COASSEMBLE_ENDPOINTS, PAGE_SIZE, CoassembleEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_parent_key_name,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.coassemble.settings import COASSEMBLE_ENDPOINTS, PAGE_SIZE, CoassembleEndpointConfig
 
 logger = logging.getLogger(__name__)
 

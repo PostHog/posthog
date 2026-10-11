@@ -11,12 +11,10 @@ from unittest.mock import MagicMock, patch
 import requests
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.peec_ai._config import PeecAISourceConfig
 from sources.peec_ai.peec_ai import PeecAIResumeConfig, peec_ai_source, validate_credentials
 from sources.peec_ai.source import PeecAISource
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 TRANSPORT = "sources.peec_ai.peec_ai"
 

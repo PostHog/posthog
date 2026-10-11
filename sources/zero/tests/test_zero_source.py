@@ -2,8 +2,7 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.zero._config import ZeroSourceConfig
 from sources.zero.settings import ENDPOINT_CONFIGS
 from sources.zero.source import ZeroSource

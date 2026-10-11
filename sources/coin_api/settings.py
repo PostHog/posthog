@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # How a CoinAPI endpoint is shaped on the wire, which drives how the transport reads it:
 # - "reference": a single bare JSON array of metadata rows (assets / exchanges / symbols).

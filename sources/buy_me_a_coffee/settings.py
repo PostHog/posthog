@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 API_BASE_URL = "https://developers.buymeacoffee.com/api/v1"
 API_DOCS_URL = "https://developers.buymeacoffee.com/#/apireference"

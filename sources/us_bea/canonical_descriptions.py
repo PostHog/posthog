@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _REGIONAL_INCOME_COLUMNS = {
     "Code": "BEA statistic code, combining the table name and line code (e.g. SAINC1-3).",

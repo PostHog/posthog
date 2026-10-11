@@ -11,13 +11,11 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.buildium._config import BuildiumSourceConfig
 from sources.buildium.buildium import BuildiumResumeConfig, buildium_source
 from sources.buildium.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.buildium.source import BuildiumSource
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 CONFIG = BuildiumSourceConfig(client_id="example-client", client_secret="example-secret")
 

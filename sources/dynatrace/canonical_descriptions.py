@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _ENTITY_COLUMNS = {
     "entityId": "Unique identifier of the monitored entity (e.g. HOST-ABC123).",

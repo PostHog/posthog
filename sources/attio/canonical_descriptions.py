@@ -5,9 +5,7 @@ the endpoint names in `settings.py` `ATTIO_ENDPOINTS`, which match the `External
 of a synced Attio table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by Attio object records (companies, people, deals, etc.); merged into those entries.
 _RECORD_COLUMNS = {

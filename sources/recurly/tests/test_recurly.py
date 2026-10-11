@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.recurly.recurly import (
     RecurlyPaginator,
     RecurlyResumeConfig,
@@ -20,6 +18,7 @@ from sources.recurly.recurly import (
     validate_credentials,
 )
 from sources.recurly.settings import RECURLY_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
 NO_LIST_PARAMS_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_list_params]

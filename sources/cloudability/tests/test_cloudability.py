@@ -7,15 +7,13 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.cloudability.cloudability import (
     CloudabilityResumeConfig,
     cloudability_source,
     get_resource,
     validate_credentials,
 )
+from sources.sdk import Endpoint, ResumableSourceManager
 
 
 class TestGetResource:

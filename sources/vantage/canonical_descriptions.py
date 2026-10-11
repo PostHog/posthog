@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated table/column descriptions sourced from the Vantage API reference (https://vantage.readme.io).
 # Keyed by endpoint/schema name (matching ENDPOINTS). Columns not covered here fall back to LLM

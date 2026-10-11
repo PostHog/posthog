@@ -10,11 +10,6 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.open_meteo.open_meteo import (
     ARCHIVE_WINDOW_DAYS,
     MAX_LABEL_LENGTH,
@@ -33,6 +28,7 @@ from sources.open_meteo.open_meteo import (
     validate_credentials,
 )
 from sources.open_meteo.settings import OPEN_METEO_ENDPOINTS
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager
 
 MODULE = "sources.open_meteo.open_meteo"
 

@@ -7,11 +7,10 @@ from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.buy_me_a_coffee._config import BuyMeACoffeeSourceConfig
 from sources.buy_me_a_coffee.source import BuyMeACoffeeSource
+from sources.sdk import SourceInputs
+from sources.sdk.testing import error_message_matches
 
 
 class TestBuyMeACoffeeSource(SimpleTestCase):

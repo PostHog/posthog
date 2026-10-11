@@ -2,21 +2,16 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.bigcommerce.settings import ENDPOINT_PATHS, INCREMENTAL_FIELDS, V2_ENDPOINTS
+from sources.sdk import (
     Endpoint,
     EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-from sources.bigcommerce.settings import ENDPOINT_PATHS, INCREMENTAL_FIELDS, V2_ENDPOINTS
 
 BASE_URL = "https://api.bigcommerce.com"
 # BigCommerce caps `limit` at 250 on both the V3 catalog/customers collections and the

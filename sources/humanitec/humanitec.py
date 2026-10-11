@@ -3,25 +3,6 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.humanitec._config import HumanitecSourceConfig
 from sources.humanitec.settings import (
     API_BASE_URL,
@@ -30,6 +11,19 @@ from sources.humanitec.settings import (
     INVALID_ORGANIZATION_ERROR,
     ORGANIZATION_ERROR,
     PERMISSION_ERROR,
+)
+from sources.sdk import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
+    schema_for_resource,
 )
 
 

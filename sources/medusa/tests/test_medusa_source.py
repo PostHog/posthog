@@ -3,10 +3,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.medusa._config import MedusaSourceConfig
 from sources.medusa.source import MedusaSource
+from sources.sdk import SourceInputs
 
 SOURCE_MODULE = "sources.medusa.source"
 

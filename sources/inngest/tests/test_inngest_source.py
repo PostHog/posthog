@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.inngest import source as source_module
 from sources.inngest._config import InngestSourceConfig
 from sources.inngest.source import InngestSource
+from sources.sdk import SourceInputs
 
 
 def _source_inputs(

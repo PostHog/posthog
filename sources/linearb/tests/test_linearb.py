@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.linearb.linearb import (
     _iter_list_rows,
     _iter_measurements_rows,
@@ -13,6 +11,7 @@ from sources.linearb.linearb import (
     validate_credentials,
 )
 from sources.linearb.settings import ENDPOINTS, LINEARB_ENDPOINTS, LinearbEndpointConfig
+from sources.sdk import ResumableSourceManager
 
 
 def _response(status_code: int = 200, payload: Any = None, content: bytes = b"x") -> mock.MagicMock:

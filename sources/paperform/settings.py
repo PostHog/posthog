@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # `created_at` / `updated_at` are rendered in the account's local timezone; the `_utc` variants are
 # proper UTC ISO 8601 strings, so those are what we cursor and partition on.

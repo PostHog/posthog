@@ -1,12 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.appdynamics._config import AppdynamicsAuthMethodConfig, AppdynamicsSourceConfig
 from sources.appdynamics.appdynamics import AppdynamicsAuth
 from sources.appdynamics.settings import DEFAULT_EVENT_TYPES, MAX_EVENT_TYPES, MAX_METRIC_PATHS
 from sources.appdynamics.source import AppdynamicsSource
+from sources.sdk import SourceInputs
 
 
 def _api_client_config(metric_paths: str | None = None, event_types: str | None = None) -> AppdynamicsSourceConfig:

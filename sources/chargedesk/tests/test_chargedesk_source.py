@@ -3,11 +3,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-
 from sources.chargedesk import source as source_module
 from sources.chargedesk._config import ChargedeskSourceConfig
 from sources.chargedesk.source import ChargedeskSource
+from sources.sdk import SourceFieldInputConfig
 
 
 def _config() -> ChargedeskSourceConfig:

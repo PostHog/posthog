@@ -9,11 +9,7 @@ import structlog
 import requests_mock
 from requests.exceptions import HTTPError, Timeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
+from sources.sdk import IncrementalFieldType, ResumableSourceManager, SourceInputs, UnknownResourceError
 from sources.us_eia.source import UsEiaSource
 from sources.us_eia.us_eia import EiaResumeConfig, us_eia_source, validate_credentials
 

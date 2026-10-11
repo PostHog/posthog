@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 OMNISEND_V3 = "v3"
 # Header-versioned (`Omnisend-Version`) on the `/api` base path, with `Authorization: Omnisend-API-Key`.

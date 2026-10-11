@@ -1,5 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 ENDPOINTS = ("Jobs", "Leads", "Team", "TimeOff")
 

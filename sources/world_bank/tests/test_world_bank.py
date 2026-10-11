@@ -6,9 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import RESTClient, ResumableSourceManager
 from sources.world_bank.world_bank import (
     DATA_SELECTOR,
     MAX_INDICATOR_CODES,

@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 # Parent resource a fan-out endpoint is requested once per. "commit" walks the organization's
 # repositories and then each repository's commits, so it is the only two-level fan-out.

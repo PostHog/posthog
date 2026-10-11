@@ -8,13 +8,9 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClient,
-    RESTClientRetryableError,
-)
-
 from sources.glassfrog.glassfrog import GLASSFROG_BASE_URL, GLASSFROG_PAGE_SIZE, glassfrog_source, validate_credentials
 from sources.glassfrog.settings import GLASSFROG_ENDPOINTS
+from sources.sdk import RESTClient, RESTClientRetryableError
 
 # Both the sync transport and the credential probe build their session via the
 # glassfrog module's make_tracked_session (passed into the client config).

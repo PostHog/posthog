@@ -1,23 +1,20 @@
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.alegra._config import AlegraSourceConfig
 from sources.alegra.settings import API_BASE_URL, ENDPOINTS, PAGE_SIZE, PARTITION_COUNT, PARTITION_MODE, REQUEST_TIMEOUT
+from sources.sdk import (
+    ClientConfig,
+    HttpBasicAuth,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 
 @frozen

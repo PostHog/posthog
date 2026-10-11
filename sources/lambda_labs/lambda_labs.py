@@ -2,20 +2,17 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.lambda_labs.settings import LAMBDA_LABS_ENDPOINTS
+from sources.sdk import (
     BasePaginator,
     JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.lambda_labs.settings import LAMBDA_LABS_ENDPOINTS
 
 # cloud.lambdalabs.com is a deprecated alias for the same API.
 LAMBDA_LABS_BASE_URL = "https://cloud.lambda.ai/api/v1"

@@ -7,13 +7,6 @@ from typing import Any, Optional
 
 import requests
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.gainsight_cs.settings import (
     DATE_DATA_TYPES,
     DESCRIBE_PATH,
@@ -23,6 +16,7 @@ from sources.gainsight_cs.settings import (
     OBJECT_NAME_PATTERN,
     QUERY_PATH,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, _is_host_safe, frozen, make_tracked_session
 
 REQUEST_TIMEOUT = 60
 CREATED_DATE = "CreatedDate"

@@ -3,13 +3,12 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.pardot._config import PardotSourceConfig
 from sources.pardot.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.pardot.pardot import PardotResumeConfig
 from sources.pardot.settings import ENDPOINTS, INCREMENTAL_FIELDS, PARDOT_ENDPOINTS
 from sources.pardot.source import PardotSource
+from sources.sdk import ResumableSourceManager
 
 INCREMENTAL_ENDPOINTS = sorted(INCREMENTAL_FIELDS)
 FULL_REFRESH_ENDPOINTS = sorted(set(ENDPOINTS) - set(INCREMENTAL_FIELDS))

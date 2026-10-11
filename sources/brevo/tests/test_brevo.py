@@ -8,8 +8,6 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.brevo.brevo import (
     BREVO_BASE_URL,
     BrevoResumeConfig,
@@ -19,6 +17,7 @@ from sources.brevo.brevo import (
     validate_credentials,
 )
 from sources.brevo.settings import BREVO_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

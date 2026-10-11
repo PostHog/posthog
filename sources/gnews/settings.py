@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # GNews returns at most 100 articles per request and caps any single query at 1000 articles
 # regardless of pagination (https://gnews.io/docs/v4). Page size is the paid-plan maximum;

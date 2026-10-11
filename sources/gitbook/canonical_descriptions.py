@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the official GitBook API reference (https://gitbook.com/docs/developers)
 # and its published OpenAPI spec. Keys match the endpoint names in settings.GITBOOK_ENDPOINTS.

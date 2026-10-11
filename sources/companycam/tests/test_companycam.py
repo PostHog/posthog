@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.companycam.companycam import (
     CompanycamCursorPaginator,
     CompanycamResumeConfig,
@@ -19,6 +17,7 @@ from sources.companycam.companycam import (
     get_resource,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 class TestCompanycamCursorPaginator:

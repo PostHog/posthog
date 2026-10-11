@@ -5,9 +5,7 @@ resource names in `settings.py` `ENDPOINT_CONFIGS`, which match the `ExternalDat
 synced Zero table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by most workspace-scoped Zero objects; merged into each entry so they aren't repeated.
 _COMMON_COLUMNS = {

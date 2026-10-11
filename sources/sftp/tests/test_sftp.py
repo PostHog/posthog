@@ -13,13 +13,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from paramiko.file import BufferedFile
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
-    DELIMITER_ERROR,
-    FILE_MODIFIED_AT_COLUMN,
-    FILE_PATH_COLUMN,
-    FileFormatError,
-)
-
+from sources.sdk import DELIMITER_ERROR, FILE_MODIFIED_AT_COLUMN, FILE_PATH_COLUMN, FileFormatError
 from sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
     CONNECTION_FAILED_ERROR,

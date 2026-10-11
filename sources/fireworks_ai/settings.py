@@ -1,8 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Fireworks AI control-plane API (https://docs.fireworks.ai/api-reference). A Google AIP-style
 # resource API: every collection is a GET under https://api.fireworks.ai/v1/accounts/{account_id}/

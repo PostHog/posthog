@@ -10,10 +10,8 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.kapa_ai.kapa_ai import kapa_ai_source, validate_credentials
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 PROJECT_ID = "00000000-0000-4000-8000-000000000001"
 API_KEY = "test-kapa-key"

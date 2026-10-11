@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 ORGANIZATION_ENDPOINT = "organization"
 REGIONS_ENDPOINT = "regions"

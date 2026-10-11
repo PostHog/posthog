@@ -1,6 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 API_VERSION = "2019-11-01"
 DEFAULT_REGION = "us-east-1"

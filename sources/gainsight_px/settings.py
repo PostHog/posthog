@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Gainsight PX runs regional deployments. An API key belongs to a single subscription that lives in
 # one region, so the host is picked by the `region` form field rather than a user-supplied URL — the

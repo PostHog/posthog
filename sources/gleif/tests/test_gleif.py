@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.gleif.gleif import GleifResumeConfig, _flatten_json_api_item, gleif_source, validate_credentials
 from sources.gleif.settings import LEI_RECORDS
+from sources.sdk import ResumableSourceManager
 
 _LEI_ITEM = {
     "type": "lei-records",

@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.razorpay.razorpay import (
     INCREMENTAL_LOOKBACK_SECONDS,
     MIN_FROM_TIMESTAMP,
@@ -18,6 +16,7 @@ from sources.razorpay.razorpay import (
     validate_credentials,
 )
 from sources.razorpay.settings import PAGE_SIZE
+from sources.sdk import ResumableSourceManager
 
 
 def _collection_response(items: list[dict[str, Any]], status_code: int = 200) -> Response:

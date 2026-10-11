@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from sources.sdk import DependentEndpointConfig
 
 
 @dataclass(frozen=True)

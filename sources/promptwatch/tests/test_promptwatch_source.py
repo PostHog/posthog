@@ -1,11 +1,9 @@
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.promptwatch._config import PromptWatchSourceConfig
 from sources.promptwatch.source import PromptWatchSource
+from sources.sdk import SourceInputs, UnknownResourceError
 
 
 def test_unknown_table() -> None:

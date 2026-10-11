@@ -4,10 +4,8 @@ from typing import Any, Optional
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.microsoft_clarity.settings import ENDPOINT_NAME, NO_DIMENSION
+from sources.sdk import SourceResponse, make_tracked_session
 
 BASE_URL = "https://www.clarity.ms"
 INSIGHTS_PATH = "/export-data/api/v1/project-live-insights"

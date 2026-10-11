@@ -1,26 +1,5 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.microsoft_clarity._config import MicrosoftClaritySourceConfig
 from sources.microsoft_clarity.microsoft_clarity import (
     TOKEN_INVALID_ERROR,
@@ -35,6 +14,24 @@ from sources.microsoft_clarity.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     NO_DIMENSION,
+)
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
 )
 
 

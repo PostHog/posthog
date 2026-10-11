@@ -7,10 +7,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.buildbetter.queries import OPTIONAL_QUERY_FIELDS, QUERIES, VIEWER_QUERY
 from sources.buildbetter.settings import (
     BUILDBETTER_API_URL,
@@ -30,6 +26,7 @@ from sources.buildbetter.settings import (
     BuildBetterNestedConfig,
     uses_rest_api,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 _MISSING_FIELD_RE = re.compile(r"field '([^']+)' not found in type")
 

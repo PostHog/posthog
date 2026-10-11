@@ -6,9 +6,7 @@ Sourced from the official commercetools Composable Commerce HTTP API reference
 commercetools table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by most commercetools resources; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

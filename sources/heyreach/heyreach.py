@@ -5,28 +5,24 @@ from typing import Any, Optional
 
 from dateutil import parser
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.heyreach.settings import (
     ENDPOINTS,
     HEYREACH_BASE_URL,
     PAGE_SIZE,
     REQUEST_TIMEOUT_SECONDS,
     HeyReachEndpointConfig,
+)
+from sources.sdk import (
+    APIKeyAuth,
+    OffsetPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 # HeyReach launched in 2021, so this start date covers every account's full stats history.

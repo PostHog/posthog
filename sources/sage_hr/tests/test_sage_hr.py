@@ -9,8 +9,6 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-
 from sources.sage_hr import sage_hr
 from sources.sage_hr.sage_hr import (
     SageHRResumeConfig,
@@ -22,6 +20,7 @@ from sources.sage_hr.sage_hr import (
     validate_credentials,
 )
 from sources.sage_hr.settings import ENDPOINTS, SAGE_HR_ENDPOINTS
+from sources.sdk import SyncWindow
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = sage_hr._fetch_page.__wrapped__  # type: ignore[attr-defined]

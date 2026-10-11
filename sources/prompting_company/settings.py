@@ -1,7 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from sources.sdk import IncrementalFieldType, frozen, incremental_field
 
 BASE_URL = "https://app.promptingco.com/api/v1/"
 PAGE_SIZE = 100

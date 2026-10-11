@@ -1,7 +1,7 @@
 import re
 from typing import Final
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from sources.sdk import IncrementalFieldType
 
 # Firestore and Identity Platform both expose a `v1` REST surface alongside older `v1beta*`
 # channels; `v1` is the generally available one.

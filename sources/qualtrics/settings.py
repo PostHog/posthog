@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Qualtrics serves every brand from a datacenter-specific host; the API version is a path
 # segment under it (`https://{datacenter}.qualtrics.com/API/v3`).

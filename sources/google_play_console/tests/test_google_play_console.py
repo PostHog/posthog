@@ -12,8 +12,6 @@ import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.google_play_console import google_play_console
 from sources.google_play_console.google_play_console import (
     DEFAULT_TOKEN_URI,
@@ -40,6 +38,7 @@ from sources.google_play_console.google_play_console import (
     validate_credentials,
 )
 from sources.google_play_console.settings import ENDPOINTS, LIST_ENDPOINTS, METRIC_SETS, PRIMARY_KEYS
+from sources.sdk import ResumableSourceManager
 
 MODULE = google_play_console.__name__
 TODAY = dt.date(2024, 3, 31)

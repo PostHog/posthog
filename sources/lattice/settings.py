@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from sources.sdk import DependentEndpointConfig
 
 # Lattice's default page size is only 10; always request the max of 100.
 PAGE_SIZE = 100

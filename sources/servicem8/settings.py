@@ -6,8 +6,7 @@ Field service management API for trades businesses. Every object exposes `uuid`
 Reference: https://developer.servicem8.com/reference
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Display name -> vendor object name, e.g. "Job" -> GET /api_1.0/job.json.
 ENDPOINT_PATHS: dict[str, str] = {

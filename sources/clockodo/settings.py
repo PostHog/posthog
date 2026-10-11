@@ -2,7 +2,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from datetime import date
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Clockodo versions its endpoints per resource rather than per account, so the source-level
 # label is opaque: "v2" is the pre-2026-05 endpoint set; "v3" is the post-deprecation set that

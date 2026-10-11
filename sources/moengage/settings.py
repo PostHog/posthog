@@ -1,8 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Hostname segment in https://api-{dc}.moengage.com. The config value is interpolated into the
 # host, so it must come from this allowlist: a crafted value like "01.evil.com" would otherwise

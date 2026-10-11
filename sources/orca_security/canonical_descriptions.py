@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Column names match the Serving Layer field names lifted to the row root by `_normalize_item`.
 # Coverage is intentionally partial — fields not listed fall back to LLM enrichment.

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Packagist download stats lag ~1-2 days behind real time and the trailing day is partial, so
 # incremental syncs re-read a trailing window instead of freezing days at their first value.

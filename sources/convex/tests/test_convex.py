@@ -14,12 +14,6 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.convex._config import ConvexSourceConfig
 from sources.convex.convex import (
     _CONVEX_RETRY,
@@ -39,6 +33,8 @@ from sources.convex.convex import (
     validate_deploy_url,
 )
 from sources.convex.source import ConvexSource
+from sources.sdk import ResumableSourceManager, SourceCursorManager, SourceInputs, SourceResponse
+from sources.sdk.testing import activate_safe_point, error_message_matches
 
 
 def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:

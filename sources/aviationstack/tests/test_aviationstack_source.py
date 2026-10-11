@@ -4,9 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-
 from sources.aviationstack.source import AviationstackSource
+from sources.sdk import SourceFieldInputConfig
 
 
 def _make_manager() -> Any:

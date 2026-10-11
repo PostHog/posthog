@@ -8,12 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.datadog.settings import DATADOG_ENDPOINTS, DatadogEndpointConfig, TimestampFormat
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session, schema_for_resource
 
 # Datadog regional sites. The site selects which API host the credentials are sent to. The set is
 # a fixed allow-list, so the host can't be retargeted at an arbitrary server.

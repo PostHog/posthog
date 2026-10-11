@@ -6,14 +6,11 @@ from unittest.mock import Mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.heygen._config import HeyGenSourceConfig
 from sources.heygen.heygen import HeyGenResumeConfig
 from sources.heygen.source import HeyGenSource
 from sources.heygen.tests.utils import sync_items
+from sources.sdk import ResumableSourceManager, SourceInputs, UnknownResourceError
 
 
 @pytest.mark.parametrize(

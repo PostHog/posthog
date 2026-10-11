@@ -7,12 +7,10 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.nager_date._config import NagerDateSourceConfig
 from sources.nager_date.settings import ENDPOINTS, PRIMARY_KEYS
 from sources.nager_date.source import NagerDateSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _make_inputs(schema_name: str = "Countries") -> SourceInputs:

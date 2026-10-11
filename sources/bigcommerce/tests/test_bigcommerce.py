@@ -9,12 +9,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.bigcommerce.bigcommerce import (
     BigCommerceResumeConfig,
     _to_v2_timestamp,
@@ -23,6 +17,7 @@ from sources.bigcommerce.bigcommerce import (
     get_resource,
     validate_credentials,
 )
+from sources.sdk import Endpoint, PageNumberPaginator, ResumableSourceManager
 
 
 class TestGetResource:

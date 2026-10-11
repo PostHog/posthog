@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # A download row's day never changes once the day is over, so it's a stable incremental/partition
 # field. npm's downloads-range API is a genuine server-side date-window filter (we only request the

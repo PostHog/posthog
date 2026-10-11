@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Loop documents a 120-day maximum for a list request's `from`/`to` range.
 API_MAX_RANGE_DAYS = 120

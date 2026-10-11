@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.square.settings import SQUARE_ENDPOINTS
 from sources.square.square import (
     MAX_CURSOR_RESTARTS,

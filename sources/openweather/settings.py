@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every OpenWeather row carries a `dt` (Unix UTC timestamp) describing the point in time the
 # observation/forecast slot refers to. It never changes for a given row, so it doubles as the

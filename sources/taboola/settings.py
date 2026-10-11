@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 TABOOLA_TOKEN_URL = "https://backstage.taboola.com/backstage/oauth/token"
 TABOOLA_API_BASE_URL = "https://backstage.taboola.com/backstage/api/1.0"

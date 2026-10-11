@@ -6,9 +6,7 @@ in `settings.py` `ENDPOINTS`, which match the `ExternalDataSchema.name` of a syn
 absent here fall back to LLM enrichment; coverage here is intentionally partial rather than guessed.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Audit fields AvaTax stamps on every model.
 _AUDIT_COLUMNS = {

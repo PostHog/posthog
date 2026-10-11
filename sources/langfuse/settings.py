@@ -2,8 +2,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, IncrementalFieldType
 
 # Source-level vendor API version labels. Distinct from the per-endpoint URL versions baked into
 # LANGFUSE_ENDPOINTS below (Langfuse versions each resource route independently). v1 and v2 resolve

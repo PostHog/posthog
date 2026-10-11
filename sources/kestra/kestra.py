@@ -6,25 +6,22 @@ from urllib.parse import urlsplit
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.kestra._config import KestraSourceConfig
 from sources.kestra.settings import AUTH_ERROR, ENDPOINTS, PAGE_SIZE, PERMISSION_ERROR, PRIMARY_KEYS
+from sources.sdk import (
+    ClientConfig,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    create_auth,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 
 @frozen
@@ -48,7 +45,7 @@ class KestraPaginator(PageNumberPaginator):
 
 
 def client_config(config: KestraSourceConfig, team_id: int) -> ClientConfig:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- avoids loading Django models during config discovery
+    from sources.sdk import (  # noqa: PLC0415 -- avoids loading Django models during config discovery
         ValidateDatabaseHostMixin,
     )
 

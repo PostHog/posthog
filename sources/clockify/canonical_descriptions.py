@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions are sourced from Clockify's public API docs (https://docs.clockify.me/). Partial
 # coverage is fine — anything omitted falls back to LLM enrichment using the docs_url + data types.

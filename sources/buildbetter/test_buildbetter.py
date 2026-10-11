@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.buildbetter.buildbetter import (
     BuildBetterResumeConfig,
     _make_paginated_request,
@@ -16,6 +14,7 @@ from sources.buildbetter.buildbetter import (
 )
 from sources.buildbetter.settings import BUILDBETTER_API_URL, BUILDBETTER_ENDPOINTS, BUILDBETTER_REST_API_URL
 from sources.buildbetter.source import BuildBetterSource
+from sources.sdk import ResumableSourceManager
 
 
 def _make_response(json_data: dict, status_code: int = 200) -> MagicMock:

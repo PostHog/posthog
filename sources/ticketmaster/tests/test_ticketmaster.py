@@ -8,9 +8,7 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests.exceptions import ConnectionError, HTTPError, RequestException, Timeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import ResumableSourceManager, UnknownResourceError
 from sources.ticketmaster._config import TicketmasterSourceConfig
 from sources.ticketmaster.source import TicketmasterSource
 from sources.ticketmaster.ticketmaster import TicketmasterResumeConfig, ticketmaster_source, validate_credentials

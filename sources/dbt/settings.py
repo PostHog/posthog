@@ -2,11 +2,6 @@ from dataclasses import field
 from datetime import timedelta
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
-
 from sources.dbt.queries import (
     EXPOSURES_QUERY,
     MODEL_HISTORICAL_RUNS_QUERY,
@@ -16,6 +11,7 @@ from sources.dbt.queries import (
     SOURCES_QUERY,
     TESTS_QUERY,
 )
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, IncrementalFieldType, frozen
 
 # dbt Cloud's Administrative API runs two live versions: v3 (the vendor's recommended version) and
 # v2 (legacy). There is no v1 — UNVERSIONED_API_VERSION ("v1") is only the framework placeholder

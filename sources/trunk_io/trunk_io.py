@@ -6,18 +6,15 @@ from typing import Any, Optional
 from dateutil import parser as date_parser
 from requests import Request, RequestException, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+from sources.sdk import (
     APIKeyAuth,
-    BearerTokenAuth,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    BearerTokenAuth,
     JSONResponseCursorPaginator,
+    RESTClient,
+    ResumableSourceManager,
+    make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.trunk_io.settings import (
     BASE_URL,
     FAILING_TESTS_DEFAULT_LOOKBACK_DAYS,

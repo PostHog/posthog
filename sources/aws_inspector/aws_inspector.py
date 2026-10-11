@@ -9,13 +9,6 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_inspector._config import AwsInspectorSourceConfig
 from sources.aws_inspector.settings import (
     AWS_INSPECTOR_ENDPOINTS,
@@ -23,6 +16,7 @@ from sources.aws_inspector.settings import (
     INSPECTOR_API_VERSION,
     AwsInspectorEndpoint,
 )
+from sources.sdk import BoundedRetry, ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 
 TRANSPORT_RETRY = BoundedRetry(
     total=3,

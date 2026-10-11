@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Table-level descriptions are sourced from Kernel's public API docs. Column coverage is kept to the
 # fields we're confident about (ids); the rest fall back to LLM enrichment, since the full column set

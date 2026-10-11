@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 DOCS_URL = "https://documenter.getpostman.com/view/11487813/2s9Y5Wx3QG"
 

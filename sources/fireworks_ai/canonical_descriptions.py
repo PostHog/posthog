@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Fireworks AI API reference (https://docs.fireworks.ai/api-reference).
 # Keyed by endpoint name as returned by get_schemas / declared in settings.ENDPOINTS.

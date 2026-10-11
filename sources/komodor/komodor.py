@@ -3,23 +3,19 @@ from typing import Any
 from requests import Request
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.komodor._config import KomodorSourceConfig
 from sources.komodor.settings import AUTH_ERRORS, ENDPOINTS, PAGE_SIZE, PRIMARY_KEYS, REGION_URLS
+from sources.sdk import (
+    APIKeyAuth,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+)
 
 
 @frozen

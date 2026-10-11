@@ -12,18 +12,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     VALIDATION_PROBE_ENDPOINTS,
     AdobeCommerceEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, _is_host_safe, frozen, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATE_TIMEOUT_SECONDS = 20

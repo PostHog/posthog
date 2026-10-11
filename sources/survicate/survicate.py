@@ -3,27 +3,22 @@ from typing import Any
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.sdk import (
+    APIKeyAuth,
     BaseNextUrlPaginator,
+    EndpointResource,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    parse_datetime_value,
+    rename_parent_fields,
+    rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.survicate._config import SurvicateSourceConfig
 from sources.survicate.settings import AUTH_ERRORS, ENDPOINTS, PRIMARY_KEYS
 

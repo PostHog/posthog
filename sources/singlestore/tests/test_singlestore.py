@@ -9,8 +9,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-
+from sources.sdk import Resource
 from sources.singlestore.settings import (
     BILLING_USAGE_ENDPOINT,
     ORGANIZATION_ENDPOINT,

@@ -9,9 +9,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.adjust import adjust
 from sources.adjust.adjust import (
     MAX_HISTORY_DAYS,
@@ -31,6 +28,8 @@ from sources.adjust.adjust import (
     validate_credentials,
 )
 from sources.adjust.settings import ADJUST_REPORTS
+from sources.sdk import ResumableSourceManager
+from sources.sdk.internals import validate_incremental_sync
 
 TODAY = date(2024, 6, 30)
 

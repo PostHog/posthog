@@ -8,10 +8,9 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-
 from sources.eppo.eppo import BASE_URL, _build_params, _format_since, eppo_source, validate_credentials
 from sources.eppo.settings import PAGE_LIMIT
+from sources.sdk import APIKeyAuth
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

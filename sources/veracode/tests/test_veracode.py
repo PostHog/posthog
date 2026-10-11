@@ -6,8 +6,7 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
-
+from sources.sdk import TrackedHTTPAdapter
 from sources.veracode.settings import VERACODE_ENDPOINTS
 from sources.veracode.veracode import (
     VeracodeHMACAuth,

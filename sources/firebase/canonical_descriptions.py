@@ -1,8 +1,5 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
 from sources.firebase.settings import AUTH_USERS_TABLE
+from sources.sdk import CanonicalDescriptions
 
 # Only Firebase Auth has a fixed schema. Firestore collections and Realtime Database paths are
 # shaped by the customer's own app, so their columns fall back to the LLM enrichment pass.

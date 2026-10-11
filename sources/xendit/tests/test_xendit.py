@@ -9,8 +9,7 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import SourceResponse
 from sources.xendit.settings import XENDIT_BASE_URL, XENDIT_ENDPOINTS
 from sources.xendit.xendit import (
     XenditResumeConfig,

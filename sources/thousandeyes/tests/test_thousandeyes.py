@@ -9,10 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.facade.types import IncrementalFieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import IncrementalFieldType, ResumableSourceManager, SourceInputs
 from sources.thousandeyes._config import ThousandeyesSourceConfig
 from sources.thousandeyes.source import ThousandeyesSource
 from sources.thousandeyes.thousandeyes import ThousandeyesResumeConfig

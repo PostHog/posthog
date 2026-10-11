@@ -7,15 +7,13 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.revolut_merchant.revolut_merchant import (
     RevolutMerchantResumeConfig,
     revolut_merchant_source,
     validate_credentials,
 )
 from sources.revolut_merchant.settings import API_VERSION
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 BASE_URL = "https://merchant.revolut.com/api"
 

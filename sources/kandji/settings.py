@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 # Kandji's List Devices endpoint caps `limit` at 300; the other list endpoints share the same cap.
 DEVICES_PAGE_SIZE = 300

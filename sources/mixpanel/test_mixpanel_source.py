@@ -5,13 +5,12 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Transient_Error_Messages
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.mixpanel import source as source_module
 from sources.mixpanel._config import MixpanelSourceConfig
 from sources.mixpanel.mixpanel import EXPORT_TRUNCATED_ERROR
 from sources.mixpanel.source import MixpanelSource
+from sources.sdk import SourceInputs
+from sources.sdk.internals import Transient_Error_Messages
 
 LOGGER = structlog.get_logger()
 

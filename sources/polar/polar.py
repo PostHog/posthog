@@ -4,11 +4,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.polar.settings import ENDPOINT_SORT_FIELDS, ENDPOINTS
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 POLAR_BASE_URL = "https://api.polar.sh"
 PAGE_SIZE = 100

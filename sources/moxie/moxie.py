@@ -21,17 +21,16 @@ import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.moxie.settings import MOXIE_API_PATH_PREFIX, MOXIE_ENDPOINTS
+from sources.sdk import (
+    EndpointResource,
+    RESTAPIConfig,
+    SourceResponse,
+    _is_host_safe,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
+)
 
 HOST_NOT_ALLOWED_ERROR = "Moxie workspace base URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Moxie workspace base URL must use HTTPS"

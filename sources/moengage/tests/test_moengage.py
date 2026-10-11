@@ -8,8 +8,6 @@ from unittest import mock
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.moengage.moengage import (
     START_DATE_TOO_OLD_ERROR,
     MoEngageResumeConfig,
@@ -21,6 +19,7 @@ from sources.moengage.moengage import (
     validate_credentials,
 )
 from sources.moengage.settings import MAX_BACKFILL_DAYS, REPORT_WINDOW_DAYS, SEARCH_PAGE_SIZE, STATS_PAGE_SIZE
+from sources.sdk import ResumableSourceManager
 
 # RESTClient builds its session via make_tracked_session in the rest_client module; the daily
 # report shares one session built in the moengage module instead.

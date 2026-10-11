@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Clockodo API documentation
 # (https://www.clockodo.com/en/api/). Partial coverage is fine — anything not listed falls back

@@ -1,8 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.skio._config import SkioSourceConfig
 from sources.skio.source import SkioSource
 

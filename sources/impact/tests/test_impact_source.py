@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.impact import source as source_module
 from sources.impact._config import ImpactSourceConfig
 from sources.impact.source import ImpactSource
+from sources.sdk.testing import error_message_matches
 
 
 def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:

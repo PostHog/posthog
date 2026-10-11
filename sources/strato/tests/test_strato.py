@@ -4,10 +4,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-
+from sources.sdk import SinglePagePaginator
 from sources.strato.strato import get_resource, strato_source, validate_credentials
 
 

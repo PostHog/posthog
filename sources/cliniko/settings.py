@@ -1,6 +1,6 @@
 """Cliniko source settings and constants."""
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every endpoint here is a top-level list resource returning `{<name>: [...], total_entries, links}`,
 # with `id` / `created_at` / `updated_at` on every record (per the Cliniko OpenAPI spec at

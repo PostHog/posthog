@@ -11,16 +11,16 @@ from unittest.mock import MagicMock, call, patch
 from parameterized import parameterized
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.develocity._config import DevelocitySourceConfig
 from sources.develocity.develocity import DevelocityResumeConfig, develocity_source, validate_credentials
 from sources.develocity.source import DevelocitySource
+from sources.sdk import (
+    RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
+)
 
 REST_CLIENT = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
 MIXINS = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"

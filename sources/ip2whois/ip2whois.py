@@ -7,10 +7,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.ip2whois.settings import IP2WHOIS_ENDPOINTS
+from sources.sdk import SourceResponse, make_tracked_session
 
 # Single WHOIS lookup endpoint. Auth is the API key on the `key` query param (the docs also allow a
 # Bearer header — the query param is simpler and equivalent). One domain per request via `domain`.

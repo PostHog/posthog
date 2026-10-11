@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Which root listing a fan-out endpoint enumerates its parents from. Environments are
 # discovered project-by-project, so their prerequisite is the projects listing. The rest are

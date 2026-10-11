@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.grafana_irm.grafana_irm import (
     GrafanaIRMConfigError,
     GrafanaIRMResumeConfig,
@@ -18,6 +16,7 @@ from sources.grafana_irm.grafana_irm import (
     normalize_stack_url,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 TOKEN = "glsa_test_token"
 STACK_URL = "https://acme.grafana.net"

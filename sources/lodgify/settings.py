@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://api.lodgify.com/v2/"
 PAGE_SIZE = 50

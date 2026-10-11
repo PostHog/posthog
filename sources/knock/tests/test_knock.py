@@ -9,9 +9,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.knock.knock import (
     NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
@@ -20,6 +17,7 @@ from sources.knock.knock import (
     validate_credentials,
 )
 from sources.knock.settings import ENDPOINTS_CONFIG
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:

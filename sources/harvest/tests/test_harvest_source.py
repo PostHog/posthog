@@ -2,12 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-
 from sources.harvest._config import HarvestSourceConfig
 from sources.harvest.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.harvest.settings import ENDPOINTS, HARVEST_ENDPOINTS
 from sources.harvest.source import HarvestSource
+from sources.sdk import SourceFieldInputConfig
 
 VALIDATE_PATCH = "sources.harvest.source.validate_harvest_credentials"
 SOURCE_PATCH = "sources.harvest.source.harvest_source"

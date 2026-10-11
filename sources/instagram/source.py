@@ -3,39 +3,6 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, INSTAGRAM_OAUTH_SCOPE, InstagramIntegration
-
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    FieldType,
-    ResumableSource,
-    VersionDeprecation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccount,
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    build_endpoint_schemas,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.instagram._config import InstagramSourceConfig
 from sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
@@ -49,6 +16,32 @@ from sources.instagram.instagram import (
     validate_credentials as validate_instagram_credentials,
 )
 from sources.instagram.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from sources.sdk import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    INSTAGRAM_OAUTH_SCOPE,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    InstagramIntegration,
+    IntegrationAccount,
+    IntegrationAccountListingError,
+    OAuthMixin,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    VersionDeprecation,
+    build_endpoint_schemas,
+)
 
 logger = structlog.get_logger(__name__)
 

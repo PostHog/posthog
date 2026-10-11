@@ -8,9 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.cliniko.cliniko import (
     ClinikoResumeConfig,
     _to_iso8601,
@@ -20,6 +17,7 @@ from sources.cliniko.cliniko import (
     shard_from_api_key,
     validate_credentials,
 )
+from sources.sdk import Endpoint, ResumableSourceManager
 
 
 class TestShardDetection:

@@ -10,16 +10,16 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_sagemaker._config import AwsSagemakerSourceConfig
 from sources.aws_sagemaker.settings import ENDPOINTS, MAX_RESULTS, TARGET_PREFIXES
+from sources.sdk import (
+    BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    schema_for_resource,
+)
 
 TRANSPORT_RETRY = BoundedRetry(
     total=3,

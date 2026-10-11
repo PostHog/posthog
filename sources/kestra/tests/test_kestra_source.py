@@ -1,9 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_sync_settings
-
 from sources.kestra._config import KestraAuthMethodConfig, KestraSourceConfig
 from sources.kestra.source import KestraSource
+from sources.sdk.testing import build_default_sync_settings
 
 
 @pytest.mark.parametrize("names", [None, ["executions"], ["flows"]])

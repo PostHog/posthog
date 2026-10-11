@@ -1,33 +1,25 @@
 from collections.abc import Iterable
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
-    coerce_datetime_to_utc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.hitpay.settings import HITPAY_ENDPOINTS, RECURRING_BILLING_STATUSES, HitpayEndpointConfig
+from sources.sdk import (
+    APIKeyAuth,
     BasePaginator,
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    coerce_datetime_to_utc,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.hitpay.settings import HITPAY_ENDPOINTS, RECURRING_BILLING_STATUSES, HitpayEndpointConfig
 
 HITPAY_PRODUCTION_BASE_URL = "https://api.hit-pay.com"
 HITPAY_SANDBOX_BASE_URL = "https://api.sandbox.hit-pay.com"

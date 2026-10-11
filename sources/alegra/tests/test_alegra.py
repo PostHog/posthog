@@ -9,13 +9,10 @@ import pytest
 from requests import PreparedRequest
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.alegra._config import AlegraSourceConfig
 from sources.alegra.source import AlegraSource
+from sources.sdk import RESTClient, SourceInputs, SourceResponse, UnknownResourceError
+from sources.sdk.testing import error_message_matches
 
 
 def rows(response: SourceResponse) -> list[Any]:

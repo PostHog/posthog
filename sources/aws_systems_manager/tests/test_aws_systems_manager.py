@@ -10,9 +10,6 @@ import requests
 import structlog
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.aws_systems_manager import aws_systems_manager as transport
 from sources.aws_systems_manager._config import AwsSystemsManagerSourceConfig
 from sources.aws_systems_manager.aws_systems_manager import (
@@ -26,6 +23,7 @@ from sources.aws_systems_manager.aws_systems_manager import (
 )
 from sources.aws_systems_manager.settings import API_VERSION
 from sources.aws_systems_manager.source import AwsSystemsManagerSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
 
 
 def response(body: object, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:

@@ -11,9 +11,6 @@ import requests
 import structlog
 from botocore.loaders import Loader
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_cloudtrail import aws_cloudtrail as transport
 from sources.aws_cloudtrail._config import AwsCloudTrailSourceConfig
 from sources.aws_cloudtrail.aws_cloudtrail import (
@@ -27,6 +24,7 @@ from sources.aws_cloudtrail.aws_cloudtrail import (
 )
 from sources.aws_cloudtrail.settings import AWS_CLOUDTRAIL_ENDPOINTS
 from sources.aws_cloudtrail.source import AwsCloudTrailSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 NOW = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
 

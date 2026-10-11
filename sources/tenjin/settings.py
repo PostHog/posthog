@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Every report is requested at daily granularity, so `date` is present on every row. It is the
 # only stable cursor the Reporting Metrics API exposes (it filters server-side via the required

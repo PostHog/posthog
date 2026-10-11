@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Maps our schema/endpoint name to the API resource path segment and merge primary key.
 # All ids are account-wide unique (no fan-out), so every endpoint uses a plain "id" key.

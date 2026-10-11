@@ -4,28 +4,6 @@ import requests
 import structlog
 from google.auth.exceptions import RefreshError
 
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
-
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.google_analytics._config import GoogleAnalyticsSourceConfig
 from sources.google_analytics.google_analytics import (
     GoogleAnalyticsResumeConfig,
@@ -38,6 +16,26 @@ from sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_INCREMENTAL_FIELD,
     CustomReportError,
     build_report_schemas,
+)
+from sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    Integration,
+    OAuthMixin,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    capture_exception,
 )
 
 logger = structlog.get_logger(__name__)

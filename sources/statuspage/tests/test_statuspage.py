@@ -7,10 +7,7 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.statuspage.settings import STATUSPAGE_ENDPOINTS
 from sources.statuspage.statuspage import (
     StatuspageAuth,

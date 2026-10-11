@@ -1,5 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import EndpointResource, IncrementalField
 
 TORII_BASE_URL = "https://api.toriihq.com/v1.0"
 # Contracts only gains cursor pagination, search, sort, and filters under API version 1.1 (the

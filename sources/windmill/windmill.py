@@ -8,20 +8,17 @@ from urllib.parse import quote, urlparse
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.sdk import (
     BasePaginator,
     PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    _is_host_safe,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.windmill.settings import WINDMILL_ENDPOINTS
 
 MAX_RETRY_ATTEMPTS = 5

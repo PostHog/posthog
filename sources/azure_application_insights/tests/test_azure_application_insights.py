@@ -10,10 +10,6 @@ from unittest.mock import MagicMock
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.azure_application_insights._config import AzureApplicationInsightsSourceConfig
 from sources.azure_application_insights.azure_application_insights import (
     AzureApplicationInsightsClient,
@@ -21,6 +17,7 @@ from sources.azure_application_insights.azure_application_insights import (
     azure_application_insights_source,
 )
 from sources.azure_application_insights.source import AzureApplicationInsightsSource
+from sources.sdk import RESTClientRetryableError
 
 TOKEN = {"access_token": "fake-access-token", "expires_in": 3600}
 TIMESTAMP = "2026-01-07T10:00:00.1234567Z"

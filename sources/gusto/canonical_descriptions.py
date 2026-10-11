@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Gusto API reference (https://docs.gusto.com/embedded-payroll/reference).
 # Columns prefixed with `_` are stamped on by the sync so fan-out rows stay unique table-wide.

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the noCRM.io v2 API reference (https://www.nocrm.io/api). Partial coverage is
 # fine — anything omitted falls back to LLM enrichment using the docs_url and column data types.

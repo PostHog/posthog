@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Eventzilla API v2 reference (https://developer.eventzilla.net/docs/). Partial
 # coverage is fine — any endpoint/column not listed here falls back to LLM enrichment.

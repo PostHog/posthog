@@ -9,13 +9,11 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import ConnectionError, HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.kisi._config import KisiSourceConfig
 from sources.kisi.kisi import KisiResumeConfig
 from sources.kisi.settings import AUTH_ERROR, OFFSET_ERROR, PERMISSION_ERROR
 from sources.kisi.source import KisiSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def response(rows: list[dict[str, object]], status: int = 200, collection_range: str | None = None) -> Response:

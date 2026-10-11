@@ -5,30 +5,22 @@ from urllib.parse import parse_qs, urlsplit
 from requests import Response
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.mono._config import MonoSourceConfig
 from sources.mono.settings import AUTH_ERROR, BASE_URL, ENDPOINTS, PERMISSION_ERROR, PRIMARY_KEYS
+from sources.sdk import (
+    ClientConfig,
+    EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    parse_datetime_value,
+    rename_parent_fields,
+    rest_api_resource,
+    rest_api_resources,
+    schema_for_resource,
+)
 
 
 @frozen

@@ -5,15 +5,9 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.g2.settings import G2_BASE_URL, G2_ENDPOINTS, PAGE_SIZE
+from sources.sdk import ResumableSourceManager, SourceResponse, frozen, make_tracked_session, validate_via_probe
+from sources.sdk.internals import Batcher
 
 
 class MissingProductIdError(Exception):

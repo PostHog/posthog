@@ -1,18 +1,15 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.salesflare.settings import SALESFLARE_ENDPOINTS
+from sources.sdk import (
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.salesflare.settings import SALESFLARE_ENDPOINTS
 
 SALESFLARE_BASE_URL = "https://api.salesflare.com"
 # The list endpoints accept a `limit` of up to 100; the largest page minimises round trips.

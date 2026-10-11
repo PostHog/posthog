@@ -1,17 +1,16 @@
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.sdk import (
     Endpoint,
     EndpointResource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
     rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.teamup_fitness._config import TeamupFitnessSourceConfig
 from sources.teamup_fitness.settings import ENDPOINTS
 

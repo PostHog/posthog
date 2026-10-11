@@ -7,12 +7,10 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.productive._config import ProductiveSourceConfig
 from sources.productive.productive import ProductiveResumeConfig
 from sources.productive.source import ProductiveSource
+from sources.sdk import SourceInputs, UnknownResourceError
 
 
 @pytest.mark.parametrize(

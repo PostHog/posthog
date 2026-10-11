@@ -3,21 +3,20 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resources
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.abnormal_security._config import AbnormalSecuritySourceConfig
+from sources.abnormal_security.settings import ENDPOINTS, REGION_HOSTS
+from sources.sdk import (
     ClientConfig,
     EndpointResource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    parse_datetime_value,
+    rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
-from sources.abnormal_security._config import AbnormalSecuritySourceConfig
-from sources.abnormal_security.settings import ENDPOINTS, REGION_HOSTS
 
 AUTH_ERRORS = {
     "401 Client Error": "Your Abnormal API token is invalid or expired. Create a new token and reconnect.",

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Huntr Organization API docs (https://docs.huntr.co).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment. Huntr timestamps are

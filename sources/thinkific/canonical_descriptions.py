@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the Thinkific public Admin API docs (https://developers.thinkific.com/api/api-documentation/).
 # Partial coverage is fine - any endpoint/column not described here falls back to LLM enrichment.

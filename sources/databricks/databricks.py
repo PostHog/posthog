@@ -23,28 +23,22 @@ from databricks.sdk.core import (
 )
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import BacktickIdentifierQuoter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
+from sources.databricks._config import DatabricksSourceConfig
+from sources.sdk import (
+    BacktickIdentifierQuoter,
+    IncrementalFieldFilter,
+    IncrementalFieldType,
+    ParamStyle,
+    SelectQueryBuilder,
+    SourceInputs,
     SourceMetadata,
+    SourceResponse,
     SQLSourceImplementation,
     TableStats,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
-    IncrementalFieldFilter,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
+    log_connection_open,
     normalize_namespace,
     resolve_source_location,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
-    ParamStyle,
-    SelectQueryBuilder,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
-from sources.databricks._config import DatabricksSourceConfig
 
 __all__ = [
     "DatabricksImplementation",

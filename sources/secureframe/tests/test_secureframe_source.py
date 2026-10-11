@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 from sources.secureframe._config import SecureframeSourceConfig
 from sources.secureframe.source import SecureframeSource
 

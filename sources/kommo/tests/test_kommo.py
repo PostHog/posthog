@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.kommo.kommo import KommoResumeConfig, get_resource, kommo_source, normalize_subdomain, validate_credentials
 from sources.kommo.settings import ENDPOINT_CONFIG, ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 SESSION_FACTORY = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 

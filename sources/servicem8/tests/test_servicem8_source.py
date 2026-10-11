@@ -4,9 +4,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import ResumableSourceManager, SourceInputs
 from sources.servicem8._config import Servicem8SourceConfig
 from sources.servicem8.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.servicem8.settings import ENDPOINTS

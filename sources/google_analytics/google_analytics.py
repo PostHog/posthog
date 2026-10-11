@@ -12,16 +12,10 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.models.integration import Integration
-
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.google_analytics._config import GoogleAnalyticsSourceConfig
 from sources.google_analytics.settings import build_report_schemas
+from sources.sdk import Integration, ResumableSourceManager, SourceResponse, integration_secrets, make_tracked_adapter
+from sources.sdk.internals import NamingConvention
 
 logger = structlog.get_logger(__name__)
 

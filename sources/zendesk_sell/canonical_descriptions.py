@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the Zendesk Sell (Base CRM) Core API docs: https://developer.zendesk.com/api-reference/sales-crm/
 # Partial coverage is fine — any endpoint/column not listed falls back to LLM enrichment.

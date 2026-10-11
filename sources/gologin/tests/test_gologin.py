@@ -9,14 +9,11 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.gologin._config import GoLoginSourceConfig
 from sources.gologin.gologin import GoLoginResumeConfig, gologin_source, validate_credentials
 from sources.gologin.settings import REQUEST_TIMEOUT
 from sources.gologin.source import GoLoginSource
+from sources.sdk import Resource, ResumableSourceManager, SourceInputs
 
 
 @pytest.fixture

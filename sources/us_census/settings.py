@@ -1,6 +1,6 @@
 import dataclasses
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 CENSUS_API_BASE_URL = "https://api.census.gov/data"
 

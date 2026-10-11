@@ -1,9 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 # Twenty's core REST list endpoints cap `limit` at 200 (`QUERY_MAX_RECORDS` server-side, verified
 # against the REST request parser source); the documented default is 60. Requesting the max keeps

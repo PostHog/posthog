@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Zonka Feedback API v2.1 docs (https://apidocs.zonkafeedback.com).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

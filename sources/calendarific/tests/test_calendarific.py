@@ -8,11 +8,10 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests import HTTPError, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.calendarific._config import CalendarificSourceConfig
 from sources.calendarific.calendarific import CalendarificClient
 from sources.calendarific.source import CalendarificSource
+from sources.sdk import SourceInputs
 
 BASE_URL = "https://calendarific.com/api/v2"
 API_KEY = "calendarific-test-key"

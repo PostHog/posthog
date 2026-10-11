@@ -6,9 +6,7 @@ Jellyfish app login, so column-level coverage is limited to fields documented th
 endpoint names in `settings.py` `JELLYFISH_ENDPOINTS`.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _WINDOW_COLUMNS = {
     "window_start_date": "First day of the calendar-month window this row was exported for (added by PostHog).",

@@ -3,11 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-
 from sources.persistiq import source as source_module
 from sources.persistiq._config import PersistIqSourceConfig
 from sources.persistiq.source import PersistIqSource
+from sources.sdk import ReleaseStatus, SourceFieldInputConfig
 
 
 class TestPersistIqSource:

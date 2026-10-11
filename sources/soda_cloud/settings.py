@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import incremental_field
 
 API_DOCS_URL = "https://docs.soda.io/reference/soda-apis/rest-api"
 REGIONS = {"eu": "https://cloud.soda.io", "us": "https://cloud.us.soda.io"}

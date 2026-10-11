@@ -2,12 +2,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField, SortMode, incremental_field
 
 METRONOME_BASE_URL = "https://api.metronome.com"
 
