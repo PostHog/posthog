@@ -11,15 +11,9 @@ use axum::{
 use bytes::Bytes;
 use chrono::TimeDelta;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
-use opentelemetry_proto::tonic::collector::logs::v1::{
-    ExportLogsServiceRequest, ExportLogsServiceResponse,
-};
-use opentelemetry_proto::tonic::collector::metrics::v1::{
-    ExportMetricsServiceRequest, ExportMetricsServiceResponse,
-};
-use opentelemetry_proto::tonic::collector::trace::v1::{
-    ExportTraceServiceRequest, ExportTraceServiceResponse,
-};
+use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
+use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -407,7 +401,8 @@ pub(crate) fn decode_body_if_gzip_magic(
 ///
 /// OTLP exporters decode the body with the request's Content-Type, so a JSON body
 /// after a protobuf request makes them log a decode error for each batch.
-fn export_success_response<T: Message + Default>(headers: &HeaderMap) -> Response {
+/// An empty body is a valid encoding of an empty `Export*ServiceResponse`.
+fn export_success_response(headers: &HeaderMap) -> Response {
     let is_protobuf = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -415,11 +410,7 @@ fn export_success_response<T: Message + Default>(headers: &HeaderMap) -> Respons
         .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/x-protobuf"));
 
     if is_protobuf {
-        (
-            [(CONTENT_TYPE, "application/x-protobuf")],
-            T::default().encode_to_vec(),
-        )
-            .into_response()
+        ([(CONTENT_TYPE, "application/x-protobuf")], Vec::<u8>::new()).into_response()
     } else {
         Json(json!({})).into_response()
     }
@@ -539,9 +530,7 @@ pub async fn export_logs_http(
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
-    Ok(export_success_response::<ExportLogsServiceResponse>(
-        &headers,
-    ))
+    Ok(export_success_response(&headers))
 }
 
 /// Handle CORS preflight requests (OPTIONS method) for all log endpoints.
@@ -688,9 +677,7 @@ pub async fn export_traces_http(
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
 
-    Ok(export_success_response::<ExportTraceServiceResponse>(
-        &headers,
-    ))
+    Ok(export_success_response(&headers))
 }
 
 /// Parse OpenTelemetry metric message from JSON bytes.
@@ -830,9 +817,7 @@ pub async fn export_metrics_http(
         );
     }
 
-    Ok(export_success_response::<ExportMetricsServiceResponse>(
-        &headers,
-    ))
+    Ok(export_success_response(&headers))
 }
 
 #[cfg(test)]
@@ -869,7 +854,7 @@ mod tests {
                 headers.insert(CONTENT_TYPE, content_type.parse().unwrap());
             }
 
-            let response = export_success_response::<ExportLogsServiceResponse>(&headers);
+            let response = export_success_response(&headers);
 
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(
