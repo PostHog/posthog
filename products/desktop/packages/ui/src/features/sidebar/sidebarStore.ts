@@ -7,6 +7,7 @@ import {
   DEFAULT_CHANNEL_ITEM_SORT,
   DESKTOP_SOURCE,
   migrateSourceFilter,
+  WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
@@ -191,9 +192,11 @@ export const useSidebarStore = create<SidebarStore>()(
         const sources = filters.sources
           ? Array.from(
               new Set(
-                filters.sources.map((source) =>
-                  source === "user_created" ? DESKTOP_SOURCE : source,
-                ),
+                filters.sources.map((source) => {
+                  if (source === "user_created") return DESKTOP_SOURCE;
+                  if (source === "posthog_ai") return WEB_SOURCE;
+                  return source;
+                }),
               ),
             )
           : filters.sources;

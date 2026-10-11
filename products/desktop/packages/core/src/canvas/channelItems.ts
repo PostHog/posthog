@@ -135,6 +135,9 @@ function environmentOf(
 }
 
 function sourceOf(task: Task): string | null {
+  if (task.origin_product === "posthog_ai") {
+    return WEB_SOURCE;
+  }
   if (task.origin_product === "user_created") {
     if (
       task.client_provenance === MOBILE_SOURCE ||
