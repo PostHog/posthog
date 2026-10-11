@@ -1,1 +1,1 @@
-0170_signalscoutconfig_lifecycle_locked
+0172_signalscoutconfig_precheck_disabled

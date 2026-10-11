@@ -340,6 +340,39 @@ def background_sample_bucket(team_id: int) -> int:
     return int.from_bytes(digest[:8], "big") % 100
 
 
+# Payload key: a `{skill_name: percent}` map. It sets the share of projects (0-100) whose scout uses
+# the default pre-check its canonical skill ships. A skill that is absent reads as 0, so a new
+# default stays off until the flag names it, and the rest of the projects form the control group.
+PRECHECK_DEFAULT_ROLLOUT_KEY = "precheck_default_rollout"
+
+
+def _parse_precheck_default_rollout(payload: dict | None) -> dict[str, int]:
+    raw = (payload or {}).get(PRECHECK_DEFAULT_ROLLOUT_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        name: max(0, min(100, percent))
+        for name, percent in raw.items()
+        if isinstance(name, str) and isinstance(percent, int) and not isinstance(percent, bool)
+    }
+
+
+def precheck_default_rollout_percent(skill_name: str) -> int:
+    """The share of projects (0-100) that use this skill's default pre-check. 0 when the payload is unreadable."""
+    return _parse_precheck_default_rollout(_read_flag_payload()).get(skill_name, 0)
+
+
+def precheck_default_rollout_bucket(team_id: int, skill_name: str) -> int:
+    """The stable 0-99 bucket of a project for one skill's default pre-check.
+
+    A project uses the default when its bucket is below the skill's rollout percent, so a wider
+    rollout keeps every project a narrower one included. The skill name is in the hash, so each
+    skill gets its own control group.
+    """
+    digest = hashlib.sha256(f"signals-scout-precheck-default:{skill_name}:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+
 def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     """Parse the `background` block, or return `None` when the coordinator must not act on it.
 

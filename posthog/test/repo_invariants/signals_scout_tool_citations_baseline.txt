@@ -43,6 +43,8 @@ scout-emit-report
 scout-lighthouse-audit
 scout-record-output
 scout-run-now
+scout-trial-report
+scout-trial-start
 survey-stats
 surveys-global-stats
 view-run-history

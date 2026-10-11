@@ -5,7 +5,6 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import {
     INBOX_CREATED_WINDOW_OPTIONS,
     INBOX_MODEL_SORT_OPTIONS,
-    INBOX_MODEL_SORT_SECTIONS,
     INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
     inboxPriorityFilterLabel,
@@ -37,14 +36,15 @@ const PRIORITY_SELECT_OPTIONS = [
 
 // No icons: the trigger reads out the active option, and an icon there would crowd the label the
 // order is already stated in.
-const toSortSelectOption = (option: InboxSortOption): { value: string; label: string } => ({
+const toSortSelectOption = (option: InboxSortOption): { value: string; label: string; tooltip?: string } => ({
     value: inboxSortOptionKey(option.field, option.direction),
     label: option.label,
+    tooltip: option.description,
 })
 const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map(toSortSelectOption)
 const SORT_SELECT_SECTIONS_WITH_MODEL = [
     { options: SORT_SELECT_OPTIONS },
-    ...INBOX_MODEL_SORT_SECTIONS.map(({ title, options }) => ({ title, options: options.map(toSortSelectOption) })),
+    { title: 'Model scores', options: INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption) },
 ]
 const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
 

@@ -259,6 +259,8 @@ async def _arun_signals_scout(
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -271,6 +273,10 @@ async def _arun_signals_scout(
     `run_note` is the one-off steering a person typed when triggering the run by hand. It renders
     its own prompt section and is stamped on the run row, so the run it steered says so in its own
     history; it is never carried into a later run.
+
+    `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
+    They render in their own prompt section as untrusted data. `precheck_query_source` says which
+    pre-check started the run, and is stamped on the run row.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     trial = (
@@ -524,6 +530,8 @@ async def _arun_signals_scout(
             run_note=run_note,
             trial=trial,
             check_id=check_id,
+            precheck_rows=precheck_rows,
+            precheck_query_source=precheck_query_source,
         )
         trial_status = tasks_facade.TaskRunStatus.COMPLETED.value
         runtime_s = time.monotonic() - started
@@ -723,6 +731,8 @@ async def arun_signals_scout(
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -736,6 +746,8 @@ async def arun_signals_scout(
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
             check_id=check_id,
+            precheck_rows=precheck_rows,
+            precheck_query_source=precheck_query_source,
         )
 
 
@@ -895,6 +907,8 @@ async def _spawn_and_run(
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -1011,6 +1025,7 @@ async def _spawn_and_run(
         # manual trigger carries a nudge a person typed alongside the scout's usual work.
         triggered_by=triggered_by,
         is_private_trial=trial is not None,
+        precheck_rows=precheck_rows,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1042,6 +1057,7 @@ async def _spawn_and_run(
             run_note=run_note,
             trial=trial,
             check_id=check_id,
+            precheck_query_source=precheck_query_source,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1315,6 +1331,7 @@ def _create_run_row(
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1406,6 +1423,10 @@ def _create_run_row(
     # `scout-report-check-list` read it to tie the check to this run.
     if check_id:
         metadata["check_id"] = check_id
+    # Which pre-check started this run (`config` or `skill_default`), so run outcomes can be split
+    # by it. Absent when no pre-check ran.
+    if precheck_query_source:
+        metadata["precheck_query_source"] = precheck_query_source
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run_id=task_run_id,

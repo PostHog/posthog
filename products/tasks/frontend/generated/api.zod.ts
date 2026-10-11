@@ -11,7 +11,7 @@ import * as zod from 'zod'
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Create a loop
  */
 export const loopsCreateBodyNameMax = 400

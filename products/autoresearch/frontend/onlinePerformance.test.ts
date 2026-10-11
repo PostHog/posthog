@@ -19,11 +19,14 @@ function counts(tp: number, fp: number, fn: number, tn: number): ConfusionByCuto
 
 describe('onlinePerformance', () => {
     test('calibrationBySegment weights each bin by its people and drops empty segments', () => {
-        const segments = calibrationBySegment([
-            { n: 300, mean_p_y: 0.05, positive_rate: 0.04 },
-            { n: 100, mean_p_y: 0.15, positive_rate: 0.2 },
-            { n: 50, mean_p_y: 0.7, positive_rate: 0.6 },
-        ])
+        const segments = calibrationBySegment(
+            [
+                { n: 300, mean_p_y: 0.05, positive_rate: 0.04 },
+                { n: 100, mean_p_y: 0.15, positive_rate: 0.2 },
+                { n: 50, mean_p_y: 0.7, positive_rate: 0.6 },
+            ],
+            { likely_threshold: 0.6, possible_threshold: 0.2, base_rate: null }
+        )
 
         expect(
             segments.map(({ segment, people, predicted, actual }) => [segment.key, people, predicted, actual])

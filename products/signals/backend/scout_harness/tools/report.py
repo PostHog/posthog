@@ -116,6 +116,7 @@ from products.signals.backend.scout_report import (
     find_scout_report_by_idempotency_key,
     get_content_revision_count,
     get_scout_report_capture_snapshot,
+    get_scout_report_decision_contents,
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
@@ -541,6 +542,10 @@ def _capture_trial_report(
         "billing_exempt_reason": None,
         "channel_id": None,
     }
+    if not judgement.safety.choice:
+        document["suppression_source"] = "safety_judge"
+        document["suppression_explanation"] = judgement.safety.explanation or None
+    TrialReport.apply_actionability(document, judgement.actionability)
     artefacts = [
         _trial_artefact(store.run, "note", scout_report_provenance(store.run).model_dump(mode="json")),
         _trial_artefact(
@@ -626,12 +631,19 @@ def _capture_trial_edit(
     suggested_prompts: list[str] | None,
     supersedes_implementation: bool,
     corroboration_only: bool,
+    actionability: ActionabilityAssessment | None,
+    priority: PriorityAssessment | None,
 ) -> EditReportResult:
     if supersedes_implementation:
         store.invalidate("Implementation replacement is not supported by private trials.")
         raise InvalidScoutReportError("Implementation replacement is not supported for this run.")
     original = _trial_report_for_edit(store, report_id)
     source_selection = persisted_repo_selection(report_id) if original.source_report_id else None
+    source_decisions = (
+        get_scout_report_decision_contents(team_id=store.run.team_id, report_id=report_id)
+        if original.source_report_id and (actionability is not None or priority is not None)
+        else {}
+    )
     connected_repos = _connected_repositories(store.run.team_id) if title is not None or summary is not None else []
 
     def change(report: TrialReport) -> EditReportResult:
@@ -660,6 +672,11 @@ def _capture_trial_edit(
                 "suggested_prompts": list(suggested_prompts) if suggested_prompts is not None else None,
                 "supersedes_implementation": supersedes_implementation,
                 "corroboration_only": corroboration_only,
+                "actionability": actionability.actionability.value if actionability is not None else None,
+                "actionability_explanation": actionability.explanation if actionability is not None else None,
+                "already_addressed": actionability.already_addressed if actionability is not None else None,
+                "priority": priority.priority.value if priority is not None else None,
+                "priority_explanation": priority.explanation if priority is not None else None,
             }
         )
         updated_fields = []
@@ -740,6 +757,33 @@ def _capture_trial_edit(
         if repository_set and selection is not None:
             document["repo_slug"] = selection.repository
             report.artefacts.append(_trial_artefact(store.run, "repo_selection", selection.model_dump(mode="json")))
+        decision_fields_set: list[str] = []
+        assessment: ActionabilityAssessment | PriorityAssessment | None
+        for field, assessment in (("actionability", actionability), ("priority", priority)):
+            if assessment is None:
+                continue
+            kind = f"{field}_judgment"
+            previous = next(
+                (artefact["content"] for artefact in reversed(report.artefacts) if artefact["type"] == kind),
+                source_decisions.get(kind),
+            )
+            try:
+                previous_assessment = type(assessment).model_validate(previous) if previous is not None else None
+            except ValidationError:
+                previous_assessment = None
+            if assessment == previous_assessment:
+                continue
+            content = assessment.model_dump(mode="json")
+            report.artefacts.append(_trial_artefact(store.run, kind, content))
+            if isinstance(assessment, ActionabilityAssessment):
+                report.apply_actionability(document, assessment)
+                addressed = "already addressed" if assessment.already_addressed else "not yet addressed"
+                note = f"Set actionability: {assessment.actionability.value} ({addressed})"
+            else:
+                document["priority"] = assessment.priority.value
+                note = f"Set priority: {assessment.priority.value}"
+            report.artefacts.append(_trial_artefact(store.run, "note", {"note": note, "author": store.run.skill_name}))
+            decision_fields_set.append(field)
         charts_set = metrics_set = prompts_set = None
         for name, values in (
             ("charts", [chart.model_dump(mode="json") for chart in charts] if charts is not None else None),
@@ -772,6 +816,7 @@ def _capture_trial_edit(
             content_revision_count=report.content_revision_count,
             supersedes_implementation=supersede,
             corroboration_collapsed=collapsed,
+            decision_fields_set=tuple(decision_fields_set),
         )
         if result.changed:
             # Production moves `updated_at` only when it saves report content. Notes, reviewers and a
@@ -2438,6 +2483,8 @@ def _do_edit_report(
             suggested_prompts=suggested_prompts,
             supersedes_implementation=supersedes_implementation,
             corroboration_only=corroboration_only,
+            actionability=actionability,
+            priority=priority,
         )
 
     attribution = author.attribution()

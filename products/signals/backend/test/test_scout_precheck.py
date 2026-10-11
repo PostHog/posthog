@@ -5,16 +5,28 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from unittest.mock import patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Team
+
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.scout_harness.precheck import PRECHECK_MAX_ROWS, evaluate_scout_precheck
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
+from products.signals.backend.scout_harness.precheck import (
+    PRECHECK_MAX_ROWS,
+    evaluate_scout_precheck,
+    precheck_interval_minutes,
+    resolve_effective_precheck,
+)
+from products.skills.backend.models.skills import LLMSkill
 
 NOW = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
 SKILL = "signals-scout-errors"
 NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp > {since} AND timestamp <= {now}"
+SURVEYS_SKILL = "signals-scout-surveys"
+ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
 @time_machine.travel(NOW, tick=False)
@@ -134,6 +146,98 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
 
         assert result is None
         capture.assert_not_called()
+
+
+@time_machine.travel(NOW, tick=False)
+class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=SURVEYS_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=SURVEYS_SKILL)
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(created_at=NOW - timedelta(hours=2))
+
+    def _evaluate(self, rollout_percent: int):
+        with (
+            patch(ROLLOUT_PERCENT, return_value=rollout_percent),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
+        ):
+            result = evaluate_scout_precheck(self.team.pk, SURVEYS_SKILL)
+        return result, capture
+
+    @parameterized.expand(
+        [
+            ("no_survey_events", [], 2, "skip", 0),
+            ("survey_shown_without_answers", ["survey shown"], 2, "run", 1),
+            # Quiet for longer than two daily intervals, so the backstop row starts the run.
+            ("backstop", [], 50, "run", 1),
+        ]
+    )
+    def test_surveys_default_gates_the_run(self, _name, events, quiet_hours, outcome, row_count) -> None:
+        SignalScoutConfig.all_teams.filter(team=self.team).update(created_at=NOW - timedelta(hours=quiet_hours))
+        for event in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="d1",
+                timestamp=NOW - timedelta(hours=1),
+                properties={"$survey_id": "s1"},
+            )
+        flush_persons_and_events()
+
+        result, capture = self._evaluate(rollout_percent=100)
+
+        assert result is not None
+        assert (result.outcome, result.row_count, result.query_source) == (outcome, row_count, "skill_default")
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["query_source"] == "skill_default"
+        assert properties["rollout_bucket"] is not None
+
+    def test_project_outside_the_rollout_runs_as_before(self) -> None:
+        result, capture = self._evaluate(rollout_percent=0)
+
+        assert result is None
+        capture.assert_not_called()
+
+
+class TestResolveEffectivePrecheck(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("disabled_wins_over_everything", True, "SELECT 1", True, 100, None, "off"),
+            ("own_query_wins_over_default", False, "SELECT 1", True, 100, "SELECT 1", "config"),
+            ("default_inside_rollout", False, None, True, 100, "default", "skill_default"),
+            ("default_outside_rollout", False, None, True, 0, None, "off"),
+            ("custom_skill_inherits_nothing", False, None, False, 100, None, "off"),
+        ]
+    )
+    def test_precedence(self, _name, disabled, own_query, is_canonical, percent, query, source) -> None:
+        config = SignalScoutConfig(
+            team_id=1, skill_name=SURVEYS_SKILL, precheck_query=own_query, precheck_disabled=disabled
+        )
+        with (
+            patch(ROLLOUT_PERCENT, return_value=percent),
+            patch(
+                "products.signals.backend.scout_harness.precheck.canonical_precheck_query_for",
+                return_value="default",
+            ),
+        ):
+            effective = resolve_effective_precheck(config, is_canonical=is_canonical)
+
+        assert (effective.query, effective.source) == (query, source)
+
+    @parameterized.expand(
+        [
+            ("rolling", None, 360, 360),
+            ("daily_cron", "0 9 * * *", 1440, 1440),
+            ("twice_daily_cron_between_slots", "0 9,17 * * *", 1440, 480),
+            ("invalid_cron_falls_back", "not a cron", 90, 90),
+        ]
+    )
+    def test_interval_minutes(self, _name, cron, interval, expected) -> None:
+        config = SignalScoutConfig(run_cron_schedule=cron, run_interval_minutes=interval)
+
+        assert precheck_interval_minutes(config, Team(timezone="UTC"), NOW) == expected
 
 
 @time_machine.travel(NOW, tick=False)

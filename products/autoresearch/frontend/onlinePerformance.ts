@@ -8,10 +8,10 @@ import {
 } from './generated/api.schemas'
 import { modelQuality } from './modelQuality'
 import {
-    PREDICTION_SEGMENTS,
-    PREDICTION_SEGMENT_THRESHOLDS,
     PredictionSegmentDefinition,
+    PredictionSegmentThresholds,
     predictionSegmentFor,
+    predictionSegmentDefinitions,
 } from './predictionSegments'
 
 export interface RealizedAucPoint {
@@ -103,17 +103,20 @@ export function realizedAucSeries(rows: OnlinePerformanceRowApi[]): RealizedAucP
  * Predicted against actual rate per likelihood segment. The quantile bins do not align with the
  * segment cut points, so each bin goes to the segment of its mean predicted probability.
  */
-export function calibrationBySegment(bins: CalibrationBinApi[]): SegmentCalibration[] {
+export function calibrationBySegment(
+    bins: CalibrationBinApi[],
+    thresholds: PredictionSegmentThresholds
+): SegmentCalibration[] {
     const totals = new Map<string, { people: number; predicted: number; actual: number }>()
     for (const bin of bins) {
-        const key = predictionSegmentFor(bin.mean_p_y).key
+        const key = predictionSegmentFor(bin.mean_p_y, thresholds).key
         const total = totals.get(key) ?? { people: 0, predicted: 0, actual: 0 }
         total.people += bin.n
         total.predicted += bin.n * bin.mean_p_y
         total.actual += bin.n * bin.positive_rate
         totals.set(key, total)
     }
-    return PREDICTION_SEGMENTS.flatMap((segment) => {
+    return predictionSegmentDefinitions(thresholds).flatMap((segment) => {
         const total = totals.get(segment.key)
         return total && total.people > 0
             ? [
@@ -172,7 +175,7 @@ function cutoffGroup(cutoff: AccuracyCutoff): string {
         case 'top_20':
             return 'the top 20% the model flagged'
         case 'likely':
-            return `the people the model scored ${PREDICTION_SEGMENT_THRESHOLDS.high * 100}% or higher`
+            return 'the people the model scored as likely'
     }
 }
 

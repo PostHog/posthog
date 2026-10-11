@@ -20,6 +20,8 @@ if is_inbox_ranking_registered():
             inbox_ranking_dataset.inbox_report_labels,
             inbox_ranking_dataset.inbox_report_model_data,
             inbox_ranking_dataset.inbox_report_title_embeddings,
+            inbox_ranking_dataset.inbox_report_reviewers,
+            inbox_ranking_dataset.inbox_user_report_interactions,
             inbox_ranking_training.inbox_ranking_training_examples,
             inbox_ranking_training.inbox_ranking_model_candidate,
             inbox_ranking_training.inbox_ranking_model_champion,

@@ -517,6 +517,7 @@ def _collect_planned_runs(
         except Exception:
             logger.exception("signals_scout coordinator: background reconcile failed; continuing")
     paused_by_team = _breaker_paused_configs_by_team()
+    skipped_without_consent = 0
     reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
     for team, needs_seed in _participating_teams(enrollment, reconcile_team_ids=set(reconcile_by_team)):
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
@@ -568,6 +569,11 @@ def _collect_planned_runs(
                     withheld_for_team,
                     [team_configs.get(team.id) or {}, default_team_config],
                 )
+        # The tools drop every output of a run without AI data processing consent, so the run
+        # only spends model time. The configs keep their status and dispatch again after approval.
+        if not _ai_data_processing_approved(team):
+            skipped_without_consent += 1
+            continue
         # Skip enabled configs whose skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
@@ -579,6 +585,12 @@ def _collect_planned_runs(
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
         due.extend(_collect_probe_runs(paused_by_team.get(team.id, []), live_skills, now))
+
+    if skipped_without_consent:
+        logger.info(
+            "signals_scout coordinator: skipped teams without AI data processing consent",
+            team_count=skipped_without_consent,
+        )
 
     if background is not None and background.enabled:
         due.extend(_collect_background_runs(background, background_team_ids, team_configs, default_team_config, now))
@@ -774,7 +786,7 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
     all_ids = explicit | wildcard_ids
     if not all_ids:
         return []
-    teams = {team.id: team for team in Team.objects.filter(id__in=all_ids)}
+    teams = {team.id: team for team in Team.objects.filter(id__in=all_ids).select_related("organization")}
     return [(teams[team_id], team_id in explicit) for team_id in sorted(all_ids) if team_id in teams]
 
 
