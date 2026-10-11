@@ -16,6 +16,17 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: revenue_analytics
+scout-precheck-query: |
+  SELECT * FROM (
+    SELECT 'source' AS kind, source_type AS detail
+    FROM system.data_warehouse_sources
+    WHERE source_type = 'Stripe' AND deleted = 0
+    UNION ALL
+    SELECT 'events', toString(JSONLength(events))
+    FROM system.revenue_analytics_config
+    WHERE JSONLength(events) > 0
+  )
+  LIMIT 10
 ---
 
 # Signals scout: revenue analytics
@@ -62,6 +73,10 @@ The fallback has limits. Say so in any finding that relies on it:
 - A view name carries the event name with `_` in place of special characters. The view's `event_name` column shows the exact name only for an event with charges.
 - It does not show the property mapping. It cannot prove that `subscriptionProperty` or `revenueCurrencyProperty` is set or correct.
 - It does not show `filter_test_accounts`.
+
+## Pre-check rows
+
+A scheduled run can start with a `<precheck_result>` block. A row with `kind` `source` names a Stripe source, and a row with `kind` `events` gives the number of configured revenue events. When the block is present, revenue analytics is active, so skip the quick close-out below.
 
 ## Quick close-out: is revenue analytics even active?
 
