@@ -21,7 +21,6 @@ from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
-from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
@@ -793,7 +792,9 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
 
 
-def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) -> EvaluationActivityResult:
+def _call_openai_compatible_judge(
+    resolved_ips: set[IPv4Address | IPv6Address], backfill: bool = False
+) -> EvaluationActivityResult:
     key = MagicMock(
         provider="openai_compatible",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -810,6 +811,7 @@ def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) 
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
+            backfill=backfill,
         )
 
 
@@ -822,23 +824,18 @@ def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
     assert "Base URL must be a public https:// URL" in result["reasoning"]
 
 
-@pytest.mark.parametrize("attempt,maximum_attempts", [(1, 3), (2, 3), (3, 0), (5, 0), (4, 6)])
-def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int, maximum_attempts: int) -> None:
+@pytest.mark.parametrize("attempt,backfill", [(1, False), (2, False), (3, True), (5, True)])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int, backfill: bool) -> None:
     env = ActivityEnvironment()
-    env.info = dataclasses.replace(
-        env.info, attempt=attempt, retry_policy=RetryPolicy(maximum_attempts=maximum_attempts)
-    )
+    env.info = dataclasses.replace(env.info, attempt=attempt)
 
     with pytest.raises(TransientJudgeError):
-        env.run(_call_openai_compatible_judge, set())
+        env.run(_call_openai_compatible_judge, set(), backfill)
 
 
-@pytest.mark.parametrize("maximum_attempts", [3, 6])
-def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason(maximum_attempts: int) -> None:
+def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
     env = ActivityEnvironment()
-    env.info = dataclasses.replace(
-        env.info, attempt=maximum_attempts, retry_policy=RetryPolicy(maximum_attempts=maximum_attempts)
-    )
+    env.info = dataclasses.replace(env.info, attempt=3)
 
     result = env.run(_call_openai_compatible_judge, set())
 

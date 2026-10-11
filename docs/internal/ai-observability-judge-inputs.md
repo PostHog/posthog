@@ -157,13 +157,15 @@ The playground keeps the provider's explanation so users can correct the setting
 
 ## Backfill recovery
 
-Backfills dispatch evaluations concurrently using the existing batch size and wait for their outcomes before advancing progress.
-The batch size defaults to 500 and is bounded between 1 and 1,000.
-The existing shared ClickHouse concurrency limiter still applies across background AI observability queries.
-Trace and session backfills run at most 4 evaluations at once (`LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT`), because each one holds a slot of that limiter, which every team's live evaluations share.
-Generation backfills start the whole batch at once.
-Backfill fetch and judge activities retry temporary database, DNS, connection, and rate-limit failures for up to 30 minutes per activity.
-Backoff starts at 10 seconds and increases to at most one minute; successful requests do not wait for that interval.
+Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
+A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
+Lower the setting if backfills crowd out live evaluations.
+Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
+A backfill run never treats its last attempt as permanent, so a DNS failure fails the run instead of disabling the evaluation.
+After 10 failed runs in a row, the backfill pauses for 1, 2, 5, 10, then 30 minutes, and a success resets that sequence.
+When the pauses run out, or a run reports an error that disables the evaluation, the backfill stops as **Interrupted** and keeps its cursor.
+Its stop reason says whether the evaluation was disabled or the runs kept failing.
 Live evaluation retry budgets remain unchanged.
 Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
 Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.

@@ -19,13 +19,13 @@ from posthog.temporal.ai_observability.evaluation_errors import (
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_activity, run_hog_eval
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
-    BACKFILL_ACTIVITY_RETRY_POLICY,
-    BACKFILL_ACTIVITY_TIMEOUT,
     DEFAULT_JUDGE_MODEL,
     LLM_JUDGE_RETRY_POLICY,
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     ExecuteLLMJudgeInputs,
+    backfill_retry_policy,
+    backfill_timeout,
     build_system_prompt,
     execute_llm_judge_activity,
     get_output_type_config,
@@ -296,10 +296,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # Total deadline including queue wait: without it a task stuck in the queue
                     # keeps the workflow RUNNING forever, and USE_EXISTING then blocks every later
                     # trigger for this (evaluation, event) pair.
-                    schedule_to_close_timeout=BACKFILL_ACTIVITY_TIMEOUT if recover_backfill else timedelta(minutes=8),
-                    retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY
-                    if recover_backfill
-                    else RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=8)),
+                    retry_policy=backfill_retry_policy(recover_backfill, RetryPolicy(maximum_attempts=3)),
                 )
             except temporalio.exceptions.ActivityError as e:
                 if isinstance(e.cause, ApplicationError) and e.cause.type == EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE:
@@ -342,14 +340,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         ExecuteLLMJudgeInputs(
                             evaluation=evaluation,
                             event_data=event_data,
-                            retry_maximum_attempts=(
-                                BACKFILL_ACTIVITY_RETRY_POLICY.maximum_attempts if recover_backfill else None
-                            ),
+                            backfill_id=inputs.backfill_id if recover_backfill else None,
                         ),
-                        schedule_to_close_timeout=BACKFILL_ACTIVITY_TIMEOUT
-                        if recover_backfill
-                        else timedelta(minutes=6),
-                        retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY if recover_backfill else LLM_JUDGE_RETRY_POLICY,
+                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=6)),
+                        retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
                     handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)

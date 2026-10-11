@@ -22,6 +22,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_backfill import (
     ACTIVITY_RETRY_POLICY,
+    BACKFILL_FAILURE_PAUSES,
     BACKFILL_MAX_CONSECUTIVE_FAILURES,
     MAX_BACKFILL_BATCH_SIZE,
     AdvanceCursorInputs,
@@ -83,6 +84,7 @@ class _BackfillMocks:
         self.peak_children = 0
         self.active_at_advance: list[int] = []
         self.activity_calls: list[tuple] = []
+        self.sleep = AsyncMock()
         self.child_calls: list[dict] = []
 
     async def execute_activity(self, activity_fn, activity_input, **_) -> object:
@@ -92,7 +94,7 @@ class _BackfillMocks:
             raise result
         if activity_fn is advance_evaluation_backfill_cursor_activity and activity_fn not in self.activity_results:
             self.active_at_advance.append(self.active_children)
-            return AdvanceCursorOutput(finished=activity_input.exhausted)
+            return AdvanceCursorOutput(finished=activity_input.exhausted or activity_input.stop_reason is not None)
         return result
 
     async def start_child_workflow(self, *args, **kwargs) -> object:
@@ -159,7 +161,7 @@ async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = 
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.continue_as_new") as continue_as_new,
-        patch("temporalio.workflow.sleep", new=AsyncMock()),
+        patch("temporalio.workflow.sleep", new=mocks.sleep),
         patch("temporalio.workflow.patched", return_value=bounded),
     ):
         await EvaluationBackfillWorkflow().run(inputs or _inputs())
@@ -224,10 +226,10 @@ class TestEvaluationBackfillWorkflow:
             info = temporalio.activity.info()
             attempt = info.attempt
             if recovers:
-                assert info.schedule_to_close_timeout == timedelta(minutes=30)
+                assert info.schedule_to_close_timeout == timedelta(minutes=15 if target == "session" else 10)
             attempts.append(attempt)
             if attempt <= 4 or persistent:
-                if failure_kind == "dns" and _is_last_judge_attempt(payload.get("retry_maximum_attempts")):
+                if failure_kind == "dns" and _is_last_judge_attempt(payload.get("backfill_id") is not None):
                     return {
                         "result_type": "boolean",
                         "skipped": True,
@@ -335,7 +337,7 @@ class TestEvaluationBackfillWorkflow:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("max_in_flight,peak", [(0, 19), (4, 4)])
+    @pytest.mark.parametrize("max_in_flight,peak", [(0, 16), (4, 4)])
     async def test_batch_dispatch_waits_for_outcomes_before_advancing(self, max_in_flight: int, peak: int) -> None:
         found = dataclasses.replace(
             _found([_candidate(f"u{i}") for i in range(19)], exhausted=True),
@@ -427,23 +429,47 @@ class TestEvaluationBackfillWorkflow:
         assert _advance_input(mocks).skipped_delta == int(not restarted)
 
     @pytest.mark.asyncio
-    async def test_failed_batch_stops_before_dispatching_another_page(self) -> None:
+    @pytest.mark.parametrize(
+        "failing,disabling,started,pauses,stop_reason",
+        [
+            pytest.param(
+                set(range(70)), None, 60, list(BACKFILL_FAILURE_PAUSES), "execution_failed", id="persistent_outage"
+            ),
+            pytest.param({i for i in range(70) if i % 10}, None, 70, [], None, id="scattered_failures"),
+            pytest.param(set(), 1, 2, [], "evaluation_disabled", id="evaluation_disabled"),
+        ],
+    )
+    async def test_failures_pause_and_stop_the_backfill(
+        self, failing: set[int], disabling: int | None, started: int, pauses: list[timedelta], stop_reason: str | None
+    ) -> None:
+        results: dict[str, WorkflowResult | Exception] = {
+            f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("judge unavailable") for i in failing
+        }
+        if disabling is not None:
+            results[f"llma-hog-eval-E-u{disabling}-ingestion"] = {
+                "evaluation_id": "E",
+                "evaluation_type": "hog",
+                "skipped": True,
+                "skip_reason": "key_invalid",
+            }
         mocks = _BackfillMocks(
             activity_results={
-                prepare_evaluation_backfill_tick_activity: _tick(),
-                find_evaluation_backfill_candidates_activity: _found([_candidate(f"u{i}") for i in range(9)]),
+                prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=1),
+                find_evaluation_backfill_candidates_activity: _found(
+                    [_candidate(f"u{i}") for i in range(70)], exhausted=True
+                ),
             },
-            child_results_for_ids={
-                f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("worker unavailable") for i in range(9)
-            },
+            child_results_for_ids=results,
         )
 
-        continue_as_new = await _run(mocks, bounded=True)
+        await _run(mocks, bounded=True)
 
-        assert len(mocks.child_calls) == 9
-        assert _advance_input(mocks).failed_delta == 9
-        assert fail_evaluation_backfill_activity in _called(mocks)
-        continue_as_new.assert_not_called()
+        advance = _advance_input(mocks)
+        assert len(mocks.child_calls) == advance.dispatched_delta == started
+        assert [call.args[0] for call in mocks.sleep.call_args_list] == pauses
+        assert advance.stop_reason == stop_reason
+        assert advance.exhausted == (stop_reason is None)
+        assert (advance.new_cursor_timestamp is None) == (stop_reason is not None)
 
     @pytest.mark.asyncio
     async def test_finished_tick_returns_without_dispatch(self) -> None:
@@ -869,6 +895,7 @@ class TestEvaluationBackfillActivities:
             "skipped_count": 1,
             "failed_count": 1,
             "remaining_count": 1,
+            "billed_evaluations": 6,
             "completed_count": None,
             "evaluation_skipped_count": 0,
             "duration_seconds": 300.0,
@@ -956,11 +983,11 @@ class TestEvaluationBackfillActivities:
         ]
 
     @pytest.mark.parametrize(
-        "configured,expected",
-        [(7, 7), (0, 1), (-5, 1), (MAX_BACKFILL_BATCH_SIZE * 10, MAX_BACKFILL_BATCH_SIZE)],
+        "configured,expected,in_flight",
+        [(7, 7, 7), (0, 1, 1), (-5, 1, 1), (MAX_BACKFILL_BATCH_SIZE * 10, MAX_BACKFILL_BATCH_SIZE, 10000)],
     )
-    def test_prepare_dispatches_with_a_clamped_batch_size(self, backfill_data, configured, expected) -> None:
-        with override_settings(LLMA_EVAL_BACKFILL_BATCH_SIZE=configured):
+    def test_prepare_dispatches_with_a_clamped_batch_size(self, backfill_data, configured, expected, in_flight) -> None:
+        with override_settings(LLMA_EVAL_BACKFILL_BATCH_SIZE=configured, LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT=configured):
             result = async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
 
         assert result == PrepareTickOutput(
@@ -972,16 +999,8 @@ class TestEvaluationBackfillActivities:
             settle={},
             rerun_existing=False,
             batch_size=expected,
+            max_in_flight=in_flight,
         )
-
-    @pytest.mark.parametrize("target,expected", [("generation", 0), ("trace", 3), ("session", 3)])
-    def test_prepare_caps_in_flight_children_for_aggregate_targets(self, backfill_data, target, expected) -> None:
-        _update_backfill(backfill_data, target=target)
-
-        with override_settings(LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT=3):
-            result = async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
-
-        assert result.max_in_flight == expected
 
     def test_find_serializes_candidates_and_cursor(self, backfill_data) -> None:
         _update_backfill(backfill_data, cursor_timestamp=UNIT_TIMESTAMP + timedelta(hours=1), cursor_unit_id="u0")
@@ -1028,7 +1047,8 @@ class TestEvaluationBackfillActivities:
         )
         assert result.exhausted
 
-    def test_advance_is_idempotent_on_retry(self, backfill_data) -> None:
+    @pytest.mark.parametrize("stop_reason", [None, "execution_failed"])
+    def test_advance_is_idempotent_on_retry(self, backfill_data, stop_reason: str | None) -> None:
         advance = _advance(
             backfill_data,
             dispatched_delta=5,
@@ -1037,6 +1057,10 @@ class TestEvaluationBackfillActivities:
             completed_delta=2,
             evaluation_skipped_delta=1,
         )
+        if stop_reason:
+            advance = dataclasses.replace(
+                advance, new_cursor_timestamp=None, new_cursor_unit_id="", stop_reason=stop_reason
+            )
 
         first = async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
         second = async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
@@ -1045,11 +1069,15 @@ class TestEvaluationBackfillActivities:
         row = backfill_data["backfill"]
         assert (row.dispatched_count, row.skipped_count, row.failed_count) == (5, 1, 2)
         assert (row.completed_count, row.evaluation_skipped_count) == (2, 1)
-        assert backfill_data["backfill"].cursor_unit_id == "u3"
-        assert not first.finished
-        # The second call matched nothing because the first already moved the cursor. Reading that
-        # as finished would end the loop with the row still RUNNING and the window half walked.
-        assert not second.finished
+        assert (row.status, row.status_reason) == (
+            (EvaluationBackfillStatus.INTERRUPTED, stop_reason)
+            if stop_reason
+            else (EvaluationBackfillStatus.RUNNING, "")
+        )
+        assert row.cursor_unit_id == ("" if stop_reason else "u3")
+        # The second call matched nothing because the first already moved the cursor or ended the
+        # row. Reading a moved cursor as finished would end the loop with the window half walked.
+        assert first.finished == second.finished == bool(stop_reason)
 
     def test_advance_marks_completed_when_exhausted(self, backfill_data) -> None:
         result = async_to_sync(advance_evaluation_backfill_cursor_activity)(_advance(backfill_data, exhausted=True))

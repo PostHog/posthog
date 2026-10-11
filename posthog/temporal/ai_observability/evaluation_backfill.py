@@ -6,6 +6,7 @@ own and continues as new after each batch, however long the window takes to drai
 
 import asyncio
 import hashlib
+from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -19,7 +20,7 @@ from django.utils import timezone
 
 import structlog
 import temporalio
-from temporalio.client import WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError, is_cancelled_exception
 from temporalio.workflow import ParentClosePolicy
@@ -74,6 +75,17 @@ MIN_BACKFILL_BATCH_SIZE = 1
 MAX_BACKFILL_BATCH_SIZE = 1000
 # A tick that keeps failing would otherwise leave the row RUNNING and the loop spinning forever.
 BACKFILL_MAX_CONSECUTIVE_FAILURES = 5
+BACKFILL_DEFAULT_MAX_IN_FLIGHT = 16
+BACKFILL_FAILURES_BEFORE_PAUSE = 10
+# Each pause in a row waits longer, and a success starts the sequence over. Once the pauses run out,
+# the backfill stops and the units it did not reach stay for Retry remaining.
+BACKFILL_FAILURE_PAUSES = (
+    timedelta(minutes=1),
+    timedelta(minutes=2),
+    timedelta(minutes=5),
+    timedelta(minutes=10),
+    timedelta(minutes=30),
+)
 
 
 def settle_horizon(target: str, settle: dict[str, Any] | None) -> timedelta:
@@ -166,6 +178,7 @@ class AdvanceCursorInputs:
     failed_delta: int = 0
     completed_delta: int | None = None
     evaluation_skipped_delta: int = 0
+    stop_reason: str | None = None
 
 
 @frozen
@@ -198,27 +211,72 @@ class ChildOutcome(StrEnum):
     FAILED = "failed"
     EXISTING = "existing"
     RETRYABLE = "retryable"
+    NOT_STARTED = "not_started"
 
 
 @frozen
 class BackfillChildOutcome:
     outcome: ChildOutcome
     started: bool = False
+    stop_reason: str | None = None
+
+
+def _stop_reason(result: WorkflowResult) -> str | None:
+    reason = result.get("skip_reason", "")
+    if reason == "evaluation_deleted":
+        return reason
+    spec = USER_ERROR_SPECS.get(reason)
+    if reason == "evaluation_disabled" or (spec is not None and spec.disables_evaluation):
+        return "evaluation_disabled"
+    return None
+
+
+class _BackfillPacing:
+    """Decides, as runs finish, whether a backfill keeps starting runs, pauses, or stops."""
+
+    def __init__(self) -> None:
+        self.failures = 0
+        self.pauses = 0
+        self.stop_reason: str | None = None
+        self._pausing = asyncio.Lock()
+
+    @property
+    def stopped(self) -> bool:
+        return self.stop_reason is not None
+
+    async def ready(self) -> bool:
+        async with self._pausing:
+            while not self.stopped and self.failures >= BACKFILL_FAILURES_BEFORE_PAUSE:
+                if self.pauses == len(BACKFILL_FAILURE_PAUSES):
+                    self.stop_reason = "execution_failed"
+                else:
+                    # Count runs still in flight toward the next streak, and let a success during
+                    # the pause restart the sequence.
+                    pause = BACKFILL_FAILURE_PAUSES[self.pauses]
+                    self.pauses += 1
+                    self.failures = 0
+                    await temporalio.workflow.sleep(pause)
+        return not self.stopped
+
+    def record(self, result: BackfillChildOutcome) -> None:
+        if result.stop_reason:
+            self.stop_reason = self.stop_reason or result.stop_reason
+        elif result.outcome == ChildOutcome.FAILED:
+            self.failures += 1
+        else:
+            self.failures = 0
+            self.pauses = 0
 
 
 def _child_outcome(result: WorkflowResult) -> ChildOutcome:
     if not result["skipped"]:
         return ChildOutcome.EVALUATED
-    reason = result.get("skip_reason", "")
-    spec = USER_ERROR_SPECS.get(reason)
-    if reason in (
-        "evaluation_disabled",
-        "evaluation_deleted",
+    if _stop_reason(result) or result.get("skip_reason", "") in (
         "parse_error",
         "unparsable_response",
         "output_limit_exceeded",
         "host_unresolved",
-    ) or (spec is not None and spec.disables_evaluation):
+    ):
         return ChildOutcome.RETRYABLE
     return ChildOutcome.SKIPPED
 
@@ -227,15 +285,12 @@ def _child_outcome(result: WorkflowResult) -> ChildOutcome:
 async def existing_backfill_child_outcome_activity(child: ChildWorkflow) -> ChildOutcome:
     client = await async_connect()
     handle = client.get_workflow_handle(child.workflow_id, result_type=WorkflowResult)
-    while True:
-        temporalio.activity.heartbeat()
-        try:
-            result = await asyncio.wait_for(handle.result(), timeout=20)
-            return _child_outcome(result)
-        except TimeoutError:
-            continue
-        except WorkflowFailureError:
-            return ChildOutcome.RETRYABLE
+    if (await handle.describe()).status == WorkflowExecutionStatus.RUNNING:
+        return ChildOutcome.EXISTING
+    try:
+        return _child_outcome(await handle.result())
+    except WorkflowFailureError:
+        return ChildOutcome.RETRYABLE
 
 
 def child_workflow_name_and_id(
@@ -308,6 +363,8 @@ def report_backfill_finished(
                 "skipped_count": row.skipped_count,
                 "failed_count": row.failed_count,
                 "remaining_count": row.remaining_count,
+                # Each dispatched evaluation emits one billed $ai_evaluation event.
+                "billed_evaluations": row.dispatched_count,
                 "completed_count": row.completed_count,
                 "evaluation_skipped_count": row.evaluation_skipped_count,
                 "duration_seconds": (finished_at - row.created_at).total_seconds(),
@@ -340,6 +397,11 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
         return PrepareTickOutput(action=TickAction.FINISHED)
 
     evaluation = row.evaluation
+    # Three ways an evaluation can no longer produce a run, all ending the backfill. An unknown
+    # evaluation type has no workflow id prefix, so interrupting here keeps that failure in an
+    # activity rather than raising a KeyError inside workflow code. A disabled evaluation ends the
+    # backfill too, because nothing would tell the loop the evaluation came back, so holding the
+    # cursor would leave the row RUNNING and the workflow ticking forever.
     if evaluation.deleted or not evaluation.enabled or evaluation.evaluation_type not in EVALUATION_WORKFLOW_PREFIXES:
         stop_reason = (
             "evaluation_deleted"
@@ -362,9 +424,7 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
         settle=evaluation.target_config,
         rerun_existing=row.rerun_existing,
         batch_size=max(MIN_BACKFILL_BATCH_SIZE, min(settings.LLMA_EVAL_BACKFILL_BATCH_SIZE, MAX_BACKFILL_BATCH_SIZE)),
-        max_in_flight=0
-        if row.target == EvaluationTarget.GENERATION.value
-        else max(1, settings.LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT),
+        max_in_flight=max(1, settings.LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT),
     )
 
 
@@ -443,7 +503,11 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     if inputs.new_cursor_timestamp is not None:
         updates["cursor_timestamp"] = datetime.fromisoformat(inputs.new_cursor_timestamp)
         updates["cursor_unit_id"] = inputs.new_cursor_unit_id
-    if inputs.exhausted:
+    if inputs.stop_reason:
+        updates["status"] = EvaluationBackfillStatus.INTERRUPTED
+        updates["status_reason"] = inputs.stop_reason
+        updates["finished_at"] = timezone.now()
+    elif inputs.exhausted:
         updates["status"] = EvaluationBackfillStatus.COMPLETED
         updates["finished_at"] = timezone.now()
         if inputs.completed_delta is not None:
@@ -474,7 +538,10 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
         applied=bool(updated),
     )
     if updated:
-        return AdvanceCursorOutput(finished=inputs.exhausted)
+        if inputs.stop_reason:
+            status = "failed" if inputs.stop_reason == "execution_failed" else "stopped"
+            report_backfill_finished(inputs.team_id, inputs.backfill_id, status=status, stop_reason=inputs.stop_reason)
+        return AdvanceCursorOutput(finished=inputs.exhausted or inputs.stop_reason is not None)
     # Zero rows has two causes that end differently. If the row is no longer RUNNING, someone
     # cancelled or completed it and the loop stops. If it is still RUNNING, an earlier attempt of
     # this same advance already committed and only its result was lost, so the loop must carry on
@@ -592,21 +659,22 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
         temporalio.workflow.continue_as_new(replace(inputs, consecutive_failures=0))
 
     async def _dispatch_bounded_batch(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> None:
-        found = await temporalio.workflow.execute_activity(
-            find_evaluation_backfill_candidates_activity,
-            FindCandidatesInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id, limit=tick.batch_size),
-            start_to_close_timeout=timedelta(seconds=120),
-            schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-        slots = asyncio.Semaphore(tick.max_in_flight or max(1, len(found.candidates)))
+        found = await self._find_candidates(inputs, tick)
+        # A tick prepared by a worker that predates max_in_flight carries 0.
+        slots = asyncio.Semaphore(tick.max_in_flight or BACKFILL_DEFAULT_MAX_IN_FLIGHT)
+        pacing = _BackfillPacing()
 
         async def run_in_slot(candidate: CandidatePayload) -> BackfillChildOutcome:
             async with slots:
-                return await self._run_child(inputs, tick, candidate)
+                if not await pacing.ready():
+                    return BackfillChildOutcome(outcome=ChildOutcome.NOT_STARTED)
+                result = await self._run_child(inputs, tick, candidate)
+                pacing.record(result)
+                return result
 
         # boffin: advance only after every child in this batch has a known outcome.
         results = await asyncio.gather(*(run_in_slot(candidate) for candidate in found.candidates))
+        outcomes = Counter(result.outcome for result in results)
         advance = await temporalio.workflow.execute_activity(
             advance_evaluation_backfill_cursor_activity,
             AdvanceCursorInputs(
@@ -614,36 +682,23 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 expected_cursor_timestamp=found.started_from_cursor_timestamp,
                 expected_cursor_unit_id=found.started_from_cursor_unit_id,
-                new_cursor_timestamp=found.next_cursor_timestamp,
-                new_cursor_unit_id=found.next_cursor_unit_id,
+                # A stopped page keeps its cursor, because it never reached some of its units.
+                new_cursor_timestamp=None if pacing.stopped else found.next_cursor_timestamp,
+                new_cursor_unit_id="" if pacing.stopped else found.next_cursor_unit_id,
                 dispatched_delta=sum(result.started for result in results),
-                skipped_delta=sum(result.outcome == ChildOutcome.EXISTING for result in results),
-                completed_delta=sum(result.outcome == ChildOutcome.EVALUATED for result in results),
-                evaluation_skipped_delta=sum(result.outcome == ChildOutcome.SKIPPED for result in results),
-                failed_delta=sum(result.outcome == ChildOutcome.FAILED for result in results),
-                exhausted=found.exhausted,
+                skipped_delta=outcomes[ChildOutcome.EXISTING],
+                completed_delta=outcomes[ChildOutcome.EVALUATED],
+                evaluation_skipped_delta=outcomes[ChildOutcome.SKIPPED],
+                failed_delta=outcomes[ChildOutcome.FAILED],
+                exhausted=found.exhausted and not pacing.stopped,
+                stop_reason=pacing.stop_reason,
             ),
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
         if advance.finished:
-            await temporalio.workflow.execute_activity(
-                measure_evaluation_backfill_remainder_activity,
-                MeasureRemainderInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id),
-                start_to_close_timeout=timedelta(seconds=120),
-                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
-            return
-        if results and all(result.outcome == ChildOutcome.FAILED for result in results):
-            await temporalio.workflow.execute_activity(
-                fail_evaluation_backfill_activity,
-                inputs,
-                start_to_close_timeout=ACTIVITY_TIMEOUT,
-                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-                retry_policy=FAIL_BACKFILL_RETRY_POLICY,
-            )
+            await self._measure_remainder(inputs)
             return
         await temporalio.workflow.sleep(BACKFILL_TICK_INTERVAL)
         temporalio.workflow.continue_as_new(replace(inputs, consecutive_failures=0))
@@ -667,17 +722,20 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 outcome = await temporalio.workflow.execute_activity(
                     existing_backfill_child_outcome_activity,
                     child,
-                    start_to_close_timeout=CHILD_EXECUTION_TIMEOUT,
-                    heartbeat_timeout=timedelta(seconds=60),
+                    start_to_close_timeout=ACTIVITY_TIMEOUT,
+                    schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
                 if outcome != ChildOutcome.RETRYABLE:
                     return BackfillChildOutcome(outcome=ChildOutcome.EXISTING)
                 handle = await self._start_child_handle(inputs, tick, candidate, retry_completed=True)
             started = True
-            outcome = _child_outcome(await asyncio.shield(handle))
+            result = await asyncio.shield(handle)
+            outcome = _child_outcome(result)
             return BackfillChildOutcome(
-                started=True, outcome=ChildOutcome.FAILED if outcome == ChildOutcome.RETRYABLE else outcome
+                started=True,
+                outcome=ChildOutcome.FAILED if outcome == ChildOutcome.RETRYABLE else outcome,
+                stop_reason=_stop_reason(result),
             )
         except Exception as error:
             if is_cancelled_exception(error):
@@ -689,13 +747,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
 
     async def _dispatch_batch(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> bool:
         """Walk one page, start a child per unit, and advance the cursor. True ends the loop."""
-        found = await temporalio.workflow.execute_activity(
-            find_evaluation_backfill_candidates_activity,
-            FindCandidatesInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id, limit=tick.batch_size),
-            start_to_close_timeout=timedelta(seconds=120),
-            schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
+        found = await self._find_candidates(inputs, tick)
         # A page whose children mostly went out must not be re-dispatched because one start
         # raised: the retry would collide with every child already running. The unit that failed
         # is left to a later backfill and counted as failed, not skipped, because skipped means
@@ -734,25 +786,37 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             # After the advance, never before it: inserting an activity ahead of one an in-flight
             # history already recorded breaks replay. The row therefore completes with no count
             # for a moment, and a null count states that rather than claiming full coverage.
-            try:
-                await temporalio.workflow.execute_activity(
-                    measure_evaluation_backfill_remainder_activity,
-                    MeasureRemainderInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id),
-                    start_to_close_timeout=timedelta(seconds=120),
-                    schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-                increment_backfill_remainder_outcome("success")
-            except Exception as error:
-                # The walk is done either way, so failing the tick here would spend a consecutive
-                # failure and log at exception level over a number the row can live without.
-                if is_cancelled_exception(error):
-                    raise
-                increment_backfill_remainder_outcome("failed")
-                temporalio.workflow.logger.warning(
-                    "llma.evaluation_backfill_remainder_failed", extra={"backfill_id": inputs.backfill_id}
-                )
+            await self._measure_remainder(inputs)
         return advance.finished
+
+    async def _find_candidates(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> FindCandidatesOutput:
+        return await temporalio.workflow.execute_activity(
+            find_evaluation_backfill_candidates_activity,
+            FindCandidatesInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id, limit=tick.batch_size),
+            start_to_close_timeout=timedelta(seconds=120),
+            schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+
+    async def _measure_remainder(self, inputs: EvaluationBackfillInputs) -> None:
+        try:
+            await temporalio.workflow.execute_activity(
+                measure_evaluation_backfill_remainder_activity,
+                MeasureRemainderInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id),
+                start_to_close_timeout=timedelta(seconds=120),
+                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+            increment_backfill_remainder_outcome("success")
+        except Exception as error:
+            # The walk is done either way, so failing the tick here would spend a consecutive
+            # failure and log at exception level over a number the row can live without.
+            if is_cancelled_exception(error):
+                raise
+            increment_backfill_remainder_outcome("failed")
+            temporalio.workflow.logger.warning(
+                "llma.evaluation_backfill_remainder_failed", extra={"backfill_id": inputs.backfill_id}
+            )
 
     async def _handle_failed_tick(self, inputs: EvaluationBackfillInputs) -> None:
         failures = inputs.consecutive_failures + 1
