@@ -5,8 +5,8 @@ use crate::trace_record::KafkaTraceRow;
 use axum::{
     extract::Query,
     extract::State,
-    http::{HeaderMap, StatusCode},
-    response::Json,
+    http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
+    response::{IntoResponse, Json, Response},
 };
 use bytes::Bytes;
 use chrono::TimeDelta;
@@ -397,6 +397,21 @@ pub(crate) fn decode_body_if_gzip_magic(
     }
 }
 
+/// Protobuf clients can't decode a JSON body.
+fn export_success_response(headers: &HeaderMap) -> Response {
+    let is_protobuf = headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/x-protobuf"));
+
+    if is_protobuf {
+        ([(CONTENT_TYPE, "application/x-protobuf")], Vec::<u8>::new()).into_response()
+    } else {
+        Json(json!({})).into_response()
+    }
+}
+
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     content_type = %headers.get("content-type")
@@ -418,7 +433,7 @@ pub async fn export_logs_http(
     Query(backfill_params): Query<BackfillParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -493,7 +508,13 @@ pub async fn export_logs_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .write(
+            token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            backfill_params.backfill_days,
+        )
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
@@ -505,8 +526,7 @@ pub async fn export_logs_http(
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
-    // Return empty JSON object per OTLP spec
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 /// Handle CORS preflight requests (OPTIONS method) for all log endpoints.
@@ -574,7 +594,7 @@ pub async fn export_traces_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -653,7 +673,7 @@ pub async fn export_traces_http(
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 /// Parse OpenTelemetry metric message from JSON bytes.
@@ -712,7 +732,7 @@ pub async fn export_metrics_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -793,7 +813,7 @@ pub async fn export_metrics_http(
         );
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 #[cfg(test)]
@@ -805,6 +825,44 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(data).unwrap();
         Bytes::from(encoder.finish().unwrap())
+    }
+
+    #[tokio::test]
+    async fn export_success_response_matches_request_encoding() {
+        let cases = [
+            (
+                Some("application/x-protobuf"),
+                "application/x-protobuf",
+                &b""[..],
+            ),
+            (
+                Some("Application/X-Protobuf; charset=binary"),
+                "application/x-protobuf",
+                &b""[..],
+            ),
+            (Some("application/json"), "application/json", &b"{}"[..]),
+            (None, "application/json", &b"{}"[..]),
+        ];
+
+        for (request_content_type, expected_content_type, expected_body) in cases {
+            let mut headers = HeaderMap::new();
+            if let Some(content_type) = request_content_type {
+                headers.insert(CONTENT_TYPE, content_type.parse().unwrap());
+            }
+
+            let response = export_success_response(&headers);
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get(CONTENT_TYPE).unwrap(),
+                expected_content_type,
+                "request content type {request_content_type:?}"
+            );
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(body.as_ref(), expected_body);
+        }
     }
 
     #[test]

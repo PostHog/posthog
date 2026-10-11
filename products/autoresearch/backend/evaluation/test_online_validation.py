@@ -27,6 +27,11 @@ from products.autoresearch.backend.evaluation.online_validation import (
     find_pending_validation_dates,
     run_online_validation_for_pipeline,
 )
+from products.autoresearch.backend.evaluation.segment_thresholds import (
+    FIXED_LIKELY_THRESHOLD,
+    champion_score_calibration,
+    segment_thresholds,
+)
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import BATCH_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
@@ -40,7 +45,10 @@ class TestComputeValidationMetrics(SimpleTestCase):
 
     def test_returns_base_counts(self):
         metrics = _compute_validation_metrics(
-            self._predictions(), frozenset(["user-1", "user-2"]), prediction_date=date(2026, 9, 6)
+            self._predictions(),
+            frozenset(["user-1", "user-2"]),
+            prediction_date=date(2026, 9, 6),
+            likely_threshold=FIXED_LIKELY_THRESHOLD,
         )
         assert metrics["n_scored"] == 5
         assert metrics["n_positive"] == 2
@@ -61,7 +69,12 @@ class TestComputeValidationMetrics(SimpleTestCase):
         ]
     )
     def test_realized_auc(self, _name, preds, expected_auc):
-        metrics = _compute_validation_metrics(preds, frozenset(["high-1", "high-2"]), prediction_date=date(2026, 9, 1))
+        metrics = _compute_validation_metrics(
+            preds,
+            frozenset(["high-1", "high-2"]),
+            prediction_date=date(2026, 9, 1),
+            likely_threshold=FIXED_LIKELY_THRESHOLD,
+        )
         assert metrics["realized_auc"] == expected_auc
 
     @parameterized.expand(
@@ -71,7 +84,12 @@ class TestComputeValidationMetrics(SimpleTestCase):
         ]
     )
     def test_single_class_skips_only_the_auc(self, _name, labels):
-        metrics = _compute_validation_metrics({"user-1": 0.5, "user-2": 0.6}, labels, prediction_date=date(2026, 9, 1))
+        metrics = _compute_validation_metrics(
+            {"user-1": 0.5, "user-2": 0.6},
+            labels,
+            prediction_date=date(2026, 9, 1),
+            likely_threshold=FIXED_LIKELY_THRESHOLD,
+        )
         assert metrics["warning"] == "single_class_no_auc"
         assert "realized_auc" not in metrics
         assert "realized_auc_ci_low" not in metrics
@@ -103,9 +121,14 @@ class TestComputeValidationMetrics(SimpleTestCase):
         preds = {f"user-{i}": score for i, score in enumerate(scores)}
         positives = frozenset(["user-0", "user-3", "user-5"])
 
-        metrics = _compute_validation_metrics(preds, positives, prediction_date=date(2026, 9, 1))
+        metrics = _compute_validation_metrics(
+            preds, positives, prediction_date=date(2026, 9, 1), likely_threshold=FIXED_LIKELY_THRESHOLD
+        )
         reversed_metrics = _compute_validation_metrics(
-            dict(reversed(list(preds.items()))), positives, prediction_date=date(2026, 9, 1)
+            dict(reversed(list(preds.items()))),
+            positives,
+            prediction_date=date(2026, 9, 1),
+            likely_threshold=FIXED_LIKELY_THRESHOLD,
         )
 
         assert metrics["confusion"] == reversed_metrics["confusion"]
@@ -132,6 +155,62 @@ class TestComputeValidationMetrics(SimpleTestCase):
             assert counts["tp"] + counts["fp"] + counts["fn"] + counts["tn"] == metrics["n_scored"]
             assert counts["tp"] + counts["fn"] == metrics["n_positive"]
         assert 0.0 < metrics["average_precision"] <= 1.0
+
+
+def _checked_date(*entries: tuple[str, str, int, int, float | None]) -> AutoresearchRun:
+    return AutoresearchRun(
+        metrics={
+            "per_model": {
+                model_id: {"emitted_role": role, "n_scored": n_scored, "n_positive": n_positive, "mean_p_y": mean_p_y}
+                for model_id, role, n_scored, n_positive, mean_p_y in entries
+            }
+        }
+    )
+
+
+class TestSegmentThresholds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("rare_target", [[("m", "champion", 2000, 30, None)]], (0.045, 0.015, 0.015)),
+            (
+                "pooled_over_dates",
+                [[("m", "champion", 1000, 10, None)], [("m", "champion", 1000, 30, None)]],
+                (0.06, 0.02, 0.02),
+            ),
+            ("high_base_rate_is_capped", [[("m", "champion", 100, 50, None)]], (0.75, 0.5, 0.5)),
+            (
+                "shadow_models_are_skipped",
+                [[("m", "champion", 1000, 20, None), ("s", "shadow", 1000, 900, None)]],
+                (0.06, 0.02, 0.02),
+            ),
+            ("too_few_positives_is_fixed", [[("m", "champion", 1000, 5, None)]], (0.6, 0.2, None)),
+            ("no_checked_dates_is_fixed", [], (0.6, 0.2, None)),
+        ]
+    )
+    def test_cut_points_follow_the_realized_base_rate(self, _name, dates, expected):
+        thresholds = segment_thresholds([_checked_date(*entries) for entries in dates])
+
+        assert (thresholds.likely, thresholds.possible, thresholds.base_rate) == expected
+        assert thresholds.dates == len(dates)
+
+    @parameterized.expand(
+        [
+            ("calibrated", 0.025, False),
+            ("class_weighted", 0.3, True),
+            ("under_predicting", 0.005, True),
+        ]
+    )
+    def test_champion_score_calibration(self, _name, mean_p_y, expect_miscalibrated):
+        runs = [
+            _checked_date(("champ", "champion", 1000, 20, mean_p_y)),
+            _checked_date(("former", "champion", 1000, 20, 0.9)),
+        ]
+
+        calibration = champion_score_calibration(runs, "champ")
+
+        assert calibration is not None
+        assert (calibration.mean_p_y, calibration.base_rate) == (mean_p_y, 0.02)
+        assert calibration.miscalibrated is expect_miscalibrated
 
 
 class TestAucConfidenceInterval(SimpleTestCase):
@@ -485,6 +564,39 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         assert label_call.kwargs["query"].values["window_end"] == datetime(2026, 9, 8, tzinfo=UTC)
         assert label_call.kwargs["query"].values["limit"] == 5
         assert "LIMIT {limit}" in label_call.kwargs["query"].query
+
+    @parameterized.expand(
+        [
+            ("no_earlier_dates_use_the_fixed_cut_point", [], FIXED_LIKELY_THRESHOLD),
+            ("earlier_dates_set_it_by_lift", [(date(2026, 8, 31), 10)], 0.15),
+            ("later_dates_are_ignored", [(date(2026, 8, 31), 10), (date(2026, 9, 2), 100)], 0.15),
+        ]
+    )
+    def test_the_likely_counts_use_the_cut_point_from_earlier_dates(self, _name, checked, expected_threshold):
+        for prediction_date, n_positive in checked:
+            AutoresearchRun.objects.create(
+                pipeline=self.pipeline,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status=AutoresearchRun.Status.COMPLETED,
+                completed_at=django_timezone.now(),
+                metrics={
+                    "prediction_date": prediction_date.isoformat(),
+                    "horizon_days": 7,
+                    "per_model": {
+                        str(self.champion.pk): {"emitted_role": "champion", "n_scored": 200, "n_positive": n_positive}
+                    },
+                },
+            )
+        hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"]])
+
+        with patch.object(online_validation, "run_hogql", hogql):
+            runs = run_online_validation_for_pipeline(self.pipeline)
+
+        per_model = runs[0].metrics["per_model"][str(self.champion.pk)]
+        assert per_model["likely_threshold"] == expected_threshold
+        assert per_model["confusion"]["likely"]["n_flagged"] == sum(
+            score >= expected_threshold for score in (0.9, 0.8, 0.2, 0.1)
+        )
 
     @parameterized.expand(
         [

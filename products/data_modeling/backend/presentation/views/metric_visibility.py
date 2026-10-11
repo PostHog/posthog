@@ -18,11 +18,13 @@ class MetricNodeVisibilityMixin:
         return frozenset({NodeType.METRIC}) if self._metric_nodes_hidden() else frozenset()
 
     def _exclude_hidden_nodes(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(saved_query__deleted=True)
         if self._metric_nodes_hidden():
             return queryset.exclude(type=NodeType.METRIC)
         return queryset
 
     def _exclude_hidden_edges(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True))
         if self._metric_nodes_hidden():
             return queryset.exclude(Q(source__type=NodeType.METRIC) | Q(target__type=NodeType.METRIC))
         return queryset

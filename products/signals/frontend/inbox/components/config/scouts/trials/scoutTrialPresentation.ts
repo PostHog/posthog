@@ -47,7 +47,8 @@ export function trialVerdictLabel(verdict: TrialCriterionVerdictApi['verdict']):
 export interface TrialVersionResult {
     variant: TrialVariantAggregateApi
     letter: string
-    rank: number
+    rank: number | null
+    excluded: boolean
     counts: TrialVerdictCounts
     runs: TrialRunJudgmentApi[]
     settings: string[]
@@ -58,7 +59,7 @@ export interface TrialVersionResult {
 
 export function trialVersionResults(report: TrialComparisonReportApi, rows: ScoutTrialRow[]): TrialVersionResult[] {
     const baselineEvidence = report.evidence.filter((run) => run.variant_id === report.baseline_variant_id)
-    const versions = report.variants.map((variant, index) => {
+    const versions: TrialVersionResult[] = report.variants.map((variant, index) => {
         const runs = report.runs.filter((run) => run.variant_id === variant.variant_id)
         const evidence = report.evidence.filter((run) => run.variant_id === variant.variant_id)
         const results = runs.map((run) => rows.find((row) => row.launchId === run.launch_id)?.result)
@@ -73,7 +74,12 @@ export function trialVersionResults(report: TrialComparisonReportApi, rows: Scou
         return {
             variant,
             letter: String.fromCharCode(65 + index),
-            rank: 0,
+            rank: null,
+            excluded:
+                variant.total_runs === 0 ||
+                variant.judged_runs !== variant.total_runs ||
+                variant.excluded_runs > 0 ||
+                variant.judge_errors > 0,
             counts: trialVariantVerdictCounts(variant.criteria),
             runs,
             settings: [...new Set(evidence.map((run) => `${run.model} · ${run.reasoning_effort}`))],
@@ -91,8 +97,15 @@ export function trialVersionResults(report: TrialComparisonReportApi, rows: Scou
                     : null,
         }
     })
-    versions.sort((left, right) => right.counts.passed - left.counts.passed)
+    versions.sort(
+        (left, right) =>
+            Number(left.excluded) - Number(right.excluded) ||
+            (left.excluded ? 0 : right.counts.passed - left.counts.passed)
+    )
     for (const [index, version] of versions.entries()) {
+        if (version.excluded) {
+            continue
+        }
         version.rank =
             index > 0 && version.counts.passed === versions[index - 1].counts.passed
                 ? versions[index - 1].rank

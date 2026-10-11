@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -25,7 +26,6 @@ _START_RESOLUTION = "products.review_hog.backend.requested_reviews.start_resolut
 _ACCESS = "products.review_hog.backend.requested_reviews.GitHubIntegration.first_for_team_repository"
 _META = "products.review_hog.backend.requested_reviews.fetch_pr_metadata"
 _BUSY = "products.review_hog.backend.requested_reviews.workflow_running"
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 
 def _pr_meta(**overrides: object) -> MagicMock:
@@ -53,6 +53,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             body["run_mode"] = run_mode
         return self.client.post(f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", body, format="json")
 
+    @time_machine.travel("2026-10-10T12:00:00Z", tick=False)
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-1")
@@ -67,7 +68,23 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "started"})
+        # A first run has no report yet, and an author with no linked PostHog user owns nothing, so
+        # nobody opted in to resolution.
+        self.assertEqual(
+            resp.json(),
+            {
+                "workflow_id": "wf-ui-1",
+                "status": "started",
+                "repository": "PostHog/posthog.com",
+                "pr_number": 123,
+                "head_sha": "abc123",
+                "review_mode": "full",
+                "report_id": None,
+                "requested_at": "2026-10-10T12:00:00Z",
+                "resolve_will_run": False,
+                "resolve_skip_reason": "owner_not_opted_in",
+            },
+        )
         mock_access.assert_called_once_with(self.team.id, "PostHog/posthog.com")
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
@@ -100,13 +117,57 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # the workflow as an explicit False — passing None would fall back to the user's setting, and
         # a flash review that resolved would write code. Flash must also carry its mode, or the
         # workflow runs the full pipeline under a flash label.
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
         self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("owner_opted_in", "review", True, True, None),
+            ("review_only_never_resolves", "review_only", True, False, "run_mode_excludes_resolve"),
+            ("owner_not_opted_in", "review", False, False, "owner_not_opted_in"),
+        ]
+    )
+    @patch(_META, return_value=_pr_meta(head_sha="def456"))
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-ui-1")
+    def test_trigger_says_which_head_and_report_it_targets_and_whether_resolve_runs(
+        self,
+        _name: str,
+        run_mode: str,
+        owner_opted_in: bool,
+        resolve_will_run: bool,
+        resolve_skip_reason: str | None,
+        _mock_start: MagicMock,
+        _mock_access: MagicMock,
+        _mock_meta: MagicMock,
+    ) -> None:
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"resolve_comments": owner_opted_in}
+        )
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="posthog/posthog.com",
+            pr_number=123,
+            head_branch="feature",
+            base_branch="master",
+            published_head_sha="abc123",
+        )
+
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode=run_mode)
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        body = resp.json()
+        self.assertEqual(
+            {key: body[key] for key in ("repository", "pr_number", "head_sha", "report_id")},
+            {"repository": "PostHog/posthog.com", "pr_number": 123, "head_sha": "def456", "report_id": str(report.id)},
+        )
+        self.assertEqual(body["resolve_will_run"], resolve_will_run)
+        self.assertEqual(body["resolve_skip_reason"], resolve_skip_reason)
 
     @patch(_META, return_value=_pr_meta(author="teammate"))
     @patch(_ACCESS, return_value=object())
@@ -121,21 +182,20 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         UserSocialAuth.objects.create(user=teammate, provider="github", uid="gh-2", extra_data={"login": "teammate"})
 
-        with patch(_INTERNAL_FLAG, return_value=True):
-            review = request_pr_review_from_comment(
-                team_id=self.team.id,
-                requester_id=self.user.id,
-                repository="PostHog/posthog.com",
-                pr_number=123,
-                run_mode="review",
-            )
-            resolve_only = request_pr_review_from_comment(
-                team_id=self.team.id,
-                requester_id=self.user.id,
-                repository="PostHog/posthog.com",
-                pr_number=123,
-                run_mode="resolve_only",
-            )
+        review = request_pr_review_from_comment(
+            team_id=self.team.id,
+            requester_id=self.user.id,
+            repository="PostHog/posthog.com",
+            pr_number=123,
+            run_mode="review",
+        )
+        resolve_only = request_pr_review_from_comment(
+            team_id=self.team.id,
+            requester_id=self.user.id,
+            repository="PostHog/posthog.com",
+            pr_number=123,
+            run_mode="resolve_only",
+        )
 
         self.assertEqual(review.workflow_id, "wf-comment-1")
         self.assertEqual(mock_start.call_args.kwargs["trigger_source"], "comment")
@@ -161,22 +221,6 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
         self.assertEqual(outcome.status, PRReviewRequestStatus.NOT_ALLOWED)
         mock_start.assert_not_called()
-
-    @parameterized.expand([("flash",), ("resolve_only",)])
-    @patch(_META, return_value=_pr_meta())
-    @patch(_ACCESS, return_value=object())
-    @patch(_START_RESOLUTION)
-    @patch(_START, return_value="wf-ui-1")
-    def test_internal_run_modes_are_refused_without_the_internal_flag(
-        self, run_mode: str, mock_start: MagicMock, mock_start_resolution: MagicMock, *_mocks: MagicMock
-    ) -> None:
-        with patch(_INTERNAL_FLAG, return_value=False):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
-
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
-        self.assertEqual(resp.json()["code"], "internal_feature")
-        mock_start.assert_not_called()
-        mock_start_resolution.assert_not_called()
 
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
@@ -256,7 +300,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # Settling threads on a reviewed head is resolve-only's whole point: the already_reviewed
         # early-return must not apply, and no review workflow may start. A published-at-head report
         # is exactly the state a "Review" click would refuse.
-        ReviewReport.objects.for_team(self.team.id).create(
+        report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="posthog/posthog.com",
             pr_number=123,
@@ -265,11 +309,20 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             base_branch="master",
             published_head_sha="abc123",
         )
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode="resolve_only")
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode="resolve_only")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        self.assertEqual(resp.json(), {"workflow_id": "wf-resolve-1", "status": "started"})
+        body = resp.json()
+        self.assertEqual(
+            {key: body[key] for key in ("workflow_id", "status", "review_mode", "report_id", "resolve_will_run")},
+            {
+                "workflow_id": "wf-resolve-1",
+                "status": "started",
+                "review_mode": None,
+                "report_id": str(report.id),
+                "resolve_will_run": True,
+            },
+        )
         mock_start.assert_not_called()
         mock_start_resolution.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
@@ -305,8 +358,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # ids, so a dropped (or wrong-id) probe means a review racing the resolution session's
         # pushes — the incident class this refusal exists for. Blocked, not queued.
         self.mock_busy.return_value = True
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT, resp.content)
         self.assertIn(error_fragment, resp.json()["error"])
@@ -350,11 +402,11 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             review_initial_permission_mode=original_arm.initial_permission_mode,
         )
         self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
+        self.assertEqual(resp.json()["workflow_id"], "wf-ui-1")
+        self.assertEqual(resp.json()["status"], "joined_running_review")
         mock_start.assert_called_once()
         report.refresh_from_db()
         self.assertEqual(report.review_tier, expected_tier.value)
@@ -368,10 +420,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
     def test_resolve_only_mode_keeps_the_synchronous_pr_gates(self, mock_start, mock_start_resolution, _mock_access):
         # Resolve-only shares the sync UX checks: a closed PR must be rejected here, in the UI,
         # not die async in the resolution workflow's prepare step where nothing surfaces.
-        with (
-            patch(_INTERNAL_FLAG, return_value=True),
-            patch(_META, return_value=_pr_meta(state="closed")),
-        ):
+        with patch(_META, return_value=_pr_meta(state="closed")):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/7", run_mode="resolve_only")
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
@@ -421,13 +470,12 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             ("get", "resolution/", {}),
             ("patch", "resolution/review-hog-resolution-criteria/", {"active": True}),
         ]
-        with patch(_INTERNAL_FLAG, return_value=True):
-            for method, path, data in endpoints:
-                with self.subTest(method=method, path=path, data=data):
-                    response = getattr(self.client, method)(
-                        f"/api/projects/{self.team.id}/review_hog/{path}", data, format="json"
-                    )
-                    self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        for method, path, data in endpoints:
+            with self.subTest(method=method, path=path, data=data):
+                response = getattr(self.client, method)(
+                    f"/api/projects/{self.team.id}/review_hog/{path}", data, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
         mock_start.assert_not_called()
         mock_start_resolution.assert_not_called()
@@ -438,8 +486,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @patch(_START)
     def test_non_pr_github_url_rejected(self, mock_start):
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/PostHog/posthog/issues/1")
+        resp = self._trigger("https://github.com/PostHog/posthog/issues/1")
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_start.assert_not_called()
@@ -447,8 +494,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
     @patch(_ACCESS, return_value=None)
     @patch(_START)
     def test_inaccessible_repository_rejected_without_starting_a_workflow(self, mock_start, _mock_access):
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/other-org/private-repo/pull/5")
+        resp = self._trigger("https://github.com/other-org/private-repo/pull/5")
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("can't access other-org/private-repo", resp.json()["error"])
@@ -468,10 +514,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # exists — the UI shows "started" and then nothing ever appears.
         side_effect = meta_or_error if isinstance(meta_or_error, Exception) else None
         return_value = None if side_effect else meta_or_error
-        with (
-            patch(_INTERNAL_FLAG, return_value=True),
-            patch(_META, side_effect=side_effect, return_value=return_value),
-        ):
+        with patch(_META, side_effect=side_effect, return_value=return_value):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/7")
 
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
@@ -503,7 +546,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         _mock_access,
         _mock_meta,
     ):
-        ReviewReport.objects.for_team(self.team.id).create(
+        report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="posthog/posthog.com",
             pr_number=123,
@@ -513,11 +556,11 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             published_head_sha=published_head_sha,
             published_heads_by_mode=published_modes,
         )
-        with patch(_INTERNAL_FLAG, return_value=True):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
         self.assertEqual(resp.json()["status"], expected_marker)
+        self.assertEqual(resp.json()["report_id"], str(report.id))
         self.assertEqual(mock_start.called, starts)
 
     @parameterized.expand(
@@ -531,7 +574,6 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # Both GitHub calls must map through github_rate_limited_response — an unwrapped call
         # surfaces a 500 to the person clicking Review, exactly during retry-prone windows.
         with (
-            patch(_INTERNAL_FLAG, return_value=True),
             patch(_ACCESS, return_value=object()),
             patch(rate_limited_call, side_effect=GitHubRateLimitError("rate limited", retry_after=30)),
         ):
@@ -541,15 +583,3 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertEqual(resp.json()["code"], "rate_limited")
         self.assertEqual(resp["Retry-After"], "30")
         mock_start.assert_not_called()
-
-    @parameterized.expand([("internal_project", True), ("other_project", False)])
-    @patch("products.review_hog.backend.api.settings.has_reviewable_repo_config", return_value=True)
-    def test_settings_query_stamphog_only_in_internal_projects(
-        self, _name: str, internal: bool, mock_stamphog: MagicMock
-    ) -> None:
-        with patch(_INTERNAL_FLAG, return_value=internal):
-            resp = self.client.get(f"/api/projects/{self.team.id}/review_hog/settings/")
-
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(resp.json()["stamphog_connected"], internal)
-        self.assertEqual(mock_stamphog.called, internal)

@@ -6,7 +6,7 @@ review again, and the workflow removes the label when the run ends.
 
 - A person can add the label, and so can Stamphog, which hands a refused or escalated pull request to
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
-- The review runs in the owning project, which needs the `review-hog-internal` flag.
+- The review runs in the owning project.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
 """
@@ -22,12 +22,16 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.pull_request_events import REVIEWHOG_LABEL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    github_api_get_paginated,
+    github_api_request,
+    is_app_bot_author,
+)
 
 logger = logging.getLogger(__name__)
 _otel = OtelInstrumentFactory("review_hog")
@@ -42,7 +46,6 @@ BOT_LABEL_COMMENT = (
 
 LabelReviewOutcome = Literal[
     "repository_not_added",
-    "internal_features_off",
     "installation_mismatch",
     "bot_labeler",
     "no_run_user",
@@ -89,6 +92,17 @@ class LabelReview:
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
 
+    def _bot_label_comment_posted(self, token: str) -> bool:
+        return any(
+            comment.get("body") == BOT_LABEL_COMMENT and is_app_bot_author(comment.get("user"))
+            for comment in github_api_get_paginated(
+                f"/repos/{self.repository}/issues/{self.pr_number}/comments",
+                token=token,
+                installation_id=self.installation_id,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            )
+        )
+
     def _refuse_bot_label(self, integration: Integration) -> None:
         # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
@@ -103,6 +117,9 @@ class LabelReview:
         except GitHubAPIError as error:
             if error.status != 404:
                 raise
+        # A POST can succeed on GitHub and still fail here, so a retry checks for the earlier comment.
+        if self._bot_label_comment_posted(token):
+            return
         github_api_request(
             "POST",
             f"/repos/{self.repository}/issues/{self.pr_number}/comments",
@@ -129,9 +146,6 @@ class LabelReview:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
-        if not has_internal_features(team_id):
-            _observe("internal_features_off")
-            return
         integration = (
             Integration.objects.filter(team_id=team_id, kind="github", integration_id=self.installation_id)
             .order_by("id")

@@ -94,6 +94,13 @@ export const manifest: ProductManifest = {
             path: 'Workflows',
             intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
+            searchTabs: [
+                { name: 'Library', href: urls.workflows('library') },
+                { name: 'Channels', href: urls.workflows('channels') },
+                { name: 'Opt-outs', href: urls.workflows('opt-outs') },
+                { name: 'Suppression list', href: urls.workflows('suppression') },
+                { name: 'Reputation', href: urls.workflows('reputation') },
+            ],
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,
             iconType: 'workflows',

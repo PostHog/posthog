@@ -70,6 +70,8 @@ class RunSignalsScoutInput:
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
     check_id: str | None = None
+    # The rows the pre-check found, set by the workflow on a scheduled run the pre-check started.
+    precheck_rows: str | None = None
 
 
 @frozen
@@ -124,6 +126,8 @@ def resume_signals_scout_workflow_step(input: RunSignalsScoutInput, output: RunS
 @frozen
 class EvaluateScoutPrecheckOutput:
     should_run: bool
+    # The capped rows the run renders into its prompt. None when there are no rows to pass.
+    rows_text: str | None = None
 
 
 @temporalio.activity.defn
@@ -133,7 +137,9 @@ async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) 
     result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
         input.team_id, input.skill_name
     )
-    return EvaluateScoutPrecheckOutput(should_run=result is None or result.should_run)
+    if result is None:
+        return EvaluateScoutPrecheckOutput(should_run=True)
+    return EvaluateScoutPrecheckOutput(should_run=result.should_run, rows_text=result.rows_text)
 
 
 @temporalio.activity.defn
@@ -228,6 +234,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 run_note=input.run_note,
                 trial_launch_id=input.trial_launch_id,
                 check_id=input.check_id,
+                precheck_rows=input.precheck_rows,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -289,6 +296,8 @@ class RunSignalsScoutWorkflow:
                     skill_version=input.skill_version or 0,
                     skip_reason="precheck_skipped",
                 )
+            if precheck.rows_text:
+                input = replace(input, precheck_rows=precheck.rows_text)
         try:
             output = await temporalio.workflow.execute_activity(
                 run_signals_scout_activity,

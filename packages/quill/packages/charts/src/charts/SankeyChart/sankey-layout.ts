@@ -8,14 +8,14 @@
  * versions of the d3 modules we actually use.
  */
 
-import { Link, linkHorizontal } from 'd3'
-import { max, min, sum } from 'd3'
+import { max, min, sum } from 'd3-array'
+import { type Link, linkHorizontal } from 'd3-shape'
 
 // ---- Public types ----
 
-export interface SankeyExtraProperties {
-    [key: string]: any
-}
+/** Consumer fields carried on nodes and links. Any object type qualifies; the layout adds its own
+ *  geometry fields on top. */
+export type SankeyExtraProperties = object
 
 export type SankeyNode<N extends SankeyExtraProperties, L extends SankeyExtraProperties> = N & {
     sourceLinks: Array<SankeyLink<N, L>>
@@ -47,7 +47,9 @@ export interface SankeyGraph<N extends SankeyExtraProperties, L extends SankeyEx
     links: Array<SankeyLink<N, L>>
 }
 
-export type SankeyInputGraph = { nodes: any[]; links: any[] }
+/** Input graph. Link `source`/`target` may be node ids (resolved through `nodeId`) or node
+ *  objects; the layout mutates both arrays in place, so pass copies of data you keep. */
+export type SankeyInputGraph = { nodes: object[]; links: object[] }
 
 export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyExtraProperties> {
     (graph: SankeyInputGraph): SankeyGraph<N, L>
@@ -67,6 +69,11 @@ export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyE
 
     nodeAlign(): (node: SankeyNode<N, L>, n: number) => number
     nodeAlign(nodeAlign: (node: SankeyNode<N, L>, n: number) => number): this
+
+    /** Pins a node to a column whatever its depth; `undefined` falls back to `nodeAlign`. A fractional
+     *  pin rounds down. */
+    nodeColumn(): ((node: SankeyNode<N, L>) => number | undefined) | null
+    nodeColumn(nodeColumn: ((node: SankeyNode<N, L>) => number | undefined) | null): this
 
     nodeWidth(): number
     nodeWidth(width: number): this
@@ -91,7 +98,7 @@ export function targetDepth(d: SankeyLink<{}, {}>): number {
 }
 
 export function sankeyRight(node: SankeyNode<{}, {}>, n: number): number {
-    return n - 1 - node.depth
+    return n - 1 - node.height
 }
 
 export function sankeyLeft(node: SankeyNode<{}, {}>): number {
@@ -125,7 +132,7 @@ function horizontalTarget<N extends SankeyExtraProperties, L extends SankeyExtra
 }
 
 export function sankeyLinkHorizontal<N extends SankeyExtraProperties, L extends SankeyExtraProperties>(): Link<
-    any,
+    unknown,
     SankeyLink<N, L>,
     [number, number]
 > {
@@ -188,9 +195,11 @@ function computeLinkBreadths<N extends SankeyExtraProperties, L extends SankeyEx
 
 // ---- Main sankey factory ----
 
-export default function sankey<
-    N extends SankeyExtraProperties = any,
-    L extends SankeyExtraProperties = any,
+export function sankeyLayout<
+    N extends SankeyExtraProperties = { id: string },
+    // Laid-out links replace `source`/`target` with node objects, so the default must not type them
+    // as strings.
+    L extends SankeyExtraProperties = SankeyExtraProperties,
 >(): SankeyLayout<N, L> {
     let x0 = 0,
         y0 = 0,
@@ -202,11 +211,12 @@ export default function sankey<
 
     let id: (d: SankeyNode<N, L>) => string | number = (d) => d.index
     let align: (node: SankeyNode<N, L>, n: number) => number = sankeyJustify
+    let column: ((node: SankeyNode<N, L>) => number | undefined) | null = null
     let sort: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | null | undefined
-    let nodesFn: (graph: SankeyInputGraph) => SankeyNode<N, L>[] = (graph) => graph.nodes
-    let linksFn: (graph: SankeyInputGraph) => SankeyLink<N, L>[] = (graph) => graph.links
+    let nodesFn: (graph: SankeyInputGraph) => SankeyNode<N, L>[] = (graph) => graph.nodes as SankeyNode<N, L>[]
+    let linksFn: (graph: SankeyInputGraph) => SankeyLink<N, L>[] = (graph) => graph.links as SankeyLink<N, L>[]
 
-    let sankeyLayout: SankeyLayout<N, L>
+    let self: SankeyLayout<N, L>
 
     function layout(graph: SankeyInputGraph): SankeyGraph<N, L> {
         const g = { nodes: nodesFn(graph), links: linksFn(graph) }
@@ -232,7 +242,7 @@ export default function sankey<
     ): ((graph: SankeyInputGraph) => SankeyNode<N, L>[]) | SankeyLayout<N, L> {
         if (fn) {
             nodesFn = typeof fn === 'function' ? fn : () => fn
-            return sankeyLayout
+            return self
         }
         return nodesFn
     }
@@ -245,7 +255,7 @@ export default function sankey<
     ): ((graph: SankeyInputGraph) => SankeyLink<N, L>[]) | SankeyLayout<N, L> {
         if (fn) {
             linksFn = typeof fn === 'function' ? fn : () => fn
-            return sankeyLayout
+            return self
         }
         return linksFn
     }
@@ -257,9 +267,21 @@ export default function sankey<
     ): ((node: SankeyNode<N, L>) => string | number) | SankeyLayout<N, L> {
         if (fn) {
             id = fn
-            return sankeyLayout
+            return self
         }
         return id
+    }
+
+    function nodeColumnAccessor(): ((node: SankeyNode<N, L>) => number | undefined) | null
+    function nodeColumnAccessor(fn: ((node: SankeyNode<N, L>) => number | undefined) | null): SankeyLayout<N, L>
+    function nodeColumnAccessor(
+        fn?: ((node: SankeyNode<N, L>) => number | undefined) | null
+    ): ((node: SankeyNode<N, L>) => number | undefined) | null | SankeyLayout<N, L> {
+        if (fn !== undefined) {
+            column = fn
+            return self
+        }
+        return column
     }
 
     function nodeAlignAccessor(): (node: SankeyNode<N, L>, n: number) => number
@@ -269,7 +291,7 @@ export default function sankey<
     ): ((node: SankeyNode<N, L>, n: number) => number) | SankeyLayout<N, L> {
         if (fn) {
             align = fn
-            return sankeyLayout
+            return self
         }
         return align
     }
@@ -283,7 +305,7 @@ export default function sankey<
     ): ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null | SankeyLayout<N, L> {
         if (arguments.length) {
             sort = fn
-            return sankeyLayout
+            return self
         }
         return sort
     }
@@ -293,7 +315,7 @@ export default function sankey<
     function nodeWidthAccessor(width?: number): number | SankeyLayout<N, L> {
         if (width !== undefined) {
             dx = width
-            return sankeyLayout
+            return self
         }
         return dx
     }
@@ -303,7 +325,7 @@ export default function sankey<
     function nodePaddingAccessor(padding?: number): number | SankeyLayout<N, L> {
         if (padding !== undefined) {
             dy = py = padding
-            return sankeyLayout
+            return self
         }
         return dy
     }
@@ -315,7 +337,7 @@ export default function sankey<
             x0 = y0 = 0
             x1 = size[0]
             y1 = size[1]
-            return sankeyLayout
+            return self
         }
         return [x1 - x0, y1 - y0]
     }
@@ -330,7 +352,7 @@ export default function sankey<
             y0 = extent[0][1]
             x1 = extent[1][0]
             y1 = extent[1][1]
-            return sankeyLayout
+            return self
         }
         return [
             [x0, y0],
@@ -338,12 +360,13 @@ export default function sankey<
         ] satisfies [[number, number], [number, number]]
     }
 
-    sankeyLayout = Object.assign(layout, {
+    self = Object.assign(layout, {
         update,
         nodes: nodesAccessor,
         links: linksAccessor,
         nodeId: nodeIdAccessor,
         nodeAlign: nodeAlignAccessor,
+        nodeColumn: nodeColumnAccessor,
         nodeSort: nodeSortAccessor,
         nodeWidth: nodeWidthAccessor,
         nodePadding: nodePaddingAccessor,
@@ -427,11 +450,17 @@ export default function sankey<
     }
 
     function computeNodeLayers({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): SankeyNode<N, L>[][] {
-        const x = max(nodeList, (d) => d.depth)! + 1
+        // A non-finite pin (e.g. NaN from a caller's bad parse) would otherwise flow into `layer`/`x0`
+        // and silently drop the node from the render; treat it as unpinned instead.
+        const pinned = (node: SankeyNode<N, L>): number | undefined => {
+            const value = column?.(node)
+            return value !== undefined && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined
+        }
+        const x = Math.max(max(nodeList, (d) => d.depth)!, max(nodeList, (d) => pinned(d) ?? 0)!) + 1
         const kx = x <= 1 ? 0 : (x1 - x0 - dx) / (x - 1)
         const columns = Array.from({ length: x }, () => [] as SankeyNode<N, L>[])
         for (const node of nodeList) {
-            const i = Math.max(0, Math.min(x - 1, Math.floor(align(node, x))))
+            const i = Math.max(0, Math.min(x - 1, Math.floor(pinned(node) ?? align(node, x))))
             node.layer = i
             node.x0 = x0 + i * kx
             node.x1 = node.x0 + dx
@@ -536,6 +565,11 @@ export default function sankey<
     }
 
     function resolveCollisions(nodeList: SankeyNode<N, L>[], alpha: number): void {
+        // A pinned column can sit between two others with nothing naturally landing in it, leaving
+        // it empty; there's nothing to space out.
+        if (nodeList.length === 0) {
+            return
+        }
         const i = nodeList.length >> 1
         const subject = nodeList[i]
         resolveCollisionsBottomToTop(nodeList, subject.y0 - py, i - 1, alpha)
@@ -620,5 +654,5 @@ export default function sankey<
         return y
     }
 
-    return sankeyLayout
+    return self
 }
