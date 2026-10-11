@@ -17,8 +17,8 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 logger = structlog.get_logger(__name__)
 
 # Batch size for the personhog batch-delete RPCs on the largest team-scoped tables
-# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 to bound
-# how much work a single DELETE holds locks for.
+# (personless distinct IDs, persons, hash-key-overrides, groups, group type mappings). Kept
+# well below 10000 to bound how much work a single DELETE holds locks for.
 TEAM_DELETE_BATCH_SIZE = 2000
 
 # Per-call gRPC deadline for the team-deletion bulk-delete RPCs. Their default is the 5s
@@ -238,7 +238,7 @@ def _delete_groups_for_teams(team_ids: list[int], should_stop: Callable[[], bool
                 if should_stop is not None and should_stop():
                     return False
                 resp = client.delete_groups_batch_for_team(
-                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000),
+                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=TEAM_DELETE_BATCH_SIZE),
                     timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
@@ -261,7 +261,7 @@ def _delete_group_type_mappings_for_teams(team_ids: list[int], should_stop: Call
                 if should_stop is not None and should_stop():
                     return False
                 resp = client.delete_group_type_mappings_batch_for_team(
-                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000),
+                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=TEAM_DELETE_BATCH_SIZE),
                     timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
