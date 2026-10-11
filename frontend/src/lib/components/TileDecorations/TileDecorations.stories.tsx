@@ -8,10 +8,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import type { DashboardTileBadge } from '~/types'
+import type { TileBadge } from '~/types'
 
 interface TileOverrides {
-    badge?: DashboardTileBadge
+    badge?: TileBadge
     group_key?: string
 }
 
@@ -71,6 +71,8 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboard(DASHBOARD_ID),
+        // These stories check the tile decorations. The charts paint async and flake the snapshot.
+        testOptions: { skipCanvasDraw: true },
     },
 }
 export default meta
@@ -88,7 +90,7 @@ export const WinnerWithGroupTitle: Story = {
     ],
     parameters: {
         testOptions: {
-            waitForSelector: ['.DashboardTileDecorations__crown', '.DashboardTileDecorations__group-title'],
+            waitForSelector: ['.TileDecorations__crown', '.TileDecorations__group-title'],
         },
     },
 }
@@ -96,18 +98,18 @@ export const WinnerWithGroupTitle: Story = {
 export const CheekyHogOnHover: Story = {
     decorators: [dashboardMocks(buildDashboard({ 2: { badge: 'cheeky-hog' } }))],
     parameters: {
-        testOptions: { waitForSelector: '.DashboardTileDecorations__hog' },
+        testOptions: { waitForSelector: '.TileDecorations__hog' },
     },
     play: async () => {
         // A play function cannot move the real pointer, so no browser :hover applies. This copies the hover rule's effect.
         const hoverStyle = document.createElement('style')
         hoverStyle.textContent = `
-            .react-grid-layout.dashboard-view-mode .react-grid-item:has(> .DashboardTileDecorations__hog) { content-visibility: visible; transition: none; }
-            .react-grid-item .DashboardTileDecorations__hog img { transform: translateY(0); }
+            .react-grid-layout.dashboard-view-mode .react-grid-item:has(> .TileDecorations__hog) { content-visibility: visible; transition: none; }
+            .react-grid-item .TileDecorations__hog img { transform: translateY(0); }
         `
         document.head.append(hoverStyle)
         await waitFor(() => {
-            const hog = document.querySelector('.DashboardTileDecorations__hog img')
+            const hog = document.querySelector('.TileDecorations__hog img')
             if (!hog || getComputedStyle(hog).transform !== HOG_SLID_UP_TRANSFORM) {
                 throw new Error('The hog has not finished sliding up')
             }
