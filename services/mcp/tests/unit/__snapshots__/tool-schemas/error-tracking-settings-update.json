@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "ingestion_enabled": {
+            "description": "Whether the project ingests exception events. When false, capture drops every $exception event for this project before it is stored, and the events cannot be recovered.",
+            "type": "boolean"
+        },
         "per_issue_rate_limit_bucket_size_minutes": {
             "anyOf": [
                 {

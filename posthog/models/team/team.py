@@ -20,6 +20,7 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
+from posthog.models.event_ingestion_restriction_config import RestrictionType, regenerate_redis_for_restriction_type
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
@@ -974,6 +975,8 @@ class Team(UUIDTClassicModel):
         self.save()
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
+        # The error tracking kill switch drops events by token, so its drop rule must move to the new token.
+        transaction.on_commit(lambda: regenerate_redis_for_restriction_type(RestrictionType.DROP_EVENT_FROM_INGESTION))
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
