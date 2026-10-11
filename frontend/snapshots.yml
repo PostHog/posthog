@@ -11215,9 +11215,9 @@ snapshots:
     scenes-app-inbox-scene--legacy-report--light:
         hash: v1.k794b7964.a19b5137a523a99023eccba1ee201951326680d039d8cd80e679664b94f5b8b0.y3_eA1e6uaDI6ZStz14t_As8tFQQF1iAD2YM6Dmn1BU
     scenes-app-inbox-scene--legacy-scouts--dark:
-        hash: v1.k794b7964.18ecc23ff0c745a25e9c21f374232108d3069e8cb1b16551ce68e54107ca6512.UTR5AKS8oW6TQQxe_n87wJbQwZ2FYYbfjOEB7us3-hg
+        hash: v1.k794b7964.aef8677fa43f11ff5f5b34c381208ef202da80771a5d2d17281d2a98d3361604.f8rgo5YeHpzk4rc50ylbjLdcTDBYNGJPqO--MNXk1Fw
     scenes-app-inbox-scene--legacy-scouts--light:
-        hash: v1.k794b7964.b4743e9e8ecfbb004e96caf2d2e2d661848bf97b67bafdd06b4d6f603f06a642.LZDkCQmq_1MES1B4SIQFL7UOyNSLkchg2MmbufH9zS4
+        hash: v1.k794b7964.9dd3dc8e6e80c8b05907082af42a22344b194f047b52fb748b67b7f801e95f5f.Z_d39bmfXBtFI0yeryorC9eA0mg0Uhgc01sSEDLa_vk
     scenes-app-inbox-scene--report-with-many-evidence-items--dark:
         hash: v1.k794b7964.cdf433915e692e878772c4299885f968c99c039e535ce00eedde96142225dc8a.3jz4_ynFjRQTKIFVz6-5ofn0AVAdDN3pilwzZWHmrKo
     scenes-app-inbox-scene--report-with-many-evidence-items--light:
@@ -11231,9 +11231,9 @@ snapshots:
     scenes-app-inbox-scene--report-without-evidence--light:
         hash: v1.k794b7964.333f20aae372ab4f77e80174ad32954456822753634ddea6f33428721714916b.AWi8H5joJwmrMRc5_mNH01H_fIT-Ogxxo2zRS7IoQzs
     scenes-app-inbox-scene--scouts--dark:
-        hash: v1.k794b7964.6941932668172620c8904e6c2bd94d4d671a28429ad30b0b6b96733b3c28e82b.mvRVfSyZCQMoA4Tym3knNXQaQLAR5H3c9WCPqInhcfs
+        hash: v1.k794b7964.4c6c476bbe52a64bd89c81117a4a0bff8a4102920a03a8d722cff93177e5d209.DXZfqtUBd5_2Mg7tNceVoR_iiw-2yG655qhWQz2oWNc
     scenes-app-inbox-scene--scouts--light:
-        hash: v1.k794b7964.506124c209e920a26c81a178b4539d613d8deb6de08da550e1985e5d0943995e.T-XcU5Xr94qWbgn6UBcom2rdjykq5I7DpLtAfIWPBuE
+        hash: v1.k794b7964.751f7acf90211fb843c29021e4c5c07199a016d3758a98aebd030a2459e7e727.-dob_PqMSyNGS0sWCDRL7239l7w9pUTs5Oil7XD97cM
     scenes-app-inbox-scene--self-driving-onboarding--dark:
         hash: v1.k794b7964.e0a23cc49efed91ac01907f5197329613afd261d56817d389d26e42aad8602e2.Wb2-6F1bTbXLv66f02qDi8yAgRSIGhUkXu_wIeCxkFs
     scenes-app-inbox-scene--self-driving-onboarding--light:
