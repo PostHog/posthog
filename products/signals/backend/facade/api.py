@@ -1574,11 +1574,12 @@ def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: 
 
     A config the product did not create is left alone, so a scout a person set up keeps running. A
     paused config is kept, whether a person or the system paused it, so the pause still holds if the
-    product switches the scout on again. The run history stays. Returns False when nothing was removed.
+    product switches the scout on again. A lifecycle-locked config is kept too, because only a project
+    admin or the person its runs act as may remove it. The run history stays. Returns False when nothing was removed.
     """
     deleted, _ = (
         SignalScoutConfig.objects.for_team(team_id)
-        .filter(skill_name=skill_name, source_product=source_product, enabled=True)
+        .filter(skill_name=skill_name, source_product=source_product, enabled=True, lifecycle_locked=False)
         .delete()
     )
     return deleted > 0

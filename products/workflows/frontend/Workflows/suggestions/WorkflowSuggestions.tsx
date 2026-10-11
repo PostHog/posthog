@@ -134,7 +134,11 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         // Off with nothing filed is the introduction; an unreadable setting keeps its own notice, since it
         // is not "off". Either one with a queue still shows the queue, which the server keeps resolvable.
         if (optimizationUnreadable || !optimizationEnabled) {
-            return optimizationUnreadable ? notice : <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+            return optimizationUnreadable ? (
+                <SuggestionsUnreadableNotice />
+            ) : (
+                <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+            )
         }
 
         if (!listsSettling) {

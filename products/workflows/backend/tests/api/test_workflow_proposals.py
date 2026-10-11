@@ -765,30 +765,34 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a person", SignalScoutConfig.Status.PAUSED_BY_USER),
-            ("the system", SignalScoutConfig.Status.PAUSED_BY_SYSTEM),
+            ("a pause by a person", {"status": SignalScoutConfig.Status.PAUSED_BY_USER}),
+            (
+                "a pause by the system",
+                {
+                    "status": SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                    "pause_reason": SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                },
+            ),
+            ("a lifecycle lock", {"lifecycle_locked": True}),
         ]
     )
-    def test_suggestions_scout_keeps_a_pause_across_opt_out(
-        self, _mock_flag, _name: str, paused_status: SignalScoutConfig.Status
-    ):
+    def test_suggestions_scout_keeps_its_settings_across_opt_out(self, _mock_flag, _name: str, kept: dict):
         flow_id = self._create_active_flow(optimize=False)
         self._toggle(flow_id, True)
         scout = self._suggestions_scout()
         assert scout is not None
-        scout.status = paused_status
-        scout.pause_reason = (
-            SignalScoutConfig.PauseReason.REPEATED_FAILURES
-            if paused_status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-            else None
-        )
-        scout.save(update_fields=["status", "pause_reason"])
+        for field, value in kept.items():
+            setattr(scout, field, value)
+        scout.save(update_fields=list(kept))
 
         self._toggle(flow_id, False)
+        scout = self._suggestions_scout()
+        assert scout is not None
         self._toggle(flow_id, True)
 
         scout = self._suggestions_scout()
-        assert scout is not None and scout.status == paused_status
+        assert scout is not None
+        assert {field: getattr(scout, field) for field in kept} == kept
 
     @parameterized.expand([("archived",), ("draft",)])
     def test_the_suggestions_scout_follows_the_last_opted_in_workflow_leaving_live(self, _mock_flag, status):
