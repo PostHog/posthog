@@ -560,6 +560,10 @@ class SurveyRatingQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
         allow_blank=True,
         help_text="Label for the highest rating (e.g., 'Excellent')",
     )
+    skipSubmitButton = serializers.BooleanField(
+        required=False,
+        help_text="When true, the survey submits the rating when the respondent selects it, and hides the submit button.",
+    )
     branching = SurveyBranchingSchemaField(required=False, allow_null=True)
 
 
@@ -579,6 +583,13 @@ class SurveySingleChoiceQuestionSchemaSerializer(SurveyBaseQuestionSchemaSeriali
     hasOpenChoice = serializers.BooleanField(
         required=False,
         help_text="Whether the final option should be an open-text choice (for example, 'Other').",
+    )
+    skipSubmitButton = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, the survey submits the choice when the respondent selects it, and hides the submit button. "
+            "Has no effect when hasOpenChoice is true."
+        ),
     )
     branching = SurveyBranchingSchemaField(required=False, allow_null=True)
 

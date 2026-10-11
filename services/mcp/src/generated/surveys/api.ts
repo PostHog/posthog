@@ -546,6 +546,12 @@ export const SurveysCreateBody = () => zod.object({
                         .string()
                         .optional()
                         .describe("Label for the highest rating (e.g., 'Excellent')"),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            'When true, the survey submits the rating when the respondent selects it, and hides the submit button.'
+                        ),
                     branching: zod
                         .union([
                             zod.union([
@@ -635,6 +641,12 @@ export const SurveysCreateBody = () => zod.object({
                         .boolean()
                         .optional()
                         .describe("Whether the final option should be an open-text choice (for example, 'Other')."),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            'When true, the survey submits the choice when the respondent selects it, and hides the submit button. Has no effect when hasOpenChoice is true.'
+                        ),
                     branching: zod
                         .union([
                             zod.union([
@@ -1439,6 +1451,12 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .string()
                         .optional()
                         .describe("Label for the highest rating (e.g., 'Excellent')"),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            'When true, the survey submits the rating when the respondent selects it, and hides the submit button.'
+                        ),
                     branching: zod
                         .union([
                             zod.union([
@@ -1528,6 +1546,12 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .boolean()
                         .optional()
                         .describe("Whether the final option should be an open-text choice (for example, 'Other')."),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            'When true, the survey submits the choice when the respondent selects it, and hides the submit button. Has no effect when hasOpenChoice is true.'
+                        ),
                     branching: zod
                         .union([
                             zod.union([
