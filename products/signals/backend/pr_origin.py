@@ -33,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names
 from products.signals.backend.signal_metadata import (
     OriginSource,
@@ -237,7 +238,7 @@ class PullRequestOrigin:
         sources = fetch_origin_sources_for_report(team, report_id)
         return cls(
             report_id=report_id,
-            report_url=f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}",
+            report_url=build_report_url(team.pk, report_id, ReportLinkSource.GITHUB_PR),
             sources=tuple(_source_lines(team.pk, sources)),
             issue_references=tuple(
                 _issue_link(reference, repository) for reference in fetch_source_references_for_report(team, report_id)

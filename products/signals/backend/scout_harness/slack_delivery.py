@@ -20,6 +20,7 @@ from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
     build_scout_report_chart_blocks,
@@ -309,7 +310,7 @@ def _report_header(report: SignalReport) -> str:
 
 
 def _report_link_block(report: SignalReport) -> dict:
-    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
+    report_url = build_report_url(report.team_id, report.id, ReportLinkSource.SLACK_SCOUT)
     return {
         "type": "actions",
         "elements": [

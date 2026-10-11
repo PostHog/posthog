@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Literal, TypedDict
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
@@ -59,6 +58,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
@@ -355,7 +355,7 @@ def _build_autostart_task_description(
     supersede: SupersedeDecision = NO_SUPERSEDE,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    report_link = build_report_url(team_id, report_id, ReportLinkSource.TASK)
     source_links = ", ".join(f"[{ref.label}]({ref.url})" for ref in source_references or [])
     source_issues_line = f"Source issues: {source_links}\n\n" if source_links else ""
     source_reference_instruction = (
@@ -1068,7 +1068,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
                 "pending_user_message": (
                     "The report has fresh research. Read its latest research artefacts, then reassess the existing "
                     "implementation. Update the existing pull request when appropriate.\n\n"
-                    f"Report: {settings.SITE_URL}/project/{request.team_id}/inbox/reports/{request.report_id}\n"
+                    f"Report: {build_report_url(request.team_id, request.report_id, ReportLinkSource.TASK)}\n"
                     f"Title: {current.title}\n\nSummary:\n{current.summary}"
                 ),
             },
