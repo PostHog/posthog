@@ -87,6 +87,8 @@ const ROOTS = [
             'src/lib/components/CodeSnippet/',
             // The taxonomy JSON is a quarter-MiB lookup table for the property editors, not for /login.
             'src/taxonomy/core-filter-definitions-by-group.json',
+            // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
+            'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
         ],
     },
     {
