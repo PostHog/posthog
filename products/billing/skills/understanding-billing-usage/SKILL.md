@@ -79,9 +79,15 @@ available:
 - Project/team names or IDs if the user already has a suspected project
 
 If the usage type is missing but the user named a product, map it to the closest billing
-usage type and say what you inferred. If the date range is missing, use the last 30 days
-and say so. Only ask for more context when the prompt is too vague to choose a product or
-time window.
+usage type and say what you inferred. If the date range is missing, omit both dates. The
+billing tools then use the last 30 complete UTC days, from UTC today minus 30 days through
+UTC yesterday. Say so in the answer. Only ask for more context when the prompt is too vague
+to choose a product or time window.
+
+Keep dates that come from a dashboard link or the user's request. Do not add today to the
+range unless the user asks for it. Daily usage reports contain only completed UTC days, so
+the data for today is not complete yet. If the user asks for today, say that its value is
+partial and is not a usage drop.
 
 ## Workflow
 
@@ -100,7 +106,11 @@ Choose the smallest path that answers the user:
 Call `posthog:billing-usage-get` using the dashboard or prompt parameters:
 
 - `start_date`: `date_from`, or about 30 days before the suspected change
-- `end_date`: `date_to`, the named date, or today if the user did not name a date
+- `end_date`: `date_to`, or the named date
+- If the user named no date and no dashboard link gives one, omit both `start_date` and
+  `end_date`. Do not set `end_date` to today.
+- If you set `start_date` without `end_date`, the tools set `end_date` to today. Set
+  `end_date` to UTC yesterday unless the user asked for today.
 - `interval`: `day`
 - `usage_types`: the parsed or inferred `usage_types`, or omit if the product is unclear
 - `breakdowns`: `["type","team"]`
@@ -117,8 +127,9 @@ hints. Do not call it by default for simple spike/high-usage questions. Do not u
 current billing period.
 
 If the user asks about dollars, call `posthog:billing-spend-get` with the same date
-range and breakdowns. Treat spend as an estimate/attribution layer over usage, not as a
-replacement for usage investigation.
+range and breakdowns. If you omitted both dates for usage, omit them for spend too. Treat
+spend as an estimate/attribution layer over usage, not as a replacement for usage
+investigation.
 
 If spend spikes or drops while usage volume looks stable, check whether the date is near
 the start of a new billing period. Tiered pricing can make spend move differently from
