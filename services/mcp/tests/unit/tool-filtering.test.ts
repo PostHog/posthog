@@ -1054,6 +1054,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'replay-vision-scanner-dashboard',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and

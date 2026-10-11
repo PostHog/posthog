@@ -14465,6 +14465,21 @@
         },
         "requires_ai_consent": true
     },
+    "vision-scanners-dashboard-create": {
+        "description": "Create a dashboard that charts a scanner's observations and link it to the scanner. Tiles depend on the scanner type: people (and accounts, when group analytics is set up) the scanner matched per week, type-specific breakdowns such as yes rate, category share or score percentiles, and the latest matching recordings. Offer it when `vision-scanners-get` returns `dashboard_suggested: true`, at most once per conversation, and only call it when the user agrees. Calling it again returns the existing dashboard (`created: false`) rather than a second one. Link the user to the dashboard at /dashboard/{dashboard_id}.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Create a dashboard for a scanner",
+        "title": "Create a dashboard for a scanner",
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "dashboard:write", "insight:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision-scanner-dashboard"
+    },
     "vision-scanners-delete": {
         "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
         "category": "Replay vision",
@@ -14524,7 +14539,7 @@
         }
     },
     "vision-scanners-get": {
-        "description": "Get a single replay vision scanner. The scanner id goes in `id` — the `vision-scanners-observations-*` tools take the same value as `scanner_id`, but this one does not accept that name. Get an id from `vision-scanners-list`. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
+        "description": "Get a single replay vision scanner. The scanner id goes in `id` — the `vision-scanners-observations-*` tools take the same value as `scanner_id`, but this one does not accept that name. Get an id from `vision-scanners-list`. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`. `dashboard_id` links the scanner's dashboard when one exists, and `dashboard_suggested` says whether to offer the user one with `vision-scanners-dashboard-create`.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get replay vision scanner",

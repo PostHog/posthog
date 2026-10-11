@@ -13338,6 +13338,10 @@ snapshots:
         hash: v1.k794b7964.79627bbcaf1345596a4230711f90d9eba24f1573be64c223b3c05fb85642b05f.0imokLmvnCGRhNwGiL6uxRaz3DayL3voUkn-lGl3TMg
     scenes-app-replay-vision--monitor-overview--light:
         hash: v1.k794b7964.78c674851e796673dbc50f43f862493f25b646aa72f0e45170dd66b737e4d8d7.3KYDsrwG2gMYKec4kttVDHpZr5J7WnNCbtj-sXFDrLc
+    scenes-app-replay-vision--monitor-overview-dashboard-offer--dark:
+        hash: v1.k794b7964.938b0069da1eb943fdd15aadb01c142603111292859bc34fea0f93bce95f7ac8.qVQYF7Gy-ISCeG-RjVYnDXF_HcEzaHxpM8A1atMZBdE
+    scenes-app-replay-vision--monitor-overview-dashboard-offer--light:
+        hash: v1.k794b7964.cc0d32580736768a2944ed90c09ef78ffac5e8c3ffc15d51307d7529f8a9a606.vEM-tv6APY-YhgbYYYe4LREOHBxr1SvVvsXVouNLnxE
     scenes-app-replay-vision--monitor-overview-with-root-cause--dark:
         hash: v1.k794b7964.95eb50d69e46376f28de8821b0d1dfa356c08db91249e14f900cb54e7d58c278.oCAAFUd8iCTVgaeYB6ogtIxzaALytcTJ7tuCFgqEED8
     scenes-app-replay-vision--monitor-overview-with-root-cause--light:
