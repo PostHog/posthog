@@ -25,7 +25,7 @@ use rdkafka::{Offset, TopicPartitionList};
 use tracing::{debug, info, warn};
 
 use crate::consumers::events::{fsync_then_commit, run_pauser_loop, EventDispatcher};
-use crate::consumers::merges::owned_committable_offsets;
+use crate::consumers::merges::{final_commit_after_drain, owned_committable_offsets};
 use crate::observability::disk::{DiskUtilization, SharedDiskUtilization};
 use crate::observability::metrics::{
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_SEEDS_CONSUMED,
@@ -561,13 +561,11 @@ impl SeedFollowerConsumer {
             warn!(error = %err, "seed idle-probe task did not exit cleanly");
         }
 
-        fsync_then_commit(
-            self.dispatcher.handle(),
+        final_commit_after_drain(
             &self.consumer,
             &self.dispatcher.merge_deps().seed_tracker,
-            self.owned_committable_offsets(),
+            &self.dispatcher,
             &self.topic,
-            CommitMode::Sync,
         )
         .await;
         info!(topic = %self.topic, "seed follower consume loop stopped");
