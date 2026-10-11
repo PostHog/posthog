@@ -1,17 +1,27 @@
-# Writing the customer reply
+# Writing the answer
 
-The deliverable is a reply the customer can act on: what's happening, how to fix it, and the
+The deliverable is an explanation the reader can act on: what's happening, how to fix it, and the
 numbers that prove it. Voice follows the PostHog support values — reassuringly human, humble,
 clear, no jargon.
+
+## Which shape to use
+
+Both paths use the same order: cause, then fix, then the numbers.
+
+- **The experiment's owner asked.** Give the cause, the fix, and the numbers, then stop. No
+  greeting, no sign-off, and no "thanks for flagging this". They are already in their own project
+  and want the answer.
+- **PostHog staff is answering a ticket.** Use the reply skeleton below. It adds the greeting, the
+  follow-up offer, and the softening a support reply needs.
 
 ## Rules
 
 - **Lead with the cause, then the fix.** One line on what's happening, then what to do.
 - **Bold the problem and each action** so they're scannable.
-- **Show the numbers you pulled.** The customer is staring at a results page; cite the exact
+- **Show the numbers you pulled.** The reader is staring at a results page; cite the exact
   figures that explain it ("the smaller variant lost about 8% of its users to the multiple-
   variant exclusion"). This is the "review the data" part of the ask.
-- **Use the labels the customer sees in the UI, never internal field names.** Grep
+- **Use the labels the reader sees in the UI, never internal field names.** Grep
   `frontend/src/scenes/experiments/` for the real string if unsure. Common mappings:
 
   | Internal / code term                      | What the customer sees                                                                                  |
@@ -26,7 +36,7 @@ clear, no jargon.
   | SRM                                       | the **split not matching what you configured** (say "sample ratio mismatch" only if they used the term) |
   | rollout / split                           | keep **rollout** (overall %) distinct from **split** (between variants)                                 |
 
-- **Link every entity by ID for the right instance** (US vs EU — match the customer's):
+- **Link every entity by ID for the right instance** (US vs EU — match the project's):
   - Experiment: `https://<us|eu>.posthog.com/project/<id>/experiments/<experiment_id>`
   - Feature flag: `https://<us|eu>.posthog.com/project/<id>/feature_flags/<flag_id>`
   - Cohort: `https://<us|eu>.posthog.com/project/<id>/cohorts/<cohort_id>`
@@ -39,7 +49,9 @@ clear, no jargon.
   rule-of-three padding. If a humanizer skill is available, run the draft through it before
   sending.
 
-## Reply skeleton
+## Reply skeleton (ticket path)
+
+On the owner path, keep the **The problem** and **The fix** blocks and drop the rest.
 
 ```text
 Hi <name>,
