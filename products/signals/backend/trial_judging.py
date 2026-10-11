@@ -177,7 +177,8 @@ def _without_reasoning(value: JsonValue, *, json_depth: int = MAX_QUOTE_JSON_DEP
         # Keep the original spelling unless encoded fields need the same exclusions as native JSON.
         return value if filtered == decoded else json.dumps(filtered, ensure_ascii=False)
     if isinstance(value, dict):
-        if value.get("type") in {"thinking", "reasoning", "redacted_thinking", "analysis"}:
+        kind = value.get("type")
+        if isinstance(kind, str) and kind in {"thinking", "reasoning", "redacted_thinking", "analysis"}:
             return None
         return {
             key: _without_reasoning(child, json_depth=json_depth)
@@ -189,48 +190,49 @@ def _without_reasoning(value: JsonValue, *, json_depth: int = MAX_QUOTE_JSON_DEP
     return value
 
 
-def _tool_quote_matches(
+@frozen
+class _ToolQuoteText:
+    filtered: str = field(repr=False)
+    original: str = field(repr=False)
+
+    def contains(self, quote: str) -> bool:
+        # Filtering must not invent adjacency, including inside a decoded tool-result string.
+        return quote in self.filtered and quote in self.original
+
+
+def _tool_quote_texts(
     value: JsonValue,
     original: JsonValue,
-    quote: str,
     *,
     json_depth: int = MAX_QUOTE_JSON_DEPTH,
     serialize: bool = True,
-) -> bool:
+) -> Iterator[_ToolQuoteText]:
     if value is None and original is not None:
-        return False
-    # Filtering must not invent adjacency, including inside a decoded tool-result string.
-    if serialize and any(
-        quote in json.dumps(value, ensure_ascii=False, separators=separators)
-        and quote in json.dumps(original, ensure_ascii=False, separators=separators)
-        for separators in (None, (",", ":"))
-    ):
-        return True
+        return
+    if serialize:
+        for separators in (None, (",", ":")):
+            yield _ToolQuoteText(
+                filtered=json.dumps(value, ensure_ascii=False, separators=separators),
+                original=json.dumps(original, ensure_ascii=False, separators=separators),
+            )
     if isinstance(value, str) and isinstance(original, str):
-        if quote in value and quote in original:
-            return True
+        yield _ToolQuoteText(filtered=value, original=original)
         if json_depth:
             try:
                 decoded = cast(JsonValue, json.loads(original))
             except (ValueError, RecursionError):
-                return False
-            return _tool_quote_matches(
+                return
+            yield from _tool_quote_texts(
                 _without_reasoning(decoded, json_depth=json_depth - 1),
                 decoded,
-                quote,
                 json_depth=json_depth - 1,
             )
     elif isinstance(value, dict) and isinstance(original, dict):
-        return any(
-            _tool_quote_matches(child, original[key], quote, json_depth=json_depth, serialize=False)
-            for key, child in value.items()
-        )
+        for key, child in value.items():
+            yield from _tool_quote_texts(child, original[key], json_depth=json_depth, serialize=False)
     elif isinstance(value, list) and isinstance(original, list):
-        return any(
-            _tool_quote_matches(child, previous, quote, json_depth=json_depth, serialize=False)
-            for child, previous in zip(value, original, strict=True)
-        )
-    return False
+        for child, previous in zip(value, original, strict=True):
+            yield from _tool_quote_texts(child, previous, json_depth=json_depth, serialize=False)
 
 
 def _object(value: JsonValue) -> dict[str, JsonValue]:
@@ -263,20 +265,36 @@ class _EvidenceQuotes:
         self.sources = {source.id: source for source in sources}
         if len(self.sources) != len(sources):
             raise TrialJudgeValidationError("The saved evidence contains duplicate source identifiers.")
-        self.trace_lines: dict[str, dict[str, JsonValue]] = {}
-        self.original_trace_lines: dict[str, dict[str, JsonValue]] = {}
-        requested = {citation.source_id for citation in citations if citation.source_id.startswith("trace:")}
+        self.trace_lines: dict[str, set[str]] = {}
+        requested: dict[str, set[str]] = {}
+        for citation in citations:
+            if citation.source_id.startswith("trace:") and citation.quote.strip():
+                requested.setdefault(citation.source_id, set()).add(citation.quote)
         trace = self.sources.get("trace")
         if trace is not None and requested:
             for number, line in enumerate(io.StringIO(trace.text), start=1):
                 identifier = f"trace:{number}"
                 if identifier in requested and (payload := _tool_event(line)) is not None:
-                    self.original_trace_lines[identifier] = payload
-                    self.trace_lines[identifier] = {
-                        key: _without_reasoning(value)
-                        for key, value in payload.items()
-                        if key in {"toolCallId", "id", "title", "kind", "status", "rawInput", "rawOutput", "content"}
-                    }
+                    matches: set[str] = set()
+                    try:
+                        filtered = {
+                            key: _without_reasoning(value)
+                            for key, value in payload.items()
+                            if key
+                            in {"toolCallId", "id", "title", "kind", "status", "rawInput", "rawOutput", "content"}
+                        }
+                        if filtered:
+                            # Check a line's quotes together without retaining copies of large responses.
+                            for text in _tool_quote_texts(filtered, payload):
+                                matches.update(
+                                    quote for quote in requested[identifier] - matches if text.contains(quote)
+                                )
+                                if matches == requested[identifier]:
+                                    break
+                    except RecursionError:
+                        # Keep earlier matches if a later nested value is too deep.
+                        pass
+                    self.trace_lines[identifier] = matches
                     if len(self.trace_lines) == len(requested):
                         break
 
@@ -284,13 +302,7 @@ class _EvidenceQuotes:
         if not citation.quote.strip():
             return False
         if citation.source_id.startswith("trace:"):
-            payload = self.trace_lines.get(citation.source_id)
-            try:
-                return bool(payload) and _tool_quote_matches(
-                    payload, self.original_trace_lines[citation.source_id], citation.quote
-                )
-            except RecursionError:
-                return False
+            return citation.quote in self.trace_lines.get(citation.source_id, set())
         source = self.sources.get(citation.source_id)
         if source is None or source.kind == "trace":
             return False
