@@ -158,4 +158,56 @@ describe('passkeyLogic', () => {
             expect(logic.values.isReauth).toBe(false)
         })
     })
+
+    it('continues with prechecked credentials after navigation during the begin request', async () => {
+        let releaseBeginRequest!: () => void
+        let beginRequestStarted!: () => void
+        let authenticationStarted!: () => void
+        const beginRequest = new Promise<void>((resolve) => (releaseBeginRequest = resolve))
+        const beginStarted = new Promise<void>((resolve) => (beginRequestStarted = resolve))
+        const authenticationStartedPromise = new Promise<void>((resolve) => (authenticationStarted = resolve))
+
+        ;(startAuthentication as jest.Mock).mockImplementation(async () => {
+            authenticationStarted()
+            return { id: 'cred-1', response: {} }
+        })
+        useMocks({
+            get: { '/api/users/@me/': () => [200, {}] },
+            post: {
+                '/api/webauthn/login/begin/': async () => {
+                    beginRequestStarted()
+                    await beginRequest
+                    return [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [{ id: 'server-cred', type: 'public-key' }],
+                            userVerification: 'required',
+                        },
+                    ]
+                },
+                '/api/webauthn/login/complete/': () => [200, {}],
+            },
+        })
+        initKeaTests()
+        const logic = passkeyLogic()
+        logic.mount()
+
+        logic.actions.beginPasskeyLogin([{ id: 'precheck-cred', type: 'public-key' }])
+        await beginStarted
+        logic.unmount()
+        releaseBeginRequest()
+
+        await authenticationStartedPromise
+
+        expect(startAuthentication).toHaveBeenCalledWith(
+            expect.objectContaining({
+                optionsJSON: expect.objectContaining({
+                    allowCredentials: [{ id: 'precheck-cred', type: 'public-key' }],
+                }),
+            })
+        )
+    })
 })

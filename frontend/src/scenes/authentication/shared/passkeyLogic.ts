@@ -169,6 +169,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
             null as null,
             {
                 startPasskeyAuthentication: async () => {
+                    const precheckCredentials = values.allowCredentialsFromPrecheck ?? []
                     try {
                         // Step 1: Get authentication options from server
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -176,7 +177,6 @@ export const passkeyLogic = kea<passkeyLogicType>([
 
                         // Step 2: Use SimpleWebAuthn to get assertion from authenticator
                         // Use provided allowCredentials if available (from precheck), otherwise use server response
-                        const precheckCredentials = values.allowCredentialsFromPrecheck ?? []
                         const credentialsToUse =
                             precheckCredentials.length > 0 ? precheckCredentials : beginResponse.allowCredentials
 
