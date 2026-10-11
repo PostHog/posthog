@@ -24,7 +24,11 @@ from posthog.temporal.common.client import async_connect
 
 from products.web_analytics.backend.api.heatmaps_utils import capture_image_within_limits, heatmaps_flag_enabled
 from products.web_analytics.backend.heatmap_history_expiry import cancel_live_requests
-from products.web_analytics.backend.heatmap_history_storage import delete_images_on_commit, write_image
+from products.web_analytics.backend.heatmap_history_storage import (
+    delete_images_now,
+    delete_images_on_commit,
+    write_image,
+)
 from products.web_analytics.backend.models import HeatmapCaptureRequest, HeatmapScreenshotHistory, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     BrowserlessPermanentError,
@@ -37,6 +41,7 @@ from products.web_analytics.backend.temporal.page_history.types import (
     CAPTURE_WORKFLOW_NAME,
     RENDER_RETRY_DELAY,
     CaptureInputs,
+    FinishInputs,
     RenderOutcome,
     capture_workflow_id,
     tick_start,
@@ -309,7 +314,7 @@ class HeatmapHistoryService:
         HISTORY_CAPTURES.labels(outcome="failed", cause=cause).inc()
 
     @staticmethod
-    def claim(*, team_id: int, request_id: UUID) -> HeatmapCaptureRequest | None:
+    def claim(*, team_id: int, request_id: UUID, claim_id: UUID | None = None) -> HeatmapCaptureRequest | None:
         queued = (
             HeatmapCaptureRequest.objects.for_team(team_id)
             .filter(id=request_id)
@@ -329,10 +334,14 @@ class HeatmapHistoryService:
             request = (
                 HeatmapCaptureRequest.objects.for_team(team_id)
                 .select_for_update()
-                .filter(id=request_id, state=HeatmapCaptureRequest.State.QUEUED)
+                .filter(id=request_id, state__in=HeatmapCaptureRequest.LIVE_STATES)
                 .first()
             )
             if heatmap is None or request is None:
+                return None
+            if request.state == HeatmapCaptureRequest.State.RUNNING and (
+                claim_id is None or request.claim_id != claim_id
+            ):
                 return None
             current = (
                 HeatmapScreenshotHistory.objects.for_team(team_id)
@@ -342,8 +351,10 @@ class HeatmapHistoryService:
             if not current or not capture_still_wanted(heatmap, request, enabled):
                 HeatmapHistoryService.fail(request, "capture_cancelled", state=HeatmapCaptureRequest.State.CANCELLED)
                 return None
+            if request.state == HeatmapCaptureRequest.State.RUNNING:
+                return request
             request.state = HeatmapCaptureRequest.State.RUNNING
-            request.claim_id = uuid4()
+            request.claim_id = claim_id or uuid4()
             request.save(update_fields=["state", "claim_id"])
             return request
 
@@ -446,6 +457,26 @@ class HeatmapHistoryService:
             .filter(id=request_id, state=HeatmapCaptureRequest.State.RUNNING, claim_id=claim_id)
             .first()
         )
+
+    @staticmethod
+    def finish(inputs: FinishInputs) -> None:
+        capture = inputs.capture
+        request_id = UUID(capture.request_id)
+        request = HeatmapCaptureRequest.objects.for_team(capture.team_id).filter(id=request_id).first()
+        if request is None or request.state in (
+            HeatmapCaptureRequest.State.FAILED,
+            HeatmapCaptureRequest.State.CANCELLED,
+        ):
+            if delete_images_now(capture.team_id, [request_id]):
+                raise ObjectStorageError("Could not delete cancelled capture images")
+            return
+        if request.state != HeatmapCaptureRequest.State.RUNNING or request.claim_id != UUID(capture.claim_id):
+            return
+        outcome = inputs.outcome
+        if outcome.failure_cause is None:
+            HeatmapHistoryService.publish(request, outcome.has_thumbnail)
+        else:
+            HeatmapHistoryService.fail(request, outcome.failure_cause, outcome.page_status)
 
     @staticmethod
     def render_and_store(request: HeatmapCaptureRequest, *, final_attempt: bool) -> RenderOutcome:
