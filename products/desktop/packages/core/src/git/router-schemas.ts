@@ -378,6 +378,8 @@ export {
   getPrCommentsOutput,
   getPrInfoByUrlInput,
   getPrInfoByUrlOutput,
+  getPrPipelineStatusInput,
+  getPrPipelineStatusOutput,
   mergePrInput,
   mergePrOutput,
 } from "@posthog/shared";

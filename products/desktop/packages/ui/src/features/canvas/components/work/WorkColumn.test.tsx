@@ -74,6 +74,10 @@ vi.mock("@posthog/ui/features/tasks/useTaskMutations", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => null,
 }));
+// The CI and merge queue lookup is tRPC-backed, and this suite is about the row.
+vi.mock("@posthog/ui/features/sidebar/usePrPipelineStatus", () => ({
+  usePrPipelineStatus: () => null,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasksRunState", () => ({
   useChannelTasksRunState: () => [],
 }));

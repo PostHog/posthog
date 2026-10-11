@@ -51,6 +51,10 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
 }));
+// The CI and merge queue lookup is tRPC-backed, and this suite is about the row.
+vi.mock("@posthog/ui/features/sidebar/usePrPipelineStatus", () => ({
+  usePrPipelineStatus: () => null,
+}));
 // The row menu's spaces list and filing mutation are tRPC-backed. The
 // handoff dialog's channels lookup rides the same mock.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({

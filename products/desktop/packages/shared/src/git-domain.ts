@@ -145,6 +145,51 @@ export const getPrChecksInput = z.object({ prUrl: z.string() });
 export const getPrChecksOutput = z.array(prCheckSchema).nullable();
 export type GetPrChecksOutput = z.infer<typeof getPrChecksOutput>;
 
+/**
+ * A short summary of an open PR's CI and merge queue, for list rows that have
+ * room for one phrase each. `failing` wins over `running`: a red check is the
+ * news even while other checks still run.
+ */
+export const prCiStateSchema = z.enum(["running", "failing", "passing"]);
+export type PrCiState = z.infer<typeof prCiStateSchema>;
+
+export const prCiSummarySchema = z.object({
+  state: prCiStateSchema,
+  total: z.number(),
+  failed: z.number(),
+  pending: z.number(),
+});
+export type PrCiSummary = z.infer<typeof prCiSummarySchema>;
+
+/**
+ * Where a PR is in a Trunk merge queue. `queuing` is submitted but not yet
+ * admitted (Trunk waits for checks and approvals), `queued` is admitted and
+ * waiting its turn, and `testing` is the last step before the merge.
+ */
+export const prMergeQueueStateSchema = z.enum([
+  "queuing",
+  "queued",
+  "testing",
+  "failed",
+  "removed",
+]);
+export type PrMergeQueueState = z.infer<typeof prMergeQueueStateSchema>;
+
+export const prPipelineStatusSchema = z.object({
+  /** Null when the head commit reports no checks. */
+  ci: prCiSummarySchema.nullable(),
+  /** Null when the PR is not in a merge queue. */
+  mergeQueue: prMergeQueueStateSchema.nullable(),
+});
+export type PrPipelineStatus = z.infer<typeof prPipelineStatusSchema>;
+
+export const getPrPipelineStatusInput = z.object({ prUrl: z.string() });
+/** Null means the status couldn't be fetched, or the PR is no longer open. */
+export const getPrPipelineStatusOutput = prPipelineStatusSchema.nullable();
+export type GetPrPipelineStatusOutput = z.infer<
+  typeof getPrPipelineStatusOutput
+>;
+
 // Conversation (issue) comments and review summaries on a PR. Inline review
 // comments live in `prReviewThreadSchema` above.
 export const prConversationCommentSchema = z.object({
