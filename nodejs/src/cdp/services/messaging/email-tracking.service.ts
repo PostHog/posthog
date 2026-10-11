@@ -337,6 +337,8 @@ export class EmailTrackingService {
                     $workflow_action_id: actionId,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
+                    // Same as the send event in email.service.ts: no recipient IP reaches internal capture.
+                    $geoip_disable: true,
                 },
             })
             await this.capturedEventsService.flush()
