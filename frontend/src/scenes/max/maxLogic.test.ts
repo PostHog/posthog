@@ -15,6 +15,7 @@ import { ConversationDetail, SidePanelTab } from '~/types'
 
 import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -142,6 +143,7 @@ describe('maxLogic', () => {
     it.each([
         ['Foo', 'Foo'],
         [REPORT_AI_PANEL, ''],
+        [SCOUT_AI_PANEL, ''],
     ])('seeds the question from side panel option %s', async (options, question) => {
         sidePanelStateLogic.mount()
         await expectLogic(sidePanelStateLogic, () => {
