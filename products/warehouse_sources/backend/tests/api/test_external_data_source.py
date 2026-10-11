@@ -2981,9 +2981,14 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(payload[0]["supports_hogql"], True)
 
     def test_direct_connection_options_lists_every_direct_capable_source_type(self):
-        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/")
+        with patch.object(SourceRegistry, "_ensure_loaded", wraps=SourceRegistry._ensure_loaded) as full_load:
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/"
+            )
 
         self.assertEqual(response.status_code, 200)
+        # A full registry load imports every source module, which costs seconds on a cold web worker.
+        full_load.assert_not_called()
         payload = response.json()
         source_types = {option["source_type"] for option in payload}
 
