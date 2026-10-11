@@ -1016,6 +1016,11 @@ class HogFlowEdgeSerializer(serializers.Serializer):
         fields["from"] = serializers.CharField(help_text="Source action id.")
         return fields
 
+    def to_representation(self, value):
+        # Pass stored JSON through untouched: a legacy edge without a 'to' key must still render
+        # (and be fixed in the editor) instead of failing the whole read with a KeyError.
+        return value
+
 
 # Schema-only typing for the polymorphic action config. The MCP tool schema is generated from this
 # (via zod), the MCP server parses tool input with that zod schema, and handlers receive the PARSED
