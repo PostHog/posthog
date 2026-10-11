@@ -43,6 +43,27 @@ describe('posthog run scout template', () => {
         expect(claims.hog_flow_id).toBe(workflowOptions.hogFlow.id)
     })
 
+    it.each([
+        ['renders the note from the triggering event', 'PR #{event.properties.pr_number}', 'PR #4821'],
+        ['cuts a note over the endpoint limit', `PR #{event.properties.pr_number} ${'x'.repeat(1200)}`, null],
+    ])('%s', async (_name, note, expected) => {
+        const response = await tester.invoke(
+            { ...inputs, note },
+            { event: { properties: { pr_number: 4821 } } },
+            workflowOptions
+        )
+        expect(response.error).toBeUndefined()
+
+        const params = response.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
+        const sent = parseJSON(params.body!).note as string
+        if (expected === null) {
+            expect(sent).toHaveLength(1000)
+            expect(sent.startsWith('PR #4821 ')).toBe(true)
+        } else {
+            expect(sent).toBe(expected)
+        }
+    })
+
     it('fails without staging a request when no scout is chosen', async () => {
         const response = await tester.invoke({ skill_name: '' }, undefined, workflowOptions)
         expect(response.error).toMatch(/A scout is required/)
