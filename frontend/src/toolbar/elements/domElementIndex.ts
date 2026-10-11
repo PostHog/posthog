@@ -290,13 +290,9 @@ function discriminateCandidates(
 function resolveMatchedElement(
     walkers: { candidate: HTMLElement }[],
     candidates: HTMLElement[],
-    eventElement: ElementType,
-    useDiscriminators: boolean
+    eventElement: ElementType
 ): HTMLElement | null {
     const chainMatch = walkers.length === 1 ? walkers[0].candidate : null
-    if (!useDiscriminators) {
-        return chainMatch
-    }
     const capturedText = normalizeText(eventElement.text)
     if (
         chainMatch &&
@@ -333,14 +329,12 @@ export function matchIsChainConsistent(element: HTMLElement, chain: ElementType[
 }
 
 export function chainConsistencyProperties(counts: {
-    useDiscriminators: boolean
     consistentClicks: number
     inconsistentClicks: number
     matchedClicks: number
     totalClicks: number
-}): Record<string, boolean | number> {
+}): Record<string, number> {
     return {
-        discriminators_enabled: counts.useDiscriminators,
         consistent_click_count: counts.consistentClicks,
         inconsistent_click_count: counts.inconsistentClicks,
         matched_click_count: counts.matchedClicks,
@@ -364,13 +358,12 @@ export function isTooSimple(element: ElementType): boolean {
 export interface ElementMatchOptions {
     dataAttributes?: string[]
     matchLinksByHref?: boolean
-    useDiscriminators?: boolean
 }
 
 export function matchEventToElementUsingIndex(
     event: ElementsEventType,
     index: DOMIndex,
-    { dataAttributes = [], matchLinksByHref = false, useDiscriminators = false }: ElementMatchOptions = {}
+    { dataAttributes = [], matchLinksByHref = false }: ElementMatchOptions = {}
 ): CountedHTMLElement | null {
     const targetElement = event.elements[0]
     if (!targetElement) {
@@ -398,7 +391,7 @@ export function matchEventToElementUsingIndex(
         })
     }
 
-    const resolved = resolveMatchedElement(walkers, candidates, targetElement, useDiscriminators)
+    const resolved = resolveMatchedElement(walkers, candidates, targetElement)
 
     if (resolved && !isTooSimple(targetElement)) {
         return {
