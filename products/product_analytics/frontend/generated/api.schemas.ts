@@ -9231,6 +9231,59 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface InsightStoryChapterFactsApi {
+    /**
+     * Identifier of the chapter. The response returns the chapter under the same one.
+     * @maxLength 64
+     */
+    id: string
+    /**
+     * What the chapter is about, for example 'A peak on October 2'.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * The computed facts of the chapter in one or two sentences, with their numbers and dates.
+     * @maxLength 600
+     */
+    summary: string
+    /**
+     * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
+     * @maxItems 6
+     * @items.maxLength 600
+     */
+    evidence?: string[]
+}
+
+export interface InsightStoryRequestApi {
+    /**
+     * Name of the series that the story follows.
+     * @maxLength 200
+     */
+    series_label: string
+    /**
+     * Name of the insight. Blank for an insight that has no name yet.
+     * @maxLength 400
+     */
+    insight_name?: string
+    /** The chapters of the story in reading order. At most 8. */
+    chapters: InsightStoryChapterFactsApi[]
+}
+
+export interface InsightStoryChapterApi {
+    /** Identifier of the chapter, as it was sent. */
+    id: string
+    /** What the facts of the chapter most likely mean, in one or two sentences. Blank when there is nothing to add to the facts. */
+    reading: string
+}
+
+export interface InsightStoryApi {
+    /** One sentence that sums up the whole chart. */
+    headline: string
+    /** The chapters, in the order they were sent. */
+    chapters: InsightStoryChapterApi[]
+}
+
 /**
  * Insight enriched with view-count and recent-viewer fields, used by the trending action.
  */
@@ -9758,6 +9811,17 @@ export type InsightsMyLastViewedRetrieveFormat =
     (typeof InsightsMyLastViewedRetrieveFormat)[keyof typeof InsightsMyLastViewedRetrieveFormat]
 
 export const InsightsMyLastViewedRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsStoryCreateParams = {
+    format?: InsightsStoryCreateFormat
+}
+
+export type InsightsStoryCreateFormat = (typeof InsightsStoryCreateFormat)[keyof typeof InsightsStoryCreateFormat]
+
+export const InsightsStoryCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

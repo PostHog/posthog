@@ -27,6 +27,8 @@ import type {
     InsightBulkRestoreResponseApi,
     InsightBulkSetTestAccountFilterRequestApi,
     InsightBulkSetTestAccountFilterResponseApi,
+    InsightStoryApi,
+    InsightStoryRequestApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -42,6 +44,7 @@ import type {
     InsightsMyLastViewedRetrieveParams,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
+    InsightsStoryCreateParams,
     InsightsTrendingRetrieveParams,
     InsightsUpdateParams,
     InsightsViewedCreateParams,
@@ -856,6 +859,39 @@ export const insightsMyLastViewedRetrieve = async (
     return apiMutator<void>(getInsightsMyLastViewedRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightsStoryCreateUrl = (projectId: string, params?: InsightsStoryCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/story/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/story/`
+}
+
+/**
+ * Say what the story of a chart most likely means. The caller sends chapters of facts that it computed from the chart's data, and gets back a headline and a reading of each chapter with its likely cause. The numbers stay with the caller: this endpoint runs no query and reads no insight.
+ */
+export const insightsStoryCreate = async (
+    projectId: string,
+    insightStoryRequestApi: InsightStoryRequestApi,
+    params?: InsightsStoryCreateParams,
+    options?: RequestInit
+): Promise<InsightStoryApi> => {
+    return apiMutator<InsightStoryApi>(getInsightsStoryCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightStoryRequestApi),
     })
 }
 

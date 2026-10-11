@@ -58810,6 +58810,59 @@ export namespace Schemas {
       legacy: number;
     }
 
+    export interface InsightStoryChapter {
+      /** Identifier of the chapter, as it was sent. */
+      id: string;
+      /** What the facts of the chapter most likely mean, in one or two sentences. Blank when there is nothing to add to the facts. */
+      reading: string;
+    }
+
+    export interface InsightStory {
+      /** One sentence that sums up the whole chart. */
+      headline: string;
+      /** The chapters, in the order they were sent. */
+      chapters: InsightStoryChapter[];
+    }
+
+    export interface InsightStoryChapterFacts {
+      /**
+         * Identifier of the chapter. The response returns the chapter under the same one.
+         * @maxLength 64
+         */
+      id: string;
+      /**
+         * What the chapter is about, for example 'A peak on October 2'.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * The computed facts of the chapter in one or two sentences, with their numbers and dates.
+         * @maxLength 600
+         */
+      summary: string;
+      /**
+         * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
+         * @maxItems 6
+         * @items.maxLength 600
+         */
+      evidence?: string[];
+    }
+
+    export interface InsightStoryRequest {
+      /**
+         * Name of the series that the story follows.
+         * @maxLength 200
+         */
+      series_label: string;
+      /**
+         * Name of the insight. Blank for an insight that has no name yet.
+         * @maxLength 400
+         */
+      insight_name?: string;
+      /** The chapters of the story in reading order. At most 8. */
+      chapters: InsightStoryChapterFacts[];
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -123673,6 +123726,18 @@ export namespace Schemas {
 
 
     export const InsightsMyLastViewedRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsStoryCreateParams = {
+    format?: InsightsStoryCreateFormat;
+    };
+
+    export type InsightsStoryCreateFormat = typeof InsightsStoryCreateFormat[keyof typeof InsightsStoryCreateFormat];
+
+
+    export const InsightsStoryCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

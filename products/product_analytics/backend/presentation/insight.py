@@ -178,6 +178,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
 )
+from products.product_analytics.backend.presentation.insight_story import StoryFacts, read_story
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
 from common.hogvm.python.utils import HogVMException
@@ -1601,6 +1602,66 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
+INSIGHT_STORY_MAX_CHAPTERS = 8
+INSIGHT_STORY_MAX_FINDINGS = 6
+
+
+class InsightStoryChapterFactsSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        max_length=64, help_text="Identifier of the chapter. The response returns the chapter under the same one."
+    )
+    title = serializers.CharField(
+        max_length=200, help_text="What the chapter is about, for example 'A peak on October 2'."
+    )
+    summary = serializers.CharField(
+        max_length=600,
+        help_text="The computed facts of the chapter in one or two sentences, with their numbers and dates.",
+    )
+    evidence = serializers.ListField(
+        child=serializers.CharField(max_length=600),
+        required=False,
+        default=list,
+        max_length=INSIGHT_STORY_MAX_FINDINGS,
+        help_text=(
+            "Findings about the cause of the chapter, one sentence each. "
+            f"Empty when nothing was found. At most {INSIGHT_STORY_MAX_FINDINGS}."
+        ),
+    )
+
+
+class InsightStoryRequestSerializer(serializers.Serializer):
+    series_label = serializers.CharField(max_length=200, help_text="Name of the series that the story follows.")
+    insight_name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Name of the insight. Blank for an insight that has no name yet.",
+    )
+    chapters = InsightStoryChapterFactsSerializer(
+        many=True,
+        allow_empty=False,
+        max_length=INSIGHT_STORY_MAX_CHAPTERS,
+        help_text=f"The chapters of the story in reading order. At most {INSIGHT_STORY_MAX_CHAPTERS}.",
+    )
+
+
+class InsightStoryChapterSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Identifier of the chapter, as it was sent.")
+    reading = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "What the facts of the chapter most likely mean, in one or two sentences. "
+            "Blank when there is nothing to add to the facts."
+        ),
+    )
+
+
+class InsightStorySerializer(serializers.Serializer):
+    headline = serializers.CharField(help_text="One sentence that sums up the whole chart.")
+    chapters = InsightStoryChapterSerializer(many=True, help_text="The chapters, in the order they were sent.")
+
+
 INSIGHT_BULK_DELETE_MAX_IDS = 1000
 
 
@@ -1825,8 +1886,8 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to the AI metadata endpoint."""
-        if self.action == "generate_metadata":
+        """Apply LLM-specific throttles to the endpoints that call a model."""
+        if self.action in ("generate_metadata", "story"):
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
@@ -2336,6 +2397,29 @@ When set, the specified dashboard's filters and date range override will be appl
             raise APIException("Failed to generate insight metadata. Please try again.")
 
         return Response({"name": metadata.name, "description": metadata.description})
+
+    @validated_request(
+        request_serializer=InsightStoryRequestSerializer,
+        responses={200: OpenApiResponse(response=InsightStorySerializer, description="The reading of the story.")},
+        description=(
+            "Say what the story of a chart most likely means. The caller sends chapters of facts that it computed "
+            "from the chart's data, and gets back a headline and a reading of each chapter with its likely cause. "
+            "The numbers stay with the caller: this endpoint runs no query and reads no insight."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
+    def story(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._validate_ai_feature_access()
+
+        reading = read_story(
+            StoryFacts.model_validate(request.validated_data),
+            team_id=self.team.pk,
+            distinct_id=str(cast(User, request.user).distinct_id),
+        )
+        if reading is None:
+            raise APIException("Could not read the story. Please try again.")
+
+        return Response(InsightStorySerializer(reading.model_dump()).data)
 
     # ******************************************
     # /projects/:id/insights/viewed

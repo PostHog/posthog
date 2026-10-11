@@ -294,6 +294,63 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Say what the story of a chart most likely means. The caller sends chapters of facts that it computed from the chart's data, and gets back a headline and a reading of each chapter with its likely cause. The numbers stay with the caller: this endpoint runs no query and reads no insight.
+ */
+export const insightsStoryCreateBodySeriesLabelMax = 200
+
+export const insightsStoryCreateBodyInsightNameDefault = ``
+export const insightsStoryCreateBodyInsightNameMax = 400
+
+export const insightsStoryCreateBodyChaptersItemIdMax = 64
+
+export const insightsStoryCreateBodyChaptersItemTitleMax = 200
+
+export const insightsStoryCreateBodyChaptersItemSummaryMax = 600
+
+export const insightsStoryCreateBodyChaptersItemEvidenceItemMax = 600
+
+export const insightsStoryCreateBodyChaptersItemEvidenceMax = 6
+
+export const InsightsStoryCreateBody = /* @__PURE__ */ zod.object({
+    series_label: zod
+        .string()
+        .max(insightsStoryCreateBodySeriesLabelMax)
+        .describe('Name of the series that the story follows.'),
+    insight_name: zod
+        .string()
+        .max(insightsStoryCreateBodyInsightNameMax)
+        .default(insightsStoryCreateBodyInsightNameDefault)
+        .describe('Name of the insight. Blank for an insight that has no name yet.'),
+    chapters: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(insightsStoryCreateBodyChaptersItemIdMax)
+                    .describe('Identifier of the chapter. The response returns the chapter under the same one.'),
+                title: zod
+                    .string()
+                    .max(insightsStoryCreateBodyChaptersItemTitleMax)
+                    .describe("What the chapter is about, for example 'A peak on October 2'."),
+                summary: zod
+                    .string()
+                    .max(insightsStoryCreateBodyChaptersItemSummaryMax)
+                    .describe(
+                        'The computed facts of the chapter in one or two sentences, with their numbers and dates.'
+                    ),
+                evidence: zod
+                    .array(zod.string().max(insightsStoryCreateBodyChaptersItemEvidenceItemMax))
+                    .max(insightsStoryCreateBodyChaptersItemEvidenceMax)
+                    .optional()
+                    .describe(
+                        'Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.'
+                    ),
+            })
+        )
+        .describe('The chapters of the story in reading order. At most 8.'),
+})
+
+/**
  * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreateBodyInsightIdsMax = 2500
