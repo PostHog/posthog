@@ -2370,6 +2370,65 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         }
 
+    def test_create_from_template_keeps_mapping_integration_metadata_a_caller_leaves_out(self):
+        HogFunctionTemplate.objects.create(
+            template_id="template-ads",
+            sha="1.0.0",
+            name="Ads",
+            description="Send conversions",
+            code="print(inputs.oauth)",
+            code_language="hog",
+            type="destination",
+            status="stable",
+            inputs_schema=[{"key": "oauth", "type": "integration", "integration": "google-ads", "required": True}],
+            mapping_templates=[
+                {
+                    "name": "Conversion",
+                    "include_by_default": True,
+                    "filters": {"events": []},
+                    "inputs_schema": [
+                        {
+                            "key": "conversionActionId",
+                            "type": "integration_field",
+                            "integration_key": "oauth",
+                            "integration_field": "google_ads_conversion_action",
+                            "requires_field": "oauth",
+                            "label": "Conversion action",
+                            "required": True,
+                        }
+                    ],
+                }
+            ],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Ads",
+                "type": "destination",
+                "template_id": "template-ads",
+                "inputs": {"oauth": {"value": 1}},
+                "mappings": [
+                    {
+                        "name": "Conversion",
+                        "inputs_schema": [
+                            {
+                                "key": "conversionActionId",
+                                "type": "integration_field",
+                                "label": "Conversion action",
+                                "required": True,
+                            }
+                        ],
+                        "inputs": {"conversionActionId": {"value": "123"}},
+                    }
+                ],
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mapping_schema = response.json()["mappings"][0]["inputs_schema"][0]
+        assert mapping_schema["integration_key"] == "oauth"
+        assert mapping_schema["integration_field"] == "google_ads_conversion_action"
+        assert mapping_schema["requires_field"] == "oauth"
+
     @parameterized.expand(
         [
             ("required", {"required": True}, "inputs__required_field", "This field is required."),
