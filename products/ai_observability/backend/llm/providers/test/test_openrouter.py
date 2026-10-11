@@ -213,7 +213,7 @@ class TestOpenRouterNonChatModels:
                     "example/new-decision-model",
                 }
             )
-            assert decision_model_ids() == frozenset(
+            expected_decisions = frozenset(
                 {
                     "example/dual-model",
                     "typesafe/jev-1.13",
@@ -225,6 +225,8 @@ class TestOpenRouterNonChatModels:
                     "respan/example-future-model",
                 }
             )
+            assert decision_model_ids() == expected_decisions
+            assert decision_model_ids(decision_only=True) == expected_decisions - {"example/dual-model"}
 
     @pytest.mark.parametrize("cached_decisions", [None, False, True])
     def test_catalogue_failure_keeps_last_success_and_recovers(self, cached_decisions: bool | None) -> None:

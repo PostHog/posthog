@@ -601,13 +601,14 @@ def call_llm_judge(
         )
         judge_method = evaluation["evaluation_config"].get("judge_method")
         # Explicit selection takes precedence for models that support both methods.
+        # Models gaining decisions must not move existing chat evaluations onto a different API.
         uses_decisions = (
             judge_method == "decision"
             if judge_method is not None
-            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
+            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled, decision_only=True)
         )
         if judge_method is None and provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False) or ())
+            uses_decisions = model in (decision_model_ids(refresh=False, decision_only=True) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -881,7 +882,11 @@ def call_llm_judge(
         )
     except UnsupportedModelError:
         # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if provider == "openrouter" and not openrouter_enabled and model in (decision_model_ids(refresh=False) or ()):
+        if (
+            provider == "openrouter"
+            and not openrouter_enabled
+            and model in (decision_model_ids(refresh=False, decision_only=True) or ())
+        ):
             return build_skipped_evaluation_result(
                 output_type=output_type,
                 allows_na=allows_na,
