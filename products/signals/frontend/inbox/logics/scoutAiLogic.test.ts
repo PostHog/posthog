@@ -18,11 +18,17 @@ describe('scoutAiLogic', () => {
     let trackerLogic: ReturnType<typeof taskTrackerSceneLogic.build>
     let seedBridgeLogic: ReturnType<typeof phaiSidePanelComposerSeedLogic.build>
     let createdDescriptions: string[]
+    let approved: boolean
 
     beforeEach(() => {
         createdDescriptions = []
+        approved = true
         useMocks({
             get: {
+                '/api/organizations/@current/': () => [
+                    200,
+                    { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: approved },
+                ],
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/integrations/': { results: [] },
@@ -45,18 +51,11 @@ describe('scoutAiLogic', () => {
     })
 
     // The generic PostHog AI panel is open, so its seed bridge hears the `inbox-scout` option too.
-    const mountWithOpenPanel = (approved: boolean): void => {
-        useMocks({
-            get: {
-                '/api/organizations/@current/': () => [
-                    200,
-                    { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: approved },
-                ],
-            },
-        })
+    const mountWithOpenPanel = (consent: boolean): void => {
+        approved = consent
         initKeaTests(true, undefined, undefined, {
             ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: approved,
+            is_ai_data_processing_approved: consent,
         })
         sidePanelStateLogic.mount()
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
