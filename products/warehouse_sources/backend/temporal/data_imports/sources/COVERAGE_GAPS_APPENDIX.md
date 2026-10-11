@@ -5576,14 +5576,14 @@ Note: The public API reference lists only four read-oriented collections — con
 
 ## Metorial — **thin**
 
-Today (7): `provider_deployments`, `provider_runs`, `providers`, `session_errors`, `session_messages`, `sessions`, `tool_calls`
+Today (10): `integration_instances`, `provider_deployments`, `provider_runs`, `provider_versions`, `providers`, `session_errors`, `session_messages`, `session_providers`, `sessions`, `tool_calls`
 
 Diffed against: <https://metorial.com/api>
 
-- [ ] `provider-tools` — lookup table resolving the tool IDs on synced tool_calls (high)
-- [ ] `session-providers` — join table linking synced sessions to the providers they used (high)
-- [ ] `integration-instances` — the per-customer installed integration records that sessions run against (high)
-- [ ] `provider-versions` — lookup resolving the version IDs on provider_deployments and provider_runs (high)
+- [ ] `provider-tools` — lookup table resolving the tool IDs on synced tool_calls (high). Skipped: the list call requires `provider_version_id`, so it needs a per-version fan-out over the whole global provider catalog, and `tool_calls` rows already embed the full `tool` object.
+- [x] `session-providers` — join table linking synced sessions to the providers they used (high). Added as `session_providers`.
+- [x] `integration-instances` — the per-customer installed integration records that sessions run against (high). Added as `integration_instances`.
+- [x] `provider-versions` — lookup resolving the version IDs on provider_deployments and provider_runs (high). Added as `provider_versions` (off by default, like `providers`).
 - [ ] `integrations` — integration catalog lookup that integration-instances point at (medium)
 - [ ] `session-participants` — membership table of who/what took part in each session (medium)
 - [ ] `session-connections` — per-session connection records for connectivity and failure analysis (medium)
