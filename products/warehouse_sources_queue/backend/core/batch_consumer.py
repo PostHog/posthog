@@ -544,6 +544,14 @@ class BatchConsumer:
             autocommit=True,
             connect_timeout=self._config.connect_timeout_seconds,
         )
+        # The queue DB sits behind a transaction pooler, which can hand consecutive
+        # statements on the same client connection to different backends. psycopg's default
+        # prepare_threshold server-prepares a statement after 5 identical executions, and a
+        # later Bind against that name can land on a backend that never saw the Parse,
+        # raising "unable to bind ... cannot get parse message". Disabling it keeps every
+        # statement unnamed, which the pooler always replays correctly. Same setting the
+        # Redshift batch export uses for its own pooler/compatibility reasons.
+        conn.prepare_threshold = None
         # Session-scoped SET, not a libpq startup option: PgBouncer rejects
         # statement_timeout inside the `options` startup parameter.
         timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)

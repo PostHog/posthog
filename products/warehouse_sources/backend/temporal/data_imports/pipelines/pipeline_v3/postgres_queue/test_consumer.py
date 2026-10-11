@@ -1714,6 +1714,10 @@ class TestStatementTimeoutBackstop:
             "SET statement_timeout = 210000",
             "SET jit = off",
         ]
+        # The queue DB sits behind a transaction pooler: psycopg's default prepare_threshold
+        # would server-prepare a statement after 5 identical executions, and a pooler can bind
+        # it on a backend that never parsed it ("unable to bind ... cannot get parse message").
+        assert fresh.prepare_threshold is None
 
 
 class TestPollBackoff:

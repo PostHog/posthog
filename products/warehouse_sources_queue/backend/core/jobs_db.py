@@ -1203,9 +1203,16 @@ class _SyncConnectionPool:
             with self._lock:
                 conn = self._idle.pop() if self._idle else None
             if conn is None:
-                return psycopg.connect(
+                conn = psycopg.connect(
                     self._database_url, autocommit=True, connect_timeout=self._connect_timeout_seconds
                 )
+                # Pooled connections run the same query text many times, and the queue DB
+                # sits behind a transaction pooler that can hand consecutive statements to
+                # different backends. psycopg's default prepare_threshold would server-prepare
+                # after 5 identical executions, and a later Bind can land on a backend that
+                # never saw the Parse ("unable to bind ... cannot get parse message").
+                conn.prepare_threshold = None
+                return conn
             if not conn.closed and not conn.broken:
                 return conn
             self._close_quietly(conn)
