@@ -49,6 +49,7 @@ VERBOSE_NODES: set["MaxNodeName"] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.ROOT_TOOLS,
     AssistantNodeName.SLASH_COMMAND_HANDLER,
+    AssistantNodeName.SCOPE_GATE,
     TaxonomyNodeName.TOOLS_NODE,
     TaxonomyNodeName.TASK_EXECUTOR,
 }

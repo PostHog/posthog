@@ -533,6 +533,7 @@ class AssistantNodeName(StrEnum):
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
     SLASH_COMMAND_HANDLER = "slash_command_handler"
+    SCOPE_GATE = "scope_gate"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"
