@@ -635,6 +635,59 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
         )
         assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
 
+    def test_person_restriction_masks_set_containers_on_events(self) -> None:
+        context = self._context()
+        context.restricted_properties = {RestrictedProperty(name="email", property_type=PropertyDefinition.Type.PERSON)}
+        query = parse_select(
+            """SELECT properties.$set,
+                properties.$set.email,
+                properties.$set.name,
+                properties.$set_once.email,
+                properties.email,
+                JSONHas(properties, '$set', 'email'),
+                JSONExtractString(properties, '$set_once', 'email')
+            FROM events"""
+        )
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        [row] = sync_execute(
+            """WITH events_json AS (
+                SELECT 1 AS team_id, '$identify' AS event,
+                    CAST(%(document)s, %(event_type)s) AS properties,
+                    CAST('{}', %(person_type)s) AS person_properties,
+                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties
+            ) """
+            + printed,
+            {
+                **context.values,
+                "document": '{"email":"event-level"}',
+                # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
+                # container comes from that document.
+                "temporary_document": '{"$set":{"email":"hidden","name":"visible"},"$set_once":{"email":"hidden"}}',
+                "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+            },
+        )
+        # `email` as an event property is a different property and stays readable.
+        assert row == ('{"name":"visible"}', None, "visible", None, "event-level", 0, "")
+
+    def test_person_restriction_masks_set_containers_on_legacy_events(self) -> None:
+        context = self._context(use_new_events_schema=False)
+        context.restricted_properties = {RestrictedProperty(name="email", property_type=PropertyDefinition.Type.PERSON)}
+        query = parse_select("SELECT properties.$set.email, properties.$set, properties.email FROM events")
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        select_list = printed.split("FROM")[0]
+        # The nested read is a constant, never an extract that could reach the raw blob.
+        assert select_list.startswith("SELECT NULL,"), printed
+        # The container read comes from the scrubbed blob, which drops the nested path.
+        assert JSON_DROP_KEYS_CLICKHOUSE_NAME in select_list, printed
+        dropped = [value for value in context.values.values() if isinstance(value, list)]
+        assert any("$set.email" in value and "$set_once.email" in value for value in dropped), context.values
+        # The event-level `email` is unrestricted and still read from the blob.
+        assert "email" not in {key for value in dropped for key in value}, context.values
+
 
 class TestPropertyTypes(BaseTest):
     snapshot: Any
