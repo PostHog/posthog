@@ -600,8 +600,8 @@ export interface inboxSceneLogicActions {
         linkSource?: InboxReportLinkSource | null
     ) => {
         id: string | null
-        openMethod: InboxReportOpenMethod
         linkSource: InboxReportLinkSource | null
+        openMethod: InboxReportOpenMethod
     }
     setSelectedScoutSkillName: (
         skillName: string | null,
