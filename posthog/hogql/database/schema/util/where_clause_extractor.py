@@ -24,7 +24,8 @@ from posthog.uuidt import UUIDT
 
 SESSION_BUFFER_DAYS = 3
 DEFAULT_SESSION_LOOKBACK_DAYS = 30
-DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 60
+# ingestion floors event definition last_seen_at to the hour, and a stale value only widens the bound
+DEFAULT_SESSION_LOOKBACK_CACHE_TTL_SECONDS = 60 * 60
 # beyond this, duplicating the id list into the join subquery risks query-size limits;
 # covers the largest observed production batch (~1.2k ids) at ~13% of max_query_size
 SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS = 2000
