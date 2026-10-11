@@ -559,7 +559,11 @@ export function InsightMeta({
                                             : urls.insightEdit(short_id, dashboardId)
                                     )}
                                     fullWidth
-                                    {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
+                                    {...getOverrideWarningPropsForButton(
+                                        insight.query,
+                                        filtersOverride,
+                                        variablesOverride
+                                    )}
                                 >
                                     Edit
                                 </LemonButton>
