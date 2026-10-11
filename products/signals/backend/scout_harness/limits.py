@@ -48,6 +48,10 @@ SCOUT_RUN_REAPED_METADATA_KEY = "reaped_at"
 # note to: steering meant for one run must not crowd out the run's own instructions.
 MAX_RUN_NOTE_CHARS = 1_000
 
+# Cap on the pre-check rows a scheduled run carries into its prompt. The rows are raw product data
+# the scout owner's query selected, so they must not crowd out the run's own instructions.
+MAX_PRECHECK_ROWS_BYTES = 8 * 1024
+
 SCOUT_TRIAL_METADATA_KEY = "scout_trial"
 TRIAL_MAX_RUNTIME_S = 30 * 60
 # Poll budgets count sleeps, excluding startup and I/O; keep that overhead separate from cleanup time.
