@@ -1819,6 +1819,7 @@ class TestAlertSimulate(TrendsInsightAPITest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "needs at least" in response.json()["detail"]
+        assert response.json()["code"] == "alert_not_evaluable"
         assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
 
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
