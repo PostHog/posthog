@@ -180,7 +180,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             f"""
             SELECT
                 arraySort(t -> t.1, groupArray(tuple(
-                    toFloat(timestamp),
+                    {self.step_order_key()},
                     uuid,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
@@ -207,7 +207,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             GROUP BY aggregation_target
             HAVING step_reached >= 0
         """,
-            {"inner_event_query": inner_event_query},
+            {"inner_event_query": self._with_capture_order_key(inner_event_query)},
         )
         return inner_select
 
