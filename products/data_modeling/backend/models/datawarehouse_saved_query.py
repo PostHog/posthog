@@ -638,6 +638,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
+            if not isinstance(clickhouse_type, str):
+                # Every HogQL query of the team builds these fields, so one malformed stored type
+                # must drop only its own column, not fail every query of the project.
+                logger.warning("Skipping saved query column with a malformed type", saved_query_id=str(self.id))
+                continue
+
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 

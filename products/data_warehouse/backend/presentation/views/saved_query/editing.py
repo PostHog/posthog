@@ -81,6 +81,32 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
 
+def _columns_from_client_types(client_types: object) -> dict[str, dict[str, Any]]:
+    # Column types from the request are stored as is and read by every HogQL query of the team, so
+    # a malformed value must fail here with a 400 and never reach the database.
+    if not isinstance(client_types, list):
+        raise serializers.ValidationError({"types": "Expected a list of [column name, ClickHouse type] pairs."})
+    for item in client_types:
+        if not (
+            isinstance(item, list | tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and isinstance(item[1], str)
+            and item[1]
+        ):
+            raise serializers.ValidationError(
+                {"types": "Each item must be a [column name, ClickHouse type] pair of strings."}
+            )
+    return {
+        name: {
+            "hogql": hogql_type_name_for_clickhouse_type(clickhouse_type),
+            "clickhouse": clickhouse_type,
+            "valid": True,
+        }
+        for name, clickhouse_type in client_types
+    }
+
+
 def _apply_frequency_target(
     view: DataWarehouseSavedQuery,
     frequency: str | None,
@@ -368,21 +394,13 @@ class DataWarehouseSavedQuerySerializer(
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
+            client_columns = _columns_from_client_types(self.context["request"].data.get("types", []))
             try:
                 # The columns will be inferred from the query
-                client_types = self.context["request"].data.get("types", [])
-                if len(client_types) == 0:
+                if not client_columns:
                     view.set_columns(view.get_columns(user=self.context["request"].user))
                 else:
-                    columns = {
-                        str(item[0]): {
-                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
-                    view.set_columns(columns)
+                    view.set_columns(client_columns)
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
@@ -501,6 +519,7 @@ class DataWarehouseSavedQuerySerializer(
                 name=validated_data.get("name", instance.name),
                 query=validated_data["query"],
             )
+            client_columns = _columns_from_client_types(self.context["request"].data.get("types", []))
             try:
                 get_parents_from_model_query(
                     instance.team,
@@ -508,18 +527,10 @@ class DataWarehouseSavedQuerySerializer(
                     validated_data["query"]["query"],
                     database=self.context["database"],
                 )
-                client_types = self.context["request"].data.get("types", [])
-                if len(client_types) == 0:
+                if not client_columns:
                     inferred_columns = probe.get_columns(user=self.context["request"].user)
                 else:
-                    inferred_columns = {
-                        str(item[0]): {
-                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
+                    inferred_columns = client_columns
                 inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
