@@ -6,12 +6,16 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import NotFound, ServiceUnavailable
+from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.tests.fake_bigquery import (
     FakeBigQueryClient,
@@ -23,6 +27,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BigQueryDestinationWriter,
     UnrelatedTableExistsError,
     staging_table_name,
+)
+
+_IMPERSONATION_DENIED_BODY = (
+    '{"error": {"code": 403, "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource '
+    '(or it may not exist).", "status": "PERMISSION_DENIED"}}'
 )
 
 
@@ -188,6 +197,29 @@ class TestConfigValidation:
 
         with pytest.raises(BigQueryDestinationConfigurationError):
             BigQueryDestinationWriter(ctx)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "denial",
+        [
+            RefreshError("Unable to acquire impersonated credentials", _IMPERSONATION_DENIED_BODY),
+            # The same refusal raised inside a gRPC auth plugin, which reaches the caller as a 503.
+            ServiceUnavailable(
+                f"Getting metadata from plugin failed with error: "
+                f"('Unable to acquire impersonated credentials', '{_IMPERSONATION_DENIED_BODY}')"
+            ),
+        ],
+        ids=["rest", "grpc"],
+    )
+    async def test_a_service_account_posthog_cannot_impersonate_is_a_configuration_error(
+        self, denial: Exception
+    ) -> None:
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(side_effect=denial)  # type: ignore[method-assign]
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Token Creator"):
+            await writer.prepare_run(_ctx())
 
 
 @pytest.mark.asyncio
