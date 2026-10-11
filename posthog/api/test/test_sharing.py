@@ -17,6 +17,8 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient
 
+from posthog.hogql.direct_sql.adapter import DirectQueryResult
+
 from posthog.api.sharing import (
     SHARING_RESOURCE_ACCESS_CHECKS,
     _assert_every_shareable_resource_is_gated,
@@ -43,6 +45,8 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def mock_exporter_template(test_func):
@@ -2108,6 +2112,63 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         assert len(tiles) == 1
         assert tiles[0]["insight"]["result"], tiles[0]["insight"].get("result_error")
 
+    @parameterized.expand(
+        [
+            ("public_hogql", False, False),
+            ("public_raw", False, True),
+            ("password_hogql", True, False),
+            ("password_raw", True, True),
+        ]
+    )
+    def test_shared_dashboard_direct_connection(self, _name: str, password_required: bool, raw: bool):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={
+                "host": "warehouse.example.com",
+                "port": "5432",
+                "database": "example",
+                "user": "reader",
+                "password": "test-only",
+                "schema": "public",
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="external_data_source", resource_id=str(source.id), access_level="none"
+        )
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT 1 AS value",
+                "connectionId": str(source.id),
+                "sendRawQuery": raw,
+            },
+        }
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, password_required=password_required
+        )
+        headers = {}
+        if password_required:
+            password, _ = SharePassword.create_password(config, created_by=self.user)
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {config.generate_password_protected_token(password)}"
+
+        with patch(
+            "posthog.hogql.direct_sql.postgres_adapter.PostgresAdapter.execute",
+            return_value=DirectQueryResult(results=[[1]], types=[("value", "Int64")], print_columns=["value"]),
+        ) as execute:
+            response = self.client.get(f"/shared/{config.access_token}.json?refresh=blocking", **headers)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        tile = response.json()["dashboard"]["tiles"][0]["insight"]
+        assert not tile.get("result_error"), tile
+        assert tile["result"] == [[1]]
+        execute.assert_called_once()
+
     def test_shared_notebook_inline_warehouse_query_executes(self):
         from products.notebooks.backend.models import Notebook
 
@@ -2217,6 +2278,61 @@ class TestSharingPublishGate(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
+
+    @parameterized.expand(
+        [
+            ("hogql_denied_source", False, "source", False),
+            ("raw_denied_source", True, "source", False),
+            ("hogql_denied_table", False, "table", False),
+            ("raw_denied_table", True, "table", False),
+            ("hogql_allowed", False, None, True),
+            ("raw_allowed", True, None, True),
+        ]
+    )
+    def test_direct_connection_access_gates_publishing(
+        self, _name: str, raw: bool, denied_resource: str | None, allowed: bool
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "warehouse.example.com", "port": "5432", "database": "example", "schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="Parquet",
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        if denied_resource is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="external_data_source" if denied_resource == "source" else "warehouse_table",
+                resource_id=str(source.id if denied_resource == "source" else table.id),
+                access_level="none",
+            )
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT 1 AS id" if raw or denied_resource == "source" else "SELECT id FROM orders",
+                "connectionId": str(source.id),
+                "sendRawQuery": raw,
+            },
+        }
+        self.insight.save()
+
+        response = self._enable_sharing("dashboard")
+
+        if allowed:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert response.json()["enabled"] is True
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "Can't enable sharing" in str(response.json())
+            assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
 
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
