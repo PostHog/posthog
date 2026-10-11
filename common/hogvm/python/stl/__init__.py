@@ -82,6 +82,8 @@ def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
 
 
 def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if args[0] is None:
+        return None
     try:
         if is_hog_datetime(args[0]):
             return int(args[0]["dt"])
@@ -96,6 +98,8 @@ def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
 
 
 def toFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if args[0] is None:
+        return None
     try:
         if is_hog_datetime(args[0]):
             return float(args[0]["dt"])
