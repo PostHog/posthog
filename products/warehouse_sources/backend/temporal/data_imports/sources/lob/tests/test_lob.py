@@ -141,6 +141,58 @@ class TestGetRows:
             )
         assert [item["id"] for batch in batches for item in batch] == ["adr_1", "adr_2"]
 
+    @parameterized.expand(
+        [
+            (
+                "offset_walk_keeps_filters_and_stops_on_short_page",
+                "billing_groups",
+                [
+                    {"data": [{"id": f"bg_{i}"} for i in range(100)]},
+                    {"data": [{"id": "bg_last"}]},
+                ],
+                [
+                    "https://api.lob.com/v1/billing_groups?limit=100&sort_by[date_created]=asc"
+                    "&date_created[gt]=2026-01-01T00:00:00.000000Z",
+                    "https://api.lob.com/v1/billing_groups?limit=100&sort_by[date_created]=asc"
+                    "&date_created[gt]=2026-01-01T00:00:00.000000Z&offset=100",
+                ],
+                101,
+            ),
+            (
+                "bare_array_is_a_single_page",
+                "uploads",
+                [[{"id": "upl_1"}, {"id": "upl_2"}]],
+                ["https://api.lob.com/v1/uploads"],
+                2,
+            ),
+        ]
+    )
+    def test_pagination_modes(
+        self, _name: str, endpoint: str, pages: list[Any], expected_urls: list[str], expected_rows: int
+    ) -> None:
+        captured: list[str] = []
+
+        def _fetch(_session, url, *_args, **_kwargs):
+            captured.append(url)
+            return pages[len(captured) - 1]
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob._fetch_page", side_effect=_fetch
+        ):
+            batches = list(
+                get_rows(
+                    "k",
+                    endpoint,
+                    MagicMock(),
+                    _manager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            )
+
+        assert captured == expected_urls
+        assert sum(len(batch) for batch in batches) == expected_rows
+
 
 class TestFetchPage:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
