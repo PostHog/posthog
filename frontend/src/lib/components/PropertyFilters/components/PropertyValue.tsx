@@ -536,7 +536,7 @@ export function PropertyValue({
                 disableCommaSplitting={isUserAgentProperty}
                 status={validationError ? 'danger' : 'default'}
                 title={titleNode}
-                popoverClassName="max-w-200"
+                popoverClassName="max-w-[min(50rem,calc(100vw-1rem))]"
                 options={[
                     ...displayOptions.map(({ name: _name }, index) => {
                         const name = toString(_name)
