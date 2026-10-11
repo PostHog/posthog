@@ -143,6 +143,7 @@ export class KafkaConsumer {
     private backgroundTask: { promise: Promise<void>; createdAt: number }[]
     private podName: string
     private lastBackgroundTaskCompletionTime: number
+    private fatalError: unknown | undefined
     private consumerId: string
     // New health monitoring state
     private consumerLoopStallThresholdMs: number
@@ -643,6 +644,11 @@ export class KafkaConsumer {
                 while (!this.isStopping) {
                     // Track that the consumer loop is alive
                     this.lastConsumerLoopTime = Date.now()
+
+                    // Stop before we fetch another batch. A later batch must not store offsets past a failed one.
+                    if (this.fatalError) {
+                        throw this.fatalError
+                    }
                     logger.debug('🔁', 'main_loop_consuming')
 
                     // If we're rebalancing, skip consuming to avoid processing messages
@@ -728,7 +734,7 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    void backgroundTask.finally(async () => {
+                    const settleBackgroundTask = async (): Promise<void> => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
 
@@ -748,12 +754,24 @@ export class KafkaConsumer {
                             // Task found - capture promises to wait for, then remove the task
                             const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
                             this.backgroundTask.splice(index, 1)
-                            await Promise.all(promisesToWait)
+                            await Promise.allSettled(promisesToWait)
+                        }
+
+                        // If this task or an earlier one failed, Kafka must redeliver the batch after restart
+                        if (this.fatalError) {
+                            return
                         }
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
+                    }
+
+                    void backgroundTask.then(settleBackgroundTask, (error) => {
+                        logger.error('🔥', 'kafka_consumer_background_task_failed', { error: String(error) })
+                        captureException(error)
+                        this.fatalError ??= error
+                        return settleBackgroundTask()
                     })
 
                     // At first we just add the background work to the queue with metadata
