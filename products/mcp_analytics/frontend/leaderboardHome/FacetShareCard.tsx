@@ -73,7 +73,14 @@ export function FacetShareCard({
                 skeleton={<Skeleton className="h-48 w-full" />}
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
-                <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
+                <ShareBarChart
+                    rows={chartRows}
+                    totalCalls={totalCalls}
+                    theme={theme}
+                    tooltip={renderTooltip}
+                    label={title}
+                    fitContent
+                />
             </CardState>
         </Card>
     )

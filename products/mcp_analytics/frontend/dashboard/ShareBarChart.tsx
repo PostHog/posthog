@@ -1,27 +1,13 @@
-import { type ReactNode, useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 
-import { BarList, type BarListConfig, type ChartTheme, type Series, type TooltipContext } from '@posthog/quill-charts'
+import { BarChart, type ChartTheme, type Series, type TooltipContext } from '@posthog/quill-charts'
 
-import { Link } from 'lib/lemon-ui/Link'
+import { ShareBarLabels, type ShareBarLabel } from './ShareBarLabels'
+import { useShareBarChartConfig } from './useShareBarChartConfig'
 
-import { formatNumber } from './formatters'
-
-export interface ShareBarRow<T> {
-    key: string
-    label: string
-    icon?: ReactNode
-    href?: string
-    value: number
+export interface ShareBarRow<T> extends ShareBarLabel {
     color?: string
     meta: T
-}
-
-type ShareMeta<T> = T & { share: number }
-
-const SHARE_BAR_CONFIG: BarListConfig = { scale: 'total', valueDisplay: 'both' }
-
-function formatCalls(value: number): string {
-    return `${formatNumber(value)} ${value === 1 ? 'call' : 'calls'}`
 }
 
 export function ShareBarChart<T>({
@@ -29,53 +15,50 @@ export function ShareBarChart<T>({
     totalCalls,
     theme,
     tooltip,
+    label,
+    fitContent = false,
 }: {
     rows: ShareBarRow<T>[]
     totalCalls: number
     theme: ChartTheme
-    tooltip: (ctx: TooltipContext<ShareMeta<T>>) => JSX.Element | null
+    tooltip: (ctx: TooltipContext<T & { share: number }>) => JSX.Element | null
+    label: string
+    /** Size to the rows instead of a fixed, scrollable 320px area. */
+    fitContent?: boolean
 }): JSX.Element {
-    const series = useMemo<Series<ShareMeta<T>>[]>(
-        () =>
-            rows.map((row) => ({
-                key: row.key,
-                label: row.label,
-                data: [row.value],
-                color: row.color,
-                meta: { ...row.meta, share: totalCalls > 0 ? (row.value / totalCalls) * 100 : 0 },
-            })),
+    const labels = useMemo(() => rows.map((row) => row.key), [rows])
+    const series = useMemo<Series<T & { share: number }>[]>(
+        () => [
+            {
+                key: 'calls',
+                label: 'Calls',
+                data: rows.map((row) => row.value),
+                bars: rows.map((row) => ({
+                    label: row.label,
+                    color: row.color,
+                    meta: { ...row.meta, share: totalCalls > 0 ? (row.value / totalCalls) * 100 : 0 },
+                })),
+            },
+        ],
         [rows, totalCalls]
     )
-    const rowByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows])
-    const renderLabel = useCallback(
-        (s: Series<ShareMeta<T>>): ReactNode => {
-            const row = rowByKey.get(s.key)
-            return (
-                <>
-                    {row?.icon}
-                    {row?.href ? (
-                        <Link to={row.href} target="_blank" className="truncate">
-                            {s.label}
-                        </Link>
-                    ) : (
-                        <span className="truncate">{s.label}</span>
-                    )}
-                </>
-            )
-        },
-        [rowByKey]
-    )
+    const config = useShareBarChartConfig(rows.length, totalCalls)
     return (
-        <div translate="no">
-            <BarList
-                series={series}
-                theme={theme}
-                total={totalCalls}
-                config={SHARE_BAR_CONFIG}
-                valueFormatter={formatCalls}
-                renderLabel={renderLabel}
-                tooltip={tooltip}
-            />
+        <div
+            className={fitContent ? undefined : 'h-80 overflow-y-auto'}
+            translate="no"
+            tabIndex={0}
+            role="region"
+            aria-label={label}
+        >
+            <div
+                className={fitContent ? 'flex flex-col' : 'flex min-h-80 flex-col'}
+                style={{ height: rows.length * 40 + 20 }}
+            >
+                <BarChart series={series} labels={labels} theme={theme} config={config} tooltip={tooltip}>
+                    <ShareBarLabels rows={rows} totalCalls={totalCalls} />
+                </BarChart>
+            </div>
         </div>
     )
 }
