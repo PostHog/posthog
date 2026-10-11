@@ -25,36 +25,29 @@ from uuid import UUID
 from django.apps import apps
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Aggregate,
     Avg,
-    BooleanField,
     CharField,
     Count,
-    DateTimeField,
     Exists,
     ExpressionWrapper,
     F,
-    Field,
+    FilteredRelation,
     FloatField,
-    IntegerField,
     Max,
     Min,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
-    Subquery,
     Sum,
-    TextField,
-    Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 import structlog
@@ -3336,15 +3329,6 @@ def _apply_account_table_filters(
         raise InvalidAccountTableColumn(str(error)) from error
 
 
-def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
-    return {
-        DataType.STRING: TextField(),
-        DataType.NUMERIC: FloatField(),
-        DataType.BOOLEAN: BooleanField(),
-        DataType.DATETIME: DateTimeField(),
-    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-
-
 def _apply_account_table_sort(
     queryset: QuerySet[Account],
     *,
@@ -3355,6 +3339,8 @@ def _apply_account_table_sort(
     if sort is None:
         return queryset.order_by("-created_at", "-id")
 
+    # Joins and GROUP BY let Postgres read each child table once. A correlated subquery here runs once
+    # for every account of the team, because no index can supply the order.
     if sort.kind == contracts.AccountTableSortKind.ACCOUNT_FIELD:
         if sort.account_field is None:
             raise InvalidAccountTableColumn("Account field sorting requires a field.")
@@ -3371,41 +3357,34 @@ def _apply_account_table_sort(
         else:
             queryset = queryset.annotate(_account_table_sort=KeyTextTransform(sort.account_field.value, "_properties"))
     elif sort.kind == contracts.AccountTableSortKind.TAGS:
-        tag_values = (
-            TaggedItem.objects.matching_outer(Account)
-            .filter(tag__team_id=team_id)
-            .values("object_uuid")
-            .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
-            .values("value")
-        )
-        queryset = queryset.annotate(_account_table_sort=Subquery(tag_values, output_field=ArrayField(CharField())))
-    elif sort.kind == contracts.AccountTableSortKind.NOTE_COUNT:
-        note_counts = (
-            ResourceNotebook.objects.filter(account_id=OuterRef("pk"))
-            .values("account_id")
-            .annotate(value=Count("id"))
-            .values("value")
-        )
         queryset = queryset.annotate(
-            _account_table_sort=Coalesce(Subquery(note_counts, output_field=IntegerField()), Value(0))
+            _account_table_sort=ArrayAgg(
+                "tagged_items__tag__name",
+                filter=Q(tagged_items__tag__team_id=team_id),
+                order_by="tagged_items__tag__name",
+            )
         )
+    elif sort.kind == contracts.AccountTableSortKind.NOTE_COUNT:
+        queryset = queryset.annotate(_account_table_sort=Count("notebooks"))
     elif sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
-        relationship_values = (
-            AccountRelationship.objects.for_team(team_id)
-            .filter(
-                account_id=OuterRef("pk"),
-                definition_id=sort.definition_id,
-                ended_at__isnull=True,
-                user_id__isnull=False,
-            )
-            .values("account_id")
-            .annotate(value=ArrayAgg("user_id", order_by="user_id"))
-            .values("value")
-        )
         queryset = queryset.annotate(
-            _account_table_sort=Subquery(relationship_values, output_field=ArrayField(IntegerField()))
+            _sort_relationship=FilteredRelation(
+                "relationships",
+                condition=Q(
+                    relationships__team_id=team_id,
+                    relationships__definition_id=sort.definition_id,
+                    relationships__ended_at__isnull=True,
+                    relationships__user_id__isnull=False,
+                ),
+            ),
+        ).annotate(
+            _account_table_sort=ArrayAgg(
+                "_sort_relationship__user_id",
+                filter=Q(_sort_relationship__isnull=False),
+                order_by="_sort_relationship__user_id",
+            )
         )
     elif sort.kind == contracts.AccountTableSortKind.CUSTOM_PROPERTY:
         if sort.definition_id is None:
@@ -3417,15 +3396,17 @@ def _apply_account_table_sort(
             DataType.BOOLEAN: "value_bool",
             DataType.DATETIME: "value_datetime",
         }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        custom_property_value = CustomPropertyValue.objects.for_team(team_id).filter(
-            account_id=OuterRef("pk"), definition_id=sort.definition_id, is_deleted=False
-        )
+        # unique_active_custom_property_value allows at most one joined row per account.
         queryset = queryset.annotate(
-            _account_table_sort=Subquery(
-                custom_property_value.values(value_field)[:1],
-                output_field=_custom_property_sort_output_field(display_type),
-            )
-        )
+            _sort_custom_property=FilteredRelation(
+                "custom_property_values",
+                condition=Q(
+                    custom_property_values__team_id=team_id,
+                    custom_property_values__definition_id=sort.definition_id,
+                    custom_property_values__is_deleted=False,
+                ),
+            ),
+        ).annotate(_account_table_sort=F(f"_sort_custom_property__{value_field}"))
 
     order = F("_account_table_sort")
     primary_order = (
