@@ -3301,7 +3301,10 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
 class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Property key")
     operator = serializers.CharField(help_text="Comparison operator")
-    value = serializers.JSONField(help_text="Expected property value")
+    value = serializers.JSONField(
+        allow_null=True,
+        help_text="Expected property value. Null when the operator takes no value, for example is_set.",
+    )
     type = serializers.CharField(help_text="Property type (person, group, etc.)")
     actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
     matched = serializers.BooleanField(help_text="Whether this property condition matched")
