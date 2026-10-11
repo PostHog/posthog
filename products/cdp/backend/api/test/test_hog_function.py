@@ -2057,6 +2057,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert str(webhook_func.id) not in ids
         assert len(response.json()["results"]) == 1
 
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/?type=destination,warehouse_source_webhook"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "type"
+
         # Detail should return 404
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{webhook_func.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND

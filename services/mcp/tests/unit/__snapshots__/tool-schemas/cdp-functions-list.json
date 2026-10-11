@@ -24,7 +24,7 @@
             "type": "number"
         },
         "type": {
-            "description": "Multiple values may be separated by commas.",
+            "description": "Function types to return. Supported: destination, site_destination, internal_destination, source_webhook, site_app, transformation. warehouse_source_webhook is not supported and returns a 400 error.",
             "items": {
                 "type": "string"
             },

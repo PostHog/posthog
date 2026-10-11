@@ -1094,7 +1094,18 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 
 class HogFunctionFilterSet(FilterSet):
-    type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+    type = CommaSeparatedListFilter(field_name="type", lookup_expr="in", method="filter_type")
+
+    def filter_type(self, queryset: QuerySet, name: str, value: list[str]) -> QuerySet:
+        # The viewset never returns these rows, so an empty list would wrongly suggest that none exist
+        if HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value in value:
+            raise exceptions.ValidationError(
+                {
+                    "type": "This endpoint does not return warehouse source webhook functions. "
+                    "Use the data warehouse source webhook endpoints to read them."
+                }
+            )
+        return queryset.filter(type__in=value)
 
     class Meta:
         model = HogFunction
