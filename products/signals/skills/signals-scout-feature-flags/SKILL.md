@@ -226,7 +226,59 @@ Retained behavior follows the direction: **fully rolled out** → keep the enabl
 
 **What a stale report carries:** the roster-confirmed flag key and `id`; the health issue `id` and its `link` as the auth-gated source; the evidence class and rollout direction in plain words; the one retained behavior, or the decision a human owes; the repository scope and what it might miss; `actionability` with its explanation; `already_addressed=false` only after the existing-work checks; P3 with a priority explanation that says routine cleanup; an explicit `repository` when immediately actionable; and `suggested_reviewers` only where member or prior-artefact evidence supports the routing. **The summary of an immediately-actionable report is a prompt, not prose.** It is placed verbatim at the top of the autonomous implementation task, which holds repository write access. So the summary carries structured identity only: the flag `id`, the flag key, the rollout direction as its enum value, and the health issue `id`. Do not paste `flag_name`, a variant key, a flag description, or any other project-authored string into it. Where the retained behavior depends on the winning variant, say that the surviving variant is the one named in the flag definition and let the implementation agent read it from the flag; do not transcribe the variant key. A project member can set those strings, so anything you copy into the summary is text they chose, arriving in a privileged context that never asked for their input. **Keep project telemetry out of the public PR that may follow** — call counts, exact `last_called_at` timestamps, customer names, and volumes stay in the auth-gated report.
 
-**Fallback while the check does not reach the project.** The check writes issues only for the projects its `health-check-stale-feature-flags-live` feature flag enables, and it drops every other project before detection. A project the flag enabled and later turned off keeps the rows it already holds: no later run updates or resolves them, and a flag that goes stale there afterwards reaches neither the check nor an inbox. So expect this path on every project the flag does not enable, including one it used to. **An empty filtered list is not proof the check is absent** — a project where a human dismissed every stale issue returns exactly the same empty list, and falling back there would hand back the flags they just waved off. Settle it with one unfiltered read: `health-issues-list {kind: "stale_feature_flags"}`, no `status` and no `dismissed`. Each weekly run sets `updated_at` on every active row it still detects, so an active, undismissed row with an `updated_at` inside the last 14 days means the check reached this project within its last two runs: take the dismissed and resolved rows as answered and do not fall back. No row at all, or no such row inside 14 days, opens the fallback: `feature-flag-get-all {"active": "STALE"}` for server-side staleness, `feature-flags-status-retrieve {id}` for a precise human-readable reason on one flag, plus the `experiment_set` and dependent-flag safety checks. **Leave every flag that holds a dismissed or resolved row out of the fallback** — a dismissed row is a human's answer on that flag, and a resolved row means the check last saw it as fresh. **The one-flag-one-report rule does not apply here** — bundle fallback candidates into a single P3 finding, as the scout did before. A per-flag report is earned by a re-verified health issue, never by the `STALE` scan. A fallback finding may be remembered, or reported as `requires_human_input` — **never** `immediately_actionable`, so it cannot start work off an unverified classification. While the check reaches the project, stop scanning independently: the check is the classifier and you are the only stale-report author.
+**Fallback while the check does not reach the project.** The check writes issues only for the projects its `health-check-stale-feature-flags-live` feature flag enables, and it drops every other project before detection. A project the flag enabled and later turned off keeps the rows it already holds: no later run updates or resolves them, and a flag that goes stale there afterwards reaches neither the check nor an inbox. So expect this path on every project the flag does not enable, including one it used to. **An empty filtered list is not proof the check is absent** — a project where a human dismissed every stale issue returns exactly the same empty list, and falling back there would hand back the flags they just waved off. Settle it with one unfiltered read: `health-issues-list {kind: "stale_feature_flags"}`, no `status` and no `dismissed`. Each weekly run sets `updated_at` on every active row it still detects, so an active, undismissed row with an `updated_at` inside the last 14 days means the check reached this project within its last two runs: take the dismissed and resolved rows as answered and do not fall back. No row at all, or no such row inside 14 days, opens the fallback, which runs two scans: `feature-flag-get-all {"active": "STALE"}` for server-side staleness, and the [still-called full-rollout scan](#still-called-full-rollouts--the-fallbacks-second-scan) for the class `STALE` cannot return. Use `feature-flags-status-retrieve {id}` for a precise human-readable reason on one flag, and run the `experiment_set` and dependent-flag safety checks on every candidate from either scan. **Leave every flag that holds a dismissed or resolved row out of the fallback** — a dismissed row is a human's answer on that flag, and a resolved row means the check last saw it as fresh. **The one-flag-one-report rule does not apply here** — bundle fallback candidates into a single P3 finding, as the scout did before. A per-flag report is earned by a re-verified health issue, never by the `STALE` scan. A fallback finding may be remembered, or reported as `requires_human_input` — **never** `immediately_actionable`, so it cannot start work off an unverified classification. While the check reaches the project, stop scanning independently: the check is the classifier and you are the only stale-report author.
+
+##### Still-called full rollouts — the fallback's second scan
+
+`STALE` matches a flag only when its last call is more than 30 days old, or when it was never called. A flag at 100% that the code still evaluates gets calls every day, so `STALE` never returns it. That is often the flag with the most code ready to remove. This scan stands in for the check's `effectively_full_rollout` class while the check does not reach the project. It ranks the roster rows that carry an untargeted 100% release condition by call volume. The window is 30 days, the same as the check's, because `STALE` already returns a flag with no call in 30 days. A shorter window would miss a flag last called 15 to 29 days ago. The key prefixes drop the targeting flags that PostHog creates for surveys and product tours:
+
+```sql
+SELECT f.id, f.key, c.calls_30d
+FROM system.feature_flags AS f
+INNER JOIN (
+    SELECT properties.$feature_flag AS flag_key, count() AS calls_30d
+    FROM events
+    WHERE event = '$feature_flag_called'
+      AND timestamp >= now() - INTERVAL 30 DAY
+    GROUP BY flag_key
+) AS c ON c.flag_key = f.key
+WHERE f.deleted = 0
+  AND f.created_at < now() - INTERVAL 30 DAY
+  AND NOT startsWith(f.key, 'survey-targeting-')
+  AND NOT startsWith(f.key, 'product-tour-targeting-')
+  AND arrayExists(
+      g -> JSONExtractInt(g, 'rollout_percentage') = 100 AND JSONLength(g, 'properties') = 0,
+      JSONExtractArrayRaw(f.filters, 'groups')
+  )
+ORDER BY c.calls_30d DESC
+LIMIT 25
+```
+
+A fixed `LIMIT` returns the same leaders on every run, so the flags below them never reach the queue. Before you run the scan, add `AND f.id NOT IN (<ids>)` with the ids that `pattern:feature-flags:stale-queue` records as reported, covered, or rejected. A reported or covered id stays in the list only while its report is open or dismissed. Remove it when the report is resolved, so the scan finds the flag again if it goes back to a called 100% rollout. Leave the clause out when the list is empty.
+
+The SQL returns a superset. `system.feature_flags` has no `active` column, and a multivariate, group-aggregated, or holdout flag can match it and still serve more than one result. Confirm each shortlisted row before it joins the fallback bundle:
+
+- `feature-flags-status-retrieve {id}` returns `rollout.effectively_full_rollout: true`;
+- `feature-flag-get-definition` shows the flag active, an empty `experiment_set`, an empty `filters.payloads`, and no remote configuration;
+- the release conditions have not changed in the last 30 days. A flag moved to 100% this week is still in its soak, not finished. Find the last `filters` change in `feature-flags-activity-retrieve`, because `updated_at` also moves for a rename or a description edit. Use `updated_at` only when activity history is unavailable;
+- the definition has no setting that decides the result before the release conditions or outside them. `filters` carries no `holdout`, `holdout_groups`, `super_groups`, `early_exit`, or `feature_enrollment`, neither `filters` nor any group sets `aggregation_group_type_index`, and `bucketing_identifier` is not `device_id`. `effectively_full_rollout` ignores these settings, so a holdout flag still serves a second result that the bundle must not call the retained behavior;
+- the definition shows an empty `features` (early access) list and `is_used_in_replay_settings: false`, and no survey targets with the flag. The definition's `surveys` field lists only surveys that link the flag, and a link is a user-managed relationship that the check keeps as a candidate. A survey's `targeting_flag` or `internal_targeting_flag` is excluded, as the check does. Page `surveys-get-all` with `limit` and `offset` until no page remains, and keep only those two flag ids from each survey, not its questions or appearance. Read the surveys once per run for the whole shortlist;
+- no other non-deleted flag depends on it, enabled or disabled. `feature-flags-dependent-flags-retrieve` returns only active dependents, and a disabled dependent can be enabled again. A dependency key can be stored as a string or a number, so the query reads the raw value. Check all shortlisted ids with one roster query:
+
+```sql
+SELECT id, key
+FROM system.feature_flags
+WHERE deleted = 0
+  AND arrayExists(
+      g -> arrayExists(
+          p -> JSONExtractString(p, 'type') = 'flag' AND trim(BOTH '"' FROM JSONExtractRaw(p, 'key')) IN ('<id>', '<id>'),
+          JSONExtractArrayRaw(g, 'properties')
+      ),
+      JSONExtractArrayRaw(filters, 'groups')
+  )
+```
+
+Shortlist at most ~3 per run from the top of the volume ranking. A project can carry hundreds of these flags, and the high-volume ones are the strongest evidence of a live code path and the largest evaluation cost. Keep the rest ranked in `pattern:feature-flags:stale-queue` next to the `STALE` candidates, and name the class on each. Record the id of each flag that fails a check above as rejected in the same entry, with the rejection date, so the next scan skips it and moves down the ranking. A soak, a payload, or a dependent can go away, so drop a rejection from the exclusion list 30 days after its date and let the flag be checked again. Every fallback rule above applies to these candidates: they go into the one bundled P3 fallback finding, they are `requires_human_input` at most, and a flag that holds a dismissed or resolved health issue row stays out. For each candidate, the bundle names the key, the `id`, and the retained behavior from the direction rules above.
 
 #### Dead checks still shipped (P3 bundle)
 
