@@ -565,10 +565,14 @@ function renderContentItem(
 
     if (isGeminiImageMessage(item)) {
         const inlineData = getGeminiInlineData(item)
-        if (!inlineData) {
-            return null
+        const src = inlineData
+            ? resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
+            : typeof item.uri === 'string' && isRenderableMediaSource(item.uri)
+              ? resolveAiBlobUrl(item.uri, currentTeamId)
+              : null
+        if (!src) {
+            return <RedactedMediaPlaceholder kind="image" />
         }
-        const src = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
         return (
             <img
                 src={src}

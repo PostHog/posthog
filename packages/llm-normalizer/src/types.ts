@@ -95,6 +95,10 @@ export interface GeminiAudioMessage {
 
 export interface GeminiImageMessage {
     type: 'image'
+    // Gemini Interactions API
+    data?: string
+    mime_type?: string
+    uri?: string
     // snake_case (Python SDK)
     inline_data?: {
         data: string
@@ -109,6 +113,9 @@ export interface GeminiImageMessage {
 
 export interface GeminiDocumentMessage {
     type: 'document' | 'image' // 'image' when SDK misdetects PDF by MIME type
+    // Gemini Interactions API
+    data?: string
+    mime_type?: string
     // snake_case (Python SDK)
     inline_data?: {
         data: string
