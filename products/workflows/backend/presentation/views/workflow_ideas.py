@@ -38,6 +38,31 @@ class WorkflowIdeaEvidenceSerializer(serializers.Serializer):
         help_text="People a month with an email address who hit the trigger and did not reach the goal."
     )
     measured_at = serializers.CharField(help_text="ISO date the numbers were measured.")
+    audience = serializers.CharField(
+        required=False, help_text="Who enters the workflow, in plain words, e.g. 'people who start checkout'."
+    )
+    goal = serializers.CharField(required=False, help_text="What the workflow asks people to do, e.g. 'subscribe'.")
+    goal_unit = serializers.CharField(
+        required=False, help_text="What one goal reached is called, plural, e.g. 'subscriptions'."
+    )
+    emails_per_month = serializers.IntegerField(
+        required=False, help_text="Estimated emails the workflow sends a month at today's volume."
+    )
+    site_url = serializers.CharField(
+        required=False, allow_null=True, help_text="Where the email buttons link to. Null when no site was found."
+    )
+    waits = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="The wait before each email, e.g. ['1h', '1d']."
+    )
+    once_per_person_days = serializers.IntegerField(
+        required=False, help_text="A person enters the workflow at most once in this many days."
+    )
+    priority = serializers.IntegerField(
+        required=False, help_text="1 is the idea to try first in this project. Orders the ideas."
+    )
+    review_note = serializers.CharField(
+        required=False, help_text="Something to check before turning the workflow on, such as a legal requirement."
+    )
 
 
 class WorkflowIdeaSerializer(serializers.Serializer):
@@ -71,6 +96,11 @@ class WorkflowIdeaListSerializer(serializers.Serializer):
 class WorkflowIdeaAcceptSerializer(serializers.Serializer):
     hog_flow_id = serializers.UUIDField(
         help_text="The draft workflow created from this idea's definition, with origin_product 'ideas'."
+    )
+    site_url = serializers.URLField(
+        required=False,
+        allow_null=True,
+        help_text="The website the person entered for the email buttons, when PostHog had none for the project.",
     )
 
 
@@ -111,6 +141,7 @@ class WorkflowIdeaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 idea_id=pk,
                 hog_flow_id=str(payload.validated_data["hog_flow_id"]),
                 user_id=cast(User, request.user).id,
+                site_url=payload.validated_data.get("site_url"),
             )
         except WorkflowIdeaNotFound:
             raise NotFound()

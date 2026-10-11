@@ -74,15 +74,23 @@ class TestWorkflowIdeasAPI(APIBaseTest):
         [row] = create_ideas(team_id=self.team.id, items=[_idea("winback")], source="manual")
         flow = self._flow()
 
-        response = self.client.post(self._url(f"{row.id}/accept/"), {"hog_flow_id": str(flow.id)})
+        response = self.client.post(
+            self._url(f"{row.id}/accept/"), {"hog_flow_id": str(flow.id), "site_url": "https://shop.example.com"}
+        )
 
         assert response.status_code == 200, response.json()
         assert response.json()["hog_flow_id"] == str(flow.id)
         stored_row = _stored(row.id)
-        assert (stored_row.status, stored_row.hog_flow_id, stored_row.resolved_by_id) == (
+        assert (
+            stored_row.status,
+            stored_row.hog_flow_id,
+            stored_row.resolved_by_id,
+            stored_row.evidence["site_url"],
+        ) == (
             WorkflowIdea.Status.ACCEPTED,
             flow.id,
             self.user.id,
+            "https://shop.example.com",
         )
         again = self.client.post(self._url(f"{row.id}/accept/"), {"hog_flow_id": str(flow.id)})
         assert again.status_code == 409

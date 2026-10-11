@@ -91,7 +91,9 @@ def _lock_open(team_id: int, idea_id: str) -> WorkflowIdea:
     return row
 
 
-def accept_idea(*, team_id: int, idea_id: str, hog_flow_id: str, user_id: int) -> WorkflowIdeaRecord:
+def accept_idea(
+    *, team_id: int, idea_id: str, hog_flow_id: str, user_id: int, site_url: str | None = None
+) -> WorkflowIdeaRecord:
     """Records the draft a person created from the idea. The draft itself goes through the workflow API."""
     with transaction.atomic():
         row = _lock_open(team_id, idea_id)
@@ -102,7 +104,9 @@ def accept_idea(*, team_id: int, idea_id: str, hog_flow_id: str, user_id: int) -
         row.hog_flow = hog_flow
         row.resolved_at = timezone.now()
         row.resolved_by_id = user_id
-        row.save(update_fields=["status", "hog_flow", "resolved_at", "resolved_by"])
+        if site_url:
+            row.evidence = {**row.evidence, "site_url": site_url}
+        row.save(update_fields=["status", "hog_flow", "resolved_at", "resolved_by", "evidence"])
     return _record(row)
 
 
