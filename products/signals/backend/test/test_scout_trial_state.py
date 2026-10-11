@@ -490,6 +490,57 @@ class TestScoutTrialReportCapture(APIBaseTest):
             assert document["collapsed_note_count"] == 3
             assert datetime.fromisoformat(document["updated_at"].replace("Z", "+00:00")) == latest
 
+    @parameterized.expand(
+        [
+            ("explanation_only", None, "not_actionable", "not_actionable", "The fixture is a deliberate placeholder."),
+            ("actionability_change", None, "immediately_actionable", "system", None),
+            ("safety_precedence", False, "immediately_actionable", "safety_judge", "The fixture is unsafe."),
+        ]
+    )
+    def test_inbox_suppression_follows_private_actionability(
+        self,
+        _name: str,
+        safe: bool | None,
+        choice: str,
+        expected_source: str,
+        expected_explanation: str | None,
+    ) -> None:
+        original = SignalReport.objects.create(
+            team=self.team, title="Suppressed report", status=SignalReport.Status.SUPPRESSED
+        )
+        judgments: list[tuple[str, dict[str, JsonValue]]] = [
+            (
+                "actionability_judgment",
+                {"actionability": "not_actionable", "explanation": "The fixture is noise.", "already_addressed": False},
+            )
+        ]
+        if safe is not None:
+            judgments.append(("safety_judgment", {"choice": safe, "explanation": "The fixture is unsafe."}))
+        for kind, content in judgments:
+            SignalReportArtefact.objects.create(team=self.team, report=original, type=kind, content=json.dumps(content))
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            actionability=choice,
+            actionability_explanation="The fixture is a deliberate placeholder.",
+            already_addressed=False,
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            detail = self.client.get(f"{base}{original.id}/")
+            listing = self.client.get(base, {"status": "suppressed"})
+
+        assert detail.status_code == listing.status_code == 200
+        for document in [detail.json(), listing.json()["results"][0]]:
+            assert document["actionability"] == choice
+            assert document["suppression_source"] == expected_source
+            assert document["suppression_explanation"] == expected_explanation
+
     def test_private_evidence_cap_includes_new_production_evidence(self) -> None:
         original = SignalReport.objects.create(team=self.team, title="Source report", signal_count=1)
         evidence = [ReportEvidence(description="Private observation", source_id="private-observation")]

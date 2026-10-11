@@ -15,7 +15,13 @@ from rest_framework.response import Response
 
 from posthog.models import User
 
-from products.signals.backend.models import MAX_SCOUT_REPORT_NOTES, SignalReport, SignalReportArtefact
+from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.models import (
+    MAX_SCOUT_REPORT_NOTES,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportSuppressionSource,
+)
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.serializers import ReportMetricListSerializer, ReportMetricSerializer
 
@@ -111,6 +117,7 @@ class TrialInboxReads:
         for field in changed_fields:
             if field in report.document:
                 document[field] = report.document[field]
+        cls._apply_private_suppression(report, document)
         signal_count = live.get("signal_count", 0)
         document["signal_count"] = (signal_count if isinstance(signal_count, int) else 0) + len(report.evidence)
         weight = live.get("total_weight", 0)
@@ -136,6 +143,32 @@ class TrialInboxReads:
         count = live.get("artefact_count", 0)
         document["artefact_count"] = (count if isinstance(count, int) else 0) + len(report.artefacts)
         return document
+
+    @staticmethod
+    def _apply_private_suppression(report: TrialReport, document: dict[str, JsonValue]) -> None:
+        # Mirrors SignalReportSerializer._suppression: a dismissal or an unsafe verdict wins over actionability.
+        if document.get("suppression_source") not in {
+            SignalReportSuppressionSource.NOT_ACTIONABLE,
+            SignalReportSuppressionSource.SYSTEM,
+        }:
+            return
+        judgment = next(
+            (
+                artefact["content"]
+                for artefact in reversed(report.artefacts)
+                if artefact["type"] == "actionability_judgment"
+            ),
+            None,
+        )
+        if not isinstance(judgment, dict):
+            return
+        explanation = judgment.get("explanation")
+        if judgment.get("actionability") == ActionabilityChoice.NOT_ACTIONABLE:
+            document["suppression_source"] = SignalReportSuppressionSource.NOT_ACTIONABLE.value
+            document["suppression_explanation"] = explanation if isinstance(explanation, str) and explanation else None
+        else:
+            document["suppression_source"] = SignalReportSuppressionSource.SYSTEM.value
+            document["suppression_explanation"] = None
 
     def _serialize_private_metrics(self, report: TrialReport, document: dict[str, JsonValue], *, listing: bool) -> None:
         # Source metrics already have the viewer's policy applied, and list projections omit the query it needs.
