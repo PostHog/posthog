@@ -168,7 +168,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         outcome, _ = self._evaluate(self._copy(self._alert()), result=AlertExtractionError("bad query shape"))
 
         assert outcome is not None
-        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
+        assert outcome.failure is not None and outcome.groups == ()
+        assert (outcome.failure.kind, outcome.failure.new_state, outcome.disable) == (
             AlertEventKind.ERRORED,
             "errored",
             True,

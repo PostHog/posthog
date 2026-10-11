@@ -283,7 +283,9 @@ a batch key spends the manifest bound on work its own evaluation then drops.
 
 `check_status` lives on the configuration, not on an instance, for grouped and ungrouped configurations alike,
 because a failed check returns no group to attribute the failure to.
-`record_outcomes` moves an ERRORED or BROKEN group verdict onto it and leaves the instance's firing state alone.
+A check that could not evaluate reports its failure on the outcome as a `CheckFailure`, with no groups, for every source.
+`record_outcomes` writes the machine's ERRORED or BROKEN onto `check_status`, leaves every instance alone, and writes one history row with the empty grouping key and the nil UUID as `alert_id`, which stands in for "no instance" because the sort key rejects Nullable.
+So a failed grouped check posts one error message, not one per group.
 The check input hands the shared machine the configuration's status in place of each instance's state while it is not OK,
 so the machine reads what it read when both shared one field.
 
@@ -296,6 +298,10 @@ The count it turned away travels on the delivery as `overflowed`, and the last m
 `record_outcomes` enforces the cap again and drops a group past it, counted on `alerts_platform_groups_over_cap_total`.
 An instance that is not firing, not muted, and that no check returned for longer than both 24 hours and its cooldown is deleted, which frees its slot.
 Nothing is reaped while the configuration's checks fail, because a failed check returns no groups and every instance would look gone.
+
+Logs is the first source that groups, by `service_name` and `severity_text` only.
+A grouped logs alert leaves the batched cohort and runs `GroupedAlertCheckQuery`, one query per alert, with its open groups ordered first and the rest worst first.
+A group with no instance whose check decides nothing is left out, so a quiet service costs no row, and an open group the query does not return is checked against a zero count so it can resolve.
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 

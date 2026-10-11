@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    CheckFailure,
     FiringEpisode,
     GroupAdmission,
     Grouping,
@@ -32,6 +33,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
     SourceKind,
 )
+from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
@@ -75,7 +77,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "configuration_id": self.configuration.id,
             "evaluation_key": f"window:{at.isoformat()}",
             "consecutive_failures": 0,
-            "groups": groups or (GroupOutcome(**group_fields),),
+            "groups": (GroupOutcome(**group_fields),) if groups is None else groups,
         }
         fields.update(overrides)
         # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
@@ -114,15 +116,25 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_failed_check_marks_the_configuration_and_the_instance_keeps_its_firing(self) -> None:
         self._record(firing_episode=FiringEpisode(started_at=self.cutoff, ended=False))
+        failed_at = self._next_due()
         self._record(
-            at=self._next_due(),
-            kind=AlertEventKind.ERRORED,
-            new_state="errored",
-            notified=False,
+            at=failed_at,
+            groups=(),
+            failure=CheckFailure(
+                kind=AlertEventKind.ERRORED,
+                new_state="errored",
+                notified=True,
+                firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+            ),
             consecutive_failures=1,
-            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
         )
 
+        failure_rows = sync_execute(
+            "SELECT alert_id, grouping_key, previous_state, state FROM platform_alert_events "
+            "WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s AND occurred_at = %(at)s",
+            {"team_id": self.team.id, "configuration_id": self.configuration.id, "at": failed_at},
+        )
+        assert failure_rows == [(CONFIGURATION_ROW_ALERT_ID, "", "firing", "errored")]
         due = self._next_due()
         stored = self._alert()
         with team_scope(self.team.id):
@@ -446,7 +458,7 @@ def test_a_grouping_rejects_keys_its_mode_cannot_use(fields: dict[str, Any]) -> 
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"groups": ()},
+        {"failure": CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=True)},
         {"groups": (_group("api"), _group("api"))},
     ],
 )

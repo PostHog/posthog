@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
+    CheckFailure,
     Grouping,
     GroupOutcome,
     InstanceCheckState,
@@ -270,35 +271,42 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     }
 
 
+# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
+# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
+CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
+
+
 def _event_row(
     configuration: PlatformAlertConfiguration,
-    alert: PlatformAlert,
     outcome: PlatformAlertOutcome,
-    group: GroupOutcome,
+    verdict: GroupOutcome | CheckFailure,
+    *,
+    alert: PlatformAlert | None,
     previous_state: str,
     now: datetime,
 ) -> PlatformAlertEventRow:
+    group = verdict if isinstance(verdict, GroupOutcome) else None
     return PlatformAlertEventRow(
         team_id=configuration.team_id,
         configuration_id=configuration.id,
-        alert_id=alert.id,
-        grouping_key=alert.grouping_key,
+        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
+        grouping_key=alert.grouping_key if alert else "",
         evaluation_key=outcome.evaluation_key,
-        kind=group.kind.value,
+        kind=verdict.kind.value,
         alert_name=configuration.name,
         previous_state=previous_state,
-        state=group.new_state,
+        state=verdict.new_state,
         # The whole episode, ended or not. A resolve names the firing it closed, which is what a
         # thread key needs and what the alert row no longer holds.
-        episode_started_at=group.firing_episode.started_at if group.firing_episode else None,
-        value=group.value,
-        labels=group.labels,
+        episode_started_at=verdict.firing_episode.started_at if verdict.firing_episode else None,
+        value=group.value if group else None,
+        labels=group.labels if group else {},
         condition_snapshot=_condition_snapshot(configuration),
         source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
-        muted_notification=group.muted_notification,
+        muted_notification=verdict.muted_notification,
         occurred_at=now,
     )
 
@@ -314,8 +322,15 @@ _CHECK_STATUSES: Final = frozenset(
 )
 
 
-def _check_status(outcome: PlatformAlertOutcome) -> str:
-    """BROKEN over ERRORED over OK, because a check is as bad as its worst verdict."""
+def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> str:
+    """BROKEN over ERRORED over OK, because a check is as bad as its worst verdict.
+
+    A failure that the policy rides through leaves the status where it was, so only the machine's
+    ERRORED or BROKEN moves it.
+    """
+    if outcome.failure is not None:
+        failed = outcome.failure.new_state
+        return failed if failed in _CHECK_STATUSES else configuration.check_status
     states = {group.new_state for group in outcome.groups}
     for status in (PlatformAlertConfiguration.CheckStatus.BROKEN, PlatformAlertConfiguration.CheckStatus.ERRORED):
         if status.value in states:
@@ -360,6 +375,19 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 for group in by_id[str(configuration.id)].groups
             },
         )
+        # The empty-key instance of each failed configuration, so a failure row states the state
+        # an ungrouped check found.
+        alerts_by_configuration = {
+            key.configuration_id: alert
+            for key, alert in _instances(
+                team_id,
+                [
+                    _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
+                    for configuration in configurations
+                    if by_id[str(configuration.id)].failure is not None
+                ],
+            ).items()
+        }
         # One read for the batch. Every configuration in it belongs to this team, and a
         # calendar recurrence resolves its anchor against the team's zone.
         team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
@@ -375,7 +403,16 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                     continue
                 alert.last_seen_at = now
                 # Before either row is mutated, so the history row keeps the state the check found.
-                rows.append(_event_row(configuration, alert, outcome, group, _check_state(configuration, alert), now))
+                rows.append(
+                    _event_row(
+                        configuration,
+                        outcome,
+                        group,
+                        alert=alert,
+                        previous_state=_check_state(configuration, alert),
+                        now=now,
+                    )
+                )
                 if group.notified:
                     alert.last_notified_at = now
                 if group.new_state in _CHECK_STATUSES:
@@ -386,7 +423,19 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 alert.firing_started_at = episode.started_at if episode and not episode.ended else None
                 alert.state = group.new_state
 
-            configuration.check_status = _check_status(outcome)
+            if outcome.failure is not None:
+                ungrouped = alerts_by_configuration.get(str(configuration.id))
+                rows.append(
+                    _event_row(
+                        configuration,
+                        outcome,
+                        outcome.failure,
+                        alert=None,
+                        previous_state=_check_state(configuration, ungrouped),
+                        now=now,
+                    )
+                )
+            configuration.check_status = _check_status(configuration, outcome)
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False

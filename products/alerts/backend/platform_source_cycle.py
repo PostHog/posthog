@@ -42,6 +42,7 @@ from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    CheckFailure,
     GroupOutcome,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -176,7 +177,10 @@ def evaluate_insight_check(
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
-    if not any(group.kind.value in _EVENT_IDS_BY_KIND for group in outcome.groups):
+    kinds = [group.kind for group in outcome.groups]
+    if outcome.failure is not None:
+        kinds.append(outcome.failure.kind)
+    if not any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds):
         return None
     legacy_id = str(check.legacy_configuration_id) if check.legacy_configuration_id is not None else None
     if legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
@@ -263,6 +267,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
             error_message=str(error),
             skip=SkipReason.BROKEN_CONFIG,
             disable=True,
+            failed=True,
         )
     except Exception as error:
         if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
@@ -317,6 +322,7 @@ def _verdict(
         query_duration_ms=query_duration_ms,
         skip=skip,
         disable=outcome.disable,
+        failed=skip == SkipReason.QUERY_FAILED,
     )
 
 
@@ -347,6 +353,7 @@ def _recorded(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     disable: bool = False,
+    failed: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place an outcome is built. Every path goes through the firing decision, because
     an outcome without an episode clears the start of a firing the alert is still in."""
@@ -357,20 +364,29 @@ def _recorded(
     previous_state = check.instance().state
     if previous_state != outcome.new_state.value:
         safe_record(increment_state_transition, source, previous_state, outcome.new_state.value)
+    kind = NOTIFICATION_EVENT_KINDS[notification]
+    firing_episode = decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY)
     return PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
         consecutive_failures=outcome.consecutive_failures,
-        groups=(
+        groups=()
+        if failed
+        else (
             GroupOutcome(
                 grouping_key="",
-                kind=NOTIFICATION_EVENT_KINDS[notification],
+                kind=kind,
                 new_state=outcome.new_state.value,
                 notified=notified,
-                firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+                firing_episode=firing_episode,
                 value=value,
             ),
         ),
+        failure=CheckFailure(
+            kind=kind, new_state=outcome.new_state.value, notified=notified, firing_episode=firing_episode
+        )
+        if failed
+        else None,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,
