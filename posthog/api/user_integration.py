@@ -12,6 +12,7 @@ is not controlled here.
 """
 
 import os
+from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -122,6 +123,16 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
             "`unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer "
             "mint tokens for it; `connected` otherwise."
         ),
+    )
+    needs_reauthorization = serializers.BooleanField(
+        help_text=(
+            "True when GitHub rejected the stored credentials and PostHog dropped them. The installation is "
+            "still on GitHub, but PostHog cannot act as the user until they authorize it again."
+        ),
+    )
+    needs_reauthorization_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the stored credentials stopped working, or null while they still work.",
     )
     created_at = serializers.DateTimeField(help_text="When this integration row was created.")
 
@@ -1006,8 +1017,22 @@ def _serialize_github_integration(
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "installation_shared": installation_shared,
         "installation_status": "unavailable" if github.installation_unavailable() else "connected",
+        "needs_reauthorization": github.needs_reauthorization,
+        "needs_reauthorization_at": _needs_reauthorization_at(integration),
         "created_at": integration.created_at,
     }
+
+
+def _needs_reauthorization_at(integration: UserIntegration) -> datetime | None:
+    """Read the reauthorization timestamp off the row as an aware datetime.
+
+    The row stores it as a unix timestamp, because the whole flag lives in the untyped `config`
+    JSON. The API hands out a datetime so clients do not have to know that.
+    """
+    flagged_at = (integration.config or {}).get("needs_reauthorization_at")
+    if not isinstance(flagged_at, int | float):
+        return None
+    return datetime.fromtimestamp(flagged_at, tz=UTC)
 
 
 def _serialize_slack_integration(integration: UserIntegration) -> dict[str, Any]:

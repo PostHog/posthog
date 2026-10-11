@@ -32,6 +32,8 @@ export interface PersonalGitHubIntegration {
     installation_shared?: UserGitHubIntegrationItemApi['installation_shared']
     /** `unavailable` once the App was removed or suspended on GitHub. */
     installation_status?: UserGitHubIntegrationItemApi['installation_status']
+    needs_reauthorization?: UserGitHubIntegrationItemApi['needs_reauthorization']
+    needs_reauthorization_at?: UserGitHubIntegrationItemApi['needs_reauthorization_at']
     created_at: string | null
 }
 
@@ -100,6 +102,7 @@ function writeConnectFromStorage(value: string | null): void {
 export interface personalIntegrationsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     githubConnecting: boolean
+    healthyIntegrations: PersonalGitHubIntegration[]
     integrations: PersonalGitHubIntegration[]
     integrationsLoading: boolean
     linkableSlackWorkspaces: LinkableSlackWorkspace[]
@@ -327,7 +330,15 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
         ],
     })),
 
-    selectors({}),
+    selectors({
+        // A flagged row holds no usable credentials, so the connect surface reads this instead of the
+        // full list. Otherwise a user whose only install was flagged is offered "add another".
+        healthyIntegrations: [
+            (s) => [s.integrations],
+            (integrations: PersonalGitHubIntegration[]): PersonalGitHubIntegration[] =>
+                integrations.filter((integration) => !integration.needs_reauthorization),
+        ],
+    }),
 
     listeners(({ actions, values, cache }) => ({
         // Keep the personal GitHub rows current while the section is open, so an App removed on
