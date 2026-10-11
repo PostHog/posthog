@@ -1988,7 +1988,7 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
     assert captured["ai_agent_name"] == "signals-scout-errors"
-    assert captured["max_poll_seconds"] == 15 * 60
+    assert captured["max_poll_seconds"] == 20 * 60
     assert captured["context"].sandbox_timeout_seconds is None
 
 

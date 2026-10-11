@@ -46,7 +46,7 @@ logger = structlog.get_logger(__name__)
 FALLBACK_CHECK_SKILL_NAME = "signals-scout-inbox-validation"
 
 # How long a dispatched run has to record its verdict before the coordinator gives up on it. A scout
-# activity is killed at `WORKFLOW_HARD_CEILING_S` (16 minutes) and the coordinator ticks every 30,
+# activity is killed at `WORKFLOW_HARD_CEILING_S` (21 minutes) and the coordinator ticks every 30,
 # so two hours is several ticks past any run that is still alive. Sized generously because the cost
 # of waiting too long is one late verdict, while the cost of waiting too little is a second run
 # dispatched over the top of a live one.
