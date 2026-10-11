@@ -6,7 +6,8 @@ description: >
   put several metrics/charts together on one page, assemble a dashboard for a topic (product analytics,
   retention, revenue, activation, etc.), or add/remove/replace insights on a dashboard they already have.
   Covers deciding create vs update, reusing existing insights vs creating new ones, and using PostHog's
-  vetted dashboard templates as reference for what a strong dashboard on a topic looks like.
+  vetted dashboard templates as reference for what a strong dashboard on a topic looks like. Includes a
+  blueprint, with design guidelines, for a product overview, product health, or KPI dashboard.
 ---
 
 # Building a dashboard
@@ -30,6 +31,22 @@ First work out whether you're creating a new dashboard or changing an existing o
 - Read a candidate with `dashboard-get` to see its current tiles before you change anything.
 - If the request is ambiguous — "get my financial metrics together" could mean build new or add to an existing one —
   ask a short clarifying question rather than guessing.
+
+## Build from a blueprint
+
+A blueprint lists the sections and tiles for one type of dashboard, with design rules for the headline row, the grid, and each tile.
+There is one blueprint so far.
+
+If the request is about the whole product (health, KPIs, key metrics, an overview, a weekly pulse), read
+[references/blueprint-product-overview.md](./references/blueprint-product-overview.md) and
+[references/design-guidelines.md](./references/design-guidelines.md), and build from them.
+A blueprint is a starting shape. Map every tile to the user's own events, and drop a tile or section the project has no data for.
+
+A blueprint replaces the dashboard templates on its topic, and its design guidelines replace the layout advice below.
+When a blueprint covers the request, do not consult templates, and create the dashboard with `use_template` only when the user says they want the template.
+A framework name such as "AARRR" is a request for those sections, not for the template of the same name.
+
+A blueprint build still follows the other sections below, such as "Create vs update" and the Data Catalog rules. Any other dashboard follows all of them.
 
 ## Use templates as reference
 
