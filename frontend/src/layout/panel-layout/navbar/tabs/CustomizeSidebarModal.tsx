@@ -10,7 +10,8 @@ import { StarredProductsPicker } from './StarredProductsPicker'
 import { StarredSetupIntro } from './StarredSetupIntro'
 
 export function CustomizeSidebarModal(): JSX.Element {
-    const { customizeSidebarOpen, customizeSidebarMode, starredProductsSaving } = useValues(navProductsTabLogic)
+    const { customizeSidebarOpen, customizeSidebarMode, starredProductsSaving, hasDraftStarredChanges } =
+        useValues(navProductsTabLogic)
     const { setCustomizeSidebarOpen, saveStarredProducts, confirmCleanSlate } = useActions(navProductsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
     const isStarredSetup = customizeSidebarMode === 'starred-setup'
@@ -19,7 +20,8 @@ export function CustomizeSidebarModal(): JSX.Element {
         <LemonModal
             title={isStarredSetup ? 'Set up your new sidebar' : 'Customize sidebar'}
             isOpen={customizeSidebarOpen}
-            onClose={() => setCustomizeSidebarOpen(false)}
+            onClose={() => setCustomizeSidebarOpen(false, 'dismiss')}
+            hasUnsavedInput={hasDraftStarredChanges}
             width={720}
             footer={
                 <div className="flex flex-wrap items-center gap-2 w-full">
@@ -47,7 +49,7 @@ export function CustomizeSidebarModal(): JSX.Element {
                     </div>
                     <LemonButton
                         type="secondary"
-                        onClick={() => setCustomizeSidebarOpen(false)}
+                        onClick={() => setCustomizeSidebarOpen(false, 'cancel_button')}
                         disabledReason={starredProductsSaving ? 'Saving your starred products' : undefined}
                         data-attr="customize-sidebar-cancel"
                     >
