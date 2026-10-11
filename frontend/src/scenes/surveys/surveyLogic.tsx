@@ -98,6 +98,7 @@ import {
 } from '~/types'
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+import { reportSurveyEdited } from 'products/surveys/frontend/surveyUsage'
 
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type {
@@ -826,12 +827,6 @@ export interface surveyLogicActions {
     reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
         survey: NewSurvey | Survey
     } // eventUsageLogic
-    reportSurveyEdited: (survey: Survey) => {
-        survey: Survey
-    } // eventUsageLogic
-    reportSurveyViewed: (survey: Survey) => {
-        survey: Survey
-    } // eventUsageLogic
     loadSurveys: () => any // surveysLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addResponseColumn: (column: SurveyResponseColumn) => {
@@ -1522,13 +1517,7 @@ export const surveyLogic = kea<surveyLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            [
-                'reportSurveyCreated',
-                'reportSurveyEdited',
-                'reportSurveyViewed',
-                'reportSurveyCycleDetected',
-                'reportSurveyConsolidatedResultsQuery',
-            ],
+            ['reportSurveyCreated', 'reportSurveyCycleDetected', 'reportSurveyConsolidatedResultsQuery'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -1656,7 +1645,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             survey.appearance = defaultSurveyAppearance
                         }
                         const currentFilters = values.answerFilters
-                        actions.reportSurveyViewed(survey)
+                        posthog.capture('survey viewed', {
+                            name: survey.name,
+                            id: survey.id,
+                            created_at: survey.created_at,
+                            start_date: survey.start_date,
+                            end_date: survey.end_date,
+                        })
                         // Initialize answer filters for all questions - first for index-based, then for id-based
                         actions.setAnswerFilters(
                             survey.questions.map((question) => {
@@ -2047,7 +2042,7 @@ export const surveyLogic = kea<surveyLogicType>([
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
                 actions.editingSurvey(false)
-                actions.reportSurveyEdited(survey)
+                reportSurveyEdited(survey)
                 actions.loadSurveys()
             },
             launchSurveySuccess: ({ survey }) => {
