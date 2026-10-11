@@ -30115,6 +30115,10 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "materializeRepeatedCTEs": {
+                    "description": "Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.",
+                    "type": "boolean"
+                },
                 "materializedColumnsOptimizationMode": {
                     "enum": ["disabled", "optimized"],
                     "type": "string"

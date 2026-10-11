@@ -583,6 +583,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1534,6 +1540,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -2244,6 +2256,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -2939,6 +2957,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -3653,6 +3677,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -4084,6 +4114,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -4338,6 +4374,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                 materializationMode: zod
                     .union([zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']), zod.null()])
                     .optional(),
+                materializeRepeatedCTEs: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                    ),
                 materializedColumnsOptimizationMode: zod
                     .union([zod.enum(['disabled', 'optimized']), zod.null()])
                     .optional(),
