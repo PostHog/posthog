@@ -675,7 +675,7 @@ pub struct Config {
     #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
     pub group_type_cache_max_entries: u64,
 
-    // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
+    // cookieless, should match the values in nodejs/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
 

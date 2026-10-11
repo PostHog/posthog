@@ -99,7 +99,7 @@ def fatal_plugin_error(
     _dispatch_plugin_disabled_realtime(plugin_config_id, plugin_config_updated_at, error)
 
 
-# Called from plugin-server/../hog-watcher.service.ts
+# Called from nodejs/src/cdp/services/monitoring/hog-watcher.service.ts
 @shared_task(ignore_result=True, queue=queue)
 def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     logger.info("hog_function_state_transition (disabled)", hog_function_id=hog_function_id, state=state)
