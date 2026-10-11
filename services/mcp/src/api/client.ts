@@ -1569,11 +1569,13 @@ export class ApiClient {
                 query: Record<string, unknown>
             }): Promise<{
                 results: unknown
+                columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
             }> => {
                 return this.request<{
                     results: unknown
+                    columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
                 }>({
