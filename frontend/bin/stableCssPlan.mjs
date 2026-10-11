@@ -173,7 +173,7 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
 /**
  * The CSS bytes a stable page downloads before the given entry chunks run: the eager layers plus
  * the lazy groups those entries wait for. A group holds the same CSS as its files do in the entry
- * stylesheet, so their sizes there are its size.
+ * stylesheet, so their sizes there are its size, apart from the source-map comment each file ends with.
  */
 export function stableCssBytes({ eager, lazyGroupsByEntry, bytesOfGroup }, entryOutputs) {
     const names = new Set([...eager, ...entryOutputs.flatMap((entry) => lazyGroupsByEntry.get(entry) ?? [])])
