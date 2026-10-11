@@ -7,7 +7,15 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1, MarketingAnalyticsDrillDownLevel
+from posthog.schema import (
+    AttributionMode,
+    BaseMathType,
+    ConversionGoalFilter1,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
+    MarketingAnalyticsDrillDownLevel,
+    PropertyOperator,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -174,7 +182,11 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _make_processor(
-        self, *, precompute: bool, attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH
+        self,
+        *,
+        precompute: bool,
+        attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH,
+        properties: list[EventPropertyFilter | HogQLPropertyFilter] | None = None,
     ) -> ConversionGoalProcessor:
         goal = ConversionGoalFilter1(
             kind="EventsNode",
@@ -183,7 +195,7 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
             conversion_goal_name="E2E Goal",
             math=BaseMathType.TOTAL,
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
-            properties=[],
+            properties=properties or [],
         )
         config = MarketingAnalyticsConfig()
         config.attribution_window_days = 30
@@ -309,6 +321,58 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         # presence is exactly the invariant, and the assertion can't be broken by leaked events.
         mediums = {row[1] for row in rows}
         assert "display" in mediums, f"last touch carried utm_medium=display; the medium array is misaligned: {rows}"
+
+    @parameterized.expand(
+        [
+            (
+                f"{name}_{'precompute' if precompute else 'direct'}",
+                goal_filter,
+                precompute,
+            )
+            for name, goal_filter in (
+                ("boolean", EventPropertyFilter(key="is_paid", operator=PropertyOperator.EXACT, value=["true"])),
+                ("hogql", HogQLPropertyFilter(key="properties.plan = 'pro'")),
+            )
+            for precompute in (False, True)
+        ]
+    )
+    def test_goal_property_filter_keeps_touchpoints_without_the_property(
+        self, _name: str, goal_filter: EventPropertyFilter | HogQLPropertyFilter, precompute: bool
+    ):
+        # March 2024 and a unique campaign keep these rows apart from the other tests' leaked events.
+        for distinct_id, conversion_properties in (
+            ("user_filter_match", {"is_paid": True, "plan": "pro"}),
+            ("user_filter_miss", {"is_paid": False, "plan": "free"}),
+        ):
+            _create_person(distinct_ids=[distinct_id], team=self.team)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=datetime(2024, 3, 5, 10, 0, tzinfo=UTC),
+                properties={"utm_campaign": "filtered_goal", "utm_source": "google", "utm_medium": "cpc"},
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=distinct_id,
+                timestamp=datetime(2024, 3, 8, 10, 0, tzinfo=UTC),
+                properties=conversion_properties,
+            )
+        flush_persons_and_events()
+
+        processor = self._make_processor(precompute=precompute, properties=[goal_filter])
+        rows = self._execute(
+            processor.generate_cte_query(
+                additional_conditions=[],
+                date_from=datetime(2024, 3, 1, tzinfo=UTC),
+                date_to=datetime(2024, 3, 31, tzinfo=UTC),
+            )
+        )
+
+        # Row shape: [match_key, campaign, id, source, conversion].
+        attributed = [(row[1], row[3], row[4]) for row in rows if row[1] == "filtered_goal"]
+        assert attributed == [("filtered_goal", "google", 1)], rows
 
     def test_reused_wide_job_excludes_out_of_range_conversions(self):
         _create_person(distinct_ids=["user_dec"], team=self.team)
