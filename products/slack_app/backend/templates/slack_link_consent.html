@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Link your Slack account</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                background: #fafaf9;
+                color: #1d1f27;
+            }
+
+            main {
+                box-sizing: border-box;
+                width: 100%;
+                max-width: 32rem;
+                padding: 1.5rem;
+                margin: 1.5rem;
+                border: 1px solid #d9d9d4;
+                border-radius: 0.5rem;
+                background: #fff;
+            }
+
+            h1 {
+                margin: 0 0 0.75rem;
+                font-size: 1.25rem;
+            }
+
+            p {
+                margin: 0 0 1rem;
+                line-height: 1.5;
+            }
+
+            .option {
+                display: flex;
+                gap: 0.625rem;
+                padding: 0.875rem;
+                margin-bottom: 1.25rem;
+                border: 1px solid #d9d9d4;
+                border-radius: 0.375rem;
+                background: #fafaf9;
+            }
+
+            .option p {
+                margin: 0.25rem 0 0;
+                font-size: 0.875rem;
+                color: #5f5f5b;
+            }
+
+            button {
+                padding: 0.5rem 1rem;
+                border: 0;
+                border-radius: 0.375rem;
+                background: #1d4aff;
+                color: #fff;
+                font: inherit;
+                font-weight: 600;
+                cursor: pointer;
+            }
+
+            @media (prefers-color-scheme: dark) {
+                body {
+                    background: #1d1f27;
+                    color: #fff;
+                }
+
+                main {
+                    border-color: #3f4055;
+                    background: #262736;
+                }
+
+                .option {
+                    border-color: #3f4055;
+                    background: #1d1f27;
+                }
+
+                .option p {
+                    color: #b7b7c5;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <h1>Link your Slack account</h1>
+            <p>
+                PostHog will link your Slack account in <strong>{{ slack_workspace_name }}</strong> to this PostHog
+                account. Mentions of PostHog in Slack then route to you.
+            </p>
+            <form method="get" action="">
+                <input type="hidden" name="state" value="{{ state }}">
+                <input type="hidden" name="confirmed" value="1">
+                <label class="option">
+                    <input type="checkbox" name="connect_mcp" value="1" checked>
+                    <span>
+                        <strong>Also connect {{ mcp_server_name }} for PostHog AI</strong>
+                        <p>
+                            PostHog AI can then search your public Slack channels when you ask it to. Slack asks you
+                            to approve this in a second step. To remove it later, go to your MCP servers settings.
+                        </p>
+                    </span>
+                </label>
+                <button type="submit">Continue to Slack</button>
+            </form>
+        </main>
+    </body>
+</html>
