@@ -1559,12 +1559,15 @@ class TestTaskAPI(BaseTaskAPITest):
         expected: TaskClientProvenance,
     ) -> None:
         client = self._oauth_client(client_id)
+        request_headers: dict[str, Any] = {}
+        if header:
+            request_headers["HTTP_X_POSTHOG_CLIENT_PROVENANCE"] = header
 
         response = client.post(
             "/api/projects/@current/tasks/",
             {"title": "Client task", "description": "Created in a first-party client"},
             format="json",
-            **({"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}),
+            **request_headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
