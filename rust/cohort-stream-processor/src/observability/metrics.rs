@@ -189,6 +189,10 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+/// Bytes on the store volume, labelled by file `kind` (`sst`|`wal`|`info_log`|`manifest`|`other`|
+/// `checkpoint`) (gauge). `checkpoint` counts only the local checkpoint files that the live store
+/// does not share.
+pub const STORE_FILE_BYTES: &str = "store_file_bytes";
 
 /// Size of the filesystem holding the store (gauge, bytes).
 pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
@@ -862,6 +866,7 @@ mod tests {
         assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_FILE_BYTES, "store_file_bytes");
         assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
         assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
         assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
