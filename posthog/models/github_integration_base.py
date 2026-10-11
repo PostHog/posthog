@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DatabaseError, transaction
 from django.db.models import Count, F, Func, JSONField, Value
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -2684,7 +2685,17 @@ class GitHubIntegrationBase:
             self.integration.repository_cache = repositories
             update_fields.insert(0, "repository_cache")
         self.integration.repository_cache_updated_at = refreshed_at
-        self.integration.save(update_fields=update_fields)
+        try:
+            with transaction.atomic():
+                self.integration.save(update_fields=update_fields)
+        except DatabaseError:
+            # Listing every repository is slow enough that the user can delete the integration meanwhile.
+            if type(self.integration)._default_manager.filter(pk=self.integration.pk).exists():
+                raise
+            logger.info(
+                "GitHubIntegration: integration deleted during repository cache sync",
+                integration_id=self.integration.id,
+            )
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
