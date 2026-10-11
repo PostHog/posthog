@@ -684,3 +684,23 @@ class TestMailchimpRetryableErrors:
     def test_non_retryable_errors_do_not_match(self, name: str, observed_error: str) -> None:
         retryable_errors = MailchimpSource().get_retryable_errors()
         assert not any(key in observed_error for key in retryable_errors), observed_error
+
+    @pytest.mark.parametrize(
+        ("name", "observed_error"),
+        [
+            ("429", "429 Client Error: Too Many Requests for url: https://us15.api.mailchimp.com/3.0/lists"),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://us15.api.mailchimp.com/3.0/lists",
+            ),
+            (
+                "read_timeout_exhausted",
+                "HTTPSConnectionPool(host='us15.api.mailchimp.com', port=443): Max retries exceeded with url: "
+                '/3.0/campaigns?count=1000&offset=0 (Caused by ReadTimeoutError("HTTPSConnectionPool('
+                "host='us15.api.mailchimp.com', port=443): Read timed out. (read timeout=120)\"))",
+            ),
+        ],
+    )
+    def test_transient_errors_are_recognized_as_retryable(self, name: str, observed_error: str) -> None:
+        retryable_errors = MailchimpSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error

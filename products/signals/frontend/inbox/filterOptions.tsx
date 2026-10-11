@@ -85,12 +85,51 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 ]
 
 /** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
-export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = [
-    { label: 'Most likely to merge', field: 'ranking_pr_merged', direction: 'desc', icon: <IconBrain /> },
-    { label: 'Most likely to get a PR', field: 'ranking_pr_created', direction: 'desc', icon: <IconBrain /> },
-    { label: 'Most likely to need action', field: 'ranking_action', direction: 'desc', icon: <IconBrain /> },
-    { label: 'Most likely to be opened', field: 'ranking_open', direction: 'desc', icon: <IconBrain /> },
+export const INBOX_MODEL_SORT_SECTIONS: { title: string; options: InboxSortOption[] }[] = [
+    {
+        title: 'Model: good outcomes',
+        options: [
+            { label: 'Most likely to merge', field: 'ranking_pr_merged', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to get a PR', field: 'ranking_pr_created', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to need action', field: 'ranking_action', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to be opened', field: 'ranking_open', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to be fixed', field: 'ranking_fixed', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to be discussed', field: 'ranking_discuss', direction: 'desc', icon: <IconBrain /> },
+            {
+                label: 'Most likely to get a thumbs up',
+                field: 'ranking_thumbs_up',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+        ],
+    },
+    {
+        title: 'Model: bad outcomes',
+        options: [
+            {
+                label: 'Most likely to need a reviewer fix',
+                field: 'ranking_reviewer_fix',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+            { label: 'Most likely to be refunded', field: 'ranking_refund', direction: 'desc', icon: <IconBrain /> },
+            {
+                label: 'Most likely to be dismissed as wrong',
+                field: 'ranking_dismiss_wrong',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+            {
+                label: 'Most likely to be dismissed as low value',
+                field: 'ranking_dismiss_lowvalue',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+        ],
+    },
 ]
+
+export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_MODEL_SORT_SECTIONS.flatMap(({ options }) => options)
 
 export function isRankingSortField(field: InboxSortField): field is InboxRankingSortField {
     return field.startsWith('ranking_')
@@ -102,6 +141,13 @@ export const RANKING_SORT_HEADS: Record<InboxRankingSortField, { head: string; t
     ranking_pr_created: { head: 'pr_created', tagLabel: 'PR' },
     ranking_action: { head: 'action', tagLabel: 'action' },
     ranking_open: { head: 'open', tagLabel: 'open' },
+    ranking_fixed: { head: 'fixed', tagLabel: 'fix' },
+    ranking_discuss: { head: 'discuss', tagLabel: 'discuss' },
+    ranking_thumbs_up: { head: 'thumbs_up', tagLabel: 'thumbs up' },
+    ranking_reviewer_fix: { head: 'reviewer_fix', tagLabel: 'reviewer fix' },
+    ranking_refund: { head: 'refund', tagLabel: 'refund' },
+    ranking_dismiss_wrong: { head: 'dismiss_wrong', tagLabel: 'wrong' },
+    ranking_dismiss_lowvalue: { head: 'dismiss_lowvalue', tagLabel: 'low value' },
 }
 
 /** Display names for the ranking heads in the probability tooltip. Unknown heads show their raw name. */
@@ -110,11 +156,13 @@ export const RANKING_HEAD_LABELS: Record<string, string> = {
     pr_created: 'PR created',
     action: 'Needs action',
     open: 'Opened',
+    fixed: 'Fixed',
     thumbs_up: 'Thumbs up',
     discuss: 'Discussed',
     dismiss_wrong: 'Dismissed as wrong',
     refund: 'Refunded',
     reviewer_fix: 'Reviewer fix',
+    dismiss_lowvalue: 'Dismissed as low value',
 }
 
 export const INBOX_CREATED_WINDOW_OPTIONS: { value: InboxCreatedWindow; label: string; hours: number }[] = [

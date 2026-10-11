@@ -20,6 +20,7 @@ from ..models.skills import (
     annotate_llm_skill_version_history_metadata,
     category_for_skill_name,
 )
+from .archive_guards import assert_skill_archive_allowed
 
 _DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
 
@@ -897,8 +898,16 @@ def rename_skill_file(
     return _refresh_with_annotations(team, next_skill)
 
 
-def archive_skill(team: Team, skill_name: str) -> list[int]:
+def archive_skill(team: Team, skill_name: str, *, acting_user: User | None) -> list[int]:
+    """Tombstone every version of a logical skill.
+
+    `acting_user` is the person asking, or None for a system path. It is keyword-only and has no
+    default so a new caller has to say which it is: a guard can refuse the archive (see
+    `archive_guards`), and a silent default would let a fresh entrypoint skip that.
+    """
     with transaction.atomic():
+        # Before the select_for_update below, so a refusal costs no row locks.
+        assert_skill_archive_allowed(team=team, skill_name=skill_name, user=acting_user)
         skill_versions = list(
             LLMSkill.objects.select_for_update()
             .filter(team=team, name=skill_name, deleted=False)

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -9,26 +10,29 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.progress import SnapshotStats, TurnStats, run_outcome_markers
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
-    RESOLUTION_SECTION_START,
     FinalizeStatusCommentInput,
-    _splice_resolution_section,
+    _splice_resolution_row,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
-    render_failed_body,
     render_final_body,
     render_in_progress_body,
-    render_resolution_final_section,
-    render_resolution_progress_section,
+    render_resolution_final_row,
+    render_resolution_held_row,
+    render_resolution_progress_row,
     status_marker,
     update_resolution_status_comment,
 )
@@ -41,171 +45,137 @@ _PAGINATED = f"{_MODULE}.github_api_get_paginated"
 _INTEGRATION = f"{_MODULE}.GitHubIntegration"
 
 
-_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
-    (None, "Step 1/6 · Preparing the diff"),
-    ({"review_stage": "chunking", "done": None, "total": None}, "Step 1/6 · Splitting into chunks"),
-    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Running review passes · 7/18"),
-    ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
-]
-
-_SINGLE_AGENT_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
-    (None, "Step 2/3 · Reviewing the pull request"),
-    ({"review_stage": "single_agent_finalizing", "done": None, "total": None}, "Step 3/3 · Finalizing the review"),
-]
-
-
-class TestRenderInProgressBody:
-    @parameterized.expand(
-        [(progress, line, REVIEW_DESIGN_PIPELINE) for progress, line in _STAGE_LINE_CASES]
-        + [(progress, line, REVIEW_DESIGN_SINGLE_AGENT) for progress, line in _SINGLE_AGENT_STAGE_LINE_CASES]
+def _pair(n: int, priority: IssuePriority, *, is_valid: bool = True) -> tuple[ReviewIssueFinding, ValidationVerdict]:
+    key = f"r1:a.py:{n}"
+    finding = ReviewIssueFinding(
+        issue_key=key, run_index=1, title="t", file="a.py", body="b", suggestion="s", priority=priority
     )
-    def test_renders_the_stage_line_and_marker(
-        self, progress: dict[str, Any] | None, expected_line: str, review_design: str
-    ) -> None:
-        body = render_in_progress_body("rid", progress, review_design=review_design)
-        assert f"**{expected_line}**" in body
-        assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
+    return finding, ValidationVerdict(issue_key=key, is_valid=is_valid, argumentation="a")
 
 
-class TestFlashHeader:
-    @parameterized.expand(
+_PAIRS = [
+    _pair(1, IssuePriority.MUST_FIX),
+    _pair(2, IssuePriority.CONSIDER),
+    _pair(3, IssuePriority.SHOULD_FIX, is_valid=False),
+]
+_SELECTION = [ChunkPerspectiveSelection(chunk_id=1, perspectives=["a", "b", "c"], reason="r")]
+_DEEP: dict[str, Any] = {
+    "snapshot": SnapshotStats(files_reviewed=14),
+    "turn": TurnStats(chunk_count=3, perspective_issue_count=14, blind_spot_issue_count=2, selection_chunks=_SELECTION),
+    "head_sha": "b81c2e1ffff",
+}
+_STANDARD: dict[str, Any] = {"review_mode": REVIEW_MODE_FLASH, "review_design": REVIEW_DESIGN_SINGLE_AGENT}
+
+
+def _running(stage: str | None, done: int | None = None, total: int | None = None, **kwargs: Any) -> str:
+    progress = {"review_stage": stage, "done": done, "total": total} if stage else None
+    return render_in_progress_body("rid", progress, **kwargs)
+
+
+def _done(threshold: IssuePriority = IssuePriority.SHOULD_FIX, **kwargs: Any) -> str:
+    return render_final_body("rid", threshold=threshold, review_url="https://g/review", **kwargs)
+
+
+_BODY_CASES: list[tuple[str, Callable[[], str], list[str]]] = [
+    (
+        "deep_running",
+        lambda: _running("reviewing", 7, 9, **_DEEP),
         [
-            ("in_progress", lambda mode: render_in_progress_body("rid", None, review_mode=mode)),
-            (
-                "final",
-                lambda mode: render_final_body(
-                    "rid",
-                    counts=dict.fromkeys(IssuePriority, 0),
-                    published_count=0,
-                    held_back_count=0,
-                    threshold=IssuePriority.CONSIDER,
-                    review_url=None,
-                    review_mode=mode,
-                ),
-            ),
-            ("failed", lambda mode: render_failed_body("rid", review_mode=mode)),
-        ]
-    )
-    def test_every_status_header_names_flash_only_in_flash(self, _name: str, render) -> None:
-        # The status comment is rewritten in every state; a state that forgot the label would read
-        # as a full review mid-run or at the end, and a full run must never carry it.
-        flash, full = render(REVIEW_MODE_FLASH), render(REVIEW_MODE_FULL)
-        assert flash.startswith("### \U0001f994 PostHog Review (flash) ")
-        assert full.startswith("### \U0001f994 PostHog Review ")
-        assert "(flash)" not in full
-        assert "FLASH MODE" not in flash + full
+            "### PostHog Review · Deep · reviewing `b81c2e1`",
+            "| Prepare the diff | done | 14 files, 3 chunks |\n| Pick perspectives | done | 3 perspectives |",
+            "| Run review passes | 7/9 |  |",
+            "| Publish | waiting |  |",
+        ],
+    ),
+    (
+        "deep_failed",
+        lambda: _running("validating", 1, 3, pairs=_PAIRS, failed=True, **_DEEP),
+        [
+            "### PostHog Review · Deep · couldn't finish reviewing `b81c2e1`",
+            'The review failed at "Validate findings". Ask for a Deep review again to retry.',
+            "| Merge overlapping findings | done | 16 → 3 |\n| Validate findings | failed |  |\n| Publish | skipped |  |",
+        ],
+    ),
+    # The kickoff body has no progress, and a single-agent turn starts its sessions right after it.
+    (
+        "standard_kickoff",
+        lambda: _running(None, **_STANDARD),
+        ["Standard · reviewing this pull request", "| Main review and lenses | running |  |"],
+    ),
+    (
+        "standard_failed",
+        lambda: _running("single_agent_reviewing", failed=True, **_STANDARD),
+        ["It runs again on the next push to this pull request.", "| Main review and lenses | failed |  |"],
+    ),
+    (
+        "deep_done",
+        lambda: _done(pairs=_PAIRS, report_url="https://ph.test/r", **_DEEP),
+        [
+            "### PostHog Review · Deep · reviewed `b81c2e1`\n\nPosted 1 finding: 1 Must fix.",
+            "| Run review passes | done | 14 issues (+2 blind-spot) |",
+            "| Validate findings | done | 2 kept, 1 dismissed |",
+            # The full found count stays visible even when the threshold holds some findings back.
+            '| Publish | done | 1 posted ([view review](https://g/review)) · 1 held back by the author\'s "Should fix" threshold ([view in PostHog](https://ph.test/r)) |',
+        ],
+    ),
+    # With no perspective selected for any chunk, only the blind-spot sweep reports issues.
+    (
+        "deep_done_blind_spot_only",
+        lambda: _done(pairs=_PAIRS, **{**_DEEP, "turn": TurnStats(blind_spot_issue_count=2)}),
+        ["| Run review passes | done | 0 issues (+2 blind-spot) |"],
+    ),
+    (
+        "standard_done",
+        lambda: _done(IssuePriority.CONSIDER, turn=TurnStats(perspective_issue_count=9), pairs=_PAIRS, **_STANDARD),
+        [
+            "Posted 2 findings: 1 Must fix, 1 Consider.",
+            "| Main review and lenses | done | 9 issues |\n| Merge and cap | done | 9 → 2 |",
+        ],
+    ),
+    ("standard_clean", lambda: _done(**_STANDARD), ["Nothing to post.", "| Publish | done | Nothing to post |"]),
+]
+
+
+class TestRenderBodies:
+    @parameterized.expand(_BODY_CASES)
+    def test_renders_the_step_table(self, _name: str, render: Callable[[], str], expected: list[str]) -> None:
+        body = render()
+        for fragment in expected:
+            assert fragment in body, f"missing {fragment!r} in:\n{body}"
+        assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
+        assert all(ord(char) < 0x2600 for char in body), "the status comment carries no emoji"
 
 
 class TestRenderFinalBody:
     @parameterized.expand(
         [
-            # All published: full counts + the review link, no held-back line.
-            (
-                {IssuePriority.MUST_FIX: 1, IssuePriority.SHOULD_FIX: 2, IssuePriority.CONSIDER: 5},
-                8,
-                0,
-                IssuePriority.CONSIDER,
-                "https://g/review",
-                [
-                    "Found **1 must fix**, **2 should fix**, **5 consider**",
-                    "Published 8 findings ([view the review](https://g/review))",
-                ],
-                ["stayed below"],
-            ),
-            # The key case: some findings held back — the comment must still show everything found.
-            (
-                {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 2, IssuePriority.CONSIDER: 5},
-                2,
-                5,
-                IssuePriority.SHOULD_FIX,
-                "https://g/review",
-                [
-                    "Found **0 must fix**, **2 should fix**, **5 consider**",
-                    "Published 2 findings",
-                    '5 findings stayed below the author\'s "Should fix" urgency threshold',
-                ],
-                [],
-            ),
-            # Zero publishable: explicit closure instead of silence, no "Published" line.
-            (
-                {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 5},
-                0,
-                5,
-                IssuePriority.SHOULD_FIX,
-                None,
-                ["Found **0 must fix**, **0 should fix**, **5 consider**", "5 findings stayed below"],
-                ["Published"],
-            ),
-            # Nothing found at all.
-            (
-                {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
-                0,
-                0,
-                IssuePriority.SHOULD_FIX,
-                None,
-                ["Nothing worth raising this time. Enjoy the moment:", "!["],
-                ["Published", "stayed below"],
-            ),
-            # Posted on a prior crashed attempt (marker skip): published, but no link to render.
-            (
-                {IssuePriority.MUST_FIX: 1, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
-                1,
-                0,
-                IssuePriority.SHOULD_FIX,
-                None,
-                ["Published 1 finding."],
-                ["view the review"],
-            ),
-        ]
-    )
-    def test_shows_full_counts_and_the_published_vs_held_back_split(
-        self, counts, published_count, held_back_count, threshold, review_url, expected, absent
-    ) -> None:
-        body = render_final_body(
-            "rid",
-            counts=counts,
-            published_count=published_count,
-            held_back_count=held_back_count,
-            threshold=threshold,
-            review_url=review_url,
-        )
-        for fragment in expected:
-            assert fragment in body, f"missing {fragment!r} in:\n{body}"
-        for fragment in absent:
-            assert fragment not in body, f"unexpected {fragment!r} in:\n{body}"
-        assert status_marker("rid") in body
-
-    @parameterized.expand(
-        [
             # Whose settings gated the run must be named truthfully: blaming "the author's" settings
             # for a requester-gated run is the exact misattribution this wording exists to fix, and
             # the defensive default variant has no settings page to point at.
-            ("author", 'the author\'s "Should fix" urgency threshold in their PostHog Review settings'),
-            ("override", 'the requester\'s "Should fix" urgency threshold in their PostHog Review settings'),
-            ("default", 'the default "Should fix" urgency threshold,'),
+            ("author", 'the author\'s "Should fix" threshold'),
+            ("override", 'the requester\'s "Should fix" threshold'),
+            ("default", 'the default "Should fix" threshold'),
             # An unknown future value must degrade to the author wording, not crash the comment.
-            ("mystery", 'the author\'s "Should fix" urgency threshold in their PostHog Review settings'),
+            ("mystery", 'the author\'s "Should fix" threshold'),
         ]
     )
     def test_held_back_sentence_attributes_the_gating_threshold(self, resolved_from: str, expected: str) -> None:
         body = render_final_body(
             "rid",
-            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 2},
-            published_count=0,
-            held_back_count=2,
+            pairs=[_pair(1, IssuePriority.CONSIDER), _pair(2, IssuePriority.CONSIDER)],
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
             resolved_from=resolved_from,
             report_url="https://ph.test/project/1/code-review?review=rid",
             marker=ReviewHogMarker(version="reviewhog-flash-9-9", fingerprint="abc1234"),
         )
-        assert f"2 findings stayed below {expected}" in body, body
+        assert f"2 held back by {expected}" in body, body
         # The version rides in a hidden HTML comment, so it adds no visible text to the PR.
         hidden = "<!-- reviewhog-version: reviewhog-flash-9-9 abc1234 -->"
         assert hidden in body
         assert "reviewhog-flash" not in body.replace(hidden, "")
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
-        assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
+        assert "([view in PostHog](https://ph.test/project/1/code-review?review=rid))" in body
 
     @parameterized.expand(
         [
@@ -221,9 +191,6 @@ class TestRenderFinalBody:
     ) -> None:
         body = render_final_body(
             "rid",
-            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
-            published_count=0,
-            held_back_count=0,
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
             review_mode=review_mode,
@@ -235,10 +202,7 @@ class TestRenderFinalBody:
             mock_choice.assert_called_once()
         else:
             assert "dog.png" not in body
-            assert "Enjoy the moment" not in body
             mock_choice.assert_not_called()
-        if review_mode == REVIEW_MODE_FLASH:
-            assert "Nothing worth raising." in body
 
     @parameterized.expand(
         [
@@ -253,9 +217,7 @@ class TestRenderFinalBody:
     ) -> None:
         body = render_final_body(
             "rid",
-            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
-            published_count=must_fix,
-            held_back_count=0,
+            pairs=[_pair(n, IssuePriority.MUST_FIX) for n in range(must_fix)],
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
             review_mode=REVIEW_MODE_FLASH,
@@ -265,7 +227,7 @@ class TestRenderFinalBody:
         note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
         assert (note in body) is expect_note
 
-    @parameterized.expand([("clean_turn", 0, "Nothing new to raise."), ("turn_with_findings", 1, "Found ")])
+    @parameterized.expand([("clean_turn", 0, "Nothing to post."), ("turn_with_findings", 1, "Posted 1 finding")])
     def test_full_lists_what_other_comments_already_raise(self, _name: str, must_fix: int, opening: str) -> None:
         raised = [
             AlreadyRaised(title=f"Problem {n}", level="P2", comment_id=100 + n, commenter="greptile-apps[bot]")
@@ -274,9 +236,7 @@ class TestRenderFinalBody:
 
         body = render_final_body(
             "rid",
-            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
-            published_count=must_fix,
-            held_back_count=0,
+            pairs=[_pair(n, IssuePriority.MUST_FIX) for n in range(must_fix)],
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
             raised_elsewhere=raised[:10],
@@ -286,7 +246,7 @@ class TestRenderFinalBody:
 
         # A Full turn that only repeated other reviewers must say so instead of celebrating a clean PR.
         assert opening in body
-        assert "Enjoy the moment" not in body
+        assert "![" not in body
         assert (
             "- **P2 · Problem 0**, raised by `greptile-apps[bot]` ([comment](https://github.com/o/r/pull/7#discussion_r100))"
             in body
@@ -348,7 +308,7 @@ class TestEnsureStatusComment(BaseTest):
         ensure_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
-        assert mock_request.call_args.kwargs["json"]["body"].startswith("### \U0001f994 PostHog Review (flash) ")
+        assert mock_request.call_args.kwargs["json"]["body"].startswith("### PostHog Review · Standard · reviewing ")
         report.refresh_from_db()
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
@@ -492,12 +452,13 @@ class TestFinalizeStatusComment(BaseTest):
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
-        assert "Found **1 must fix**, **0 should fix**, **2 consider**" in body
+        assert "Posted 1 finding: 1 Must fix." in body
         # Titles in the already-raised list are model text, so a token quoted from sandbox output must not post.
         assert leaked not in body
         assert "**P1 · Token [redacted] leaks**" in body
-        assert "Published 1 finding ([view the review](https://g/review))" in body
-        assert '2 findings stayed below the author\'s "Should fix" urgency threshold' in body
+        assert (
+            '1 posted ([view review](https://g/review)) · 2 held back by the author\'s "Should fix" threshold' in body
+        )
         # The held-back link into the app. `?review=<report id>` is a permanent public contract
         # (baked into GitHub comments) — the frontend's URL sync accepts exactly this param.
         assert f"/project/{self.team.id}/code-review?review={report_id})" in body
@@ -516,42 +477,73 @@ class TestFinalizeStatusComment(BaseTest):
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
-        assert "couldn't finish this review" in body
         # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
-        # leave a dead flash run reading as a full one.
-        assert body.startswith("### \U0001f994 PostHog Review (flash) ")
+        # leave a dead Standard run reading as a Deep one.
+        assert body.startswith("### PostHog Review · Standard · couldn't finish reviewing ")
 
 
-class TestResolutionSection:
-    def test_splice_appends_then_replaces_in_place(self) -> None:
-        # The section is edited into the shared status comment on every settled thread; a broken
-        # splice would either stack one section per update or eat the review's own body above it.
-        review_body = "### review outcome\n\nFound things.\n\n" + status_marker("rid")
-        first = _splice_resolution_section(
-            review_body, render_resolution_progress_section(done=0, total=3, fixed=0, left_for_you=0)
-        )
-        assert "### review outcome" in first
-        assert "Resolving comments: 0/3" in first
+_DONE_BODY = f"### reviewed\n\n| Step | Status | Result |\n|---|---|---|\n| Publish | done | 1 posted |\n\n{status_marker('rid')}"
+_OLD_BODY = (
+    f"### reviewed\n\n{status_marker('rid')}\n\n"
+    "<!-- reviewhog:resolution:start -->\n**Resolving comments: 0/3**\n<!-- reviewhog:resolution:end -->"
+)
 
-        second = _splice_resolution_section(
-            first, render_resolution_progress_section(done=2, total=3, fixed=1, left_for_you=1)
-        )
 
-        assert "### review outcome" in second
-        assert status_marker("rid") in second
-        assert second.count(RESOLUTION_SECTION_START) == 1
-        assert "Resolving comments: 2/3 · 1 fixed, 1 left for you" in second
-        assert "0/3" not in second
+class TestResolutionRow:
+    @parameterized.expand(
+        [
+            (
+                "running",
+                _DONE_BODY,
+                [render_resolution_progress_row(done=2, total=5, fixed=1, left_for_you=0)],
+                "| Publish | done | 1 posted |\n| Resolve comments | 2/5 | 1 fixed with a commit on your branch |",
+            ),
+            (
+                # Every settled thread rewrites the row, so a broken splice would stack one row per update.
+                "done_replaces_running",
+                _DONE_BODY,
+                [
+                    render_resolution_progress_row(done=2, total=3, fixed=1, left_for_you=0),
+                    render_resolution_final_row(outcomes={"fixed": 2, "escalate": 1}, failed_turns=0),
+                ],
+                "| Resolve comments | done | 2 fixed with commits on your branch, 1 left for you |",
+            ),
+            (
+                "held",
+                _DONE_BODY,
+                [render_resolution_held_row(CommitHold.BRANCH_PROTECTED)],
+                "| Resolve comments | skipped | Not run because this branch is protected |",
+            ),
+            (
+                # A comment posted before the step table must not keep its stale resolution text.
+                "old_marker_block",
+                _OLD_BODY,
+                [render_resolution_progress_row(done=1, total=3, fixed=0, left_for_you=0)],
+                "| Step | Status | Result |\n|---|---|---|\n| Resolve comments | 1/3 |  |",
+            ),
+        ]
+    )
+    def test_splices_one_resolve_row_into_the_table(
+        self, _name: str, body: str, rows: list[str], expected: str
+    ) -> None:
+        for row in rows:
+            body = _splice_resolution_row(body, row)
 
-    def test_final_section_buckets_outcomes_and_names_failures(self) -> None:
+        assert expected in body, body
+        assert body.count("| Resolve comments |") == 1
+        assert "### reviewed" in body
+        assert status_marker("rid") in body
+        assert "Resolving comments:" not in body
+
+    def test_final_row_buckets_outcomes_and_names_failures(self) -> None:
         # The closing tally is the PR author's durable record: already_fixed and obsolete collapse
         # into one bucket, and threads the run could not handle must be named, never silent.
-        section = render_resolution_final_section(
+        row = render_resolution_final_row(
             outcomes={"fixed": 2, "wont_fix": 1, "already_fixed": 1, "obsolete": 1, "escalate": 1},
             failed_turns=2,
         )
-        assert "Resolved comments: 2 fixed, 1 declined, 2 already settled, 1 left for you" in section
-        assert "couldn't handle 2" in section
+        assert "2 fixed with commits on your branch, 1 declined, 2 already settled, 1 left for you" in row
+        assert "couldn't handle 2" in row
 
 
 @patch(_INTEGRATION)
@@ -573,12 +565,12 @@ class TestUpdateResolutionStatusComment(BaseTest):
         report = self._report()
 
         update_resolution_status_comment(
-            self.team.id, str(report.id), render_resolution_progress_section(done=0, total=3, fixed=0, left_for_you=0)
+            self.team.id, str(report.id), render_resolution_progress_row(done=0, total=3, fixed=0, left_for_you=0)
         )
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
         posted = next(c for c in mock_request.call_args_list if c.args[0] == "POST")
-        assert "Resolving comments: 0/3" in posted.kwargs["json"]["body"]
+        assert "| Resolve comments | 0/3 |  |" in posted.kwargs["json"]["body"]
         assert status_marker(str(report.id)) in posted.kwargs["json"]["body"]
         report.refresh_from_db()
         assert report.status_comment_id == 888
@@ -597,14 +589,14 @@ class TestUpdateResolutionStatusComment(BaseTest):
         mock_request.side_effect = [get_response, MagicMock()]
 
         update_resolution_status_comment(
-            self.team.id, str(report.id), render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0)
+            self.team.id, str(report.id), render_resolution_progress_row(done=1, total=3, fixed=1, left_for_you=0)
         )
 
         assert _posts(mock_request) == []
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
         patched = mock_request.call_args_list[1].kwargs["json"]["body"]
         assert "### reviewed" in patched
-        assert "Resolving comments: 1/3 · 1 fixed" in patched
+        assert "| Resolve comments | 1/3 | 1 fixed with a commit on your branch |" in patched
 
     def test_empty_existing_body_keeps_the_marker_for_recovery(
         self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
@@ -621,7 +613,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         mock_request.side_effect = [get_response, MagicMock()]
 
         update_resolution_status_comment(
-            self.team.id, str(report.id), render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0)
+            self.team.id, str(report.id), render_resolution_progress_row(done=1, total=3, fixed=1, left_for_you=0)
         )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
@@ -651,7 +643,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         update_resolution_status_comment(
             self.team.id,
             str(report.id),
-            render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0),
+            render_resolution_progress_row(done=1, total=3, fixed=1, left_for_you=0),
             integration_row_id=42,
         )
 
@@ -661,13 +653,33 @@ class TestUpdateResolutionStatusComment(BaseTest):
 
 
 class TestFailRun(BaseTest):
-    def test_returns_the_report_to_rest_even_without_a_status_comment(self) -> None:
+    @parameterized.expand(
+        [
+            ("before_finalize", False, 1),
+            # Finalize already bumped run_count, so the dying publish belongs to that same turn.
+            ("in_publish_window", True, 1),
+        ]
+    )
+    def test_returns_the_report_to_rest_and_records_the_failed_turn(
+        self, _name: str, finalized: bool, expected_run_index: int
+    ) -> None:
         # Publishing runs defer finalize's idle write to the publish stage, so the failure path must
         # restore rest itself or a dead run reads as in-progress in the UI until the staleness
         # cutoff. A report with no status comment (nothing to edit on GitHub) must still go idle.
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.ACTIVE
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.status == ReviewReport.Status.ACTIVE
+        report.head_sha = "a" * 40
+        if finalized:
+            report.run_count = 1
+            report.completed_head_sha = report.head_sha
+        report.save(update_fields=["head_sha", "run_count", "completed_head_sha"])
 
-        _fail_run(self.team.id, report_id)
+        _fail_run(self.team.id, report_id, review_mode="flash")
 
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
+        report.refresh_from_db()
+        assert report.status == ReviewReport.Status.IDLE
+        markers = run_outcome_markers(self.team.id, [report_id])[report_id]
+        assert [(m.outcome, m.reason, m.run_index, m.review_mode, m.head_sha) for m in markers] == [
+            ("failed", "review_failed", expected_run_index, "flash", report.head_sha)
+        ]

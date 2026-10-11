@@ -124,7 +124,7 @@ class TestSkillZipExport(APIBaseTest):
         zip_bytes = export.content
 
         # Free the name so the re-import recreates it cleanly.
-        archive_skill(self.team, "round-trip")
+        archive_skill(self.team, "round-trip", acting_user=None)
 
         upload = SimpleUploadedFile("round-trip.zip", zip_bytes, content_type="application/zip")
         imported = self.client.post(
@@ -793,7 +793,7 @@ class TestMarketplaceVersion(APIBaseTest):
         LLMSkill.objects.filter(pk=newest.pk).update(updated_at=now)
 
         before = self._plugin_version_epoch()
-        archive_skill(self.team, "skill-new")
+        archive_skill(self.team, "skill-new", acting_user=None)
         after = self._plugin_version_epoch()
 
         # Without the archive bumping updated_at, the version would drop back to the older

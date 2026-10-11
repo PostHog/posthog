@@ -93,7 +93,10 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         # activity retry recovers once it clears, so keep it out of error tracking as noise.
         # `requests.Response.raise_for_status` derives these prefixes from the status code alone,
         # not the vendor's reason text, so they're stable to match on.
-        return {"429 Client Error", "Server Error"}
+        # A read timeout or dropped connection retries the same way, exhausting urllib3's adapter
+        # retries before `_get_with_retry`'s tenacity layer ever sees it. The data-center subdomain
+        # varies per account, so match urllib3's stable wrapper text instead of a fixed host.
+        return {"429 Client Error", "Server Error", "Max retries exceeded with url:"}
 
     def get_schemas(
         self,

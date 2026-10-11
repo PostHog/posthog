@@ -141,6 +141,16 @@ else
     fi
 fi
 
+# Service-to-service secrets that each get their own random value, so a leak from one container
+# cannot yield POSTHOG_SECRET (Django's SECRET_KEY). Installs from before a secret existed have
+# none, so add it. Keep this list in step with dedicatedSecretKeys in bin/hobby-installer.
+for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET; do
+    if ! grep -qE "^$key=.+" .env; then
+        echo "$key=$(openssl rand -hex 32)" >> .env
+        echo "Added missing $key to .env file"
+    fi
+done
+
 # PostHog's AI features (the Max assistant, SQL/regex assist) run on your own LLM provider key.
 # If none is configured yet, offer to add one. Existing keys are never touched — we only append
 # when the key is absent, so this is safe to run on every upgrade.

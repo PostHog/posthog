@@ -1720,9 +1720,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label fires
-    # its workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
-    # strip it).
+    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
+    # its review (ReviewHog's label consumer accepts stamphog[bot] as a labeler and strips other bots' labels).
     #
     # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
     # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.

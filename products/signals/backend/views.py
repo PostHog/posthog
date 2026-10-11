@@ -111,6 +111,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
 from products.signals.backend.dismissal_notes import forward_dismissal_note
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
@@ -136,6 +137,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
+from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
@@ -172,6 +174,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_priority import update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
     ReportReadStateResponseSerializer,
@@ -206,6 +209,7 @@ from products.signals.backend.serializers import (
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
     SignalReportMetricRefreshResponseSerializer,
+    SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalReportsForYouQuerySerializer,
@@ -1110,7 +1114,17 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {
+            "actionable",
+            "needs_input",
+            "needs_decision",
+            "monitoring",
+            "resolved",
+            "dismissed",
+            "held_back",
+            "not_actionable",
+            "all",
+        }
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1125,6 +1139,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "ranking_pr_created_score",
         "ranking_action": "ranking_action_score",
         "ranking_open": "ranking_open_score",
+        "ranking_fixed": "ranking_fixed_score",
+        "ranking_discuss": "ranking_discuss_score",
+        "ranking_thumbs_up": "ranking_thumbs_up_score",
+        "ranking_reviewer_fix": "ranking_reviewer_fix_score",
+        "ranking_refund": "ranking_refund_score",
+        "ranking_dismiss_wrong": "ranking_dismiss_wrong_score",
+        "ranking_dismiss_lowvalue": "ranking_dismiss_lowvalue_score",
     }
     # Ordering field to the outcome head it reads from the served model of the latest ranking score.
     _RANKING_ORDERING_HEADS: dict[str, str] = {
@@ -1132,6 +1153,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "pr_created",
         "ranking_action": "action",
         "ranking_open": "open",
+        "ranking_fixed": "fixed",
+        "ranking_discuss": "discuss",
+        "ranking_thumbs_up": "thumbs_up",
+        "ranking_reviewer_fix": "reviewer_fix",
+        "ranking_refund": "refund",
+        "ranking_dismiss_wrong": "dismiss_wrong",
+        "ranking_dismiss_lowvalue": "dismiss_lowvalue",
     }
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
@@ -1310,6 +1338,7 @@ class SignalReportViewSet(
             "pr_checks",
             "pr_comments",
             "claim",
+            "priority",
         }
     )
 
@@ -1351,7 +1380,7 @@ class SignalReportViewSet(
         if (
             self.action in self._SUPPRESSED_VISIBLE_ACTIONS
             or self._include_all_statuses_requested()
-            or self.request.query_params.get("view") in {"dismissed", "all"}
+            or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
             return self._FILTERABLE_STATUSES
         return self._DEFAULT_STATUSES
@@ -1678,8 +1707,17 @@ class SignalReportViewSet(
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
             return queryset.filter(status=SignalReport.Status.RESOLVED)
-        if inbox_view == "dismissed":
-            return queryset.filter(status=SignalReport.Status.SUPPRESSED)
+        if inbox_view in {"dismissed", "held_back"}:
+            # Every path that suppresses a report on someone's behalf writes a dismissal artefact: a
+            # person or agent dismissing it, a merge, a closed pull request. A suppressed report with
+            # none was held back by a judge, and nobody has looked at it yet.
+            has_dismissal = Exists(
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"), type=SignalReportArtefact.ArtefactType.DISMISSAL
+                )
+            )
+            queryset = queryset.filter(status=SignalReport.Status.SUPPRESSED)
+            return queryset.filter(has_dismissal if inbox_view == "dismissed" else ~has_dismissal)
         if inbox_view == "not_actionable":
             return queryset.filter(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
         return queryset
@@ -1836,6 +1874,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.REPO_SELECTION
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_safety_artefacts",
             ),
         )
 
@@ -2058,6 +2103,24 @@ class SignalReportViewSet(
         return Response(response_serializer.data)
 
     @validated_request(
+        request_serializer=SignalReportPriorityUpdateSerializer,
+        responses={200: SignalReportSerializer},
+        summary="Change a report's priority",
+        description="Append an attributed priority correction, preserving the previous judgment for future learning.",
+        operation_id="signals_reports_priority_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["task:write"])
+    def priority(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        update_report_priority(
+            report=report,
+            priority=ReportPriority(request.validated_data["priority"]),
+            attribution=self._request_attribution(),
+        )
+        report.__dict__.pop("prefetched_priority_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @validated_request(
         request_serializer=SignalReportContentUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalReportSerializer, description="Report updated."),
@@ -2257,8 +2320,12 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
-                    "not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters. needs_decision also includes failed reports without a judgment."
+                    "held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and "
+                    "implementation-PR filters. needs_decision also includes failed reports without a judgment. "
+                    "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
+                    "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
+                    "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
+                    "says which."
                 ),
             ),
             OpenApiParameter(
@@ -2313,7 +2380,8 @@ class SignalReportViewSet(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
-                    "ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
+                    "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
+                    "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
                     "last in either direction. They are staff only: other users get a 400."
                 ),
@@ -2683,7 +2751,7 @@ class SignalReportViewSet(
 
         # Hide the report from the list immediately while signal deletion continues asynchronously.
         updated_fields = report.transition_to(SignalReport.Status.DELETED)
-        report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+        report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
@@ -3310,10 +3378,11 @@ class SignalReportViewSet(
                 # superseded and the receiver closes it. The PR-merge webhook resolves through
                 # transition_to directly and never sets this, so a merged PR is left alone.
                 report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
-                # Name the caller in the comments the receiver leaves on the linked pull request
-                # and tracker issue. An external agent keeps its user principal, so it names the
-                # person who ran it rather than nobody.
-                report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+                # Name the caller in the status-change label and in the comments the receiver leaves
+                # on the linked pull request and tracker issue. An external agent keeps its user
+                # principal, so it names the person who ran it rather than nobody.
+                report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
+                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
@@ -3372,6 +3441,8 @@ class SignalReportViewSet(
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
+                if already_holds_verdict:
+                    capture_verdict_reason_added_analytics(report)
 
         # A dismissal (transition into SUPPRESSED) or a resolve closes the linked implementation PR —
         # handled centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so
@@ -3613,7 +3684,7 @@ class SignalReportViewSet(
             resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
-                report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
+                report._transition_actor = attribution  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)
             SignalReportArtefact.append_dismissal(
                 team_id=self.team.id,

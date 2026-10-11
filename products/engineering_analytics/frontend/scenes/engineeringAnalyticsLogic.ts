@@ -12,6 +12,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -29,10 +30,14 @@ import {
 } from '../generated/api'
 import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
+import { parsePullRequestReference, resolvePullRequestTarget } from '../lib/pullRequestReference'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
-import { scopeToValue } from '../lib/scope'
+import { scopeToValue, withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
+
+// pinned: analytics event name. Renaming it breaks the insights built on it.
+const EVENT_PULL_REQUEST_JUMP_SUBMITTED = 'pull request jump submitted'
 
 // Mirrors the endpoint's server-side limit.
 export const PR_TABLE_LIMIT = 1000
@@ -248,6 +253,10 @@ export const DEFAULT_FILTERS: PullRequestFilters = {
     thrashOnly: false,
 }
 
+/** Why the jump box could not open what it holds: the text names no pull request, or it is a bare number
+ *  with no repository to open in. */
+export type PullRequestJumpFailure = 'invalid' | 'needs_repository'
+
 export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
     return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
 }
@@ -418,6 +427,8 @@ export interface engineeringAnalyticsLogicValues {
     hasActiveWorkflowFilters: boolean
     hasMultipleSources: boolean
     notConnected: boolean
+    pullRequestJumpFailure: PullRequestJumpFailure | null
+    pullRequestJumpText: string
     pullRequests: PullRequestRow[]
     pullRequestsLoadError: boolean
     pullRequestsLoading: boolean
@@ -458,6 +469,9 @@ export interface engineeringAnalyticsLogicValues {
 export interface engineeringAnalyticsLogicActions {
     applyCardFilter: (card: CardFilter) => {
         card: CardFilter
+    }
+    failPullRequestJump: (failure: PullRequestJumpFailure) => {
+        failure: PullRequestJumpFailure
     }
     loadCards: () => any
     loadCardsFailure: (
@@ -564,6 +578,9 @@ export interface engineeringAnalyticsLogicActions {
     setCiStatusFilter: (ciStatus: CIStatusFilter) => {
         ciStatus: CIStatusFilter
     }
+    setPullRequestJumpText: (text: string) => {
+        text: string
+    }
     setReadyOnly: (ready: boolean) => {
         ready: boolean
     }
@@ -597,6 +614,9 @@ export interface engineeringAnalyticsLogicActions {
     }
     setWorkflowStatusFilter: (status: WorkflowStatusFilter) => {
         status: WorkflowStatusFilter
+    }
+    submitPullRequestJump: () => {
+        value: true
     }
     toggleTrunkQuarantineTeam: (team: string) => {
         team: string
@@ -702,6 +722,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
             setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
+            setPullRequestJumpText: (text: string) => ({ text }),
+            submitPullRequestJump: true,
+            failPullRequestJump: (failure: PullRequestJumpFailure) => ({ failure }),
             resetFilters: true,
             toggleTrunkQuarantineTeam: (team: string) => ({ team }),
             refresh: true,
@@ -927,6 +950,17 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Repo scope of a multi-repo source. Cleared when the source changes on its own (the old repo
             // belongs to the old source); the picker uses setScope to set both together.
             scopeRepo: [null as string | null, { setScope: (_, { scopeRepo }) => scopeRepo, setSourceId: () => null }],
+            pullRequestJumpText: ['', { setPullRequestJumpText: (_, { text }) => text }],
+            // A scope change clears the message because picking a repository is one of the fixes it asks for.
+            pullRequestJumpFailure: [
+                null as PullRequestJumpFailure | null,
+                {
+                    failPullRequestJump: (_, { failure }) => failure,
+                    setPullRequestJumpText: () => null,
+                    setScope: () => null,
+                    setSourceId: () => null,
+                },
+            ],
             cardsStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -1221,6 +1255,37 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.setStuckOnly(target === 'stuck')
                 actions.setReadyOnly(target === 'ready')
                 actions.setThrashOnly(target === 'thrash')
+            },
+            submitPullRequestJump: () => {
+                // The repository in scope comes from the sources, so do nothing until they load.
+                if (!values.pullRequestJumpText.trim() || values.githubSourcesLoading) {
+                    return
+                }
+                const reference = parsePullRequestReference(values.pullRequestJumpText)
+                const target = reference && resolvePullRequestTarget(reference, values.activeSource?.repo || null)
+                const capture = (outcome: 'opened' | PullRequestJumpFailure): void => {
+                    posthog.capture(EVENT_PULL_REQUEST_JUMP_SUBMITTED, {
+                        outcome,
+                        input_kind: reference?.kind ?? null,
+                    })
+                }
+                if (!target) {
+                    const failure = reference ? 'needs_repository' : 'invalid'
+                    capture(failure)
+                    actions.failPullRequestJump(failure)
+                    return
+                }
+                capture('opened')
+                // The next scene can take a moment to load. An empty box makes a second submit do nothing.
+                actions.setPullRequestJumpText('')
+                const explorerUrl = urls.engineeringAnalyticsCIExplorer(target.owner, target.repo, target.number)
+                router.actions.push(
+                    target.inScope
+                        ? withCurrentScope(explorerUrl, values.sourceId)
+                        : // The source and repo in scope belong to another repository. Without them the
+                          // explorer reads from the source that syncs the pull request's own repository.
+                          withScope(explorerUrl, { ...router.values.searchParams, repo: undefined }, null)
+                )
             },
         })),
 

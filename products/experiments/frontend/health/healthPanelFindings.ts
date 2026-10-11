@@ -11,6 +11,8 @@ export type HealthPanelFinding = Pick<ExperimentHealthFindingApi, 'subcode' | 's
     actions: ExperimentHealthFindingActionKind[]
 }
 
+const SEVERITY_ORDER: Record<HealthPanelFinding['severity'], number> = { critical: 0, warning: 1, info: 2 }
+
 export function hoursSinceStart(startDate: string | null | undefined): number | null {
     return startDate ? dayjs().diff(startDate, 'hour', true) : null
 }
@@ -31,5 +33,13 @@ export function healthPanelFindings(
     // A reset to draft keeps the previous exposure answer in the page, so a draft shows none of its findings.
     const exposureFindings = isExperimentDraft ? [] : (exposures?.health_findings ?? [])
     const experimentCodes = new Set<string>(health.findings.map((finding) => finding.code))
-    return [...health.findings, ...exposureFindings.filter(({ code }) => !experimentCodes.has(code))]
+    // The sort is stable, so findings of one severity keep the order the server sent them in.
+    return [...health.findings, ...exposureFindings.filter(({ code }) => !experimentCodes.has(code))].sort(
+        (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
+    )
+}
+
+/** The findings the header chip counts. An info finding states a fact and needs no action, so it is no issue. */
+export function healthIssues(findings: HealthPanelFinding[] | null): HealthPanelFinding[] {
+    return findings?.filter(({ severity }) => severity !== 'info') ?? []
 }

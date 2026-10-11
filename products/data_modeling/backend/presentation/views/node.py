@@ -285,7 +285,7 @@ def _get_upstream_nodes(
             team_id=node.team_id,
             dag=node.dag,
             target_id__in=current,
-        )
+        ).exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         if not include_tables:
             qs = qs.exclude(source__type=NodeType.TABLE)
         if hidden_types:
@@ -300,10 +300,14 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
     nodes: set[str] = set()
     current = [node.id]
     while current:
-        qs = Edge.objects.exclude(target__type=NodeType.TABLE).filter(
-            team_id=node.team_id,
-            dag=node.dag,
-            source_id__in=current,
+        qs = (
+            Edge.objects.exclude(target__type=NodeType.TABLE)
+            .filter(
+                team_id=node.team_id,
+                dag=node.dag,
+                source_id__in=current,
+            )
+            .exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         )
         if hidden_types:
             qs = qs.exclude(target__type__in=hidden_types)
