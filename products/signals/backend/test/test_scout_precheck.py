@@ -238,17 +238,33 @@ class TestRevenueDefaultPrecheck(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("nothing_configured", None, None, "skip", "no_rows", 0),
-            ("config_without_events", None, [], "skip", "no_rows", 0),
-            ("revenue_events_only", None, [{"eventName": "purchase", "revenueProperty": "amount"}], "run", "rows", 1),
-            ("stripe_source_only", "Stripe", None, "run", "rows", 1),
-            ("non_payment_source", "Postgres", None, "skip", "no_rows", 0),
+            ("nothing_configured", None, False, None, "skip", "no_rows", 0),
+            ("config_without_events", None, False, [], "skip", "no_rows", 0),
+            (
+                "revenue_events_only",
+                None,
+                False,
+                [{"eventName": "purchase", "revenueProperty": "amount"}],
+                "run",
+                "rows",
+                1,
+            ),
+            ("stripe_source_only", "Stripe", False, None, "run", "rows", 1),
+            ("deleted_stripe_source", "Stripe", True, None, "skip", "no_rows", 0),
+            ("non_payment_source", "Postgres", False, None, "skip", "no_rows", 0),
         ]
     )
-    def test_revenue_default_gates_the_run(self, _name, source_type, events, outcome, reason, row_count) -> None:
+    def test_revenue_default_gates_the_run(
+        self, _name, source_type, deleted, events, outcome, reason, row_count
+    ) -> None:
         if source_type is not None:
             ExternalDataSource.objects.create(
-                team=self.team, source_id="s1", connection_id="c1", status="Running", source_type=source_type
+                team=self.team,
+                source_id="s1",
+                connection_id="c1",
+                status="Running",
+                source_type=source_type,
+                deleted=deleted,
             )
         if events is not None:
             config = self.team.revenue_analytics_config
