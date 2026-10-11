@@ -13,7 +13,7 @@ import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 import { urls } from 'scenes/urls'
 
 import { EndpointQueryNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
+import { isNodeWithSource, isWrapperNode } from '~/queries/utils'
 import { InsightType, InsightModel } from '~/types'
 
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
@@ -41,8 +41,25 @@ function isInsightSupported(insight: InsightModel): boolean {
     if (!query) {
         return true
     }
-    const kind = isNodeWithSource(query) ? (query as { source?: { kind?: string } }).source?.kind : query.kind
+    const kind = isNodeWithSource(query) ? query.source.kind : query.kind
     return !kind || !UNSUPPORTED_QUERY_KINDS.has(kind as NodeKind)
+}
+
+/**
+ * The endpoint runs the wrapped query, not the wrapper. A wrapper that lost its source has nothing
+ * to run, so it yields null and the modal below stays closed.
+ */
+function endpointQueryFromInsight(insight: InsightModel | null): HogQLQuery | EndpointQueryNode | null {
+    const query = insight?.query
+    if (!query) {
+        return null
+    }
+    if (isNodeWithSource(query)) {
+        // Safe cast: unsupported query types (FunnelsQuery, PathsQuery, StickinessQuery)
+        // are filtered out via isInsightSupported on the SavedInsightsTable
+        return query.source as unknown as HogQLQuery | EndpointQueryNode
+    }
+    return isWrapperNode(query) ? null : (query as unknown as HogQLQuery | EndpointQueryNode)
 }
 
 const QUICK_CREATE_TYPES = [
@@ -55,13 +72,7 @@ export function InsightPickerEndpointModal(): JSX.Element {
     const { closeModal, selectInsight, toggleShowMoreInsightTypes } = useActions(insightPickerEndpointModalLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic)
 
-    // Safe cast: unsupported query types (FunnelsQuery, PathsQuery, StickinessQuery)
-    // are filtered out via isInsightSupported on the SavedInsightsTable
-    const insightQuery: HogQLQuery | EndpointQueryNode | null = selectedInsight?.query
-        ? isNodeWithSource(selectedInsight.query)
-            ? (selectedInsight.query.source as unknown as HogQLQuery | EndpointQueryNode)
-            : (selectedInsight.query as unknown as HogQLQuery | EndpointQueryNode)
-        : null
+    const insightQuery = endpointQueryFromInsight(selectedInsight)
 
     const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([type, meta]) =>

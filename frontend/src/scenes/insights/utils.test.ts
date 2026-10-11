@@ -7,6 +7,7 @@ import {
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getInsightIconTypeFromQuery,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
@@ -912,5 +913,29 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('getInsightIconTypeFromQuery()', () => {
+    it.each([
+        [
+            'an insight viz node',
+            { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.RetentionQuery } },
+            'insight/retention',
+        ],
+        [
+            'a data table node wrapping SQL',
+            { kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery } },
+            'insight/hog',
+        ],
+        ['an insight viz node that lost its source', { kind: NodeKind.InsightVizNode }, 'product_analytics'],
+        [
+            'a data visualization node that lost its source',
+            { kind: NodeKind.DataVisualizationNode, chartSettings: {} },
+            'insight/hog',
+        ],
+        ['no query', null, 'product_analytics'],
+    ])('reads an icon for %s', (_label, query, expected) => {
+        expect(getInsightIconTypeFromQuery(query)).toEqual(expected)
     })
 })
