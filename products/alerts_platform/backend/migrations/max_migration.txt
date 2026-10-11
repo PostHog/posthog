@@ -1,1 +1,1 @@
-0009_move_check_status_onto_configuration
+0012_platformalert_last_seen_at

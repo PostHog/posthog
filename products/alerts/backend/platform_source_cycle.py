@@ -203,8 +203,11 @@ def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
 
 
 def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
+    instance = check.instance()
     return insight_snapshot(
-        AlertState(check.state), last_notified_at=check.last_notified_at, firing_started_at=check.firing_started_at
+        AlertState(instance.state),
+        last_notified_at=instance.last_notified_at,
+        firing_started_at=instance.firing_started_at,
     )
 
 
@@ -351,8 +354,9 @@ def _recorded(
     safe_record(increment_checks, source, notification.value)
     if skip is not None:
         safe_record(increment_checks_skipped, source, skip.value)
-    if check.state != outcome.new_state.value:
-        safe_record(increment_state_transition, source, check.state, outcome.new_state.value)
+    previous_state = check.instance().state
+    if previous_state != outcome.new_state.value:
+        safe_record(increment_state_transition, source, previous_state, outcome.new_state.value)
     return PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),

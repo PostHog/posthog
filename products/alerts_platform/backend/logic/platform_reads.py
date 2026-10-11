@@ -17,19 +17,22 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
-def instance_view(alert: PlatformAlert, check_status: str) -> PlatformAlertSnapshot:
+def instance_view(alert: PlatformAlert, configuration: PlatformAlertConfiguration) -> PlatformAlertSnapshot:
     """One instance row as a contract. Shared with the test doors, so both describe one shape.
 
     A configuration whose checks fail shows that status on every instance, because nothing says
     which group caused the failure. The row keeps its own state so a recovery continues its firing.
+    A configuration mute shows on every instance for the same reason a check reads it there.
     """
+    check_status = configuration.check_status
+    snoozes = [moment for moment in (configuration.snooze_until, alert.snooze_until) if moment is not None]
     return PlatformAlertSnapshot(
         id=alert.id,
         grouping_key=alert.grouping_key,
         state=alert.state if check_status == PlatformAlertConfiguration.CheckStatus.OK else check_status,
         firing_started_at=alert.firing_started_at,
         last_notified_at=alert.last_notified_at,
-        snooze_until=alert.snooze_until,
+        snooze_until=max(snoozes, default=None),
     )
 
 
@@ -52,7 +55,7 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         legacy_configuration_id=configuration.legacy_configuration_id,
         created_at=configuration.created_at,
         updated_at=configuration.updated_at,
-        alerts=tuple(instance_view(alert, configuration.check_status) for alert in configuration.alerts.all()),
+        alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
     )
 
 
@@ -103,4 +106,4 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
         .filter(configuration_id=configuration_id, grouping_key=grouping_key)
         .first()
     )
-    return instance_view(alert, alert.configuration.check_status) if alert is not None else None
+    return instance_view(alert, alert.configuration) if alert is not None else None

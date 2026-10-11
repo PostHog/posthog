@@ -43,8 +43,7 @@ def _check_input(alert_id, *, next_check_at) -> PlatformAlertCheckInput:
         next_check_at=next_check_at,
         consecutive_failures=0,
         legacy_configuration_id=None,
-        state="not_firing",
-        last_notified_at=None,
+        check_status="ok",
         snooze_until=None,
     )
 
