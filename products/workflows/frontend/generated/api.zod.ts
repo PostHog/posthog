@@ -3169,3 +3169,24 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
         ),
 })
+
+/**
+ * Write a first draft of an email to the people an entity points at. A model writes it when the project has AI drafts on and the organization approved AI data processing; otherwise, or when the model fails, the fixed template for the source is returned. Nothing is saved.
+ * @summary Draft an email about an error, feature, survey, flag or cohort
+ */
+export const workflowEmailDraftsCreateBodySourceIdMax = 200
+
+export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .enum(['error_tracking', 'early_access', 'survey', 'feature_flag', 'cohort'])
+        .describe(
+            '\* `error_tracking` - Error tracking issue\n\* `early_access` - Early access feature\n\* `survey` - Survey\n\* `feature_flag` - Feature flag\n\* `cohort` - Cohort'
+        )
+        .describe(
+            'The kind of entity the email is about.\n\n\* `error_tracking` - Error tracking issue\n\* `early_access` - Early access feature\n\* `survey` - Survey\n\* `feature_flag` - Feature flag\n\* `cohort` - Cohort'
+        ),
+    source_id: zod
+        .string()
+        .max(workflowEmailDraftsCreateBodySourceIdMax)
+        .describe('ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.'),
+})
