@@ -42,14 +42,27 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-function buildCheckPattern(datapoints: number, periods: number): boolean[] {
+// The form allows at most 10 periods, but a typed or pasted value can be much larger before validation.
+const MAX_CHECK_PATTERN_PERIODS = 100
+
+function toSafeCount(value: number, max: number): number {
+    return Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value), 0), max) : 0
+}
+
+export function buildCheckPattern(datapoints: number, periods: number): boolean[] {
+    // Both values come from number inputs, which report NaN when cleared. Array() throws on NaN or negative lengths.
+    const safePeriods = toSafeCount(periods, MAX_CHECK_PATTERN_PERIODS)
+    const safeDatapoints = toSafeCount(datapoints, safePeriods)
+    if (safeDatapoints === 0) {
+        return []
+    }
     // Last check is always matched — it's the one that tips the alert over.
     // Distribute OK checks evenly across the remaining positions.
-    const result: boolean[] = Array(periods).fill(true)
-    const okCount = periods - datapoints
+    const result: boolean[] = Array(safePeriods).fill(true)
+    const okCount = safePeriods - safeDatapoints
     for (let i = 0; i < okCount; i++) {
-        const pos = Math.round((i * (periods - 2)) / Math.max(okCount - 1, 1))
-        result[pos] = false
+        const pos = Math.round((i * (safePeriods - 2)) / Math.max(okCount - 1, 1))
+        result[Math.min(Math.max(pos, 0), safePeriods - 1)] = false
     }
     return result
 }
