@@ -36,6 +36,7 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
         cleanup()
         playerSettingsLogic.actions.setHideViewedRecordings(false)
         playerSettingsLogic.unmount()
@@ -67,6 +68,25 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         // Filters being the likely cause does not rule out capture problems, so the hints stay.
         expect(screen.getByText('An ad blocker might be preventing recordings')).toBeInTheDocument()
         expect(screen.getByText('Recordings might be outside the retention period')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['a relative range', '-30d', 'No recordings match your filters', 'Date range: Last 30 days (UTC)'],
+        ['a custom start date', '2026-03-11', 'No recordings match your filters', 'Date range: Last 5 days (UTC)'],
+        [
+            'a custom start time that has not come yet',
+            '2999-01-01T11:00:00',
+            'The date range starts in the future',
+            /January 1, 11:00 AM .* \(UTC\)/,
+        ],
+    ])('names the date range in the project time zone for %s', (_, dateFrom, heading, text) => {
+        jest.useFakeTimers({ advanceTimers: true }).setSystemTime(new Date('2026-03-16T10:00:00Z'))
+        logic.actions.setFilters({ date_from: dateFrom })
+
+        renderTroubleshooting()
+
+        expect(screen.getByText(heading)).toBeInTheDocument()
+        expect(screen.getByText(text)).toBeInTheDocument()
     })
 
     it('offers to clear filters only when the user applied them', () => {

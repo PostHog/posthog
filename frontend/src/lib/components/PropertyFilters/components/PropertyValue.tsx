@@ -453,7 +453,7 @@ export function PropertyValue({
         : PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
           ? 'Suggested values (last 7 days)'
           : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-            ? 'Suggested values'
+            ? 'Suggested values (all time)'
             : null
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined

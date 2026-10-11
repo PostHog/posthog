@@ -4,22 +4,48 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { formatDateRange, isDate } from 'lib/utils/datetime'
+import { shortTimeZone } from 'lib/utils/timezones'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+
+// Matches the shared date filter labels, but parses the start in the project time zone, not the browser's.
+function openDateRangeText(dateFrom: dayjs.Dayjs, now: dayjs.Dayjs): string {
+    const days = now.diff(dateFrom, 'days')
+    if (days > 366) {
+        return formatDateRange(dateFrom, now)
+    }
+    return days > 0 ? `Last ${days} days` : 'Today'
+}
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller } = useValues(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller, filters } =
+        useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { timezone } = useValues(teamLogic)
 
     const recordingsAreHidden = hideViewedRecordings !== false
     const hasFilters = totalFiltersCount > 0
+    // A custom start time carries no offset, so the project time zone decides when it is.
+    const dateFrom = dateStringToDayJs(filters.date_from ?? null, timezone)
+    const startsInFuture = !!dateFrom && dateFrom.isAfter(dayjs())
+    const timeZoneLabel = shortTimeZone(timezone) ?? timezone
+    const dateRangeText =
+        dateFrom && !filters.date_to && isDate.test(filters.date_from ?? '')
+            ? openDateRangeText(dateFrom, dayjs().tz(timezone))
+            : dateFilterToText(filters.date_from, filters.date_to, null)
 
     useEffect(() => {
         posthog.capture('recording list empty state shown', {
             hidden_recordings_count: hiddenRecordingsCount,
             total_filters_count: totalFiltersCount,
+            empty_cause: startsInFuture ? 'future_start_date' : hasFilters ? 'filters' : 'no_filters',
         })
     }, [])
     // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
@@ -28,8 +54,19 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     return (
         <>
             <h3 className="title text-secondary mb-0">
-                {hasFilters ? 'No recordings match your filters' : 'No recordings found'}
+                {startsInFuture
+                    ? 'The date range starts in the future'
+                    : hasFilters
+                      ? 'No recordings match your filters'
+                      : 'No recordings found'}
             </h3>
+            {startsInFuture && dateFrom ? (
+                <p className="text-secondary mb-0">
+                    {`The range starts at ${dateFrom.format('MMMM D, h:mm A')} in the project time zone (${timeZoneLabel}). That time has not come yet, so no recordings can match. Pick an earlier start time.`}
+                </p>
+            ) : dateRangeText ? (
+                <p className="text-secondary mb-0">{`Date range: ${dateRangeText} (${timeZoneLabel})`}</p>
+            ) : null}
             <div className="flex flex-col deprecated-space-y-2">
                 <ul className="deprecated-space-y-1">
                     {recordingsAreHidden && (
