@@ -24,6 +24,7 @@ from posthog.hogql.constants import (
     get_default_limit_for_context,
 )
 from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.cost.read_signature import read_signature
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
@@ -618,6 +619,13 @@ class HogQLQueryExecutor:
         except Exception:
             return None
 
+    def _read_signature(self) -> str | None:
+        # Advisory for the same reason as the plan fingerprint.
+        try:
+            return read_signature(self.select_query)
+        except Exception:
+            return None
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
     def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
@@ -910,6 +918,8 @@ class HogQLQueryExecutor:
                 hogql_features = extract_hogql_features(self.select_query)
             with self.timings.measure("plan_fingerprint"):
                 plan_fingerprint = self._plan_fingerprint()
+            with self.timings.measure("read_signature"):
+                query_read_signature = self._read_signature()
             self._detect_warehouse_sources()
             tag_queries(
                 team_id=self.team.pk,
@@ -919,6 +929,7 @@ class HogQLQueryExecutor:
                 hogql_features=hogql_features,
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
+                read_signature=query_read_signature,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
