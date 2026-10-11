@@ -2,8 +2,8 @@ function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function indexOf (arrOrString, elem) { if (Array.isArray(arrOrString)) { return arrOrString.indexOf(elem) + 1 } else { return 0 } }
 function has (arr, elem) { if (!Array.isArray(arr) || arr.length === 0) { return false } return arr.includes(elem) }
 function arrayStringConcat (arr, separator = '') { if (!Array.isArray(arr)) { return '' } return arr.join(separator) }
-function arraySort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort() }
-function arrayReverseSort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort().reverse() }
+function arraySort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) }
+function arrayReverseSort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).reverse() }
 function arrayReverse (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].reverse() }
 function arrayPushFront (arr, item) { if (!Array.isArray(arr)) { return [item] } return [item, ...arr] }
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
@@ -95,6 +95,8 @@ print(arrayPopFront([1, 2, 3]));
 print(arraySort([3, 2, 1]));
 print(arrayReverse([1, 2, 3]));
 print(arrayReverseSort([3, 2, 1]));
+print(arraySort([2, 10, 1]));
+print(arrayReverseSort([2, 10, 1]));
 print(arrayStringConcat([1, 2, 3], ","));
 print("-----");
 let arr = [1, 2, 3, 4];
