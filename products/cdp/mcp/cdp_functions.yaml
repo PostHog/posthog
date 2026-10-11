@@ -19,12 +19,12 @@ tools:
         title: Create function
         description: >
             Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook,
-            site_app, or transformation) and either 'hog' source code or a 'template_id' to
-            derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with
-            their values. Use 'filters' to control which events trigger the function. Transformations run during
-            ingestion and have an 'execution_order' field. Create destinations disabled: test with
-            cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks right.
-            (Other types, like internal_destination below, create as sent.)
+            site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template.
+            Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to
+            control which events trigger the function. Transformations run during ingestion and have an
+            'execution_order' field. Create destinations disabled: test with cdp-functions-invocations-create, then
+            enable with cdp-functions-partial-update once the config looks right. (Other types, like
+            internal_destination below, create as sent.)
 
             Recipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create /
             alert-update point here):
