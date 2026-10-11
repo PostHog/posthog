@@ -409,13 +409,18 @@ class HeatmapHistoryService:
             history = (
                 HeatmapScreenshotHistory.objects.for_team(request.team_id)
                 .select_for_update()
-                .filter(id=request.history_id, latest_request_id=request.id)
+                .filter(id=request.history_id)
                 .first()
             )
             if current is None:
-                delete_images_on_commit(request.team_id, [request.id])
+                if history is None or history.revision != request.id:
+                    delete_images_on_commit(request.team_id, [request.id])
                 return
-            if history is None or not capture_still_wanted(heatmap, request, enabled):
+            if (
+                history is None
+                or history.latest_request_id != request.id
+                or not capture_still_wanted(heatmap, request, enabled)
+            ):
                 HeatmapHistoryService.fail(request, "capture_cancelled", state=HeatmapCaptureRequest.State.CANCELLED)
                 return
             retired = history.revision

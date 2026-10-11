@@ -130,12 +130,14 @@ class TestHeatmapHistory(APIBaseTest):
         request = self.enqueue()
         self.execute_capture(request)
         assert request.state == "succeeded"
-        assert self.history().revision == request.id
-        assert self.history().has_thumbnail
-        assert {key.rsplit("/", 1)[1] for key in self.images(request)} == {"full.jpg", "thumbnail.jpg"}
         self.storage.write.reset_mock()
         self.execute_capture(request)
         self.storage.write.assert_not_called()
+        with self.captureOnCommitCallbacks(execute=True):
+            HeatmapHistoryService.publish(request, False)
+        assert self.history().revision == request.id
+        assert self.history().has_thumbnail
+        assert {key.rsplit("/", 1)[1] for key in self.images(request)} == {"full.jpg", "thumbnail.jpg"}
 
     def replace_with_manual_capture(self) -> None:
         self.execute_capture(self.enqueue())
@@ -158,9 +160,14 @@ class TestHeatmapHistory(APIBaseTest):
         assert claimed is not None
         if change:
             getattr(self, change)()
-        with patch(f"{TASK_MODULE}.history_enabled", return_value=enabled):
+        self.blobs[image_key(self.team.id, claimed.id, "full")] = jpeg()
+        with (
+            patch(f"{TASK_MODULE}.history_enabled", return_value=enabled),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             HeatmapHistoryService.publish(claimed, True)
         assert self.history().revision != claimed.id
+        assert not self.images(claimed)
 
     def test_failed_replacement_preserves_good_image(self) -> None:
         good = self.enqueue()
@@ -169,12 +176,15 @@ class TestHeatmapHistory(APIBaseTest):
         bad = self.enqueue()
         self.execute_capture(bad, BrowserlessPermanentError("Failed", cause="invalid_image"))
         assert bad.state == "failed"
+        with self.captureOnCommitCallbacks(execute=True):
+            HeatmapHistoryService.publish(good, False)
         history = self.history()
         assert history.revision == good.id
         assert history.status == "ok"
         assert history.has_content
         assert history.latest_request == bad
-        assert self.images(good)
+        assert history.has_thumbnail
+        assert {key.rsplit("/", 1)[1] for key in self.images(good)} == {"full.jpg", "thumbnail.jpg"}
         assert not self.images(bad)
 
     def test_successful_replacement_deletes_old_images(self) -> None:
