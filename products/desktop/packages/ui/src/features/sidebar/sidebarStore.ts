@@ -6,8 +6,8 @@ import {
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
   DESKTOP_SOURCE,
+  migrateLegacySources,
   migrateSourceFilter,
-  WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
@@ -190,15 +190,7 @@ export const useSidebarStore = create<SidebarStore>()(
         }
         const filters = version < 2 ? migrateSourceFilter(saved) : saved;
         const sources = filters.sources
-          ? Array.from(
-              new Set(
-                filters.sources.map((source) => {
-                  if (source === "user_created") return DESKTOP_SOURCE;
-                  if (source === "posthog_ai") return WEB_SOURCE;
-                  return source;
-                }),
-              ),
-            )
+          ? migrateLegacySources(filters.sources)
           : filters.sources;
         return {
           ...state,

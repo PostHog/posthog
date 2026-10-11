@@ -319,6 +319,18 @@ export function migrateSourceFilter({
   return { ...rest, sources: source === "any" ? ANY_SOURCE : [source] };
 }
 
+export function migrateLegacySources(sources: SourceFilter): string[] {
+  return Array.from(
+    new Set(
+      sources.map((source) => {
+        if (source === "user_created") return DESKTOP_SOURCE;
+        if (source === "posthog_ai") return WEB_SOURCE;
+        return source;
+      }),
+    ),
+  );
+}
+
 /**
  * The sources present in a list, so the menu only offers the ones that can
  * actually match. Keyed by `origin_product`; sorted so the menu is stable
