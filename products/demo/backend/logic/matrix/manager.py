@@ -11,9 +11,11 @@ from django.core import exceptions
 from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.deletion_targets import table_exists_via_sync_execute
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -255,7 +257,7 @@ class MatrixManager:
         delete_group_type_mappings(cls.MASTER_TEAM_ID)
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
-        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
@@ -269,6 +271,11 @@ class MatrixManager:
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        # The native events table is rolled out per deployment and some ClickHouse clusters have none, so the copy
+        # runs only where the table exists.
+        native_events_table_exists = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
+        if native_events_table_exists:
+            sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
         copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
 

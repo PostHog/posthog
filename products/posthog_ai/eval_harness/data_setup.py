@@ -12,7 +12,7 @@ from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.persons_db import persons_db_connection
@@ -210,6 +210,7 @@ def copy_demo_data_to_new_team(
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
         # Copy the master team's group type mappings onto the isolated eval team, writing through the
