@@ -2024,7 +2024,14 @@ const scoutTrialArchive = (): ToolBase<ReturnType<typeof ScoutTrialArchiveSchema
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_comparison_archive/`,
             body,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'comparison_id',
+            'config_id',
+            'status',
+            'archived',
+            'error',
+        ]) as typeof result
+        return filtered
     },
 })
 

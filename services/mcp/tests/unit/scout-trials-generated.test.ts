@@ -291,10 +291,20 @@ describe('Generated scout trial workflow tools', () => {
             body: { comparison_id: comparisonId, archived: false },
         },
     ])('$name addresses the existing trial: $body', async ({ name, action, body }) => {
-        const { context, request } = createContext({ comparison_id: comparisonId })
+        const acknowledgment = {
+            comparison_id: comparisonId,
+            config_id: scoutId,
+            status: 'completed',
+            ...('archived' in body ? { archived: body.archived } : {}),
+            error: null,
+        }
+        const response = { ...acknowledgment, evaluation: { report: { evidence: ['saved judge evidence'] } } }
+        const { context, request } = createContext(response)
         const tool = GENERATED_TOOLS[name]!()
 
-        await tool.handler(context, tool.schema.parse({ id: scoutId, ...body }))
+        expect(await tool.handler(context, tool.schema.parse({ id: scoutId, ...body }))).toEqual(
+            name === 'scout-trial-archive' ? acknowledgment : response
+        )
 
         expect(request).toHaveBeenCalledWith({ method: 'POST', path: `${configPath}/${action}/`, body })
     })

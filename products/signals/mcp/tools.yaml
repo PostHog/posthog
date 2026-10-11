@@ -1059,6 +1059,7 @@ tools:
     scout-rubric-generate:
         operation: signals_scout_rubrics_generate
         enabled: true
+        feature_flag: scout-trials
         annotations:
             readOnly: false
             destructive: false
@@ -1073,6 +1074,7 @@ tools:
     scout-rubric-get:
         operation: signals_scout_rubrics_retrieve
         enabled: true
+        feature_flag: scout-trials
         title: Read a scout's rubric and suggestions
         description: >
             Read saved criteria, their revision and adopted scout reference, plus the latest generation's status,
@@ -1106,6 +1108,7 @@ tools:
     scout-rubric-save:
         operation: signals_scout_rubrics_update
         enabled: true
+        feature_flag: scout-trials
         annotations:
             readOnly: false
             destructive: true
@@ -1310,6 +1313,13 @@ tools:
             Set archived=true to hide a finished trial from history, or false to restore it. Results are retained and no
             scouts or judges are started. Use the source scout config id and the trial's comparison_id.
         feature_flag: scout-trials
+        response:
+            include:
+                - comparison_id
+                - config_id
+                - status
+                - archived
+                - error
     scout-trial-create:
         operation: signals_scout_config_trial
         enabled: true

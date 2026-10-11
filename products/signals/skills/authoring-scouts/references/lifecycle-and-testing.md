@@ -91,7 +91,7 @@ Free and instant — refine the body, re-run the queries, repeat, until the logi
 ### Private trials with a saved rubric
 
 Use `posthog:scout-trial-start` to run variants and automatically judge them against the same saved rubric.
-Private trials and rubrics currently have a staff-only internal rollout; trial tools also require the `scout-trials` feature flag.
+The rubric and private-trial MCP tools currently require staff access and the `scout-trials` feature flag.
 This keeps the source skill, shared memory, and live inbox reports unchanged, while still reading live project data.
 Each run gets its own private report and memory changes from a shared starting context; live analytics queries can still return different data as time passes.
 The tools and source scout must be eligible: `posthog:scout-trial-setup` returns `ready`, `blocked_reason`, the current `skill_body` / `skill_version`, and supported `models` with their `reasoning_efforts`.
@@ -175,6 +175,8 @@ The lower-level `posthog:scout-trial-create` / `posthog:scout-trial-get` tools e
 
 When the user asked to apply a successful candidate, reread the saved skill and use `posthog:skill-update` with its current `base_version` to apply the intended change.
 Use `posthog:scout-config-update` for the desired model, schedule, and `enabled` state, including enabling the scout when that is part of the requested work.
+It cannot save `reasoning_effort`. When a scout has a configured model, ordinary runs use that runtime's default effort; setting the winning model does not apply the trial's effort.
+Check that default before enabling the candidate as the tested winner. If it differs, test the candidate at the ordinary effort first. If the default is unknown, validate the ordinary configuration before relying on the trial result, and report that the effort change remains unapplied.
 Testing alone does not apply a winner or change the scout's schedule.
 
 ### Ordinary runs

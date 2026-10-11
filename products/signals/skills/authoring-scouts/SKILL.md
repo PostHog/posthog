@@ -243,7 +243,7 @@ Then check the first real run's transcript for the call and what it returned, th
 
 ### Compare variants privately
 
-Private trials currently require staff access and the `scout-trials` feature flag.
+The rubric and private-trial MCP tools currently require staff access and the `scout-trials` feature flag.
 Use this path when the user wants to test an existing scout, try an idea, or compare several prompts, models, or reasoning efforts.
 The trial runs real scouts against project data, captures their reports and memory privately, judges them against one saved rubric, and saves a comparison report.
 Generation, scout runs, and judging spend model usage; choose the number of variants and repeats within the requested budget.
@@ -271,6 +271,8 @@ The existing `posthog:scout-trial-create` / `posthog:scout-trial-get` pair runs 
 
 When applying a candidate is part of the user's request, update the saved skill through `posthog:skill-update` with its current `base_version`.
 Use `posthog:scout-config-update` to set the intended model, schedule, or `enabled=true` as appropriate to the requested rollout; the agent can enable or pause a scout through this existing tool.
+This tool cannot save `reasoning_effort`: a scout with a configured model uses its runtime's default effort, which may differ from the trial.
+Before enabling a candidate as the tested winner, verify that its ordinary effort matches the trial. If it differs or is unknown, report the effort as unapplied and validate the configuration that ordinary runs will actually use first.
 A request only to compare candidates leaves the source definition and schedule unchanged.
 
 For an ordinary execution, `posthog:scout-run-now {"id": <config_id>}` runs the saved scout immediately, even while paused, without changing its schedule or `last_run_at`.

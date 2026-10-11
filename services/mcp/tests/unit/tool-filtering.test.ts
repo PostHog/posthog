@@ -917,10 +917,13 @@ describe('Tool Filtering - Read-Only Mode', () => {
 })
 
 describe('Tool Filtering - Feature Flags', () => {
-    it.each([undefined, false, true])('gates private trial tools on scout-trials: %s', (enabled) => {
+    it.each([undefined, false, true])('gates rubric and private trial tools on scout-trials: %s', (enabled) => {
         const tools = getToolsForFeatures({ featureFlags: { 'scout-trials': enabled } })
         expect(tools).toContain('scout-runs-list')
         for (const name of [
+            'scout-rubric-generate',
+            'scout-rubric-get',
+            'scout-rubric-save',
             'scout-trial-create',
             'scout-trial-get',
             'scout-trial-setup',

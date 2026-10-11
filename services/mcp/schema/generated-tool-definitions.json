@@ -11508,7 +11508,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "scout-trials"
     },
     "scout-rubric-get": {
         "description": "Read saved criteria, their revision and adopted scout reference, plus the latest generation's status, suggestions, summary, and captured reference. Use this to poll generation and review criteria before saving. A generation can finish without its reference being adopted. For a judged trial, save enabled criteria and adopt a complete reference with scout-rubric-save. Use fields to poll generation.status and generation.error or read criteria, suggestions, and reference sections separately. Omit fields for the full document. Requires access to scout rubrics.",
@@ -11522,7 +11523,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "scout-trials"
     },
     "scout-rubric-save": {
         "description": "Save the complete selected criterion set using the revision from scout-rubric-get; a stale revision returns 409, so reread before editing again. Keep all six default criteria and disable any that do not apply. Keep selected suggestions' identifiers and source; new custom criteria need custom- identifiers. At most 30 criteria are allowed. Pass adopt_generation_id to use the current completed generation's reviewed scout instructions and references for judging the whole rubric. Omit it to retain the saved reference across prompt iterations. This changes grading criteria, not the scout's instructions or schedule.",
@@ -11536,7 +11538,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "scout-trials"
     },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this run alone (\"focus on the checkout regression\"): the agent reads it next to the scout's durable notes and weighs it the same way, and it is never read by another run — use it instead of `scout-notes-create`, which would also steer every later scheduled run. A run carrying a note needs `llm_skill:write` as well, since the agent reads the note verbatim while holding privileged tools. Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
