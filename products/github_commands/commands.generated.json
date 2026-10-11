@@ -1,0 +1,83 @@
+{
+    "schema_version": 1,
+    "prefix": "@posthog",
+    "commands": [
+        {
+            "verb": "help",
+            "aliases": [],
+            "summary": "List these commands.",
+            "dispatches_to": null,
+            "options": [],
+            "text": null,
+            "refuses_forks": false,
+            "access": null,
+            "usage": "@posthog help"
+        },
+        {
+            "verb": "loop",
+            "aliases": [],
+            "summary": "Run one of your own Loops with this pull request as its input.",
+            "dispatches_to": "Loops",
+            "options": [],
+            "text": {
+                "name": "name",
+                "required": true,
+                "help": "The loop's name.",
+                "verbatim": true
+            },
+            "refuses_forks": true,
+            "access": null,
+            "usage": "@posthog loop <name>"
+        },
+        {
+            "verb": "qa",
+            "aliases": [],
+            "summary": "Run frontend QA on this pull request in PostHog Code and post a report.",
+            "dispatches_to": "PostHog Code",
+            "options": [],
+            "text": {
+                "name": "focus",
+                "required": false,
+                "help": "What to focus on. The agent gets it as your instruction.",
+                "verbatim": true
+            },
+            "refuses_forks": true,
+            "access": null,
+            "usage": "@posthog qa [<focus>]"
+        },
+        {
+            "verb": "review",
+            "aliases": [],
+            "summary": "Start a Standard review of this pull request.",
+            "dispatches_to": "PostHog Review",
+            "options": [
+                {
+                    "name": "deep",
+                    "spelling": "--deep",
+                    "kind": "flag",
+                    "choices": null,
+                    "default": false,
+                    "help": "Run a Deep review instead of the default Standard review."
+                }
+            ],
+            "text": null,
+            "refuses_forks": true,
+            "access": null,
+            "usage": "@posthog review [--deep]"
+        },
+        {
+            "verb": "stamp",
+            "aliases": ["approve"],
+            "summary": "Ask Stamphog to review this pull request. Stamphog decides whether to approve.",
+            "dispatches_to": "Stamphog",
+            "options": [],
+            "text": null,
+            "refuses_forks": true,
+            "access": {
+                "resource": "stamphog",
+                "level": "editor"
+            },
+            "usage": "@posthog stamp"
+        }
+    ]
+}
