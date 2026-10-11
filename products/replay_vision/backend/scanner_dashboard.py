@@ -1,9 +1,13 @@
+import textwrap
 from collections.abc import Collection, Sequence
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef
+
+from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.group_type_mapping import get_group_types_for_project
@@ -15,6 +19,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.queries.scanner_candidate_query import OBSERVATION_EVENT_NAME
 
 # Enough rows that every tile renders a real chart on the day the dashboard is created.
 DASHBOARD_SUGGESTION_MIN_OBSERVATIONS = 20
@@ -22,34 +27,32 @@ DASHBOARD_SUGGESTION_MIN_OBSERVATIONS = 20
 DASHBOARD_NAME_PREFIX = "Replay Vision: "
 DASHBOARD_DATE_FROM = "-30d"
 
-_EVENT = "$recording_observed"
+_TILE_HEIGHT = 5
+# How far back "first seen" looks for a freeform category, so the tile does not scan the scanner's whole history.
+_FREEFORM_FIRST_SEEN_LOOKBACK = "1 YEAR"
+
 # `{scanner_id}` is substituted by `_sql_node` rather than bound through HogQL `values`, because `values` turns
 # `{filters}` into a HogVM global and the dashboard date filter stops applying. The id is a server UUID, so it is safe
 # to inline.
-_SCANNER_WHERE = "event = '$recording_observed' AND properties.scanner_id = '{scanner_id}' AND {filters}"
+_SCANNER_MATCH = f"event = '{OBSERVATION_EVENT_NAME}' AND properties.scanner_id = '{{scanner_id}}'"
+_SCANNER_WHERE = f"{_SCANNER_MATCH} AND {{filters}}"
+_YES_SQL = "properties.scanner_output_verdict = 'yes'"
 _FREEFORM_EXPR = "JSONExtract(ifNull(properties.scanner_output_tags_freeform, '[]'), 'Array(String)')"
 _TAGS_EXPR = (
-    "arrayConcat(JSONExtract(ifNull(properties.scanner_output_tags, '[]'), 'Array(String)'), "
-    "JSONExtract(ifNull(properties.scanner_output_tags_freeform, '[]'), 'Array(String)'))"
+    f"arrayConcat(JSONExtract(ifNull(properties.scanner_output_tags, '[]'), 'Array(String)'), {_FREEFORM_EXPR})"
 )
 
 
-def live_dashboard_ids(scanners: Sequence[ReplayScanner]) -> dict[UUID, int]:
+def live_dashboard_ids(team_id: int, scanners: Sequence[ReplayScanner]) -> dict[UUID, int]:
     """Linked dashboards that still exist, by scanner. A scanner whose dashboard the user deleted is left out."""
-    linked = [scanner for scanner in scanners if scanner.dashboard_id is not None]
+    linked = {scanner.id: cast(int, scanner.dashboard_id) for scanner in scanners if scanner.dashboard_id is not None}
     if not linked:
         return {}
-    gone: set[int] = set()
-    for team_id in {scanner.team_id for scanner in linked}:
-        gone.update(
-            unknown_dashboard_ids(
-                [cast(int, scanner.dashboard_id) for scanner in linked if scanner.team_id == team_id], team_id=team_id
-            )
-        )
-    return {scanner.id: cast(int, scanner.dashboard_id) for scanner in linked if scanner.dashboard_id not in gone}
+    gone = set(unknown_dashboard_ids(list(linked.values()), team_id=team_id))
+    return {scanner_id: dashboard_id for scanner_id, dashboard_id in linked.items() if dashboard_id not in gone}
 
 
-def scanners_ready_for_dashboard(scanner_ids: Collection[UUID]) -> set[UUID]:
+def scanners_ready_for_dashboard(team_id: int, scanner_ids: Collection[UUID]) -> set[UUID]:
     """The scanners with at least `DASHBOARD_SUGGESTION_MIN_OBSERVATIONS` succeeded observations."""
     if not scanner_ids:
         return set()
@@ -60,7 +63,9 @@ def scanners_ready_for_dashboard(scanner_ids: Collection[UUID]) -> set[UUID]:
         .values("pk")[DASHBOARD_SUGGESTION_MIN_OBSERVATIONS - 1 : DASHBOARD_SUGGESTION_MIN_OBSERVATIONS]
     )
     return set(
-        ReplayScanner.objects.filter(id__in=scanner_ids).filter(Exists(threshold_row)).values_list("id", flat=True)
+        ReplayScanner.objects.filter(team_id=team_id, id__in=scanner_ids)
+        .filter(Exists(threshold_row))
+        .values_list("id", flat=True)
     )
 
 
@@ -74,22 +79,28 @@ def create_scanner_dashboard(scanner: ReplayScanner, user: User) -> tuple[Dashbo
     template = build_scanner_dashboard_template(scanner)
     with transaction.atomic():
         locked = ReplayScanner.objects.select_for_update().get(pk=scanner.pk, team_id=scanner.team_id)
-        existing_id = live_dashboard_ids([locked]).get(locked.id)
-        if existing_id is not None:
-            return Dashboard.objects.get(team_id=locked.team_id, pk=existing_id), False
+        if locked.dashboard_id is not None:
+            # The default manager hides soft-deleted dashboards, so a deleted one falls through to a new dashboard.
+            existing = Dashboard.objects.filter(team_id=locked.team_id, pk=locked.dashboard_id).first()
+            if existing is not None:
+                return existing, False
         dashboard = Dashboard.objects.create(
             team_id=locked.team_id,
-            name=f"{DASHBOARD_NAME_PREFIX}{locked.name}"[:400],
+            name=_dashboard_name(locked),
             created_by=user,
             creation_mode=Dashboard.CreationMode.TEMPLATE,
         )
         create_from_template(
-            dashboard, template, user, user_access_control=UserAccessControl(user=user, team=locked.team)
+            dashboard, template, user, user_access_control=UserAccessControl(user=user, team=scanner.team)
         )
         # A queryset update so that linking a dashboard is not logged or treated as a scanner config edit.
         ReplayScanner.objects.filter(pk=locked.pk).update(dashboard_id=dashboard.id)
     scanner.dashboard_id = dashboard.id
     return dashboard, True
+
+
+def _dashboard_name(scanner: ReplayScanner) -> str:
+    return f"{DASHBOARD_NAME_PREFIX}{scanner.name}"[:400]
 
 
 def build_scanner_dashboard_template(scanner: ReplayScanner) -> DashboardTemplate:
@@ -98,7 +109,7 @@ def build_scanner_dashboard_template(scanner: ReplayScanner) -> DashboardTemplat
     builder.add_type_tiles()
     builder.add_latest_sessions_tile()
     return DashboardTemplate(
-        template_name=f"{DASHBOARD_NAME_PREFIX}{scanner.name}",
+        template_name=_dashboard_name(scanner),
         dashboard_description=(
             f"What the '{scanner.name}' scanner finds in your session recordings, and who it affects. "
             "Charts count observations on the day the scanner ran, not the day of the recording."
@@ -113,6 +124,7 @@ class _TileBuilder:
     def __init__(self, scanner: ReplayScanner) -> None:
         self.scanner = scanner
         self.scanner_id = str(scanner.id)
+        self.is_monitor = scanner.scanner_type == ScannerType.MONITOR
         self.tiles: list[dict[str, Any]] = []
         self._x = 0
         self._y = 0
@@ -121,7 +133,7 @@ class _TileBuilder:
 
     def add_shared_tiles(self) -> None:
         hit_filter = self._hit_filter()
-        people_name = "People with a yes verdict" if hit_filter else "People observed"
+        people_name = "People with a yes verdict" if self.is_monitor else "People observed"
         self._trend(
             people_name,
             "Distinct people in recordings this scanner matched, per week.",
@@ -135,10 +147,9 @@ class _TileBuilder:
             ],
             display="ActionsBar",
         )
-        group_type = self._primary_group_type()
-        if group_type is None:
+        if self._primary_group_type is None:
             return
-        index, plural = group_type
+        index, plural = self._primary_group_type
         self._trend(
             f"{plural.capitalize()} affected",
             f"Distinct {plural} with at least one matching recording, per week.",
@@ -152,45 +163,31 @@ class _TileBuilder:
             ],
             display="ActionsBar",
         )
-        hit_sql = " AND properties.scanner_output_verdict = 'yes'" if hit_filter else ""
-        self._sql_table(
+        self._account_table(
             f"Top {plural}",
             f"The {plural} with the most matching recordings.",
-            f"""
-            SELECT {_group_label(index)} AS {_identifier(plural)}, count() AS recordings,
-                count(DISTINCT properties.recording_distinct_id) AS people
-            FROM events
-            WHERE {_SCANNER_WHERE}{hit_sql} AND notEmpty($group_{index})
-            GROUP BY $group_{index}
-            ORDER BY recordings DESC
-            LIMIT 20
-            """,
+            columns={"recordings": "count()", "people": "count(DISTINCT properties.recording_distinct_id)"},
+            sort="recordings DESC",
+            where=f" AND {_YES_SQL}" if self.is_monitor else "",
         )
 
     def add_latest_sessions_tile(self) -> None:
-        detail, order, where = {
-            ScannerType.MONITOR: (
-                "properties.scanner_output_reasoning",
-                "timestamp DESC",
-                " AND properties.scanner_output_verdict = 'yes'",
-            ),
-            ScannerType.CLASSIFIER: ("arrayStringConcat(" + _TAGS_EXPR + ", ', ')", "timestamp DESC", ""),
-            ScannerType.SCORER: ("properties.scanner_output_reasoning", "timestamp DESC", ""),
-        }.get(
-            ScannerType(self.scanner.scanner_type),
-            ("properties.scanner_output_title", "toFloat(properties.scanner_output_notability) DESC NULLS LAST", ""),
-        )
+        scanner_type = ScannerType(self.scanner.scanner_type)
+        name, description, order = "Latest matching sessions", "The newest observations", "timestamp DESC"
+        detail = "properties.scanner_output_reasoning"
+        if scanner_type == ScannerType.CLASSIFIER:
+            detail = f"arrayStringConcat({_TAGS_EXPR}, ', ')"
+        elif scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
+            name, description = "Most notable sessions", "The most notable observations"
+            order = "toFloat(properties.scanner_output_notability) DESC NULLS LAST"
+            detail = "properties.scanner_output_title"
         score_column = (
-            "toFloat(properties.scanner_output_score) AS score, "
-            if self.scanner.scanner_type == ScannerType.SCORER
-            else ""
+            "toFloat(properties.scanner_output_score) AS score, " if scanner_type == ScannerType.SCORER else ""
         )
-        by_notability = self.scanner.scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT)
+        where = f" AND {_YES_SQL}" if self.is_monitor else ""
         self._sql_table(
-            "Most notable sessions" if by_notability else "Latest matching sessions",
-            "The most notable observations, with a link to each recording."
-            if by_notability
-            else "The newest observations, with a link to each recording.",
+            name,
+            f"{description}, with a link to each recording.",
             f"""
             SELECT timestamp AS observed_at, {score_column}{detail} AS finding,
                 properties.recording_distinct_id AS person, recordingButton(properties.session_id) AS recording
@@ -226,10 +223,10 @@ class _TileBuilder:
         self._sql_chart(
             "Confidence of yes verdicts",
             "How sure the scanner was when it said yes. Many low-confidence verdicts can mean the prompt is vague.",
-            """
+            f"""
             SELECT round(toFloat(properties.scanner_output_confidence), 1) AS confidence, count() AS verdicts
             FROM events
-            WHERE {where} AND properties.scanner_output_verdict = 'yes'
+            WHERE {_SCANNER_WHERE} AND {_YES_SQL}
               AND properties.scanner_output_confidence IS NOT NULL
             GROUP BY confidence
             ORDER BY confidence
@@ -252,19 +249,15 @@ class _TileBuilder:
             "Pairs of categories assigned to the same recording.",
             f"""
             SELECT pair.1 AS first_category, pair.2 AS second_category, count() AS recordings
-            FROM events
-            ARRAY JOIN arrayFilter(
-                p -> p.1 < p.2,
-                arrayFlatten(arrayMap(a -> arrayMap(b -> (a, b), {_TAGS_EXPR}), {_TAGS_EXPR}))
-            ) AS pair
-            WHERE {_SCANNER_WHERE}
+            FROM (SELECT {_TAGS_EXPR} AS tags FROM events WHERE {_SCANNER_WHERE})
+            ARRAY JOIN arrayFilter(p -> p.1 < p.2, arrayFlatten(arrayMap(a -> arrayMap(b -> (a, b), tags), tags))) AS pair
             GROUP BY first_category, second_category
             ORDER BY recordings DESC
             LIMIT 20
             """,
         )
-        # First seen is all-time rather than within the range, so a category the scanner has used for months
-        # sorts below one it started using this week.
+        # First seen looks back past the range, so a category the scanner has used for months sorts below one
+        # it started using this week.
         self._sql_table(
             "Freeform categories",
             "Categories the scanner suggested outside your list, newest first. "
@@ -273,16 +266,18 @@ class _TileBuilder:
             SELECT in_range.category AS category, in_range.recordings AS recordings, all_time.first_seen AS first_seen
             FROM (
                 SELECT tag AS category, count() AS recordings
-                FROM events
-                ARRAY JOIN {_FREEFORM_EXPR} AS tag
-                WHERE {_SCANNER_WHERE}
+                FROM (SELECT {_FREEFORM_EXPR} AS tags FROM events WHERE {_SCANNER_WHERE})
+                ARRAY JOIN tags AS tag
                 GROUP BY category
             ) AS in_range
             LEFT JOIN (
                 SELECT tag AS category, min(timestamp) AS first_seen
-                FROM events
-                ARRAY JOIN {_FREEFORM_EXPR} AS tag
-                WHERE event = '$recording_observed' AND properties.scanner_id = '{{scanner_id}}'
+                FROM (
+                    SELECT {_FREEFORM_EXPR} AS tags, timestamp
+                    FROM events
+                    WHERE {_SCANNER_MATCH} AND timestamp > now() - INTERVAL {_FREEFORM_FIRST_SEEN_LOOKBACK}
+                )
+                ARRAY JOIN tags AS tag
                 GROUP BY category
             ) AS all_time ON in_range.category = all_time.category
             ORDER BY first_seen DESC
@@ -294,10 +289,10 @@ class _TileBuilder:
         self._sql_chart(
             "Score distribution",
             "How many recordings received each score.",
-            """
+            f"""
             SELECT round(toFloat(properties.scanner_output_score), 1) AS score, count() AS recordings
             FROM events
-            WHERE {where} AND properties.scanner_output_score IS NOT NULL
+            WHERE {_SCANNER_WHERE} AND properties.scanner_output_score IS NOT NULL
             GROUP BY score
             ORDER BY score
             """,
@@ -317,23 +312,18 @@ class _TileBuilder:
                 self._series("90th percentile", math="p90", math_property="scanner_output_score"),
             ],
         )
-        group_type = self._primary_group_type()
-        if group_type is None:
+        if self._primary_group_type is None:
             return
-        index, plural = group_type
-        self._sql_table(
+        plural = self._primary_group_type[1]
+        self._account_table(
             f"Lowest scoring {plural}",
             f"The {plural} with the lowest average score, among those with at least 3 scored recordings.",
-            f"""
-            SELECT {_group_label(index)} AS {_identifier(plural)},
-                round(avg(toFloat(properties.scanner_output_score)), 2) AS average_score, count() AS recordings
-            FROM events
-            WHERE {_SCANNER_WHERE} AND notEmpty($group_{index})
-            GROUP BY $group_{index}
-            HAVING recordings >= 3
-            ORDER BY average_score ASC
-            LIMIT 20
-            """,
+            columns={
+                "average_score": "round(avg(toFloat(properties.scanner_output_score)), 2)",
+                "recordings": "count()",
+            },
+            sort="average_score ASC",
+            having="HAVING recordings >= 3",
         )
 
     def _summarizer_tiles(self) -> None:
@@ -367,10 +357,10 @@ class _TileBuilder:
         self._sql_chart(
             "Notability distribution",
             "How notable the scanner found each session, from 0 (routine) to 1 (unusual).",
-            """
+            f"""
             SELECT round(toFloat(properties.scanner_output_notability), 1) AS notability, count() AS recordings
             FROM events
-            WHERE {where} AND properties.scanner_output_notability IS NOT NULL
+            WHERE {_SCANNER_WHERE} AND properties.scanner_output_notability IS NOT NULL
             GROUP BY notability
             ORDER BY notability
             """,
@@ -381,10 +371,11 @@ class _TileBuilder:
     # Helpers.
 
     def _hit_filter(self) -> list[dict[str, Any]]:
-        if self.scanner.scanner_type != ScannerType.MONITOR:
+        if not self.is_monitor:
             return []
         return [{"type": "event", "key": "scanner_output_verdict", "operator": "exact", "value": "yes"}]
 
+    @cached_property
     def _primary_group_type(self) -> tuple[int, str] | None:
         group_types = get_group_types_for_project(
             self.scanner.team.project_id, caller_tag="replay_vision/scanner_dashboard"
@@ -397,7 +388,7 @@ class _TileBuilder:
     def _series(self, name: str, *, extra: list[dict[str, Any]] | None = None, **math: Any) -> dict[str, Any]:
         return {
             "kind": "EventsNode",
-            "event": _EVENT,
+            "event": OBSERVATION_EVENT_NAME,
             "name": name,
             "custom_name": name,
             "math": math.pop("math", "total"),
@@ -414,8 +405,6 @@ class _TileBuilder:
         description: str,
         *,
         series: list[dict[str, Any]],
-        # Weekly, because a scanner samples a few recordings a day and daily buckets are mostly noise.
-        interval: str = "week",
         display: str = "ActionsLineGraph",
         breakdown: dict[str, Any] | None = None,
         trends_filter: dict[str, Any] | None = None,
@@ -423,7 +412,8 @@ class _TileBuilder:
         source: dict[str, Any] = {
             "kind": "TrendsQuery",
             "series": series,
-            "interval": interval,
+            # Weekly, because a scanner samples a few recordings a day and daily buckets are mostly noise.
+            "interval": "week",
             "dateRange": {"date_from": DASHBOARD_DATE_FROM},
             "trendsFilter": {"display": display, **(trends_filter or {})},
         }
@@ -436,7 +426,7 @@ class _TileBuilder:
             name,
             description,
             self._sql_node(
-                query.replace("{where}", _SCANNER_WHERE),
+                query,
                 display="ActionsBar",
                 chartSettings={"xAxis": {"column": x}, "yAxis": [{"column": y}]},
             ),
@@ -445,12 +435,55 @@ class _TileBuilder:
     def _sql_table(self, name: str, description: str, query: str, *, width: int = 6) -> None:
         self._add(name, description, self._sql_node(query), width=width)
 
+    def _account_table(
+        self,
+        name: str,
+        description: str,
+        *,
+        columns: dict[str, str],
+        sort: str,
+        where: str = "",
+        having: str = "",
+    ) -> None:
+        """A table of the primary group type's accounts, labeled with each group's name when it has one.
+
+        `columns` maps output column names to aggregate expressions, and `sort` is one of those names plus a direction.
+        """
+        assert self._primary_group_type is not None
+        index, plural = self._primary_group_type
+        aggregates = ", ".join(f"{expression} AS {column}" for column, expression in columns.items())
+        # Rank on the events alone, then look up names for the 20 rows shown rather than joining every group.
+        self._sql_table(
+            name,
+            description,
+            f"""
+            WITH ranked AS (
+                SELECT $group_{index} AS group_key, {aggregates}
+                FROM events
+                WHERE {_SCANNER_WHERE}{where} AND notEmpty($group_{index})
+                GROUP BY group_key
+                {having}
+                ORDER BY {sort}
+                LIMIT 20
+            )
+            SELECT ifNull(nullIf(toString(named.name), ''), ranked.group_key) AS {escape_hogql_identifier(plural)},
+                {", ".join(f"ranked.{column} AS {column}" for column in columns)}
+            FROM ranked
+            LEFT JOIN (
+                SELECT key, properties.name AS name
+                FROM groups
+                WHERE index = {index} AND key IN (SELECT group_key FROM ranked)
+            ) AS named ON named.key = ranked.group_key
+            ORDER BY {sort}
+            """,
+        )
+
     def _sql_node(self, query: str, **settings: Any) -> dict[str, Any]:
         return {
             "kind": "DataVisualizationNode",
             "source": {
                 "kind": "HogQLQuery",
-                "query": _dedent(query).replace("{scanner_id}", str(UUID(self.scanner_id))),
+                "query": textwrap.dedent(query).strip().replace("{scanner_id}", self.scanner_id),
                 "filters": {"dateRange": {"date_from": DASHBOARD_DATE_FROM}},
             },
             **settings,
@@ -473,24 +506,7 @@ class _TileBuilder:
         self._x += width
 
 
-_TILE_HEIGHT = 5
-
-
-def _group_label(index: int) -> str:
-    # The group's `name` property when it has one, which is what the groups UI shows, else its key.
-    return f"ifNull(nullIf(toString(any(group_{index}.properties.name)), ''), $group_{index})"
-
-
 def _pluralize(noun: str) -> str:
     if noun.endswith("y") and not noun.endswith(("ay", "ey", "oy", "uy")):
         return f"{noun[:-1]}ies"
     return f"{noun}es" if noun.endswith(("s", "x", "ch", "sh")) else f"{noun}s"
-
-
-def _identifier(text: str) -> str:
-    cleaned = "".join(char if char.isalnum() else "_" for char in text).strip("_")
-    return cleaned or "account"
-
-
-def _dedent(query: str) -> str:
-    return "\n".join(line.strip() for line in query.strip().splitlines())

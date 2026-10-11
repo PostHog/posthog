@@ -16,7 +16,7 @@ export function ScannerDashboardOffer({ scannerId }: { scannerId: string }): JSX
 }
 
 function VisibleScannerDashboardOffer({ scannerId }: { scannerId: string }): JSX.Element {
-    const { createdDashboardIdLoading } = useValues(scannerDashboardLogic({ scannerId }))
+    const { creatingDashboard } = useValues(scannerDashboardLogic({ scannerId }))
     const { createDashboard, dashboardOfferShown, dismissDashboardOffer } = useActions(
         scannerDashboardLogic({ scannerId })
     )
@@ -30,7 +30,7 @@ function VisibleScannerDashboardOffer({ scannerId }: { scannerId: string }): JSX
             action={{
                 children: 'Create dashboard',
                 onClick: createDashboard,
-                loading: createdDashboardIdLoading,
+                loading: creatingDashboard,
                 'data-attr': 'vision-scanner-dashboard-offer-create',
             }}
         >

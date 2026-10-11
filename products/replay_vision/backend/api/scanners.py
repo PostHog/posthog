@@ -772,8 +772,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             root = self.root
             page = root.instance if isinstance(root, serializers.ListSerializer) else None
             scanners = list(page) if page is not None else [scanner]
-            live = live_dashboard_ids(scanners)
-            ready = scanners_ready_for_dashboard([s.id for s in scanners if s.id not in live])
+            live = live_dashboard_ids(scanner.team_id, scanners)
+            ready = scanners_ready_for_dashboard(scanner.team_id, [s.id for s in scanners if s.id not in live])
             state = (live, ready)
             self.context["_scanner_dashboard_state"] = state
         return state
@@ -784,8 +784,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     @extend_schema_field(serializers.BooleanField())
     def get_dashboard_suggested(self, scanner: ReplayScanner) -> bool:
-        live, ready = self._page_dashboard_state(scanner)
-        return scanner.id not in live and scanner.id in ready
+        # Readiness is only computed for scanners without a live dashboard.
+        return scanner.id in self._page_dashboard_state(scanner)[1]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
