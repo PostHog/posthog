@@ -165,9 +165,10 @@ class VercelIntegration:
     }
 
     @staticmethod
-    def _get_installation(installation_id: str) -> OrganizationIntegration:
+    def _get_installation(installation_id: str, lock: bool = False) -> OrganizationIntegration:
+        queryset = OrganizationIntegration.objects.select_for_update() if lock else OrganizationIntegration.objects
         try:
-            return OrganizationIntegration.objects.get(
+            return queryset.get(
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation_id
             )
         except OrganizationIntegration.DoesNotExist:
@@ -1177,10 +1178,7 @@ class VercelIntegration:
         if not claims.user_email:
             raise ValueError("Email is required for user creation")
 
-        installation = OrganizationIntegration.objects.select_for_update().get(
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-            integration_id=claims.installation_id,
-        )
+        installation = VercelIntegration._get_installation(claims.installation_id, lock=True)
 
         # Try to find already mapped user
         user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
