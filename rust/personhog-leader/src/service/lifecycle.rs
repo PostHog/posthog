@@ -16,13 +16,13 @@ use personhog_proto::personhog::types::v1::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
+use crate::cache::{CachedPerson, PersonCacheKey};
 use crate::fence::{
     fenced_status, mark_status, semantic_refusal, FenceState, MarkSnapshot, MarkVerifier,
 };
 use crate::pg::PgFallback;
 
-use super::{cached_person_to_proto, partition_from_metadata, PersonHogLeaderService};
+use super::{cached_person_into_proto, partition_from_metadata, PersonHogLeaderService};
 
 /// The ceiling on persons per `FencePersons` or `ReleaseFences` call. The
 /// lifecycle service splits its calls at this size, so a larger batch is a
@@ -272,7 +272,6 @@ impl PersonHogLeaderService {
             is_identified: false,
             is_deleted: true,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(2),
         };
         let produce_started = Instant::now();
         // The RPC's own guard admitted the batch; this one rides the
@@ -348,10 +347,11 @@ impl PersonHogLeaderService {
             return Err(Status::not_found("person is destroyed"));
         }
 
-        let mut sealed = cached_person_to_proto(&person);
+        let cached_version = person.version;
+        let mut sealed = cached_person_into_proto(person);
         sealed.version = self
             .emitted_versions
-            .floor_for(partition, &cache_key, person.version);
+            .floor_for(partition, &cache_key, cached_version);
 
         // A same-op re-fence leaves the fence alone: a fresh seal time would
         // turn a takeover fence into one the op's snapshot may vouch for.

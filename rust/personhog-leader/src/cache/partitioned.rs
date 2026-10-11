@@ -3,13 +3,12 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use metrics::counter;
 
-#[cfg(test)]
-use super::persons::approx_person_bytes;
+use super::codec::PropertiesCodec;
 use super::persons::{CachedPerson, PersonCache, PersonCacheKey};
 
 /// Result of a cache lookup that distinguishes partition ownership from person existence.
 pub enum CacheLookup {
-    Found(Arc<CachedPerson>),
+    Found(CachedPerson),
     PersonNotFound,
     PartitionNotOwned,
 }
@@ -26,6 +25,7 @@ pub struct PartitionedCache {
     /// answers `PartitionNotOwned` on every path.
     warming: DashMap<u32, PersonCache>,
     per_partition_capacity: usize,
+    codec: Arc<PropertiesCodec>,
 }
 
 impl PartitionedCache {
@@ -34,13 +34,24 @@ impl PartitionedCache {
             partitions: DashMap::new(),
             warming: DashMap::new(),
             per_partition_capacity,
+            codec: Arc::new(PropertiesCodec::disabled()),
         }
+    }
+
+    /// Call before any partition exists.
+    pub fn with_properties_compression(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.codec = Arc::new(PropertiesCodec::enabled());
+        }
+        self
     }
 
     /// Create a new cache for the given partition. Called during warm-up.
     pub fn create_partition(&self, partition: u32) {
-        self.partitions
-            .insert(partition, PersonCache::new(self.per_partition_capacity));
+        self.partitions.insert(
+            partition,
+            PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec)),
+        );
     }
 
     /// Atomically install a fully-populated partition cache. The records
@@ -76,8 +87,10 @@ impl PartitionedCache {
             !self.partitions.contains_key(&partition),
             "warm began for published partition {partition}"
         );
-        self.warming
-            .insert(partition, PersonCache::new(self.per_partition_capacity));
+        self.warming.insert(
+            partition,
+            PersonCache::new(self.per_partition_capacity, Arc::clone(&self.codec)),
+        );
     }
 
     /// Insert one record into a partition cache under construction.
@@ -175,7 +188,7 @@ impl PartitionedCache {
     }
 
     /// Counter-free read for bookkeeping passes; see [`PersonCache::peek`].
-    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<Arc<CachedPerson>> {
+    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedPerson> {
         self.partitions
             .get(&partition)
             .and_then(|cache| cache.peek(key))
@@ -214,7 +227,6 @@ mod tests {
             is_identified: false,
             is_deleted: false,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(64),
         }
     }
 
