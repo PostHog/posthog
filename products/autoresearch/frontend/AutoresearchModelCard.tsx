@@ -140,10 +140,7 @@ function ConfirmedBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX
         <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
                 {pipeline.champion_lift_at_10 != null ? (
-                    <Headline
-                        value={`${pipeline.champion_lift_at_10.toFixed(1)}× lift in top 10%`}
-                        label={quality.sentence}
-                    />
+                    <Headline value={`${pipeline.champion_lift_at_10.toFixed(1)}× lift`} label={quality.sentence} />
                 ) : (
                     <span className="text-xs text-secondary break-words">{quality.sentence}</span>
                 )}
@@ -177,17 +174,19 @@ function RetrainingStrip({
     liveRun: AutoresearchLiveTrainingRunApi
     liveAuc: number | null
 }): JSX.Element {
+    const details = [
+        `experiment ${liveRun.experiment_count} of ${liveRun.iteration_budget}`,
+        liveRun.best_holdout_score != null
+            ? `best test AUC ${liveRun.best_holdout_score.toFixed(2)}${liveAuc != null ? ` vs live ${liveAuc.toFixed(2)}` : ''}`
+            : null,
+    ]
     return (
-        <div className="flex flex-wrap items-center gap-x-1 rounded border px-2 py-1 text-xs text-secondary">
+        <div className="rounded border px-2 py-1 text-xs text-secondary">
             <span className="font-semibold text-primary">Retraining</span>
-            <span>{`· experiment ${liveRun.experiment_count} of ${liveRun.iteration_budget}`}</span>
-            {liveRun.best_holdout_score != null && (
-                <span>
-                    {liveAuc != null
-                        ? `· best test AUC ${liveRun.best_holdout_score.toFixed(2)} vs live ${liveAuc.toFixed(2)}`
-                        : `· best test AUC ${liveRun.best_holdout_score.toFixed(2)}`}
-                </span>
-            )}
+            {details
+                .filter(Boolean)
+                .map((detail) => ` · ${detail}`)
+                .join('')}
         </div>
     )
 }
