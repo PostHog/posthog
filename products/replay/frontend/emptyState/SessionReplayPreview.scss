@@ -125,6 +125,15 @@
         @include preview-accent-text(var(--replay-preview-accent));
     }
 
+    &__listening {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
     &__hint {
         padding: 0.25rem 0.75rem 0.5rem;
         font-size: 0.625rem;
@@ -135,6 +144,9 @@
 
     &__screen {
         position: relative;
+        display: block;
+        cursor: pointer;
+        user-select: none;
         height: 7.5rem;
         overflow: hidden;
         background: var(--color-bg-fill-tertiary);
@@ -284,7 +296,8 @@
 
 // The checkbox stays keyboard-focusable while visually hidden, so the row it labels
 // needs a visible focus indicator (WCAG 2.4.7).
-.ReplayPreview__checkbox:focus-visible ~ .ReplayPreview__list .ReplayPreview__row--hero {
+.ReplayPreview__checkbox:focus-visible ~ .ReplayPreview__list .ReplayPreview__row--hero,
+.ReplayPreview__checkbox:focus-visible ~ .ReplayPreview__player .ReplayPreview__screen {
     outline: 2px solid var(--replay-preview-accent);
     outline-offset: 1px;
 }
