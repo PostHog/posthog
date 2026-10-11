@@ -3645,9 +3645,14 @@ class TestPrinter(BaseTest):
             "FROM events WHERE properties.$ai_trace_id IS NOT NULL",
             context,
         )
-        self.assertIn(f"countIf(isNotNull({expected_expr}))", sql)
-        self.assertIn(f"countIf(isNull({expected_expr}))", sql)
-        self.assertIn(f"isNotNull({expected_expr})) LIMIT", sql)
+        read_expr = (
+            self._json_dynamic_property_expr("$ai_trace_id")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else expected_expr
+        )
+        self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
+        self.assertIn(f"countIf(isNull({read_expr}))", sql)
+        self.assertIn(f"isNotNull({read_expr})) LIMIT", sql)
 
         # Dynamic properties use JSON subcolumns under the new schema and JSON extraction under legacy.
         # `other_prop` is not in the materialized-column registry, so it stays on the JSON path.
