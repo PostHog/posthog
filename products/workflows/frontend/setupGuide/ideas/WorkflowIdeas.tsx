@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { WorkflowIdeaCard } from './WorkflowIdeaCard'
+import { WorkflowIdeaInProgressCard } from './WorkflowIdeaInProgressCard'
 import { workflowIdeasLogic } from './workflowIdeasLogic'
 
 /** Workflows PostHog drafted for this project from its own events, shown until each is used or dismissed. */
@@ -30,6 +31,8 @@ function WorkflowIdeasSection(): JSX.Element | null {
     if (!ideas?.length) {
         return null
     }
+    const firstSuggestedId = ideas.find((idea) => idea.status === 'suggested')?.id
+    const inProgress = ideas.some((idea) => idea.status === 'accepted')
 
     return (
         <section
@@ -47,10 +50,18 @@ function WorkflowIdeasSection(): JSX.Element | null {
                 </div>
             </div>
             <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-2 @6xl:grid-cols-3">
-                {ideas.map((idea, index) => (
-                    // The list puts the project's best first bet at the top.
-                    <WorkflowIdeaCard key={idea.id} idea={idea} recommended={index === 0} />
-                ))}
+                {ideas.map((idea) =>
+                    idea.status === 'accepted' && idea.hog_flow_id ? (
+                        <WorkflowIdeaInProgressCard key={idea.id} idea={idea} hogFlowId={idea.hog_flow_id} />
+                    ) : (
+                        <WorkflowIdeaCard
+                            key={idea.id}
+                            idea={idea}
+                            // The list puts the project's best first bet first, and a draft in progress is already a start.
+                            recommended={idea.id === firstSuggestedId && !inProgress}
+                        />
+                    )
+                )}
             </div>
         </section>
     )

@@ -690,6 +690,7 @@ class WorkflowIdeaRecord:
     created_at: datetime
     hog_flow_id: UUID | None
     resolved_at: datetime | None
+    hog_flow_status: str | None = None
 
 
 class WorkflowIdeaNotFound(Exception):

@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from products.workflows.backend.facade.contracts import (
@@ -33,15 +34,27 @@ def _record(row: WorkflowIdea) -> WorkflowIdeaRecord:
         created_at=row.created_at,
         hog_flow_id=row.hog_flow_id,
         resolved_at=row.resolved_at,
+        hog_flow_status=row.hog_flow.status if row.hog_flow_id and row.hog_flow else None,
     )
 
 
 def list_open_ideas(*, team_id: int) -> list[WorkflowIdeaRecord]:
-    """Ideas still waiting for a decision, the best first bet for the project first."""
-    rows = list(WorkflowIdea.objects.for_team(team_id).filter(status=WorkflowIdea.Status.SUGGESTED))
+    """Used ideas whose workflow is still a draft, then ideas still waiting for a decision, best first bet first."""
+    rows = list(
+        WorkflowIdea.objects.for_team(team_id)
+        .filter(
+            Q(status=WorkflowIdea.Status.SUGGESTED)
+            | Q(status=WorkflowIdea.Status.ACCEPTED, hog_flow__status=HogFlow.State.DRAFT)
+        )
+        .select_related("hog_flow")
+    )
     rows.sort(
         # The idea's own priority first: the author ranks the best first bet for this project.
-        key=lambda row: (row.evidence.get("priority") or 99, VALUE_TIER_ORDER.get(row.value_tier, 99)),
+        key=lambda row: (
+            row.status != WorkflowIdea.Status.ACCEPTED,
+            row.evidence.get("priority") or 99,
+            VALUE_TIER_ORDER.get(row.value_tier, 99),
+        ),
     )
     return [_record(row) for row in rows]
 

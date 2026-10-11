@@ -113143,6 +113143,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly hog_flow_id: string | null;
+      /**
+         * Status of that workflow, or null before use.
+         * @nullable
+         */
+      readonly hog_flow_status: string | null;
+      /**
+         * For a used idea still in draft: people the workflow would have emailed since it was saved.
+         * @nullable
+         */
+      readonly reached_since_used: number | null;
     }
 
     export interface WorkflowIdeaAccept {
@@ -113164,7 +113174,7 @@ export namespace Schemas {
     }
 
     export interface WorkflowIdeaList {
-      /** Ideas still waiting for a decision, the one to try first at the top. */
+      /** Used ideas whose workflow is still a draft, then ideas waiting for a decision, the one to try first at the top. */
       results: WorkflowIdea[];
     }
 
