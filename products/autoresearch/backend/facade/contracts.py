@@ -102,6 +102,12 @@ class RealizedAucPoint:
     realized_auc: float
 
 
+@dataclass(frozen=True)
+class TrainingTrendPoint:
+    iteration_number: int
+    best_holdout_score: float
+
+
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
 class Pipeline:
     """One prediction pipeline: a target, a population, and a horizon.
@@ -136,7 +142,11 @@ class Pipeline:
     champion_lift_at_10: float | None
     champion_is_preliminary: bool | None
     champion_realized_auc_trend: list[RealizedAucPoint]
+    champion_training_trend: list[TrainingTrendPoint]
     people_scored: int | None
+    likely_count: int | None
+    likely_threshold: float | None
+    first_check_expected_at: datetime | None
     coverage: PredictionCoverage | None
     training_run_count: int
     experiment_count: int
