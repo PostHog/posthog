@@ -133,6 +133,9 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     status: 'completed',
 }
 
+// The backend rejects a resume with no message when the turn already finished.
+const IDLE_CONVERSATION_RESUME_DETAIL = 'Cannot continue streaming from an idle conversation'
+
 export interface MaxThreadLogicProps {
     panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
@@ -1566,6 +1569,51 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         } else {
                             relevantErrorMessage.content = offlineMessage
                         }
+                    } else if (
+                        e instanceof ApiError &&
+                        e.status === 400 &&
+                        !streamData.content &&
+                        e.detail === IDLE_CONVERSATION_RESUME_DETAIL
+                    ) {
+                        // The turn already finished on the server, so show its result instead of an error.
+                        releaseException = false
+                        reportException = false
+                        cache.clearThreadOnReplay = false
+                        const conversationId = values.conversation?.id || streamData.conversation
+                        const lastHumanMessage = values.threadRaw.filter(isHumanMessage).pop() as
+                            | HumanMessage
+                            | undefined
+                        actions.finalizeStreamingMessages()
+                        let serverMessages: RootAssistantMessage[] | undefined
+                        if (conversationId) {
+                            try {
+                                await maxGlobalLogic.asyncActions.loadConversation(conversationId)
+                                serverMessages = maxGlobalLogic.values.conversationHistory.find(
+                                    (c) => c.id === conversationId
+                                )?.messages
+                            } catch (loadError) {
+                                posthog.captureException(loadError)
+                            }
+                        }
+                        const userMessagePersisted =
+                            !lastHumanMessage ||
+                            !!serverMessages?.some(
+                                (message) => isHumanMessage(message) && message.content === lastHumanMessage.content
+                            )
+                        const threadRestored = !!serverMessages?.length && userMessagePersisted
+                        if (threadRestored && serverMessages) {
+                            actions.setThread(updateMessagesWithCompletedStatus(serverMessages))
+                        } else {
+                            actions.addMessage(relevantErrorMessage)
+                        }
+                        posthog.capture('max conversation idle resume recovered', {
+                            conversation_id: conversationId,
+                            trace_id: traceId,
+                            agent_mode: agentMode,
+                            generation_attempt: generationAttempt,
+                            user_message_persisted: userMessagePersisted,
+                            thread_restored: threadRestored,
+                        })
                     } else if (e instanceof ApiError) {
                         if (e.status === 400) {
                             // Validation exception for non-retryable errors, such as idempotency conflict

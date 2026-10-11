@@ -1420,6 +1420,49 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('resume of a turn that already finished', () => {
+        it.each([
+            ['restores the finished thread when the server has the message', 'hello', false],
+            ['shows the failure message when the server lacks the message', 'another question', true],
+        ])('%s', async (_label, serverHumanContent, expectFailure) => {
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, {
+                    code: 'invalid_input',
+                    detail: 'Cannot continue streaming from an idle conversation',
+                })
+            )
+            jest.spyOn(api.conversations, 'get').mockResolvedValue({
+                ...MOCK_CONVERSATION,
+                messages: [
+                    { type: AssistantMessageType.Human, content: serverHumanContent, id: 'human-1' },
+                    { type: AssistantMessageType.Assistant, content: 'The answer', id: 'assistant-1' },
+                ],
+            } as ConversationDetail)
+
+            logic.actions.setThread([
+                { type: AssistantMessageType.Human, content: 'hello', status: 'completed', id: 'local-human' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.reconnectToStream()
+            }).toDispatchActions(['reconnectToStream', 'completeThreadGeneration'])
+
+            expect(logic.values.threadRaw.some((message) => message.status === 'loading')).toBe(false)
+            expect(logic.values.threadRaw.some((message) => message.type === AssistantMessageType.Failure)).toBe(
+                expectFailure
+            )
+            expect(
+                logic.values.threadRaw.some((message) => 'content' in message && message.content === 'The answer')
+            ).toBe(!expectFailure)
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.cache.clearThreadOnReplay).toBe(false)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('error tracking capture gating', () => {
         // 402 (out of AI credits), 429 (rate limited), and a message over the length limit are
         // expected business conditions shown to the user, so they must not be reported to error
