@@ -1,12 +1,15 @@
+import uuid
 from typing import TYPE_CHECKING
-
-from django.db.models import Case, When
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
-from products.replay_vision.backend.scanner_access import accessible_observations, readable_observation_scanner_ids
+from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    readable_observation_scanner_ids,
+    scanners_for_reading_observations,
+)
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -48,33 +51,40 @@ def fetch_page_session_observations(
     if not readable_scanner_ids:
         return None
 
-    queryset = (
-        accessible_observations(
-            access,
-            team.id,
-            ReplayObservation.objects.filter(
-                team_id=team.id,
-                scanner_id__in=readable_scanner_ids,
-                session_id__in=session_ids,
-                status=ObservationStatus.SUCCEEDED,
-            ),
+    def newest_first(scanner_ids: list[uuid.UUID], count: int) -> list[ReplayObservation]:
+        return list(
+            accessible_observations(
+                access,
+                team.id,
+                ReplayObservation.objects.filter(
+                    team_id=team.id,
+                    scanner_id__in=scanner_ids,
+                    session_id__in=session_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                ),
+            )
+            .select_related("scanner")
+            .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
+            .order_by("-created_at")[:count]
         )
-        .select_related("scanner")
-        .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
-    )
+
     if prefer_summarizer:
-        queryset = queryset.order_by(
-            Case(
-                When(scanner__scanner_type__in=(ScannerType.SUMMARIZER, ScannerType.EXPERIMENT), then=0),
-                default=1,
-            ),
-            "-created_at",
+        # Two plain created_at reads instead of one sort on a CASE over scanner_type: no index serves the
+        # CASE, so Postgres joined and sorted every matching row before it applied the limit.
+        preferred_ids = set(
+            scanners_for_reading_observations(team.id)
+            .filter(id__in=readable_scanner_ids, scanner_type__in=(ScannerType.SUMMARIZER, ScannerType.EXPERIMENT))
+            .values_list("id", flat=True)
         )
+        other_ids = [scanner_id for scanner_id in readable_scanner_ids if scanner_id not in preferred_ids]
+        observations = newest_first(list(preferred_ids), limit) if preferred_ids else []
+        if other_ids and len(observations) < limit:
+            observations += newest_first(other_ids, limit - len(observations))
     else:
-        queryset = queryset.order_by("-created_at")
+        observations = newest_first(readable_scanner_ids, limit)
 
     lines: list[str] = []
-    for obs in queryset[:limit]:
+    for obs in observations:
         output = read_output(obs)
         if output is None:
             continue

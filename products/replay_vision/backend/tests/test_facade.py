@@ -58,6 +58,12 @@ class TestFetchPageSessionObservations(APIBaseTest):
         assert block.endswith("</observations>")
         assert block.index("user hunted for pricing") < block.index("rage clicked submit")
 
+        top_only = fetch_page_session_observations(team=self.team, user=self.user, session_ids=["sess-1"], limit=1)
+
+        assert top_only is not None
+        assert "user hunted for pricing" in top_only
+        assert "rage clicked submit" not in top_only
+
     @pytest.mark.ee
     def test_rbac_excludes_observations_from_unreadable_scanner(self):
         self.organization.available_product_features = [
