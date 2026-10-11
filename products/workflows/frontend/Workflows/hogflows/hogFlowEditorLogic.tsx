@@ -43,7 +43,7 @@ import {
     NODE_WIDTH,
     TOP_HANDLE_POSITION,
 } from './react_flow_utils/constants'
-import { getSmartStepPath } from './react_flow_utils/SmartEdge'
+import { getEdgeHorizontalOffsets, getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
 import { isWorkflowTreeComplete } from './tree/workflowTree'
@@ -2523,6 +2523,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
+                    const horizontalOffsets = getEdgeHorizontalOffsets(hogFlow.edges, getEdgeId)
                     const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => {
                         const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
                         const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
@@ -2549,6 +2550,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                     : edge.type === 'continue'
                                       ? `No match`
                                       : getBranchLabel(edgeSourceAction, edge),
+                                horizontalOffset: horizontalOffsets.get(getEdgeId(edge)) ?? 0,
                             },
                             labelShowBg: false,
                             targetHandle: `target_${edge.to}`,
@@ -2702,8 +2704,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                             targetX: targetNode.position.x + (targetHandle?.x || 0),
                             targetY: targetNode.position.y + (targetHandle?.y || 0),
-                            edges,
-                            currentEdgeId: edge.id,
+                            horizontalOffset: edge.data?.horizontalOffset,
                         })
 
                         dropzoneNodes.push({

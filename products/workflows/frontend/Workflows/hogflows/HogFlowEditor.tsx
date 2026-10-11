@@ -88,6 +88,9 @@ function HogFlowGraphEditor(): JSX.Element {
                 <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                     className="grow"
                     fitView
+                    // Large workflows mount hundreds of nodes and edges. Mounting only the ones in view
+                    // keeps the editor responsive.
+                    onlyRenderVisibleElements
                     minZoom={MIN_ZOOM}
                     maxZoom={MAX_ZOOM}
                     // Only dispatched when the detail tier flips, so panning and zooming don't put a
