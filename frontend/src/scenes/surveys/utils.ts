@@ -1337,10 +1337,28 @@ export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
     return defaultRates
 }
 
-export function captureMaxAISurveyCreationException(error?: string, source?: SURVEY_CREATED_SOURCE): void {
-    posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
+export interface MaxAISurveyCreationToolOutput {
+    error?: string
+    error_message?: string
+    details?: string
+    survey_id?: string
+    survey_name?: string
+    survey_type?: string
+}
+
+export function captureMaxAISurveyCreationException(
+    toolOutput: MaxAISurveyCreationToolOutput,
+    source?: SURVEY_CREATED_SOURCE
+): void {
+    const error = toolOutput.error || 'Undefined error when creating MaxAI survey'
+    const cause = toolOutput.details || toolOutput.error_message
+    // Put the cause in the message so error tracking groups each cause into its own issue.
+    posthog.captureException(new Error(cause ? `${error}: ${cause}` : error), {
         action: 'max-ai-survey-creation-failed',
         source: source,
+        error_code: toolOutput.error,
+        details: cause,
+        survey_type: toolOutput.survey_type,
     })
 }
 

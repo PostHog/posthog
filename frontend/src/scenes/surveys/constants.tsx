@@ -801,6 +801,13 @@ export const SCALE_OPTIONS = {
     ],
 }
 
+export const MAX_AI_SURVEY_SUGGESTIONS = [
+    'Create an NPS survey for customers who completed checkout',
+    'Create a feedback survey asking about our new dashboard',
+    'Create a product-market fit survey for trial users',
+    'Create a quick satisfaction survey for support interactions',
+]
+
 export enum SURVEY_CREATED_SOURCE {
     FEATURE_FLAGS = 'feature_flags',
     MAX_AI = 'max_ai',

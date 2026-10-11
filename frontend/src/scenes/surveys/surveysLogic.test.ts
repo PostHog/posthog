@@ -1,6 +1,9 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 
@@ -9,6 +12,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 
+import { SURVEY_CREATED_SOURCE } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 const createTestSurvey = (id: string, name: string): Survey => ({
@@ -339,6 +343,23 @@ describe('surveysLogic', () => {
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEYS_VIEWED,
             })
+        })
+
+        it('reports the cause of a failed PostHog AI survey creation and tells the user', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined)
+
+            logic.actions.handleMaxSurveyCreated(
+                { error: 'creation_failed', details: 'linked flag not found', survey_type: 'popover' },
+                SURVEY_CREATED_SOURCE.MAX_AI
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(captureException).toHaveBeenCalledWith(
+                new Error('creation_failed: linked flag not found'),
+                expect.objectContaining({ source: SURVEY_CREATED_SOURCE.MAX_AI, survey_type: 'popover' })
+            )
+            expect(toastError).toHaveBeenCalledTimes(1)
         })
 
         it('should track SURVEY_DUPLICATED intent when duplicating survey', async () => {
