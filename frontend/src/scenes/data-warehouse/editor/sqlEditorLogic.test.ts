@@ -1240,6 +1240,33 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('releasing the editor while the logic stays mounted', () => {
+        it('detaches the outline overlay and cursor listener when the editor prop is cleared', () => {
+            const cursorDisposable = { dispose: jest.fn() }
+            const editorInstance = {
+                ...createMockEditor(),
+                onDidChangeCursorPosition: jest.fn(() => cursorDisposable),
+                onDidScrollChange: jest.fn(() => ({ dispose: jest.fn() })),
+                onDidLayoutChange: jest.fn(() => ({ dispose: jest.fn() })),
+                addOverlayWidget: jest.fn(),
+                removeOverlayWidget: jest.fn(),
+            }
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco() })
+            logic.mount()
+            sqlEditorLogic({ tabId: TAB_ID, editor: editorInstance as any })
+            const outlineWidget = logic.cache.queryOutlineWidget
+            expect(outlineWidget).toBeTruthy()
+
+            sqlEditorLogic({ tabId: TAB_ID, editor: null })
+
+            expect(logic.props.editor).toBeNull()
+            expect(editorInstance.removeOverlayWidget).toHaveBeenLastCalledWith(outlineWidget)
+            expect(cursorDisposable.dispose).toHaveBeenCalled()
+            expect(logic.cache.queryOutlineNode).toBeNull()
+            expect(logic.cache.cursorDisposable).toBeNull()
+        })
+    })
+
     describe('getDisplayTypeToSaveInsight', () => {
         it.each([
             {
