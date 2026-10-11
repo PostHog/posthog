@@ -18,10 +18,13 @@ from __future__ import annotations
 import os
 import re
 import sys
+import json
 import uuid
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 # Before agent-assisted PRs were common, the median PR had about 2% comment lines.
 WARN_RATIO = 0.03
@@ -259,8 +262,41 @@ def write_outputs(report: Report) -> None:
     print(f"status={report.status} {summary}")
 
 
+def capture_measurement(report: Report) -> None:
+    token = os.environ.get("POSTHOG_DEVEX_PROJECT_API_TOKEN")
+    pr_number = os.environ.get("PR_NUMBER")
+    if not token or not pr_number:
+        return
+
+    payload = {
+        "api_key": token,
+        "event": "ci_pr_comment_density_measured",
+        "distinct_id": f"github:{os.environ['GITHUB_REPOSITORY']}",
+        "properties": {
+            "repository": os.environ["GITHUB_REPOSITORY"],
+            "pr_number": int(pr_number),
+            "comment_percentage": 100 * report.ratio,
+            "added_lines": report.added,
+            "comment_lines": report.comments,
+            "$insert_id": f"comment-density:{os.environ['GITHUB_REPOSITORY']}:{pr_number}:{os.environ['BASE_SHA']}:{os.environ['HEAD_SHA']}",
+        },
+    }
+    request = Request(
+        "https://us.i.posthog.com/capture/",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=5):
+            pass
+    except (URLError, TimeoutError) as error:
+        print(f"::warning::Could not capture comment density: {error}", file=sys.stderr)
+
+
 def main() -> int:
-    write_outputs(analyze(sys.stdin.read()))
+    report = analyze(sys.stdin.read())
+    write_outputs(report)
+    capture_measurement(report)
     return 0
 
 

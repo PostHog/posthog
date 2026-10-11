@@ -106,6 +106,8 @@ jobs:
         permissions:
             contents: read
             pull-requests: write
+        secrets:
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
 
     resolve-bot-comments:
         if: github.event.action == 'synchronize'
