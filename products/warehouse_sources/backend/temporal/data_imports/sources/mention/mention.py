@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -315,16 +317,22 @@ def _paginated_alert_fan_out_rows(
         next_url = None
 
 
-def _stats_window(now: datetime) -> tuple[str, str]:
+@frozen
+class StatsWindow:
+    start: str
+    end: str
+
+
+def _stats_window(now: datetime) -> StatsWindow:
     start = (now - timedelta(days=STATS_LOOKBACK_DAYS)).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.strftime(STATS_DATE_FORMAT), now.strftime(STATS_DATE_FORMAT)
+    return StatsWindow(start=start.strftime(STATS_DATE_FORMAT), end=now.strftime(STATS_DATE_FORMAT))
 
 
-def _stats_url(account_id: str, alert_id: str, window: tuple[str, str]) -> str:
+def _stats_url(account_id: str, alert_id: str, window: StatsWindow) -> str:
     params = {
         "alerts[]": alert_id,
-        "from": window[0],
-        "to": window[1],
+        "from": window.start,
+        "to": window.end,
         "timezone": "UTC",
         "interval": "P1D",
         "tones_per_interval_stats": "true",

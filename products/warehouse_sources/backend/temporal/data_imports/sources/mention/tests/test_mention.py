@@ -192,7 +192,7 @@ class TestGetRows:
 
     def test_alert_daily_stats_reshapes_series_into_daily_rows(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        window = ("2025-01-01T00:00:00.0", "2026-01-01T12:00:00.0")
+        window = mention.StatsWindow(start="2025-01-01T00:00:00.0", end="2026-01-01T12:00:00.0")
         monkeypatch.setattr(mention, "_stats_window", lambda now: window)
         alerts_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
         stats_url = (
@@ -213,8 +213,8 @@ class TestGetRows:
                         "week_days_total": {"data": {"1": [3, 36]}, "total": 39},
                     }
                 },
-                "from": window[0],
-                "to": window[1],
+                "from": window.start,
+                "to": window.end,
             },
         }
         rows = self._collect(manager, monkeypatch, pages, "alert_daily_stats")
@@ -246,7 +246,7 @@ class TestGetRows:
 
     def test_alert_daily_stats_partial_response_is_retryable(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(MentionResumeConfig(alert_ids=["11"]))
-        monkeypatch.setattr(mention, "_stats_window", lambda now: ("f", "t"))
+        monkeypatch.setattr(mention, "_stats_window", lambda now: mention.StatsWindow(start="f", end="t"))
         stats_url = (
             f"{MENTION_BASE_URL}/accounts/acc1/stats?alerts%5B%5D=11&from=f&to=t&timezone=UTC&interval=P1D"
             "&tones_per_interval_stats=true&reach_per_interval_stats=true"
