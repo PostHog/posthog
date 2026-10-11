@@ -729,8 +729,10 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 f"CREATE TABLE events_json (uuid UUID, person_id UUID, team_id Int64, event String, distinct_id String, "
                 f"timestamp DateTime64(6), inserted_at DateTime64(6), created_at DateTime64(6), elements_chain String, "
                 f"properties {EVENTS_PROPERTIES_JSON_TYPE()}, person_properties {PERSON_PROPERTIES_JSON_TYPE()}, "
-                "temporary_properties JSON) ENGINE = Memory"
+                "temporary_properties JSON, properties_null_keys Array(String), "
+                "temporary_properties_null_keys Array(String), person_properties_null_keys Array(String)) ENGINE = Memory"
             )
+            # The null-key columns hold what the cleaner records for fields the SDK sent as null.
             row = {
                 "uuid": str(uuid7()),
                 "person_id": str(uuid7()),
@@ -745,10 +747,14 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                     "$browser": "Firefox",
                     "amount": 2.5,
                     "person": {"properties": "event value"},
+                    "cart": {"items": 2},
                     "$feature_flags": {"named-false": "$false", "named-true": "$true", "some-feature": "true"},
                 },
                 "person_properties": {"email": "buyer@example.com"},
-                "temporary_properties": {"$set": {"email": "buyer@example.com"}},
+                "temporary_properties": {"$set": {"email": "buyer@example.com"}, "$unset": ["old_property"]},
+                "properties_null_keys": ["coupon", "cart.note", "$feature_flags.retired-flag"],
+                "temporary_properties_null_keys": ["$set.phone", "$set_once.referrer", "$group_set.owner"],
+                "person_properties_null_keys": ["nickname"],
             }
             await client.execute_query(
                 "INSERT INTO events_json FORMAT JSONEachRow\n"
@@ -782,7 +788,10 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                         interval_end="2024-01-02 00:00:00",
                         include_events=["purchase"],
                         fields=fields
-                        + [{"expression": key, "alias": key} for key in ("properties", "person_properties", "set")],
+                        + [
+                            {"expression": key, "alias": key}
+                            for key in ("properties", "person_properties", "set", "set_once", "unset", "group_set")
+                        ],
                         filters_str=predicate,
                         extra_query_parameters=values,
                         is_backfill=True,
@@ -800,14 +809,22 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["named_true"] == "true"
             exported_properties = json.loads(rows[0]["properties"])
             assert exported_properties["$browser"] == "Firefox"
-            assert exported_properties["$set"] == {"email": "buyer@example.com"}
+            assert exported_properties["$set"] == {"email": "buyer@example.com", "phone": None}
             assert "$feature_flags" not in exported_properties
             assert exported_properties["$feature/some-feature"] is True
             assert exported_properties["$feature/named-false"] == "false"
             assert exported_properties["$feature/named-true"] == "true"
             assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
-            assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
-            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
+            assert {key: exported_properties[key] for key in ("coupon", "cart", "$feature/retired-flag")} == {
+                "coupon": None,
+                "cart": {"items": 2, "note": None},
+                "$feature/retired-flag": None,
+            }
+            assert json.loads(rows[0]["person_properties"]) == {"email": "buyer@example.com", "nickname": None}
+            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com", "phone": None}
+            assert json.loads(rows[0]["set_once"]) == {"referrer": None}
+            assert json.loads(rows[0]["unset"]) == ["old_property"]
+            assert json.loads(rows[0]["group_set"]) == {"owner": None}
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")

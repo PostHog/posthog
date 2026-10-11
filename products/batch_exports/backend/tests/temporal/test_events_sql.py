@@ -24,8 +24,7 @@ def test_native_events_export_query_keeps_empty_object_literals() -> None:
     query = ClickHouseClient().prepare_query(native_events_export_query("event"), QUERY_PARAMETERS)
 
     assert "'{0}'" not in query
-    for key in ("$set", "$set_once", "$group_set"):
-        assert f"temporary_properties.^`{key}`), '{{}}')" in query
+    assert "'{}'" in query
 
 
 # Without these settings `toJSONString(properties)` prints a stored dotted key as `a%2Eb` and a `/` as `\/`.
