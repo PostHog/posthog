@@ -75,6 +75,14 @@ OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")
 OTEL_METRICS_EXPORT_TOKEN = os.getenv("OTEL_METRICS_EXPORT_TOKEN", "")
 OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS", type_cast=int, default=60_000)
 
+# Internal OTLP/HTTP metrics endpoint for metrics PostHog computes on a team's behalf (the metrics
+# capture service, path `/i/v1/metrics`). Each write uses the destination team's project token as
+# the Bearer, so points land in that team's Metrics. Empty means writes are disabled. Locally it
+# defaults to the dev proxy, which routes the path to `capture-apm-metrics`.
+OTLP_METRICS_INGEST_ENDPOINT = os.getenv(
+    "OTLP_METRICS_INGEST_ENDPOINT", "http://localhost:8010/i/v1/metrics" if DEBUG and not TEST else ""
+)
+
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 

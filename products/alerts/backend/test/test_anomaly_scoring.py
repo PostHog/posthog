@@ -18,7 +18,15 @@ from posthog.schema import (
 )
 
 from products.alerts.backend.anomaly_scoring.config import default_detector_config, effective_config
-from products.alerts.backend.anomaly_scoring.scoring import UnsupportedInsightError, build_scoring_query, score_series
+from products.alerts.backend.anomaly_scoring.emit import FLAG_METRIC, SCORE_METRIC, VALUE_METRIC, gauge_samples
+from products.alerts.backend.anomaly_scoring.scoring import (
+    InsightScores,
+    ScoredPoint,
+    ScoredSeries,
+    UnsupportedInsightError,
+    build_scoring_query,
+    score_series,
+)
 
 NEW_YORK = ZoneInfo("America/New_York")
 
@@ -103,3 +111,42 @@ class TestBuildScoringQuery(SimpleTestCase):
 
         with self.assertRaises(UnsupportedInsightError):
             build_scoring_query(query, effective_config(None))
+
+
+class TestGaugeSamples(SimpleTestCase):
+    def test_stamps_bucket_close_and_skips_score_while_training(self) -> None:
+        day = datetime(2026, 10, 1, tzinfo=UTC)
+        scores = InsightScores(
+            interval=IntervalType.DAY,
+            detector_type="zscore",
+            detector_version="abc123",
+            series=[
+                ScoredSeries(
+                    series_index=0,
+                    label="$pageview",
+                    breakdown_value="Chrome",
+                    points=[
+                        ScoredPoint(bucket=day, value=5.0, score=None, flag=False),
+                        ScoredPoint(bucket=day + timedelta(days=1), value=50.0, score=0.97, flag=True),
+                    ],
+                )
+            ],
+        )
+
+        samples = gauge_samples(7, scores)
+
+        assert [(s.name, s.timestamp, s.value) for s in samples] == [
+            (VALUE_METRIC, day + timedelta(days=1), 5.0),
+            (VALUE_METRIC, day + timedelta(days=2), 50.0),
+            (SCORE_METRIC, day + timedelta(days=2), 0.97),
+            (FLAG_METRIC, day + timedelta(days=2), 1.0),
+        ]
+        assert samples[0].labels == {
+            "insight_id": "7",
+            "series": "0",
+            "series_label": "$pageview",
+            "interval": "day",
+            "detector_type": "zscore",
+            "detector_version": "abc123",
+            "breakdown_value": "Chrome",
+        }
