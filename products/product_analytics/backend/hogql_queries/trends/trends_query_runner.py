@@ -1152,8 +1152,15 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             base_result["count"] = 0
         else:
             series_data = [s["data"] for s in results_group]
-            new_series_data = FormulaAST(series_data).call(formula)
+            formula_ast = FormulaAST(series_data)
+            new_series_data = formula_ast.call(formula)
             base_result["data"] = new_series_data
+            # Keyed by day, not index, so it stays aligned after day-of-week bucket filtering.
+            undefined_days = [
+                day for day, undefined in zip(base_result.get("days") or [], formula_ast.undefined_rows) if undefined
+            ]
+            if undefined_days:
+                base_result["undefined_days"] = undefined_days
             # The total for a time-series formula is the formula applied to each series' own total
             # (ratio-of-sums), not the sum of the per-interval results. Summing per-interval ratios
             # like `A/B` overcounts and can push a total that should be <=100% well past it. Each

@@ -566,6 +566,15 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "action": None,
                     "filter": mock.ANY,
                     "order": 0,
+                    "undefined_days": [
+                        "2019-12-28",
+                        "2019-12-29",
+                        "2019-12-30",
+                        "2019-12-31",
+                        "2020-01-01",
+                        "2020-01-03",
+                        "2020-01-04",
+                    ],
                 },
                 {
                     "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -595,6 +604,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "action": None,
                     "filter": mock.ANY,
                     "order": 0,
+                    "undefined_days": [
+                        "2019-12-28",
+                        "2019-12-29",
+                        "2019-12-30",
+                        "2019-12-31",
+                        "2020-01-01",
+                        "2020-01-04",
+                    ],
                 },
             ],
         )

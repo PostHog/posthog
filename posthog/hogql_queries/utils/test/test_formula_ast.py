@@ -36,6 +36,13 @@ class TestFormulaAST(APIBaseTest):
         formula = self._get_formula_ast()
         response = formula.call("A/0")
         self.assertListEqual([0, 0, 0, 0], response)
+        self.assertListEqual([True, True, True, True], formula.undefined_rows)
+
+    def test_undefined_rows_mark_only_zero_denominators(self):
+        formula = FormulaAST([[0, 0, 1], [0, 10, 10]])
+        response = formula.call("A/B")
+        self.assertListEqual([0, 0.0, 0.1], response)
+        self.assertListEqual([True, False, False], formula.undefined_rows)
 
     def test_modulo(self):
         formula = self._get_formula_ast()

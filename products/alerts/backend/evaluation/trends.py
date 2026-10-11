@@ -229,8 +229,15 @@ class TrendsExtractor:
                 points = [SeriesPoint(date=None, value=result["aggregated_value"])]
             else:
                 data = result["data"]
-                dates = result.get("dates") or result.get("days") or [None] * len(data)
-                points = [SeriesPoint(date=date, value=value) for date, value in zip(dates, data)]
+                days = result.get("days") or [None] * len(data)
+                dates = result.get("dates") or days
+                # A formula that divides by zero (e.g. a rate in a quiet interval) has no value. Treat it
+                # as missing so it does not read as a measured 0.
+                undefined_days = set(result.get("undefined_days") or [])
+                points = [
+                    SeriesPoint(date=date, value=None if day in undefined_days else value)
+                    for date, day, value in zip(dates, days, data)
+                ]
 
             # Anchor on the last point (the ongoing interval, or the last complete one on a clipped
             # query), or the second-to-last. On a series shorter than expected this can go negative
