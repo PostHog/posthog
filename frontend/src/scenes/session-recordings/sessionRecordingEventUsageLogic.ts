@@ -51,8 +51,12 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingDebugChatReopened: () => {
         value: true
     }
-    reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
+    reportRecordingDebuggedWithAI: (
+        playerTimeSeconds: number,
+        promptEdited: boolean
+    ) => {
         playerTimeSeconds: number
+        promptEdited: boolean
     }
     reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
         format: 'json' | 'mp4'
@@ -184,7 +188,10 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             automatic,
         }),
         reportRecordingExportedToFile: (format: 'json' | 'mp4') => ({ format }),
-        reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => ({ playerTimeSeconds }),
+        reportRecordingDebuggedWithAI: (playerTimeSeconds: number, promptEdited: boolean) => ({
+            playerTimeSeconds,
+            promptEdited,
+        }),
         reportRecordingDebugChatReopened: true,
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
         reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
@@ -272,8 +279,11 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingExportedToFile: ({ format }) => {
             posthog.capture('recording exported to file', { format })
         },
-        reportRecordingDebuggedWithAI: ({ playerTimeSeconds }) => {
-            posthog.capture('recording debugged with ai', { player_time_seconds: playerTimeSeconds })
+        reportRecordingDebuggedWithAI: ({ playerTimeSeconds, promptEdited }) => {
+            posthog.capture('recording debugged with ai', {
+                player_time_seconds: playerTimeSeconds,
+                prompt_edited: promptEdited,
+            })
         },
         reportRecordingDebugChatReopened: () => {
             posthog.capture('recording debug chat reopened')
