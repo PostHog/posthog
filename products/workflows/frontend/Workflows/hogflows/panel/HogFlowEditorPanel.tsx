@@ -64,10 +64,10 @@ export function HogFlowEditorPanel({
             ref={panelRef}
             data-attr="workflow-editor-panel"
             className={clsx(
-                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden @max-[48rem]/workflow-editor:!relative @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:shrink-0',
+                'flex min-h-0 max-h-full flex-col justify-end overflow-hidden @max-[32rem]/workflow-editor:!relative @max-[32rem]/workflow-editor:!h-96 @max-[32rem]/workflow-editor:!min-w-0 @max-[32rem]/workflow-editor:!w-full @max-[32rem]/workflow-editor:!max-w-full @max-[32rem]/workflow-editor:shrink-0',
                 layout === 'floating'
-                    ? 'absolute right-0 max-w-full p-2'
-                    : 'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:border-t'
+                    ? 'absolute right-0 max-w-full p-2 @min-[32rem]/workflow-editor:@max-[48rem]/workflow-editor:!max-w-[min(22rem,50%)]'
+                    : 'relative h-full shrink-0 bg-surface-primary @max-[32rem]/workflow-editor:border-t @min-[32rem]/workflow-editor:@max-[48rem]/workflow-editor:!w-[min(22rem,50%)] @min-[32rem]/workflow-editor:@max-[48rem]/workflow-editor:!min-w-0'
             )}
             style={
                 layout === 'floating'
@@ -90,7 +90,7 @@ export function HogFlowEditorPanel({
                 className={clsx(
                     'relative z-10 flex min-h-0 flex-col overflow-hidden bg-surface-primary',
                     layout === 'floating'
-                        ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)] @max-[48rem]/workflow-editor:h-full'
+                        ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)] @max-[32rem]/workflow-editor:h-full'
                         : 'h-full !rounded-none'
                 )}
             >

@@ -56,12 +56,22 @@ export const RenewalWindowAlerts: StoryFn = () => <WorkflowStory id="example-ren
 export const PendingTicketCleanup: StoryFn = () => <WorkflowStory id="example-pending-ticket-cleanup" />
 export const AddOnPromotionEmails: StoryFn = () => <WorkflowStory id="example-add-on-promotion-emails" />
 
-// 32rem sits below the 48rem container-query breakpoint the editor uses to stack the settings
-// panel under the graph, so this story exercises the narrow layout.
+// 520px is the scene width left by the nav sidebar plus an open side panel in a 1280px window.
+// The editor keeps the panel beside the graph down to 32rem, so this story exercises the compact layout.
 export const NarrowWorkflow: StoryFn = () => (
-    <WorkflowStory id={CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID} className="w-[32rem] max-w-full" />
+    <WorkflowStory id={CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID} className="w-[520px] max-w-full" />
 )
 NarrowWorkflow.parameters = { testOptions: { waitForSelector: '.react-flow__node' } }
+export const MediumWorkflow: StoryFn = () => (
+    <WorkflowStory id={CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID} className="w-[768px] max-w-full" />
+)
+MediumWorkflow.parameters = { testOptions: { waitForSelector: '.react-flow__node' } }
+// 28rem sits below the 32rem container-query breakpoint the editor uses to stack the settings
+// panel under the graph, so this story exercises the stacked layout.
+export const StackedWorkflow: StoryFn = () => (
+    <WorkflowStory id={CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID} className="w-[28rem] max-w-full" />
+)
+StackedWorkflow.parameters = { testOptions: { waitForSelector: '.react-flow__node' } }
 export const WithNavigation: StoryFn = () => <App />
 WithNavigation.parameters = {
     pageUrl: `${urls.workflow(CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID, 'workflow')}?view=graph`,
