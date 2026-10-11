@@ -60,6 +60,24 @@ class OrderedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
+class SelfReferentialRewriteFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    # Regression guard for a rewrite rule mapping a key onto itself: it must be a
+    # no-op, not a removal of the parent filter that unscopes the queryset.
+    scope_object = "INTERNAL"
+    filter_rewrite_rules = {"team_id": "team_id"}
+    queryset = Annotation.objects.all()
+    serializer_class = AnnotationSerializer
+
+
+class MissingSourceRewriteFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    # Regression guard for a rewrite rule naming a parent key this route doesn't
+    # carry: the URL's own parents must keep filtering instead of a KeyError.
+    scope_object = "INTERNAL"
+    filter_rewrite_rules = {"project_id": "team_id"}
+    queryset = Annotation.objects.all()
+    serializer_class = AnnotationSerializer
+
+
 def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
     queryset = stable_queryset_ordering(Annotation.objects.order_by("date_marker"))
 
@@ -88,6 +106,12 @@ test_router = DefaultRouterPlusPlus()
 # which would mask the team_id-lookup behavior these tests cover.
 test_team_nested_router = test_router.register(r"team_nested", FooViewSet, "team_nested")
 test_team_nested_router.register(r"foos", FooViewSet, "team_nested_foos", ["team_id"])
+test_team_nested_router.register(
+    r"self_referential_foos", SelfReferentialRewriteFooViewSet, "team_nested_self_referential_foos", ["team_id"]
+)
+test_team_nested_router.register(
+    r"missing_source_foos", MissingSourceRewriteFooViewSet, "team_nested_missing_source_foos", ["team_id"]
+)
 test_ordered_router = test_router.register(r"team_ordered", OrderedFooViewSet, "team_ordered")
 test_ordered_router.register(r"foos", OrderedFooViewSet, "team_ordered_foos", ["team_id"])
 
@@ -167,6 +191,21 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
     def test_team_nested_filtering(self):
         response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
+
+    def test_self_referential_rewrite_rule_keeps_team_scoping(self):
+        # A rule mapping "team_id" onto itself must leave the parent filter in
+        # place. The historical set-then-delete loop removed it, which unscoped
+        # the queryset to every organization's annotations.
+        response = self.client.get(f"/api/team_nested/{self.team.id}/self_referential_foos/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
+
+    def test_rewrite_rule_for_missing_parent_key_keeps_team_scoping(self):
+        # A rule rewriting "project_id" reached on a route that only carries
+        # team_id must not crash: the URL's parents keep filtering the queryset.
+        response = self.client.get(f"/api/team_nested/{self.team.id}/missing_source_foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
 
