@@ -114,7 +114,10 @@ class TestBuildScoringQuery(SimpleTestCase):
 
 
 class TestGaugeSamples(SimpleTestCase):
-    def test_stamps_bucket_close_and_skips_score_while_training(self) -> None:
+    @parameterized.expand([("bucket_close", False, timedelta(days=1)), ("bucket_start", True, timedelta(0))])
+    def test_stamps_buckets_and_skips_score_while_training(
+        self, _name: str, stamp_bucket_start: bool, offset: timedelta
+    ) -> None:
         day = datetime(2026, 10, 1, tzinfo=UTC)
         scores = InsightScores(
             interval=IntervalType.DAY,
@@ -133,13 +136,14 @@ class TestGaugeSamples(SimpleTestCase):
             ],
         )
 
-        samples = gauge_samples(7, scores)
+        samples = gauge_samples(7, scores, stamp_bucket_start=stamp_bucket_start)
 
+        second = day + timedelta(days=1)
         assert [(s.name, s.timestamp, s.value) for s in samples] == [
-            (VALUE_METRIC, day + timedelta(days=1), 5.0),
-            (VALUE_METRIC, day + timedelta(days=2), 50.0),
-            (SCORE_METRIC, day + timedelta(days=2), 0.97),
-            (FLAG_METRIC, day + timedelta(days=2), 1.0),
+            (VALUE_METRIC, day + offset, 5.0),
+            (VALUE_METRIC, second + offset, 50.0),
+            (SCORE_METRIC, second + offset, 0.97),
+            (FLAG_METRIC, second + offset, 1.0),
         ]
         assert samples[0].labels == {
             "insight_id": "7",

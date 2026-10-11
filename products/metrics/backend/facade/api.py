@@ -651,7 +651,8 @@ def write_gauges(
 ) -> GaugeWriteResult:
     """Write gauges that PostHog computed for `team` into the team's Metrics, each at its own timestamp.
 
-    Points older than the capture service's past window are dropped and counted, not written.
+    Points older than the capture service's past window are dropped and counted, not written. The
+    window is 24 hours, or OTLP_METRICS_BACKFILL_DAYS days when that is set.
     `service_name` becomes the series' `service.name`, so keep it stable per producer.
     """
     if not settings.OTLP_METRICS_INGEST_ENDPOINT:
@@ -662,4 +663,10 @@ def write_gauges(
         token=team.api_token,
         service_name=service_name,
         now=now,
+        backfill_days=settings.OTLP_METRICS_BACKFILL_DAYS,
     )
+
+
+def gauge_backfill_enabled() -> bool:
+    """True when `write_gauges` keeps points older than 24 hours at their own timestamps."""
+    return settings.OTLP_METRICS_BACKFILL_DAYS > 0

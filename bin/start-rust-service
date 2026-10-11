@@ -134,6 +134,8 @@ case "$RS_SVC" in
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=logs_ingestion
     export KAFKA_METRICS_TOPIC=metrics_ingestion
+    # Matches the Django default for OTLP_METRICS_BACKFILL_DAYS, so internal gauges keep their own timestamps
+    export MAX_METRICS_BACKFILL_DAYS=${MAX_METRICS_BACKFILL_DAYS:-8}
     ;;
 
   cymbal)
