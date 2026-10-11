@@ -2267,7 +2267,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
 
 # A viewset gaining or losing AccessControlViewSetMixin changes this set. Regenerate with
-# `pytest ee/api/rbac/test/test_access_control.py --snapshot-update` so the change shows up in
+# `pytest products/access_control/backend/tests/test_access_control.py --snapshot-update` so the change shows up in
 # review, and give the settings picker a look for the new resource while at it.
 def test_resources_with_object_access_controls_snapshot(snapshot):
     assert sorted(resources_with_object_access_controls()) == snapshot
