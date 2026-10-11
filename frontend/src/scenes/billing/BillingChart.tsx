@@ -22,6 +22,7 @@ export interface BillingSeriesType {
     id: number
     label: string
     data: number[]
+    key: string
     dates: string[]
 }
 
@@ -29,7 +30,7 @@ export interface BillingChartProps {
     series: BillingSeriesType[]
     dates: string[]
     isLoading?: boolean
-    hiddenSeries: number[]
+    hiddenSeries: string[]
     valueFormatter?: (value: number) => string
     showLegend?: boolean
     legendInteractive?: boolean
@@ -125,7 +126,7 @@ export function BillingChart({
         omittedCount: number
     }>(() => {
         const hidden = new Set(hiddenSeries)
-        const visible = series.filter((s) => !hidden.has(s.id))
+        const visible = series.filter((s) => !hidden.has(s.key))
         const drawn = orderSeriesForDrawing(visible, maxSeries)
 
         const chartSeries: Series[] = drawn.map((s) => ({
