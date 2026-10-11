@@ -397,13 +397,18 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) \/ a'. Supports + - \* \/ and parentheses; division by zero yields 0. When set, only the formula result series are returned."
                 ),
-            dateFrom: zod.iso
-                .datetime({ offset: true })
-                .describe('Lower bound (inclusive) for the query range. ISO 8601.'),
-            dateTo: zod.iso
-                .datetime({ offset: true })
+            dateFrom: zod
+                .string()
                 .optional()
-                .describe('Upper bound (exclusive) for the query range. Defaults to now if omitted.'),
+                .describe(
+                    "Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo."
+                ),
+            dateTo: zod
+                .string()
+                .optional()
+                .describe(
+                    'Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.'
+                ),
         })
         .describe('The metric query to execute.'),
 })

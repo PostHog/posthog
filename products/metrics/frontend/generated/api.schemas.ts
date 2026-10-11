@@ -550,9 +550,9 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601. */
-    dateFrom: string
-    /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    dateFrom?: string
+    /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
 }
 

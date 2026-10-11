@@ -4,14 +4,17 @@ Mirrors the shape of `products/logs/backend/api.py` so the two surfaces stay
 recognizable.
 """
 
+import re
 import datetime as dt
 from dataclasses import asdict
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from django.db import models
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
@@ -25,6 +28,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
@@ -179,6 +183,30 @@ class MetricQueryInterval(models.TextChoices):
     WEEK = "week", "week"
 
 
+# ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
+_RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[hdwmy]$")
+_DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+
+
+@extend_schema_field(OpenApiTypes.STR)
+class _RelativeOrIsoDateTimeField(serializers.DateTimeField):
+    # Relative offsets stay strings so the body serializer resolves both bounds against one "now";
+    # two separate clock reads would push a maximum-span lookback past the runner's limit.
+    def to_internal_value(self, value: dt.datetime | str) -> dt.datetime | str:  # type: ignore[override]
+        if isinstance(value, str) and _RELATIVE_DATE_RE.match(value.strip()):
+            return value.strip()
+        return super().to_internal_value(value)
+
+
+def _resolve_query_bound(value: dt.datetime | str | None, *, now: dt.datetime, field: str) -> dt.datetime | None:
+    if not isinstance(value, str):
+        return value
+    try:
+        return relative_date_parse(value, ZoneInfo("UTC"), now=now)
+    except (ValueError, OverflowError):
+        raise serializers.ValidationError({field: f"'{value}' is too far back to be a valid date."})
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -240,15 +268,26 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         max_length=512,
         help_text="Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
     )
-    dateFrom = serializers.DateTimeField(
-        help_text="Lower bound (inclusive) for the query range. ISO 8601.",
-    )
-    dateTo = serializers.DateTimeField(
+    dateFrom = _RelativeOrIsoDateTimeField(
         required=False,
-        help_text="Upper bound (exclusive) for the query range. Defaults to now if omitted.",
+        help_text="Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo.",
+    )
+    dateTo = _RelativeOrIsoDateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
     )
 
     def validate(self, attrs: dict) -> dict:
+        now = timezone.now()
+        date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
+        date_from = _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom")
+        if date_from is None:
+            try:
+                date_from = date_to - _DEFAULT_QUERY_LOOKBACK
+            except OverflowError:
+                raise serializers.ValidationError({"dateTo": "Too early to leave 'dateFrom' unset."})
+        attrs["dateFrom"] = date_from
+        attrs["dateTo"] = date_to
         has_single = bool(attrs.get("metricName"))
         has_clauses = bool(attrs.get("clauses"))
         if has_single == has_clauses:
