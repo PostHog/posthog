@@ -113,6 +113,8 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        // The authenticated shell mounts after the team has loaded, so the team listener has already fired.
+        actions.preloadStatuses()
         // Defer to idle so boot-critical work (scene chunk, first queries) wins.
         cache.disposables.add(() => {
             const run = (): void => actions.preloadStatuses()
