@@ -186,6 +186,8 @@ def test_native_score_probabilities_keep_integer_level_identity(values: list[obj
         (401, "invalid_api_key", AuthenticationError),
         (403, "permission_denied", ModelPermissionError),
         (404, "model_not_found", ModelNotFoundError),
+        (408, "request_timeout", ProviderConnectionError),
+        (409, "conflict", ProviderConnectionError),
         (429, "insufficient_quota", QuotaExceededError),
         (429, "rate_limit_exceeded", RetryableRateLimitError),
         (503, "unavailable", ProviderConnectionError),
