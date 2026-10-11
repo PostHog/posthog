@@ -16,6 +16,7 @@ from products.customer_analytics.backend.facade.temporal_contracts import (
     StageAccountPropertySyncInput,
 )
 from products.customer_analytics.backend.temporal.account_property_sync import (
+    ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS,
     AccountPropertySyncInput,
     StageWarehouseAccountPropertiesWorkflow,
     SyncWarehouseAccountPropertiesWorkflow,
@@ -25,6 +26,7 @@ from products.customer_analytics.backend.temporal.account_property_sync import (
     start_warehouse_account_property_runs_activity,
     sync_warehouse_account_properties_activity,
 )
+from products.warehouse_sources.backend.facade.temporal import AccountPropertyStagingTableNotCommittedError
 
 pytestmark = pytest.mark.asyncio
 
@@ -68,6 +70,40 @@ async def test_staging_activity_reads_the_committed_delta_version() -> None:
 
     assert staged is True
     sink.stage_delta_snapshot.assert_awaited_once_with("s3://data-warehouse/dlt/table", 5)
+
+
+@pytest.mark.parametrize(("attempt", "captured"), [(1, False), (ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS, True)])
+async def test_staging_activity_reports_an_uncommitted_table_only_on_the_final_attempt(
+    attempt: int, captured: bool
+) -> None:
+    sink = MagicMock()
+    sink.stage_delta_snapshot = AsyncMock(
+        side_effect=AccountPropertyStagingTableNotCommittedError("No files in log segment")
+    )
+
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.AccountPropertyRowSink",
+            return_value=sink,
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.Heartbeater",
+            return_value=_no_heartbeat(),
+        ),
+        patch("products.customer_analytics.backend.temporal.account_property_sync.activity.info") as activity_info,
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.update_account_property_sync_runs_phase"
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.capture_exception"
+        ) as capture_exception,
+        pytest.raises(AccountPropertyStagingTableNotCommittedError),
+    ):
+        activity_info.return_value.attempt = attempt
+        activity_info.return_value.workflow_id = "stage-workflow-job-1"
+        await stage_warehouse_account_property_files_activity(_staging_input())
+
+    assert capture_exception.called is captured
 
 
 async def test_staging_workflow_opens_history_before_staging_and_dispatches_after_success() -> None:
