@@ -398,7 +398,7 @@ pub(crate) fn decode_body_if_gzip_magic(
 }
 
 /// Protobuf clients can't decode a JSON body.
-fn export_success_response(headers: &HeaderMap) -> Response {
+pub fn export_success_response(headers: &HeaderMap) -> Response {
     let is_protobuf = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
