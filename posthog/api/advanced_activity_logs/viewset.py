@@ -62,8 +62,7 @@ def activity_log_ordering(request: Request) -> tuple[str, str]:
 def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
     """Keep personal loops' config out of the team-wide activity feed.
 
-    Loop activity is team-scoped in the log, but a personal loop is owner-only (see
-    products/tasks/docs/LOOPS.md "Access control"). The static visibility manager can't express
+    Loop activity is team-scoped in the log, but a personal loop is owner-only. The static visibility manager can't express
     per-user ownership, so restrict `Loop`-scoped rows to the loops this user may actually see.
     Lazy import keeps the tasks product off this module's import path.
     """

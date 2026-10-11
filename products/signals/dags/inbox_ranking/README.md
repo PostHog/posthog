@@ -6,7 +6,7 @@ Dagster jobs for the Self-driving Inbox report-ranking model: the **dataset** da
 inbox_ranking/
 ├── common.py       # shared: S3 destination config, daily partition def, gating, Parquet IO
 ├── dataset/
-│   ├── dag.py      # the five dataset assets + job + schedule
+│   ├── dag.py      # the dataset assets + job + schedule
 │   └── queries.py  # HogQL label SQL, embeddings SQL, stream merging
 ├── training/
 │   ├── dag.py        # examples → candidate → champion assets + job + schedule
@@ -21,7 +21,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds six assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds eight assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -32,12 +32,20 @@ s3://<bucket>/<prefix>/
 │   ├── dt=YYYY-MM-DD/                         # materialized join of the three (the training table)
 │   └── latest/                                # rewritten by the newest partition; warehouse tables point here
 ├── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
-└── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
+├── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
+├── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
+└── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
 
 `inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it: the training side pairs the two by `report_id` when it measures one rendering against the other, and each carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
+
+`inbox_report_reviewers` is a (report, reviewer) leaf for user–report affinity modeling. It holds one row per entry of each spine report's current `SignalReportSuggestedReviewer` index, for teams that allow AI training. Nothing joins it, and its object carries its own schema version (`REVIEWERS_SCHEMA_VERSION`), so a failure here does not fail the training table.
+
+- `user_distinct_id` comes from `user_uuid` when that uuid names a member of the report team's organization. Otherwise it comes from `github_login`, through the same GitHub identity mapping the `pr_merged` and `pr_closed` attribution uses. `identity_resolution` says which one matched (`user_uuid`, `github_login` or `unresolved`).
+- An entry that maps to no member stays as a row with a null `user_distinct_id`, so a reviewer with no history is counted and not dropped.
+- **The asset is current-state-only.** The index is rebuilt in full on every reviewer change, and reviewer artefacts can be edited in place or deleted, so no earlier set can be rebuilt. A forward-run partition holds the set at run time (at most a few hours after the cutoff). A backfilled partition holds today's set, flagged by `features_observed_at`. History starts on the day the asset first ran.
 
 ### Partition semantics
 
@@ -50,6 +58,37 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - Report-state mutability reaches **inclusion**, not just feature values: `promoted_at` is cleared on suppression and snooze, so a report promoted before the cutoff and suppressed after it leaves the spine unless a label event referenced it before the cutoff. Forward runs see this only for the 2.5 hours between the cutoff and the schedule; backfills see the full accumulated effect. Deriving the spine from immutable promotion history (`signal_report_status_changed` carries `promoted_at`) is the v2 fix.
 - **The server-side action counts read current artefact rows**, bounded by `created_at < snapshot_end`. A report merge moves the source's notes and linked PRs to the survivor and keeps their `created_at`, and a note can be deleted. A partition rebuilt after either change gives that action to the survivor, or loses it. Claims and Slack discussions stay on the source report. Forward runs see this only for the 2.5 hours between the cutoff and the schedule.
 - **`signal_report_status_changed` names the actor of each transition.** `actor_kind` is `user`, `agent`, `task` or `system`, and `actor_user_uuid`, `actor_distinct_id`, `actor_agent` and `actor_task_id` identify it. A transition no caller attributed (the pipeline, the PR-merge webhook, an unresolved Slack click) is `system`. The event `distinct_id` stays the team uuid. Events before this change carry no actor keys, so a per-user feature must treat a missing `actor_kind` as unknown, not as `system`.
+
+### User grain
+
+`inbox_user_report_interactions` has one row per `(report_id, user_distinct_id)`, for user–report affinity models. It has the labels asset's contract: `dt=D` is cumulative from `LABELS_EPOCH` to `D+1 00:00 UTC`, every source has an explicit time bound, and a re-run writes the same object (rows are sorted by key).
+
+- **It is a leaf.** Nothing joins it, it is not in `inbox_report_model_data`'s deps, and it has no deps of its own, so it runs beside the labels asset. A failure here never fails the training table.
+- **It has its own schema version**, `USER_INTERACTIONS_SCHEMA_VERSION`, stamped on the object. A change here does not set off `inbox_ranking_labels_refresh_sensor`. There is no refresh sensor for this table: after a schema change, backfill the training lookback by hand.
+- **The person key is `User.distinct_id`.** The app's events and the status stream's `actor_distinct_id` already carry it. `user_uuid` is null when the distinct id is not a user in this region.
+- **Only consented, local reports get rows.** A row is written only when its report exists in this region's Postgres before the cutoff and its team is in `training_consent_team_ids()`. This is stricter than the labels asset, which keeps label-only rows, because these rows describe a person.
+
+| Columns                                                        | Source                                       | Person key                                                 |
+| -------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| impressions, suggested-reviewer impressions                    | `Inbox reports impressed` (per entry)        | event `distinct_id`                                        |
+| opens, `first_open_method`                                     | `Inbox report opened`                        | event `distinct_id`                                        |
+| closes, `total_time_spent_ms`                                  | `Inbox report closed`                        | event `distinct_id`                                        |
+| UI actions (`ACTION_TYPES`)                                    | `Inbox report action`                        | event `distinct_id`                                        |
+| feedback                                                       | `Inbox report feedback`                      | event `distinct_id`                                        |
+| refunds                                                        | `signals_pr_refund_created`                  | event `distinct_id`                                        |
+| `status_*`, `first_dismissal_actor_kind`                       | `signal_report_status_changed`               | `actor_distinct_id` when `actor_kind` is `user` or `agent` |
+| `pr_closed_by_*`, `pr_merged_by_*`                             | `pr_closed` / `pr_merged`                    | `pr_closed_by_distinct_id` / `pr_merged_by_distinct_id`    |
+| claims, linked PRs, notes                                      | `SignalReportArtefact` (`HUMAN_ACTOR_KINDS`) | `created_by`                                               |
+| `first_viewed_at`, `first_read_at`, `first_slack_discussed_at` | `SignalReportAction.first_at`                | `user`                                                     |
+
+Point-in-time caveats, per source:
+
+- **The status and PR columns start when the actor keys shipped (2026-10-09).** Earlier events carry no actor, so they reach no row. A backfill before that date fills only the app-event and Postgres columns. Most transitions are `system` and name no person, so most rows come from impressions and opens.
+- **The PR closer and merger are set only when their GitHub login maps to an org member.**
+- **The status columns follow the `STATUS_SQL` tenant rule.** Each aggregate reads only the tenant of the report's latest transition, taken over every transition of the report, not only this person's.
+- **The Postgres columns read current rows**, with the report-grain caveats: a merge moves notes and linked PRs to the survivor, and a note can be deleted. Action rows give only `first_at`; their `count` and `last_at` keep moving after the cutoff. Bulk actions carry no `report_id` and stay out, and the desktop app sends no impressions.
+- **The client streams are claimed, not proven.** A `report_id` and a `distinct_id` on an app event are client-supplied. The report must exist in this region, but nothing checks that the person is a member of the report's organization.
+- **Staff impersonation.** posthog-js opts out of capture in an impersonated session, so the client streams hold no impersonated events. The refund event carries `was_impersonated`, and those refunds are excluded. The status event and the Postgres rows carry no impersonation flag, so a transition, artefact or action row a staff member made while impersonating counts for the impersonated person.
 
 ### Signal-grain partitions
 
