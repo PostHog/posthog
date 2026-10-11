@@ -22,7 +22,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
@@ -89,16 +94,67 @@ INVERSE_OPERATOR_FOR = {
 }
 
 
+# Fields such as `event` or `elements_chain` exist on the events table but not on the replay table,
+# so a hogql filter that uses one compiles only in the events sub-query.
+EVENT_ONLY_FIELDS = frozenset(EventsTable().fields) - frozenset(RawSessionReplayEventsTable().fields)
+
+
+class _RootFieldCollector(TraversingVisitor):
+    """Collects the first chain element of each field, but skips lambda arguments and nested selects."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.roots: set[str] = set()
+        self._lambda_args: list[set[str]] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        root = node.chain[0] if node.chain else None
+        if isinstance(root, str) and not any(root in args for args in self._lambda_args):
+            self.roots.add(root)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._lambda_args.append(set(node.args))
+        self.visit(node.expr)
+        self._lambda_args.pop()
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+
+def _hogql_uses_event_only_fields(expression: str) -> bool:
+    try:
+        expr = parse_expr(expression)
+    except BaseHogQLError:
+        return False
+    collector = _RootFieldCollector()
+    collector.visit(expr)
+    return bool(collector.roots & EVENT_ONLY_FIELDS)
+
+
 def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    if p_type == "event":
+        return True
+    if p_type != "hogql":
+        return False
+    if re.search(r"(?<!person\.)properties\.", p_key):
+        return True
+    if "session.properties" in p_key:
+        return False
+    return _hogql_uses_event_only_fields(p_key)
 
 
 def is_person_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "person" or (p_type == "hogql" and "person.properties" in p_key)
+    # A hogql filter that also uses an event field cannot compile on the persons table.
+    return p_type == "person" or (
+        p_type == "hogql" and "person.properties" in p_key and not _hogql_uses_event_only_fields(p_key)
+    )
 
 
 def is_group_property(p: AnyPropertyFilter) -> bool:

@@ -3306,6 +3306,47 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    @parameterized.expand(
+        [
+            ("event field only", "event = '$rageclick'", None),
+            (
+                "person property and event field",
+                "person.properties.email = 'user@example.com' and event = '$rageclick'",
+                None,
+            ),
+            (
+                "person property and event field without poe",
+                "person.properties.email = 'user@example.com' and event = '$rageclick'",
+                PersonsOnEventsMode.DISABLED,
+            ),
+        ]
+    )
+    def test_hogql_property_filter_on_event_field(
+        self, _name: str, expression: str, poe_mode: PersonsOnEventsMode | None
+    ) -> None:
+        if poe_mode is not None:
+            self.team.modifiers = {"personsOnEventsMode": poe_mode}
+            self.team.save()
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "user@example.com"})
+        rageclick_session = str(uuid7())
+        pageview_session = str(uuid7())
+        for session_id, event_name in ((rageclick_session, "$rageclick"), (pageview_session, "$pageview")):
+            produce_replay_summary(
+                distinct_id="user", session_id=session_id, first_timestamp=self.an_hour_ago, team_id=self.team.id
+            )
+            create_event(
+                distinct_id="user",
+                timestamp=self.an_hour_ago,
+                team=self.team,
+                event_name=event_name,
+                properties={"$session_id": session_id, "$window_id": "1"},
+            )
+
+        self._assert_query_matches_session_ids(
+            {"properties": [{"key": expression, "type": "hogql"}]},
+            [rageclick_session],
+        )
+
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"

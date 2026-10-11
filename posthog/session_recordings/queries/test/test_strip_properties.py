@@ -14,6 +14,7 @@ from posthog.schema import (
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
+    is_event_property,
     is_recording_property,
     is_session_property,
 )
@@ -99,3 +100,23 @@ class TestStripProperties:
         assert offending_value not in str(exc)
         assert "event" in str(exc)
         assert "$entry_referring_domain" in str(exc)
+
+    @parameterized.expand(
+        [
+            ("event name", "event = '$rageclick'", True),
+            ("elements chain", "elements_chain =~ 'button'", True),
+            ("event property reference", "properties.$browser = 'Chrome'", True),
+            ("replay column", "click_count > 3", False),
+            ("lambda argument with an event field name", "arrayExists(event -> event = 'a', all_urls)", False),
+            (
+                "event field only inside a subquery",
+                "session_id in (select `$session_id` from events where event = 'a')",
+                False,
+            ),
+            ("person property with an event field", "person.properties.email = 'a' and event = 'b'", True),
+            ("person property only", "person.properties.email = 'a'", False),
+            ("expression that does not parse", "event = (", False),
+        ]
+    )
+    def test_is_event_property_for_hogql(self, _name: str, expression: str, expected: bool) -> None:
+        assert is_event_property(HogQLPropertyFilter(key=expression)) is expected
