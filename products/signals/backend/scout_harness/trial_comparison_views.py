@@ -14,6 +14,8 @@ from posthog.models import User
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.trial_comparison_serializers import (
+    ScoutTrialComparisonArchiveRequestSerializer,
+    ScoutTrialComparisonHistoryQuerySerializer,
     ScoutTrialComparisonHistorySerializer,
     ScoutTrialComparisonQuerySerializer,
     ScoutTrialComparisonRequestSerializer,
@@ -21,10 +23,12 @@ from products.signals.backend.scout_harness.trial_comparison_serializers import 
 )
 from products.signals.backend.scout_harness.trial_comparison_types import TrialComparisonRequest
 from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunchError
-from products.signals.backend.scout_harness.trial_serializers import ScoutTrialHistoryQuerySerializer
 
 
 class ScoutTrialComparisonMixin:
+    def _internal_trial_access(self, request: Request, identifier: str) -> SignalScoutConfig:
+        raise NotImplementedError
+
     def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
         raise NotImplementedError
 
@@ -55,7 +59,10 @@ class ScoutTrialComparisonMixin:
         try:
             plan = service.create(TrialComparisonRequest.model_validate(request.validated_data))
             result = service.result(plan, inspect_workflow=False, starting=True)
+            if result.archived:
+                raise ScoutTrialLaunchError("Restore this trial before resuming it.")
             if result.status != "completed":
+                service.assert_current_judge(plan)
                 start_trial_comparison(config.team_id, plan.comparison_id)
         except ScoutTrialLaunchError as error:
             raise exceptions.ValidationError({"detail": str(error)}) from error
@@ -93,7 +100,10 @@ class ScoutTrialComparisonMixin:
             raise exceptions.NotFound() from error
         try:
             result = service.result(plan, inspect_workflow=False, starting=True)
+            if result.archived:
+                raise ScoutTrialLaunchError("Restore this trial before resuming it.")
             if result.status != "completed":
+                service.assert_current_judge(plan)
                 service.assert_can_start(
                     launch_ids=[launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
                 )
@@ -133,7 +143,38 @@ class ScoutTrialComparisonMixin:
 
     @private_capture_context()
     @validated_request(
-        query_serializer=ScoutTrialHistoryQuerySerializer,
+        request_serializer=ScoutTrialComparisonArchiveRequestSerializer,
+        responses={200: OpenApiResponse(response=ScoutTrialComparisonSerializer)},
+        operation_id="signals_scout_config_trial_comparison_archive",
+        summary="Archive or restore a saved scout trial",
+        description="Hide a finished trial from history or restore it without deleting results or starting any work.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="trial_comparison_archive",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+    )
+    def trial_comparison_archive(self, request: ValidatedRequest, **kwargs: str) -> Response:
+        from products.signals.backend.scout_harness.trial_comparison import (  # noqa: PLC0415 -- avoid loading the judge and worker graph at route discovery
+            ScoutTrialComparisons,
+        )
+
+        config = self._internal_trial_access(request, kwargs.get("id", ""))
+        service = ScoutTrialComparisons(config, cast(User, request.user))
+        try:
+            plan = service.read(request.validated_data["comparison_id"])
+        except ScoutTrialLaunchError as error:
+            raise exceptions.NotFound() from error
+        try:
+            result = service.set_archived(plan, archived=request.validated_data["archived"])
+        except ScoutTrialLaunchError as error:
+            raise exceptions.ValidationError({"detail": str(error)}) from error
+        return Response(ScoutTrialComparisonSerializer(result.model_dump(mode="json")).data)
+
+    @private_capture_context()
+    @validated_request(
+        query_serializer=ScoutTrialComparisonHistoryQuerySerializer,
         responses={200: OpenApiResponse(response=ScoutTrialComparisonHistorySerializer)},
         operation_id="signals_scout_config_trial_comparison_history",
         summary="List your saved scout comparisons",
@@ -151,5 +192,9 @@ class ScoutTrialComparisonMixin:
         )
 
         config = self._internal_trial_config(request, kwargs.get("id", ""))
-        history = ScoutTrialComparisons(config, cast(User, request.user)).history(request.validated_query_data["limit"])
+        history = ScoutTrialComparisons(config, cast(User, request.user)).history(
+            request.validated_query_data["limit"],
+            include_archived=request.validated_query_data["include_archived"],
+            cursor=request.validated_query_data.get("cursor"),
+        )
         return Response(ScoutTrialComparisonHistorySerializer(history.model_dump(mode="json")).data)

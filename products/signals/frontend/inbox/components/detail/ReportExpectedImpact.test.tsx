@@ -57,6 +57,7 @@ const check: SignalReportCheckApi = {
     expires_at: '2026-11-13T00:00:00Z',
     last_run_at: null,
     last_outcome: null,
+    last_outcome_reason: null,
     dispatched_at: null,
     consecutive_errors: 0,
     created_at: '2026-09-29T00:00:00Z',

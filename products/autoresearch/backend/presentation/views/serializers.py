@@ -22,6 +22,7 @@ from products.autoresearch.backend.facade.contracts import (
     Model,
     Pipeline,
     PipelineWrite,
+    PredictionCoverage,
     RealizedAucPoint,
     Run,
     Suggestion,
@@ -506,6 +507,56 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         fields = ["id", "iteration_budget", "experiment_count", "best_holdout_score", "latest_agent_description"]
 
 
+@extend_schema_serializer(component_name="AutoresearchPredictionCoverage")
+class PredictionCoverageSerializer(DataclassSerializer):
+    population = serializers.IntegerField(
+        read_only=True, help_text="People in the inference population at the run's cutoff."
+    )
+    with_score = serializers.IntegerField(
+        read_only=True,
+        help_text="People with a champion score inside the lookback window before the cutoff. Shadow scores do not count.",
+    )
+    never_scored = serializers.IntegerField(
+        read_only=True,
+        help_text="People with no champion score inside the lookback window. A rolling run scores these people first.",
+    )
+    age_days_avg = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Mean age in days of the newest score per person. Null when nobody has a score.",
+    )
+    age_days_p50 = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Median age in days of the newest score per person. Null when nobody has a score.",
+    )
+    age_days_p90 = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="90th percentile age in days of the newest score per person. Null when nobody has a score.",
+    )
+    age_days_max = serializers.FloatField(
+        read_only=True, allow_null=True, help_text="Oldest score age in days. Null when nobody has a score."
+    )
+    lookback_days = serializers.IntegerField(
+        read_only=True,
+        help_text="How many days before the cutoff the measure reads scores. Older scores count as never scored.",
+    )
+
+    class Meta:
+        dataclass = PredictionCoverage
+        fields = [
+            "population",
+            "with_score",
+            "never_scored",
+            "age_days_avg",
+            "age_days_p50",
+            "age_days_p90",
+            "age_days_max",
+            "lookback_days",
+        ]
+
+
 @extend_schema_serializer(component_name="AutoresearchRealizedAucPoint")
 class RealizedAucPointSerializer(DataclassSerializer):
     prediction_date = serializers.DateField(read_only=True, help_text="Validated prediction date.")
@@ -620,6 +671,11 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         allow_null=True,
         help_text="People scored by the most recent completed inference run. Null before the first scoring run.",
     )
+    coverage = PredictionCoverageSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Score coverage and score age from the newest live champion run that measured them. Null before the first such run.",
+    )
     training_run_count = serializers.IntegerField(read_only=True, help_text="Training runs started for this pipeline.")
     experiment_count = serializers.IntegerField(
         read_only=True, help_text="Experiments (iterations) recorded across every training run."
@@ -659,6 +715,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "champion_is_preliminary",
             "champion_realized_auc_trend",
             "people_scored",
+            "coverage",
             "training_run_count",
             "experiment_count",
             "live_training_run",
@@ -913,7 +970,11 @@ class AutoresearchModelSerializer(DataclassSerializer):
     )
     metrics = MetricsBundleField(
         required=False,
-        help_text="Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.",
+        help_text=(
+            "Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest "
+            "validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, "
+            "average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts."
+        ),
     )
     source_training_run = serializers.UUIDField(
         read_only=True,
@@ -1269,6 +1330,37 @@ class CalibrationBinSerializer(serializers.Serializer):
     )
 
 
+class ConfusionCountsSerializer(serializers.Serializer):
+    tp = serializers.IntegerField(help_text="True positives: flagged users who did the target event.")
+    fp = serializers.IntegerField(help_text="False positives: flagged users who did not do the target event.")
+    fn = serializers.IntegerField(help_text="False negatives: users not flagged who did the target event.")
+    tn = serializers.IntegerField(help_text="True negatives: users not flagged who did not do the target event.")
+    n_flagged = serializers.IntegerField(
+        help_text=(
+            "Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the "
+            "boundary score, so this can be a little above k."
+        )
+    )
+    precision = serializers.FloatField(
+        allow_null=True,
+        help_text="tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.",
+    )
+    recall = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it."
+        ),
+    )
+
+
+class ConfusionByCutoffSerializer(serializers.Serializer):
+    top_10 = ConfusionCountsSerializer(help_text="Counts when the top 10% of users by score are flagged.")
+    top_20 = ConfusionCountsSerializer(help_text="Counts when the top 20% of users by score are flagged.")
+    likely = ConfusionCountsSerializer(
+        help_text=("Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged.")
+    )
+
+
 class OnlinePerformanceRowSerializer(serializers.Serializer):
     validation_run_id = serializers.UUIDField(help_text="UUID of the validation run that recorded these metrics.")
     prediction_date = serializers.DateField(help_text="Date the predictions were made for (UTC).")
@@ -1319,6 +1411,28 @@ class OnlinePerformanceRowSerializer(serializers.Serializer):
     lift_at_20 = serializers.FloatField(
         allow_null=True, help_text="Positives in the top 20% by score, relative to a random 20%."
     )
+    average_precision = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Average precision: area under the precision-recall curve. Higher is better, and a random model "
+            "scores about base_rate. Null when no scored user did the target event, or for dates validated "
+            "before this metric existed."
+        ),
+    )
+    confusion = ConfusionByCutoffSerializer(
+        allow_null=True,
+        help_text=(
+            "Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. "
+            "Null for dates validated before this metric existed."
+        ),
+    )
+    likely_threshold = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the "
+            "dates checked before it. Null when confusion is null."
+        ),
+    )
     calibration_bins = CalibrationBinSerializer(
         many=True,
         allow_null=True,
@@ -1335,6 +1449,50 @@ class OnlinePerformanceRowSerializer(serializers.Serializer):
     validated_at = serializers.DateTimeField(allow_null=True, help_text="When the validation run completed.")
 
 
+class PredictionSegmentThresholdsSerializer(serializers.Serializer):
+    likely_threshold = serializers.FloatField(
+        help_text=(
+            "Users with a score at or above this probability are in the Likely segment: likely_lift times the "
+            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null."
+        )
+    )
+    possible_threshold = serializers.FloatField(
+        help_text=(
+            "Users with a score at or above this probability and below likely_threshold are in the Possible "
+            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null."
+        )
+    )
+    likely_lift = serializers.FloatField(
+        help_text="How many times the base rate a score must reach to be in the Likely segment."
+    )
+    base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Fraction of the champion's scored users who did the target event, pooled over the newest checked "
+            "dates. Null, and the fixed cut points apply, until those dates hold enough positives."
+        ),
+    )
+    base_rate_dates = serializers.IntegerField(help_text="Number of checked prediction dates the base rate pools.")
+    champion_mean_p_y = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The current champion's mean predicted probability over the checked dates it scored as champion. "
+            "Null until those dates hold enough positives."
+        ),
+    )
+    champion_base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text="The real rate of the target event over the same dates as champion_mean_p_y.",
+    )
+    scores_miscalibrated = serializers.BooleanField(
+        help_text=(
+            "True when champion_mean_p_y is far above or below champion_base_rate. The scores "
+            "are then not probabilities (for example after class weighting in train.py), so a score of likely_lift "
+            "times the base rate does not mean the user is that many times as likely to convert."
+        )
+    )
+
+
 class OnlinePerformanceSerializer(serializers.Serializer):
     rows = OnlinePerformanceRowSerializer(
         many=True,
@@ -1342,6 +1500,12 @@ class OnlinePerformanceSerializer(serializers.Serializer):
             "One row per model per validated prediction date, newest date first. "
             "Empty until a prediction horizon has elapsed and online validation has run."
         ),
+    )
+    segment_thresholds = PredictionSegmentThresholdsSerializer(
+        help_text=(
+            "The current cut points between the Likely, Possible and Unlikely segments, set by lift over the "
+            "realized base rate. They do not depend on limit."
+        )
     )
 
 
@@ -1375,6 +1539,11 @@ class AutoresearchRunSerializer(DataclassSerializer):
             "scored a rolling part of the population: users never scored first, then users whose last score was oldest."
         )
     )
+    coverage = PredictionCoverageSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs.",
+    )
     error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
     started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
     completed_at = serializers.DateTimeField(
@@ -1392,6 +1561,7 @@ class AutoresearchRunSerializer(DataclassSerializer):
             "status",
             "rows_scored",
             "metrics",
+            "coverage",
             "error",
             "started_at",
             "completed_at",

@@ -4,7 +4,12 @@ import { useState } from 'react'
 import { scoutRubricReferenceFixture } from '../scoutRubricFixtures'
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
 import { ScoutTrialRunDrawer } from './ScoutTrialRunDrawer'
-import { trialFixtureLongReport, trialFixtureReport, trialFixtureResult } from './scoutTrialsFixtures'
+import {
+    trialFixtureEvaluationWithJudgeError,
+    trialFixtureLongReport,
+    trialFixtureReport,
+    trialFixtureResult,
+} from './scoutTrialsFixtures'
 import type { ScoutTrialRow } from './scoutTrialUtils'
 
 const meta: Meta<typeof ScoutTrialComparisonReport> = {
@@ -122,6 +127,79 @@ export const PartialEvidence: Story = {
                             ),
                         }
             ),
+        },
+    },
+}
+
+const excludedVariantId = '00000000-0000-4000-8000-000000000090'
+const excludedLaunchIds = ['00000000-0000-4000-8000-000000000091', '00000000-0000-4000-8000-000000000092']
+
+export const ProvisionalWithExcludedVersion: Story = {
+    args: {
+        report: {
+            ...trialFixtureReport,
+            outcome: {
+                status: 'provisional',
+                variant_ids: [trialFixtureReport.variants[1].variant_id],
+                summary:
+                    'Candidate prompt leads with 4 confirmed passes; Baseline has 3 passes and 1 unknown check. Missing evidence could change the result. Incomplete version is excluded because one run could not be judged.',
+            },
+            variants: [
+                ...trialFixtureReport.variants.map((variant) =>
+                    variant.is_baseline
+                        ? {
+                              ...variant,
+                              score: 1,
+                              coverage: 0.75,
+                              criteria: variant.criteria.map((criterion) =>
+                                  criterion.criterion_id === 'evidence'
+                                      ? { ...criterion, failed: 0, unknown: 1, pass_rate: 1, coverage: 0.5 }
+                                      : criterion
+                              ),
+                          }
+                        : { ...variant, baseline_delta: null }
+                ),
+                {
+                    ...trialFixtureEvaluationWithJudgeError.report!.variants[1],
+                    variant_id: excludedVariantId,
+                    label: 'Incomplete version',
+                },
+            ],
+            runs: [
+                ...trialFixtureReport.runs.map((run, index) =>
+                    index === 0
+                        ? {
+                              ...run,
+                              score: 1,
+                              coverage: 0.5,
+                              criteria: run.criteria?.map((criterion) =>
+                                  criterion.criterion_id === 'evidence'
+                                      ? {
+                                            ...criterion,
+                                            verdict: 'unknown' as const,
+                                            confidence: 'low' as const,
+                                            reason: 'The captured log does not establish whether the cited source was read.',
+                                            evidence: [],
+                                        }
+                                      : criterion
+                              ),
+                          }
+                        : run
+                ),
+                ...trialFixtureEvaluationWithJudgeError.report!.runs.slice(2).map((run, index) => ({
+                    ...run,
+                    variant_id: excludedVariantId,
+                    launch_id: excludedLaunchIds[index],
+                })),
+            ],
+            evidence: [
+                ...trialFixtureReport.evidence,
+                ...trialFixtureReport.evidence.slice(2).map((run, index) => ({
+                    ...run,
+                    variant_id: excludedVariantId,
+                    launch_id: excludedLaunchIds[index],
+                })),
+            ],
         },
     },
 }

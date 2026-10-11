@@ -32,14 +32,18 @@ const config: SignalScoutConfigApi = {
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
     tags: [],
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T00:00:00Z',
     updated_at: '2026-07-21T00:00:00Z',
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
 }
 
 describe('ScoutCadenceLabel', () => {

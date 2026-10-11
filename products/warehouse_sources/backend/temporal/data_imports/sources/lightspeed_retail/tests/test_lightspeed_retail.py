@@ -175,3 +175,55 @@ class TestGetRows:
         assert [item["id"] for batch in batches for item in batch] == ["1"]
         assert session.send.call_count == 2
         assert params[1]["after"] == 0
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_paths, expected_rows",
+        [
+            (
+                None,
+                [
+                    "/consignments",
+                    "/consignments/c1/products",
+                    "/consignments/c1/products",
+                    "/consignments/c2/products",
+                    "/consignments/c2/products",
+                    "/consignments",
+                ],
+                [("c1", "p1"), ("c2", "p1")],
+            ),
+            (
+                LightspeedRetailResumeConfig(fanout_state={"completed": ["/consignments/c1/products"]}),
+                [
+                    "/consignments",
+                    "/consignments/c2/products",
+                    "/consignments/c2/products",
+                    "/consignments",
+                ],
+                [("c2", "p1")],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_consignment_products_fan_out_over_consignments(
+        self, mock_session, resume_state, expected_paths, expected_rows
+    ):
+        session = mock_session.return_value
+        child_pages = {
+            "c1": [_response([{"product_id": "p1", "version": 5}]), _response([])],
+            "c2": [_response([{"product_id": "p1", "version": 6}]), _response([])],
+        }
+        responses = [_response([{"id": "c1", "version": 1}, {"id": "c2", "version": 2}], max_version=2)]
+        for consignment_id in ("c1", "c2"):
+            if expected_paths.count(f"/consignments/{consignment_id}/products"):
+                responses.extend(child_pages[consignment_id])
+        responses.append(_response([]))
+        _wire(session, responses)
+
+        manager = _make_manager(resume_state)
+        batches = _run(manager, endpoint="consignment_products")
+
+        requested = [call.args[0].url for call in session.prepare_request.call_args_list]
+        assert [url.split("/api/2026-01")[1] for url in requested] == expected_paths
+        rows = [item for batch in batches for item in batch]
+        assert [(row["consignment_id"], row["product_id"]) for row in rows] == expected_rows
+        assert all("_consignments_id" not in row for row in rows)

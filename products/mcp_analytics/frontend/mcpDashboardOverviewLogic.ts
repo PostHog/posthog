@@ -130,7 +130,7 @@ LIMIT 50
 // converts, shifting every bucket away from the wall-clock keys it joins and compares against.
 // Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
 // backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
-const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
+export const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
     bucket: string

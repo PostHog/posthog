@@ -87,6 +87,8 @@ NON_RETRYABLE_ERRORS = [
     "UnstorableIntegerError",
 ]
 
+CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
+
 
 def _is_cancellation(error: BaseException) -> bool:
     """The SDK never re-delivers a cancel, so a handler that swallows one keeps issuing commands."""
@@ -140,6 +142,8 @@ class MaterializeViewWorkflowResult:
             means no gated audit ran.
         quality_audited: Whether a check suite covered this run, so the DAG's post-run sweep must
             not run one again.
+        trino_materialized: Whether this run materialized the node in Trino. None means it made
+            no Trino attempt, as for every ClickHouse run.
     """
 
     job_id: str
@@ -163,9 +167,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
 
     This workflow handles the complete materialization of a single view/materialized view:
     1. Creates a job record to track progress
-    2. Executes the HogQL query and writes results to a delta lake table
-    3. Copies the data to DuckLake (if enabled)
-    4. Updates the node and job with completion status
+    2. Executes the HogQL query and writes results to a delta lake table, or, when
+       `managed_warehouse_only` is set, materializes it in the managed warehouse instead
+    3. Updates the node and job with completion status
 
     This workflow is designed to be called directly for ad hoc materialization of a single view
     (i.e. a user clicks 'materialize now' or something to that effect), or as a child workflow
@@ -188,18 +192,22 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         managed_warehouse_job_id = None
         managed_warehouse_only = inputs.managed_warehouse_only
 
-        managed_warehouse_enabled = await temporalio.workflow.execute_activity(
-            check_managed_warehouse_shadow_eligibility_activity,
-            ManagedWarehouseShadowEligibilityInputs(
-                team_id=inputs.team_id,
-                dag_id=inputs.dag_id,
-                node_id=inputs.node_id,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
-            ),
-        )
+        # Histories recorded without the patch marker replay the in-workflow shadow below.
+        if not managed_warehouse_only and temporalio.workflow.patched(CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH):
+            managed_warehouse_enabled = False
+        else:
+            managed_warehouse_enabled = await temporalio.workflow.execute_activity(
+                check_managed_warehouse_shadow_eligibility_activity,
+                ManagedWarehouseShadowEligibilityInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    node_id=inputs.node_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
 
         use_trino = managed_warehouse_enabled
         trino_materialized: bool | None = False if use_trino else None

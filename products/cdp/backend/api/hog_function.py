@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
@@ -37,10 +38,12 @@ from posthog.cdp.internal_events import (
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
+    DUPLICATE_INPUT_KEYS_ERROR,
     HogFunctionFiltersSerializer,
-    InputsSchemaItemSerializer,
+    InputsSchemaSerializer,
     InputsSerializer,
     MappingsSerializer,
+    added_duplicate_input_keys,
     compile_hog,
     generate_template_bytecode,
     masked_secret_input_keys,
@@ -156,6 +159,25 @@ def split_content_secrets(content: dict) -> dict:
     }
     content["inputs"] = {key: value for key, value in inputs.items() if key not in secret_keys}
     return {key: value for key, value in inputs.items() if key in secret_keys}
+
+
+def mask_config_secrets(content: dict) -> dict:
+    content = deepcopy(content)
+    for config in [content, *(content.get("mappings") or [])]:
+        if not isinstance(config, dict):
+            continue
+        schemas = config.get("inputs_schema") or []
+        secret_keys = {schema["key"] for schema in schemas if schema.get("secret") and "key" in schema}
+        for schema in schemas:
+            if schema.get("key") in secret_keys:
+                schema.pop("default", None)
+        inputs = config.get("inputs") or {}
+        for key in secret_keys:
+            if key in inputs:
+                inputs[key] = {"secret": True}
+        if secret_keys and "transpiled" in content:
+            content["transpiled"] = None
+    return content
 
 
 def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
@@ -347,6 +369,15 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
+def _stored_mapping_for(mapping: dict, index: int, stored_mappings: list[dict]) -> Optional[dict]:
+    # Only a stored mapping with the same name counts as this mapping's earlier version. Position breaks
+    # ties between equal names, so a new mapping placed where an old one was cannot take its allowance.
+    candidates = [stored for stored in stored_mappings if stored.get("name") == mapping.get("name")]
+    if index < len(stored_mappings) and any(stored is stored_mappings[index] for stored in candidates):
+        return stored_mappings[index]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 _AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[str]]
 
 
@@ -394,9 +425,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         allow_null=True,
         help_text="Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.",
     )
-    inputs_schema = serializers.ListField(
-        child=InputsSchemaItemSerializer(required=True),
+    inputs_schema = InputsSchemaSerializer(
         required=False,
+        unique_keys=False,
         help_text="Schema defining the configurable input parameters for this function.",
     )
     inputs = InputsSerializer(required=False, help_text="Values for each input defined in inputs_schema.")
@@ -665,6 +696,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         current_filters = instance.filters if isinstance(instance, HogFunction) else {}
         proposed_filters = attrs.get("filters", current_filters)
 
+        # `to_internal_value` injects the stored schema whenever the request omits it, so the field
+        # itself cannot reject duplicate keys: a row saved before the rule could no longer be
+        # disabled or deleted. Only keys this request adds a duplicate of are rejected.
+        if added_duplicate_input_keys(attrs.get("inputs_schema"), instance.inputs_schema if instance else None):
+            raise serializers.ValidationError({"inputs_schema": DUPLICATE_INPUT_KEYS_ERROR})
+        stored_mappings = [m for m in (instance.mappings if instance else None) or [] if isinstance(m, dict)]
+        for index, mapping in enumerate(attrs.get("mappings") or []):
+            stored_mapping = _stored_mapping_for(mapping, index, stored_mappings)
+            if added_duplicate_input_keys(mapping.get("inputs_schema"), (stored_mapping or {}).get("inputs_schema")):
+                raise serializers.ValidationError(
+                    {"mappings": {str(index): {"inputs_schema": [DUPLICATE_INPUT_KEYS_ERROR]}}}
+                )
+
         if not self.context.get("allow_managed_alert_destination"):
             # The alert API owns which alert a destination belongs to and removes a destination group
             # as a whole; a removed one is added back there, not restored here. Everything else about
@@ -819,7 +863,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs"] = inputs
         data["draft"] = self._mask_draft_secrets(data.get("draft"), draft_encrypted_inputs, encrypted_inputs)
 
-        return data
+        return mask_config_secrets(data)
 
     @staticmethod
     def _mask_draft_secrets(
@@ -838,7 +882,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 continue
             if draft_encrypted_inputs.get(key) or encrypted_inputs.get(key) or inputs.get(key):
                 inputs[key] = {"secret": True}
-        return {**draft, "inputs": inputs}
+        return mask_config_secrets({**draft, "inputs": inputs})
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         # An in-process caller has no request to take the acting user from, so it passes
@@ -890,6 +934,23 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             highest_order = self._get_highest_execution_order(instance.team_id, instance.type)
             validated_data["execution_order"] = highest_order + 1
+
+        # `move_secret_inputs` keeps a stored secret out of the plaintext column by refusing any key
+        # that still has an encrypted value, and the save has no request to tell a replacement the
+        # caller typed from the secret it must not expose, so that value would reach neither column.
+        # Drop the superseded entry here, where the request says which keys carry a real value.
+        # A staged edit saves only its metadata here, so its inputs must not touch the live secrets.
+        supplied = (
+            explicit_secret_input_keys(getattr(self, "initial_data", {}).get("inputs"))
+            if "inputs" in validated_data
+            else set()
+        )
+        schemas = validated_data.get("inputs_schema", instance.inputs_schema) or []
+        secret_keys = {schema["key"] for schema in schemas if schema.get("secret")}
+        stored_secrets = instance.encrypted_inputs or {}
+        superseded = (supplied - secret_keys) & stored_secrets.keys()
+        if superseded:
+            instance.encrypted_inputs = {key: value for key, value in stored_secrets.items() if key not in superseded}
 
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
@@ -946,6 +1007,11 @@ class HogFunctionRevisionSerializer(HogFunctionRevisionBasicSerializer):
     class Meta(HogFunctionRevisionBasicSerializer.Meta):
         fields = [*HogFunctionRevisionBasicSerializer.Meta.fields, "content"]
         read_only_fields = fields
+
+    def to_representation(self, instance: HogFunctionRevision) -> dict:
+        data = super().to_representation(instance)
+        data["content"] = mask_config_secrets(data["content"])
+        return data
 
 
 class HogFunctionRevisionRestoreRequestSerializer(serializers.Serializer):

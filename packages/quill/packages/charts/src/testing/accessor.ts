@@ -91,14 +91,18 @@ export interface HogChart<Meta = unknown> {
     /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
     slopeSeriesLabels(): string[]
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
-     *  chart's change, a proportion bar's `share · value`), or null when the row has none. Empty when
-     *  the legend is hidden. */
+     *  chart's change, a proportion bar's `share · value`), or null when none. Empty when the
+     *  legend is hidden. */
     legendItems(): LegendItemSummary[]
     /** @deprecated Use `legendItems()`, which reads any chart's legend. */
     slopeLegendItems(): LegendItemSummary[]
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
+    /** Node labels rendered by a Sankey chart, in layout order. */
+    sankeyNodeLabels(): string[]
+    /** Column headers rendered by a Sankey chart, left to right. */
+    sankeyColumnLabels(): string[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -248,6 +252,14 @@ export function getHogChart<Meta = unknown>(
                 fireEvent.click(row, { metaKey: additive })
             })
         },
+        sankeyNodeLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-node-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
+        sankeyColumnLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {

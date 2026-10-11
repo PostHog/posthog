@@ -164,10 +164,13 @@ else
     # Django's SECRET_KEY (the compose file falls back to POSTHOG_SECRET when unset, for
     # installs whose .env predates this variable).
     BROWSERLESS_SECRET=$(openssl rand -hex 32)
+    # Dedicated token for Django -> feature-flags calls, for the same reason.
+    INTERNAL_REQUEST_TOKEN=$(openssl rand -hex 32)
     cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 BROWSERLESS_SECRET=$BROWSERLESS_SECRET
+INTERNAL_REQUEST_TOKEN=$INTERNAL_REQUEST_TOKEN
 DOMAIN=$DOMAIN
 TLS_BLOCK=$TLS_BLOCK
 REGISTRY_URL=$REGISTRY_URL

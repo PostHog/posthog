@@ -68,7 +68,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
 
         # Check context
-        self.assertEqual(response.context["recipient"], self.recipient)
+        self.assertEqual(response.context["recipient"].identifier, self.recipient.identifier)
         self.assertEqual(len(response.context["categories"]), 3)
         self.assertEqual(response.context["token"], self.token)
 

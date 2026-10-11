@@ -148,6 +148,12 @@ def priority_from_judgment(content: str | None) -> str | None:
     return priority if isinstance(priority, str) else None
 
 
+class PriorityAdjustment(BaseModel):
+    previous_priority: Priority | None
+    previous_judgment_id: UUID | None
+    source: Literal["inbox_sidebar"] = "inbox_sidebar"
+
+
 class PriorityAssessment(BaseModel):
     """Content schema for a `priority_judgment` artefact."""
 
@@ -160,6 +166,11 @@ class PriorityAssessment(BaseModel):
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
+    adjustment: PriorityAdjustment | None = Field(
+        default=None,
+        exclude_if=lambda adjustment: adjustment is None,
+        description="Correction metadata recorded when a person changes the priority in the inbox.",
+    )
     dollar_value: float | None = Field(
         default=None,
         description=(
@@ -1071,9 +1082,9 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"] = Field(
-        description="Which path stopped the check."
-    )
+    reason: Literal[
+        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+    ] = Field(description="Which path stopped the check.")
 
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────

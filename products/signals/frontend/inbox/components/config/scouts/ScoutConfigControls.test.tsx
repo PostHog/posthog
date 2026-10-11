@@ -31,13 +31,17 @@ const config: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    allowed_mcp_tools: null,
+    tool_preset: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
     status_changed_by: null,
     auto_pause_exempt: false,
+    lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
     tags: [],
     source_product: null,
     source_id: null,
@@ -77,15 +81,18 @@ describe('ScoutConfigForm', () => {
         expect(onUpdate).toHaveBeenCalledWith('config-1', { emit: expectedPatch })
     })
 
-    // Settable while the scout is off, so a dry-run posture can be chosen before the enable
-    // sends the first run out.
-    it('leaves the dry-run switch editable while the scout is disabled', () => {
+    // Settable while the scout is off: a dry-run posture has to be chosen before the enable sends
+    // the first run out, and the lock decides who may resume a paused scout.
+    it.each([
+        ['dry-run', emitSwitchLabel],
+        ['owner lock', 'signals-scout-general only the owner can pause or delete'],
+    ])('leaves the %s switch editable while the scout is disabled', (_name, label) => {
         const onUpdate = jest.fn()
         const { getByLabelText } = render(
             <ScoutConfigForm config={{ ...config, enabled: false }} onUpdate={onUpdate} />
         )
 
-        expect(getByLabelText(emitSwitchLabel)).not.toBeDisabled()
+        expect(getByLabelText(label)).not.toBeDisabled()
     })
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
