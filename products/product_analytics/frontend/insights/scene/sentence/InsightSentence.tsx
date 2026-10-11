@@ -4,6 +4,8 @@ import { Button } from '@posthog/quill'
 
 import type { InsightLogicProps } from '~/types'
 
+import { FollowUpAdditions } from '../followUps/FollowUpAdditions'
+import { insightFollowUpsLogic } from '../followUps/insightFollowUpsLogic'
 import { insightSentenceLogic } from './insightSentenceLogic'
 import { SentenceAddEvent } from './SentenceAddEvent'
 import { SentenceAdditions } from './SentenceAdditions'
@@ -20,6 +22,7 @@ export function InsightSentence({
     trailing?: React.ReactNode
 }): JSX.Element | null {
     const { sentence } = useValues(insightSentenceLogic(insightProps))
+    const { followUpLine } = useValues(insightFollowUpsLogic(insightProps))
     const { setSeriesExpanded } = useActions(insightSentenceLogic(insightProps))
 
     if (!sentence) {
@@ -48,12 +51,18 @@ export function InsightSentence({
                 <p className="m-0 text-pretty">
                     <SentenceParts insightProps={insightProps} parts={sentence.parts} ending={ending} />
                 </p>
+                {followUpLine.length > 0 && (
+                    <p className="m-0 text-pretty" data-attr="quill-insight-sentence-follow-ups">
+                        <SentenceParts insightProps={insightProps} parts={followUpLine} />
+                    </p>
+                )}
             </div>
             <div className="flex items-start justify-between gap-2">
                 {/* Only the faint state has the delay and the slow fade, so the buttons light up quickly. */}
                 <div className="flex flex-wrap items-center gap-2 opacity-50 transition-opacity delay-1000 duration-700 group-focus-within/sentence:opacity-100 group-focus-within/sentence:delay-0 group-focus-within/sentence:duration-150 group-hover/sentence:opacity-100 group-hover/sentence:delay-0 group-hover/sentence:duration-150 has-[[aria-expanded=true]]:opacity-100 has-[[aria-expanded=true]]:delay-0 has-[[aria-expanded=true]]:duration-150">
                     <SentenceAdditions insightProps={insightProps} />
                     <SentenceAddEvent insightProps={insightProps} />
+                    <FollowUpAdditions insightProps={insightProps} />
                     {sentence.canCollapseSeries && (
                         <Button
                             variant="link-muted"

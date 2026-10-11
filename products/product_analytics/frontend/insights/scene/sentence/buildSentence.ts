@@ -35,10 +35,29 @@ export type SentenceSlot =
     | 'dateRange'
     | 'interval'
     | 'compare'
+    | 'subscription'
+    | 'alert'
 
 export type SentencePart =
     | { type: 'text'; text: string }
-    | { type: 'value'; slot: SentenceSlot; text: string; seriesIndex?: number; splitIndex?: number }
+    | {
+          type: 'value'
+          slot: SentenceSlot
+          text: string
+          seriesIndex?: number
+          splitIndex?: number
+          /** The subscription or alert the word stands for. Null when it stands for several. */
+          itemId?: string | null
+      }
+
+export interface SentenceFollowUp {
+    slot: 'subscription' | 'alert'
+    /** The words before the value when it opens the line, and when it comes after another one. */
+    opening: string
+    lead: string
+    text: string
+    itemId: string | null
+}
 
 export interface Sentence {
     /** A line above the event lines. Empty unless the events are a numbered list of steps. */

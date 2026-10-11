@@ -1,5 +1,6 @@
 import type { InsightLogicProps } from '~/types'
 
+import { SentenceFollowUpWord } from '../followUps/SentenceFollowUpWord'
 import type { SentencePart } from './buildSentence'
 import { SentenceCompare } from './SentenceCompare'
 import { SentenceDateRange } from './SentenceDateRange'
@@ -52,5 +53,15 @@ export function SentenceValue({
             return <SentenceFilters insightProps={insightProps} label={part.text} />
         case 'formula':
             return <SentenceFormula insightProps={insightProps} label={part.text} />
+        case 'subscription':
+        case 'alert':
+            return (
+                <SentenceFollowUpWord
+                    insightProps={insightProps}
+                    slot={part.slot}
+                    itemId={part.itemId ?? null}
+                    label={part.text}
+                />
+            )
     }
 }
