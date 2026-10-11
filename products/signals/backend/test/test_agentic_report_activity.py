@@ -234,6 +234,7 @@ async def _run_activity_with_output(
     metrics_enabled=True,
     repo_selection_as_of=None,
     research_kwargs=None,
+    repo_selection=None,
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
@@ -259,7 +260,7 @@ async def _run_activity_with_output(
                 team_id=ateam.id,
                 report_id=str(report.id),
                 signals=_build_signals(),
-                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+                repo_selection=repo_selection or RepoSelectionResult(repository="posthog/posthog", reason="test"),
                 repo_selection_as_of=repo_selection_as_of,
             )
         )
@@ -843,6 +844,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "reason": "Single repository connected: posthog/posthog",
             "task_id": None,
             "autostart_eligible": True,
+            "from_research": False,
         }
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[4:]]
@@ -951,6 +953,76 @@ async def test_run_agentic_report_activity_keeps_a_scout_repository_correction(m
         )
     )()
     assert [json.loads(selection.content)["repository"] for selection in selections] == ["acme/other"]
+
+
+_CONNECTED = ["acme/web-app", "posthog/posthog"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "name,agent_selected,from_research,connected,code_repository,expected_repository,expected_autostart",
+    [
+        ("connected_repository_replaces_the_guess", True, False, _CONNECTED, "Acme/Web-App", "acme/web-app", False),
+        ("unreachable_repository_clears_the_guess", True, False, _CONNECTED, "acme/billing", None, False),
+        ("same_repository_keeps_the_guess", True, False, _CONNECTED, "posthog/posthog", "posthog/posthog", True),
+        ("no_code_repository_keeps_the_guess", True, False, _CONNECTED, None, "posthog/posthog", True),
+        ("a_pin_is_not_a_guess", False, False, _CONNECTED, "acme/web-app", "posthog/posthog", True),
+        ("an_unavailable_installation_keeps_the_guess", True, False, [], "acme/billing", "posthog/posthog", True),
+        (
+            "a_research_selection_is_not_a_guess",
+            True,
+            True,
+            _CONNECTED,
+            "acme/web-app",
+            "posthog/posthog",
+            True,
+        ),
+    ],
+)
+async def test_run_agentic_report_activity_reconciles_the_selection_with_research(
+    monkeypatch,
+    ateam,
+    name,
+    agent_selected,
+    from_research,
+    connected,
+    code_repository,
+    expected_repository,
+    expected_autostart,
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+    selector = await database_sync_to_async(Task.objects.create)(team=ateam, title="selector", description="d")
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.list_team_connected_repositories",
+        lambda team_id: connected,
+    )
+    output = _build_research_output()
+    output.code_repository = code_repository
+
+    result = await _run_activity_with_output(
+        monkeypatch,
+        ateam,
+        report,
+        output,
+        repo_selection=RepoSelectionResult(
+            repository="posthog/posthog",
+            reason="guess",
+            task_id=str(selector.id) if agent_selected else None,
+            from_research=from_research,
+        ),
+    )
+
+    latest = await database_sync_to_async(
+        lambda: SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+        ).latest("created_at")
+    )()
+    selection = RepoSelectionResult.model_validate_json(latest.content)
+    assert (selection.repository, selection.autostart_eligible) == (expected_repository, expected_autostart)
+    assert result.repository == (expected_repository or "")
 
 
 @pytest.mark.asyncio

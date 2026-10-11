@@ -77,6 +77,18 @@ def test_prompt_labels_candidate_visibility() -> None:
     assert "source privacy rule" in prompt
 
 
+def test_prompt_asks_for_ownership_evidence_before_a_vendor_verdict() -> None:
+    prompt = _build_repo_selection_prompt("event: subscription_renewal_failed", ["acme/web", "acme/infra"])
+
+    # A project's own billing-like event must not read as a vendor billing question that ends in `null`.
+    assert (
+        prompt.index("## Application versus vendor ownership")
+        < prompt.index("## When to return `null`")
+        < prompt.index("A billing or infrastructure word in an event name is not this case.")
+    )
+    assert "`reason` must name the ownership evidence you used." in prompt
+
+
 def test_prompt_text_caps_over_long_legacy_rules() -> None:
     rule = RepoRoutingRule(rule_text="term " * 100)
     assert len(rule.prompt_text) == RepoRoutingRule.MAX_RULE_TEXT_LENGTH

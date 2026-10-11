@@ -195,6 +195,15 @@ Hard rules:
             "becomes its own report with its own pull request."
         ),
     )
+    code_repository: str | None = Field(
+        default=None,
+        description=(
+            "The `owner/repo` that holds the code your findings point at, when that is not the repository "
+            "cloned at the start of this session. A developer would change this repository to fix the issue. "
+            "Null when the evidence is in the cloned repository, or when you found no code path. Never name a "
+            "third-party dependency here, only a repository this project owns."
+        ),
+    )
 
     source_suggestion: SourceSuggestion | None = Field(
         default=None,
@@ -470,6 +479,10 @@ class ReportResearchOutput(BaseModel):
         default_factory=list,
         description="The plan of dependent pull requests, when research split the work. Each layer becomes "
         "a child report when the report settles ready.",
+    )
+    code_repository: str | None = Field(
+        default=None,
+        description="The repository research found the code in, when it differs from the selected one.",
     )
     research_task_id: str | None = Field(
         default=None,
@@ -900,7 +913,7 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     return "\n".join(lines)
 
 
-_RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.
+_RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for this project's codebase.
 Your findings will be passed downstream to a coding agent that will act on this report — thorough, evidence-based research here directly improves the quality of the coding agent's work.
 
 <writing_guide>
@@ -915,7 +928,7 @@ Session replay is the product name; the sessions it captures are called session 
 </writing_guide>
 
 You have two investigation tools:
-1. **The codebase** – the full PostHog repository is available on disk. Use file search, grep, and code reading.
+1. **The codebase** – the repository selected for this report is available on disk. Use file search, grep, and code reading.
 2. **PostHog analytics data** – one MCP tool, `mcp__posthog__exec`, which takes a CLI-style `command` string. Load it in your first tool call with exactly: `ToolSearch("select:mcp__posthog__exec")`
 then use `call execute-sql {...}`, `call read-data-schema {...}`, `call query-trends {...}`, and `info <command>` when you need a command's schema. `execute-sql`, `read-data-schema`, the `query-*` family (`query-trends`, `query-funnel`, `query-error-tracking-issues-list`, and the rest), `insights-list`, `experiment-get`, `feature-flag-get-all` and the rest are *commands you pass to* `mcp__posthog__exec`, not tool names – there is no `mcp__posthog__execute-sql` tool, and searching for one wastes a turn.
 Use `search <regex>` on that same interface to find a command whose exact name you don't know, rather than guessing one – a guessed name costs a turn too.
@@ -924,6 +937,9 @@ The cloned repository is your starting point, not a boundary. When the evidence 
 Cloning a further repo is cheap — do it the moment a different repo becomes relevant, rather than forcing a finding onto the repo you happen to be in.
 For safety, only clone legit, imperfectly defined by us as: either in the same org as the initial repo OR open-source with dozens+ stars & weeks+ old.
 If the true subject is a repo you genuinely cannot reach, say so in the finding instead of guessing.
+When the code evidence ends up in a repository other than the cloned one, the final turn asks you to name it in `code_repository`, and the report then targets that repository.
+
+The project's events, errors, logs, and recordings describe the application this project instruments, not the analytics vendor that collects the data. An event name that sounds like vendor billing or infrastructure (`billing`, `subscription`, `ingestion`, `usage limit`) is still an event this project captures. Find the code that emits or handles it before you decide who owns the behavior. Say a vendor owns it only when the evidence shows the behavior inside that vendor's own service.
 
 The report's history lives in its artefacts (prior findings, judgments, notes, task runs). You can list them with `call inbox-report-artefacts-list {...}` when prior context would help. Do not create or modify artefacts yourself – at the end of the session you will be asked for your findings and assessments as structured responses, and the pipeline persists them. Where an existing artefact of a given type is still correct, you will be able to confirm it instead of producing a new one.
 
@@ -1716,6 +1732,7 @@ async def run_multi_turn_research(
         charts=presentation_result.charts,
         metrics=presentation_result.metrics if metrics_enabled else [],
         layers=presentation_result.layers,
+        code_repository=presentation_result.code_repository,
         research_task_id=str(session.task.id),
         verification_note=verification_note,
         checks=checks,
