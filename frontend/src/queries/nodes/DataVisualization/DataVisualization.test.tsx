@@ -1,4 +1,5 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 
 import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -19,9 +20,9 @@ const mockLemonTable = jest.fn((props: LemonTableMockProps): null => {
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
-    LemonTable: (props: Record<string, unknown>): null => {
+    LemonTable: (props: Record<string, unknown>): JSX.Element => {
         mockLemonTable(props)
-        return null
+        return <>{props.footer as ReactNode}</>
     },
 }))
 
@@ -81,4 +82,20 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+    test.each([
+        { transpose: false, expectedFooter: 'Showing all 2 entries' },
+        { transpose: true, expectedFooter: 'Showing all 2 rows as columns' },
+    ])('footer reads "$expectedFooter" when transpose is $transpose', async ({ transpose, expectedFooter }) => {
+        render(
+            <DataTableVisualization
+                uniqueKey={`data-visualization-footer-${transpose}`}
+                query={{ ...query, tableSettings: { transpose } }}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+            />
+        )
+
+        expect(await screen.findByText(expectedFooter)).toBeTruthy()
+    })
 })
