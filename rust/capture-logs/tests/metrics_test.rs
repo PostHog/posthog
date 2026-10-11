@@ -506,6 +506,7 @@ fn nodejs_otlp_json_exporter_exemplars_flatten_into_rows() {
             metric.clone(),
             resource_metrics.resource.as_ref(),
             scope_metrics.scope.as_ref(),
+            capture_logs::log_record::default_max_past(),
         )
         .expect("flatten ok");
         assert_eq!(rows.len(), 1, "one row per data point for {}", metric.name);

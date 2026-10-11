@@ -247,6 +247,7 @@ async fn run(
         authorizer,
         config.base.max_request_body_size_bytes,
         series_label_gate,
+        config.base.max_metrics_backfill_days,
     );
     let http_bind = format!("{}:{}", config.base.host, config.base.port);
     info!("Listening on {}", http_bind);

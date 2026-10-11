@@ -492,7 +492,13 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
+        .write_metrics(
+            &token,
+            rows,
+            uncompressed_bytes,
+            timestamps_overridden,
+            None,
+        )
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");

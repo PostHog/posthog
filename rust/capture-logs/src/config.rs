@@ -36,6 +36,10 @@ pub struct Config {
 
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
+
+    // Separate from logs, so turning on backdated metrics never widens the logs window.
+    #[envconfig(from = "MAX_METRICS_BACKFILL_DAYS", default = "0")]
+    pub max_metrics_backfill_days: u32,
 }
 
 impl Config {
