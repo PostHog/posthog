@@ -31,6 +31,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.temporal.activities import (
+    complete_observation_requests_activity,
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
@@ -244,6 +245,7 @@ class _ReconcileMocks:
             reap_childless_inline_scanners_activity,
             reap_backfill_schedules_activity,
             start_launched_scanners_activity,
+            complete_observation_requests_activity,
         ):
             return 0
         if activity_fn is reap_orphaned_observations_activity:

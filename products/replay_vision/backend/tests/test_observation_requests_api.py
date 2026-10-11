@@ -9,10 +9,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -20,7 +22,12 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_requests import request_progress
+from products.replay_vision.backend.observation_requests import (
+    MAX_SESSION_END_WAIT,
+    complete_settled_requests,
+    request_progress,
+    start_waiting_requests,
+)
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 
@@ -174,6 +181,17 @@ class TestObservationRequestAPI(APIBaseTest):
 
         self.assertEqual((parent.status_code, response.status_code), (202, 400), response.json())
 
+    def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:
+        response = self.client.post(
+            self.url,
+            {"session_ids": ["s1"], "scanner_id": str(self.scanner.id), "wait_for_session_end": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202, response.json())
+        self.assertEqual((response.json()["status"], response.json()["sessions"][0]["state"]), ("running", "pending"))
+        self.start_workflow.assert_not_called()
+
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 
         response = self.client.post(
@@ -282,3 +300,202 @@ class TestRequestProgress(APIBaseTest):
 
         self.assertEqual([s.state for s in progress.sessions], [state])
         self.assertEqual(progress.settled, settled)
+
+
+class TestCompleteSettledRequests(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flush = patch("products.replay_vision.backend.observation_requests.flush_internal_events_producer")
+        self.addCleanup(flush.stop)
+        flush.start()
+        self.scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+
+    def _request(self, outcomes: dict[str, str]) -> ReplayObservationRequest:
+        return ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=list(outcomes),
+            start_outcomes=[{"session_id": sid, "scan_outcome": outcome} for sid, outcome in outcomes.items()],
+            reference="job-7",
+            source="project_secret_api_key",
+        )
+
+    @parameterized.expand(
+        [
+            ("settled_and_delivered", "skipped_quota", None, True),
+            ("still_in_flight", "started", None, False),
+            ("delivery_failed", "skipped_quota", RuntimeError("kafka down"), False),
+        ]
+    )
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_completes_only_settled_requests_whose_event_was_delivered(
+        self, _name: str, outcome: str, delivery_error: Exception | None, completes: bool, produce: MagicMock
+    ) -> None:
+        produce.return_value.get.side_effect = delivery_error
+        request = self._request({"s1": outcome})
+
+        complete_settled_requests()
+
+        request.refresh_from_db()
+        self.assertEqual(request.completed_at is not None, completes)
+        if outcome == "started":
+            produce.assert_not_called()
+            return
+        event = produce.call_args.kwargs["event"]
+        self.assertEqual(event.event, "$replay_vision_request_completed")
+        self.assertEqual(event.properties["reference"], "job-7")
+        # Anyone who can add a destination receives the event, so it names no sessions.
+        self.assertEqual((event.properties["skipped_count"], "sessions" in event.properties), (1, False))
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_announces_a_request_once(self, produce: MagicMock) -> None:
+        self._request({"s1": "skipped_limit"})
+
+        complete_settled_requests()
+        complete_settled_requests()
+
+        self.assertEqual(produce.call_count, 1)
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_an_undeliverable_request_does_not_block_newer_ones(self, produce: MagicMock) -> None:
+        stuck, fine = MagicMock(), MagicMock()
+        stuck.get.side_effect = RuntimeError("kafka refused")
+        produce.side_effect = [stuck, fine]
+        first = self._request({"s1": "skipped_limit"})
+        second = self._request({"s2": "skipped_limit"})
+
+        complete_settled_requests()
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.completed_at is None, second.completed_at is not None), (True, True))
+
+
+class TestStartWaitingRequests(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for target in ("api.trigger.async_to_sync", "api.trigger.sync_connect"):
+            patcher = patch(f"products.replay_vision.backend.{target}")
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+
+    @parameterized.expand(
+        [
+            ("quiet_long_enough", timedelta(minutes=40), timedelta(0), True),
+            ("still_recording", timedelta(minutes=5), timedelta(0), False),
+            ("not_recorded_yet", None, timedelta(0), False),
+            ("waited_too_long", timedelta(minutes=5), MAX_SESSION_END_WAIT, True),
+        ]
+    )
+    def test_starts_once_the_session_has_ended(
+        self, _name: str, quiet_for: timedelta | None, waited: timedelta, starts: bool
+    ) -> None:
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[],
+            source="project_secret_api_key",
+            wait_for_session_end=True,
+        )
+        now = request.created_at + waited
+        last_activity = {} if quiet_for is None else {"s1": now - quiet_for}
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.fetch_session_last_activity",
+            return_value=last_activity,
+        ):
+            start_waiting_requests(now=now)
+
+        request.refresh_from_db()
+        self.assertEqual(request.started_at is not None, starts)
+        self.assertEqual([o["session_id"] for o in request.start_outcomes], ["s1"] if starts else [])
+
+    @patch("products.replay_vision.backend.observation_requests.MAX_CHECKS_PER_TICK", 1)
+    def test_a_request_whose_sessions_never_end_does_not_block_the_next_one(self) -> None:
+        stuck, ready = (
+            ReplayObservationRequest.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=self.scanner,
+                session_ids=[sid],
+                start_outcomes=[],
+                source="project_secret_api_key",
+                wait_for_session_end=True,
+            )
+            for sid in ("never-ends", "ended")
+        )
+        now = timezone.now()
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.fetch_session_last_activity",
+            return_value={"never-ends": now, "ended": now - timedelta(hours=1)},
+        ):
+            start_waiting_requests(now=now)
+            start_waiting_requests(now=now + timedelta(minutes=1))
+
+        stuck.refresh_from_db()
+        ready.refresh_from_db()
+        self.assertEqual((stuck.started_at is None, ready.started_at is not None), (True, True))
+
+    @parameterized.expand([("lost_recording_access",), ("account_deleted",)])
+    def test_a_request_whose_creator_can_no_longer_scan_fails_instead_of_starting(self, case: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[],
+            source="user",
+            # A deleted account nulls the creator; that must not read as a service key's request.
+            created_by=None if case == "account_deleted" else self.user,
+            wait_for_session_end=True,
+        )
+        if case == "lost_recording_access":
+            AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        now = timezone.now()
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.fetch_session_last_activity",
+            return_value={"s1": now - timedelta(hours=1)},
+        ):
+            start_waiting_requests(now=now)
+
+        request.refresh_from_db()
+        self.assertEqual([o["scan_outcome"] for o in request.start_outcomes], ["failed"])
+
+    def test_a_tick_out_of_time_leaves_its_requests_at_the_front(self) -> None:
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[],
+            source="project_secret_api_key",
+            wait_for_session_end=True,
+        )
+
+        with patch("products.replay_vision.backend.observation_requests.fetch_session_last_activity") as fetch:
+            start_waiting_requests(budget_seconds=0)
+
+        request.refresh_from_db()
+        fetch.assert_not_called()
+        # Never read, so it must not count as checked and drop behind requests that were.
+        self.assertIsNone(request.session_end_checked_at)
