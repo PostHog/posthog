@@ -2682,6 +2682,7 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
             }
         )
         ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from is not None
         assert ticket.email_from.lower() == requester_email.lower()
         assert ticket.unread_team_count == 1
         ticket.session_context = {"source_product": source_product} if source_product else {}
