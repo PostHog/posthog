@@ -219,11 +219,8 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 !!intent.group_type &&
                 intent.activeTab === TaxonomicFilterGroupType.SuggestedFilters
             // Promote only while the results still show skeletons, so no row moves under the cursor.
-            const promoted =
-                values.variant === 'promote' &&
-                canPromote &&
-                !values.revealBarrierOpen &&
-                values.activeTab === intent.activeTab
+            const inTime = !values.revealBarrierOpen && values.activeTab === intent.activeTab
+            const promoted = values.variant === 'promote' && canPromote && inTime
             if (promoted) {
                 actions.setIntentPromotedGroupType(intent.group_type as TaxonomicFilterGroupType)
             }
@@ -239,6 +236,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 promptVersion: intent.prompt_version,
                 suggestsSwitch: intent.suggests_switch,
                 wouldPromote: canPromote,
+                inTime,
                 shown: values.variant === 'banner' ? !!values.suggestedSwitch : promoted,
                 query: intent.model_query ?? undefined,
             })
