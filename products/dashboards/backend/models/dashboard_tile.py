@@ -225,6 +225,9 @@ class DashboardTile(models.Model):
         The ``copy_tile`` API still only exposes insight and text tiles; dashboard duplication uses this
         method for all tile types including buttons.
         """
+        # An edit can replace the content reference while this copy waits for the lock.
+        if self.text_id is not None or self.button_tile_id is not None:
+            self.refresh_from_db(from_queryset=DashboardTile.objects.select_for_update(of=("self",)))
         if self.insight is not None:
             existing = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard=dashboard, insight=self.insight

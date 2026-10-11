@@ -5,8 +5,10 @@ from posthog.test.base import APIBaseTest
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
+from parameterized import parameterized
+
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 
@@ -62,3 +64,26 @@ class TestDashboardTileModel(APIBaseTest):
         tile = DashboardTile(dashboard=self.dashboard, insight=insight, team_id=self.team.id)
         tile.save()
         self.assertEqual(tile.team_id, self.team.id)
+
+    @parameterized.expand([("text",), ("button_tile",)])
+    def test_copy_uses_current_content_after_reference_changes(self, content_field: str) -> None:
+        if content_field == "text":
+            original: Text | ButtonTile = Text.objects.create(team=self.team, body="Original")
+            updated: Text | ButtonTile = Text.objects.create(team=self.team, body="Updated")
+        else:
+            original = ButtonTile.objects.create(team=self.team, url="https://example.com/original", text="Original")
+            updated = ButtonTile.objects.create(team=self.team, url="https://example.com/updated", text="Updated")
+        source = DashboardTile.objects.create(dashboard=self.dashboard, **{content_field: original})
+        source = DashboardTile.objects.select_related(content_field).get(pk=source.pk)
+        DashboardTile.objects.filter(pk=source.pk).update(**{content_field: updated})
+        destination = Dashboard.objects.create(team=self.team, name="Destination")
+
+        source.copy_to_dashboard(destination)
+
+        copied = DashboardTile.objects.get(dashboard=destination)
+        if content_field == "text":
+            assert copied.text is not None
+            assert copied.text.body == "Updated"
+        else:
+            assert copied.button_tile is not None
+            assert copied.button_tile.url == "https://example.com/updated"
