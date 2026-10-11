@@ -3484,6 +3484,14 @@ snapshots:
         hash: v1.k794b7964.352cfe99917d54e620155b2fbad7a34925e6f87394f59bdc3bb52a7a4306f8fa.PHzbW8Wv9V2tEC_dut7e56k5trwtzp4ScpxegDx148A
     filters-propertyfilters-operatorvalueselect--operator-value-menu-open--light:
         hash: v1.k794b7964.7847e8f61591729f30efc7fa0b50f3cbee1d235af826f4687852efc5136e4d8e.noppZlwvhJvqmX9xlnwGHwm0sKBsT79C9ZsVcDDy2IQ
+    filters-propertyfilters-operatorvalueselect--operator-value-menu-open-for-text-property--dark:
+        hash: v1.k794b7964.68748f20ccc644e85974f12853eaa1673b5da9d01a0de8ce6b246ae12bcee7ee.tfzm_D3NdwTGcGkxohcMkWAgVcfjcLSj0vgyhfoPWYw
+    filters-propertyfilters-operatorvalueselect--operator-value-menu-open-for-text-property--light:
+        hash: v1.k794b7964.7ea947031878797a0b8bc73d3ec2336742f7d892243069ef3c76560bf052c701.NBKLiOparTUU7RhNh59JoEjAezaY8H84joKVFUpvQwU
+    filters-propertyfilters-operatorvalueselect--operator-value-menu-open-for-version-property--dark:
+        hash: v1.k794b7964.ba2dd1cc4c0b8ebe05f3894009a4993bb99d8c219588e79693401cc40809192a.A7_HhbIQAra2XYHrd_WK9WPqKTWs5G5Njmfonuxtz-U
+    filters-propertyfilters-operatorvalueselect--operator-value-menu-open-for-version-property--light:
+        hash: v1.k794b7964.b033dd17e92cc28be04f093a0849ea2a3eef2305a682fd31fc150b411e7c2d33.VZUBsKyqApoz9kAqvaTVZDrzwsTuAgHpyENMjgYErXU
     filters-propertyfilters-operatorvalueselect--operator-value-menu-with-allowlist--dark:
         hash: v1.k794b7964.2dd05cbc0bf895740c37317b583a2b9d1fdcb32d51aae2c3a00ebd61f5be8c9f.OV9m0YvoE5vrwn1jxJcIlIHJelGb7AUOhQ-KRu7oO_w
     filters-propertyfilters-operatorvalueselect--operator-value-menu-with-allowlist--light:
