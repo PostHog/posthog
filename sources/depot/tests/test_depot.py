@@ -9,12 +9,10 @@ from unittest import mock
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.depot._config import DepotSourceConfig
 from sources.depot.depot import DEPOT_CI_SERVICE_URL, depot_source, validate_credentials
 from sources.depot.source import DepotReconciliationCursor, DepotSource
+from sources.sdk import SourceCursorManager, SourceResponse
 
 MODULE = "sources.depot.depot"
 REPOSITORY = "example-org/example-repo"

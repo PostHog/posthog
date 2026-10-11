@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.sleekplan.settings import SLEEKPLAN_ENDPOINTS, SURVEY_LOOKBACK_DAYS
 from sources.sleekplan.sleekplan import (
     SleekplanPaginator,

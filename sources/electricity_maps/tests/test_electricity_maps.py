@@ -9,14 +9,13 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.electricity_maps.electricity_maps import (
     ElectricityMapsResumeConfig,
     electricity_maps_source,
     initial_window_start,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 _NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
 

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Alpha Vantage API docs (https://www.alphavantage.co/documentation/).
 # Column names match the normalized shape the transport emits (ordinal prefixes stripped, snake_cased).

@@ -1,7 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 SAGEMAKER_API_VERSION = "2017-07-24"
 TARGET_PREFIXES = {SAGEMAKER_API_VERSION: "SageMaker"}

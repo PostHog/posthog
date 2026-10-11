@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the official ChargeDesk API docs (https://chargedesk.com/api-docs). Keyed by the endpoint
 # name returned by `get_schemas`. Any field not listed here falls back to LLM enrichment.

@@ -5,16 +5,6 @@ from typing import Any, Optional
 import requests
 import structlog
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2Auth,
-    OAuth2AuthRequestError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.genesys_cloud.settings import (
     ANALYTICS_PAGE_SIZE,
     CONVERSATION_DETAILS_PATH,
@@ -22,6 +12,14 @@ from sources.genesys_cloud.settings import (
     LISTING_PAGE_SIZE,
     REGIONS,
     GenesysCloudEndpointConfig,
+)
+from sources.sdk import (
+    OAuth2Auth,
+    OAuth2AuthRequestError,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
 )
 
 logger = structlog.get_logger(__name__)

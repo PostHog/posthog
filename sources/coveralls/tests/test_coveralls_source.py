@@ -3,11 +3,10 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.coveralls._config import CoverallsSourceConfig
 from sources.coveralls.settings import ENDPOINTS
 from sources.coveralls.source import CoverallsSource
+from sources.sdk import SourceInputs
 
 
 def _make_inputs(

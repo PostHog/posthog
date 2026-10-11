@@ -6,9 +6,7 @@ and the E2B API reference (https://e2b.dev/docs). Keyed by the endpoint names in
 back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "sandboxes": {

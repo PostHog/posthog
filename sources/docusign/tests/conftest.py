@@ -9,9 +9,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.docusign.docusign import DocusignResumeConfig
+from sources.sdk import ResumableSourceManager
 
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 

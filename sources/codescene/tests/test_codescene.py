@@ -4,11 +4,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-
 from sources.codescene import codescene as codescene_module
 from sources.codescene.codescene import (
     CodesceneResumeConfig,
@@ -17,6 +12,7 @@ from sources.codescene.codescene import (
     validate_credentials,
 )
 from sources.codescene.settings import CODESCENE_ENDPOINTS
+from sources.sdk import PageNumberPaginator, SinglePagePaginator
 
 
 class _FakeDltResource:

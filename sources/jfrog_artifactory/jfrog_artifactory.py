@@ -10,18 +10,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.jfrog_artifactory.settings import (
     AQL_PAGE_SIZE,
     JFROG_ARTIFACTORY_ENDPOINTS,
     XRAY_PAGE_SIZE,
     JfrogArtifactoryEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, is_cloud, make_tracked_session
 
 # Artifactory's REST and AQL APIs live under /artifactory on both SaaS (<company>.jfrog.io)
 # and standard self-hosted installs.

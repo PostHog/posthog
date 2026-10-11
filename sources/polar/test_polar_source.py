@@ -2,11 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
-
 from sources.polar import polar as polar_module
 from sources.polar._config import PolarSourceConfig
 from sources.polar.source import PolarSource
+from sources.sdk import DEFAULT_RETRY
 
 
 class _FakeResponse:

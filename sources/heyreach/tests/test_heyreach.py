@@ -8,9 +8,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.heyreach.heyreach import STATS_START_DATE, HeyReachResumeConfig, heyreach_source, validate_credentials
+from sources.sdk import ResumableSourceManager
 
 _REST_CLIENT_SESSION = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"

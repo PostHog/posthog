@@ -2,11 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-
 from sources.leadfeeder._config import LeadfeederSourceConfig
 from sources.leadfeeder.settings import LEADFEEDER_API_2026_08_07, LEADFEEDER_API_LEGACY
 from sources.leadfeeder.source import LeadfeederSource
+from sources.sdk import VersionDeprecation
 
 
 class TestLeadfeederSource:

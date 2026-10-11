@@ -1,7 +1,7 @@
 from dataclasses import field
 from typing import Any, Optional
 
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 
 @frozen

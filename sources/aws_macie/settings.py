@@ -1,7 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 MACIE_API_VERSION = "2020-01-01"
 API_DOCS_URL = "https://docs.aws.amazon.com/macie/latest/APIReference/"

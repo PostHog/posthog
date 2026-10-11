@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.metaplane.metaplane import (
     EVALUATION_PAGE_LIMIT,
     METAPLANE_BASE_URL,
@@ -21,6 +19,7 @@ from sources.metaplane.metaplane import (
     validate_credentials,
 )
 from sources.metaplane.settings import METAPLANE_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 METAPLANE_MODULE = "sources.metaplane.metaplane"
 

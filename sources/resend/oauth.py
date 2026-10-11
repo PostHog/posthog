@@ -4,9 +4,7 @@ from django.db import transaction
 
 from requests import PreparedRequest
 
-from posthog.models.integration import Integration, OauthIntegration
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from sources.sdk import AuthConfigBase, Integration, OauthIntegration
 
 # Resend access tokens live ~15m. Re-mint through the DB a few minutes before that so a token never
 # expires mid-request; the DB refresh only actually spends the refresh token once it's past its own

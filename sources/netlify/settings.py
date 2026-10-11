@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Netlify exposes no server-side timestamp filter on any list endpoint (no `since` / `updated_after`
 # / `created_gte` param filters the results — they're documented but silently ignored, or absent),

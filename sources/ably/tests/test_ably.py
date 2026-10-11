@@ -8,10 +8,6 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.ably.ably import (
     ABLY_VERSION_2,
     AblyResumeConfig,
@@ -25,6 +21,7 @@ from sources.ably.ably import (
     validate_credentials,
     version_header,
 )
+from sources.sdk import UNVERSIONED_API_VERSION, ResumableSourceManager, SourceResponse
 
 
 def _pages(response: SourceResponse) -> list[list[dict[str, Any]]]:

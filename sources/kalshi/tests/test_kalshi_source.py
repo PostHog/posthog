@@ -4,9 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.kalshi.source import KalshiSource
+from sources.sdk import SourceInputs
 
 SOURCE_MODULE = "sources.kalshi.source"
 

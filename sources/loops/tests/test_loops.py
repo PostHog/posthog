@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.loops.loops import LoopsResumeConfig, loops_source, validate_credentials
 from sources.loops.settings import LOOPS_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:

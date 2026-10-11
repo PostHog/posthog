@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the My Hours API v1.1 docs (https://documenter.getpostman.com/view/8879268/TVmV4YYU)
 # and the My Hours connector reference. Partial coverage is fine — uncovered columns fall back to

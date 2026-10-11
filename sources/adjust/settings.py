@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every report is grouped by `day`, which is the only stable cursor the Report Service API
 # exposes (it filters server-side via `date_period`).

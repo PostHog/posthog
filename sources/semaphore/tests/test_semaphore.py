@@ -11,9 +11,7 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import ResumableSourceManager, SourceInputs
 from sources.semaphore._config import SemaphoreSourceConfig
 from sources.semaphore.semaphore import SemaphoreResumeConfig
 from sources.semaphore.settings import AUTH_ERROR, NOT_FOUND_ERROR, PERMISSION_ERROR

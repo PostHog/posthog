@@ -9,16 +9,10 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.humanitec._config import HumanitecSourceConfig
 from sources.humanitec.humanitec import humanitec_source, validate_credentials
 from sources.humanitec.source import HumanitecSource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceResponse, UnknownResourceError
 
 BASE = "https://api.humanitec.io/orgs/example-org"
 CONFIG = HumanitecSourceConfig(api_token="test-token", organization_id="example-org")

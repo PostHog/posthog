@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_waf._config import AwsWafSourceConfig
 from sources.aws_waf.aws_waf import (
     AwsWafClient,
@@ -21,6 +19,7 @@ from sources.aws_waf.aws_waf import (
     validate_credentials,
 )
 from sources.aws_waf.source import AwsWafSource
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.aws_waf.aws_waf"
 

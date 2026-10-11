@@ -4,31 +4,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
@@ -39,6 +14,23 @@ from sources.cloudflare.settings import (
     SINGLE_PAGE,
     ZONES_PARENT,
     CloudflareEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+    Resource,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    find_values,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
 )
 
 CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"

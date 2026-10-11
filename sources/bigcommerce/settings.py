@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Resources a user is likely to want from a BigCommerce store. BigCommerce is mid-migration
 # from its legacy V2 REST API to V3: catalog resources and customers already have V3

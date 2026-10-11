@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Braze list endpoints paginate either with a 0-indexed ``page`` param
 # (campaigns/canvas/segments/events) or a ``limit``/``offset`` pair

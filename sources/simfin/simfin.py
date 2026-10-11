@@ -5,9 +5,7 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import SourceResponse, make_tracked_session
 from sources.simfin.settings import SIMFIN_ENDPOINTS, SimFinEndpointConfig
 
 SIMFIN_BASE_URL = "https://backend.simfin.com/api"

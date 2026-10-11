@@ -13,12 +13,6 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_cost_explorer.settings import (
     AWS_COST_EXPLORER_ENDPOINTS,
     CE_CONTENT_TYPE,
@@ -29,6 +23,7 @@ from sources.aws_cost_explorer.settings import (
     DEFAULT_LOOKBACK_DAYS,
     CostExplorerEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, capture_exception, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_THROTTLE_ATTEMPTS = 6

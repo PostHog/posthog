@@ -1,17 +1,16 @@
 import re
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.campayn.settings import CAMPAYN_ENDPOINTS
+from sources.sdk import (
+    ApiKeyAuthConfig,
     RESTAPIConfig,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ApiKeyAuthConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.campayn.settings import CAMPAYN_ENDPOINTS
 
 CAMPAYN_API_PATH = "/api/v1"
 # Per-account host: requests go to {subdomain}.campayn.com. The label is validated against this

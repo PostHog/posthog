@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.frill.frill import (
     FRILL_BASE_URL,
     PAGE_SIZE,
@@ -19,6 +17,7 @@ from sources.frill.frill import (
     validate_credentials,
 )
 from sources.frill.settings import ENDPOINTS, FRILL_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 def _resp(body: Any, status: int = 200) -> Any:

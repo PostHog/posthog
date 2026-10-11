@@ -1,8 +1,6 @@
 from datetime import timedelta
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import frozen, incremental_field
 
 BASE_URL = "https://tap-api-v2.proofpoint.com"
 API_VERSION = "v2"

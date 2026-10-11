@@ -2,17 +2,8 @@ from typing import Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.catchpoint.settings import API_ROOT, AUTH_ERROR, ENDPOINTS, INCOMPLETE_ERROR, PAGE_SIZE, PERMISSION_ERROR
+from sources.sdk import ClientConfig, RESTAPIConfig, ResumableSourceManager, SourceResponse, frozen, rest_api_resource
 
 
 @frozen

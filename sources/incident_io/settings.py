@@ -3,11 +3,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import UNVERSIONED_API_VERSION, DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 # incident.io versions each resource's path on its own track (/v1, /v2, /v3), so the source-level
 # label is opaque: "v1" is the original endpoint set; "v3" moves follow_ups from GET /v2/follow_ups,

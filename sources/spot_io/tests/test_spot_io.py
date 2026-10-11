@@ -3,10 +3,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-
+from sources.sdk import SinglePagePaginator
 from sources.spot_io.spot_io import (
     SpotIoResumeConfig,
     _account_params,

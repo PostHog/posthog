@@ -1,10 +1,7 @@
 from dataclasses import field
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, PartitionFormat, frozen
 
 PaginatorKind = Literal["single", "cursor", "next_url", "pages", "page_number", "search", "substream", "scroll"]
 PartitionMode = Literal["md5", "datetime"]

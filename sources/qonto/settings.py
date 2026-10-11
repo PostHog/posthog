@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 ENDPOINTS = {
     "bank_accounts": ("organization", "organization.bank_accounts"),

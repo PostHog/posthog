@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.bigmailer import source as source_module
 from sources.bigmailer._config import BigMailerSourceConfig
 from sources.bigmailer.source import BigMailerSource
+from sources.sdk import SourceInputs
 
 
 def _config(api_key: str = "key") -> BigMailerSourceConfig:

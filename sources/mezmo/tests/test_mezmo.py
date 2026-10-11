@@ -7,14 +7,11 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.mezmo._config import MezmoSourceConfig
 from sources.mezmo.mezmo import MezmoResumeConfig, mezmo_source
 from sources.mezmo.source import MezmoSource
+from sources.sdk import ResumableSourceManager, SourceResponse, UnknownResourceError
+from sources.sdk.testing import error_message_matches
 
 BASE_URL = "https://api.mezmo.com/v3"
 

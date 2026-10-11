@@ -7,10 +7,6 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-
 from sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
     _format_fillout_datetime,
@@ -19,6 +15,7 @@ from sources.fillout.fillout import (
     get_resource,
     validate_credentials,
 )
+from sources.sdk import SinglePagePaginator
 
 
 class _FakeDltResource:

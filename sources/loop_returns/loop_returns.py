@@ -7,22 +7,6 @@ from urllib.parse import parse_qs, urlsplit
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.loop_returns.settings import (
     DEFAULT_BACKFILL_DAYS,
     DEFAULT_PAGE_SIZE,
@@ -31,6 +15,17 @@ from sources.loop_returns.settings import (
     MAX_BACKFILL_DAYS,
     MAX_WINDOW_DAYS,
     LoopReturnsEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    Endpoint,
+    EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 logger = logging.getLogger(__name__)

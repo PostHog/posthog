@@ -10,13 +10,8 @@ from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.automox.settings import AUTOMOX_ENDPOINTS, AutomoxEndpointConfig, AutomoxFanOutConfig
+from sources.sdk import ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 
 AUTOMOX_BASE_URL = "https://console.automox.com/api"
 REQUEST_TIMEOUT_SECONDS = 60

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the CQC Syndication API documentation
 # (https://api.cqc.org.uk and the CQC developer portal at api-portal.service.cqc.org.uk).

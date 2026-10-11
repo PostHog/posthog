@@ -3,7 +3,7 @@
 
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
+from sources.sdk import config
 
 
 @config.config

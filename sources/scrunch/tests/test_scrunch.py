@@ -9,13 +9,12 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.scrunch._config import ScrunchSourceConfig
 from sources.scrunch.scrunch import ScrunchResumeConfig, scrunch_source
 from sources.scrunch.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.scrunch.source import ScrunchSource
+from sources.sdk import SourceInputs, SourceResponse
+from sources.sdk.testing import activate_safe_point
 
 
 @pytest.fixture

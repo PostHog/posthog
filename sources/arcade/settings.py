@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 BASE_URL = "https://api.arcade.software"
 API_DOCS_URL = "https://docs.arcade.software/kb/leverage/advanced-features/rest-api"

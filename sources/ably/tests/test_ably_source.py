@@ -1,15 +1,14 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.facade.source_config import (
+from sources.ably._config import AblySourceConfig
+from sources.ably.source import AblySource
+from sources.sdk import (
+    ResumableSourceManager,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-from sources.ably._config import AblySourceConfig
-from sources.ably.source import AblySource
 
 
 class TestAblySource:

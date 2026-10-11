@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, SortMode
 
 PUBLICATION_PATH_PLACEHOLDER = "{publication_id}"
 

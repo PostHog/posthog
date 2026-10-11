@@ -1,14 +1,7 @@
 from dataclasses import field
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
-    PartitionFormat,
-    PartitionMode,
-    SortMode,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, PartitionFormat, PartitionMode, SortMode, frozen
 
 # Copper records expose `date_created` and `date_modified` as Unix epoch seconds (integers).
 DATE_MODIFIED = "date_modified"

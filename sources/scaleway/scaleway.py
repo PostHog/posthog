@@ -6,10 +6,6 @@ from typing import Any
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.scaleway.settings import (
     AUDIT_TRAIL_REGIONS,
     INSTANCE_ZONES,
@@ -17,6 +13,7 @@ from sources.scaleway.settings import (
     SCALEWAY_ENDPOINTS,
     ScalewayEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 BASE_URL = "https://api.scaleway.com"
 REQUEST_TIMEOUT = 60

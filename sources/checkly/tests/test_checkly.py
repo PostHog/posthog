@@ -10,15 +10,10 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.checkly._config import ChecklySourceConfig
 from sources.checkly.checkly import ChecklyResumeConfig, checkly_source, validate_credentials
 from sources.checkly.source import ChecklySource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceInputs, SourceResponse
 
 CONFIG = ChecklySourceConfig(api_key="fake-checkly-key", account_id="00000000-0000-0000-0000-000000000001")
 NOW = datetime(2026, 6, 1, tzinfo=UTC)

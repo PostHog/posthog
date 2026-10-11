@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _COST_TYPE_COLUMNS: dict[str, str] = {
     "cost_types_include_tax": "Whether the budget counts tax.",

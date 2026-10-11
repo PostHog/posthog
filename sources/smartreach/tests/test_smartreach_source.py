@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 from sources.smartreach._config import SmartreachSourceConfig
 from sources.smartreach.smartreach import SMARTREACH_API_V1, SMARTREACH_API_V3
 from sources.smartreach.source import SmartreachSource

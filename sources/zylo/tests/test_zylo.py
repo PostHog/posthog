@@ -4,11 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    ScriptedResponse,
-    SourceDriver,
-)
-
+from sources.sdk.testing import ScriptedResponse, SourceDriver
 from sources.zylo._config import ZyloSourceConfig
 from sources.zylo.source import ZyloSource
 from sources.zylo.zylo import (

@@ -7,12 +7,7 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import RESTClientNonRetryableError, RESTClientRetryableError, ResumableSourceManager
 from sources.zoho_crm.zoho_crm import (
     MAX_FIELDS_PER_REQUEST,
     MAX_PAGE,

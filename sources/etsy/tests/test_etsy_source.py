@@ -1,11 +1,10 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.etsy.etsy import DAILY_QUOTA_EXHAUSTED_ERROR, RATE_LIMITED_ERROR
 from sources.etsy.settings import ETSY_ENDPOINTS
 from sources.etsy.source import EtsySource
+from sources.sdk import SourceFieldInputConfig
+from sources.sdk.testing import error_message_matches
 
 _INCREMENTAL_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if cfg.incremental_fields]
 _FULL_REFRESH_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if not cfg.incremental_fields]

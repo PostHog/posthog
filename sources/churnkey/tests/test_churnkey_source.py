@@ -1,11 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.churnkey._config import ChurnkeySourceConfig
 from sources.churnkey.source import ChurnkeySource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 _VALIDATE = "sources.churnkey.source.validate_churnkey_credentials"
 

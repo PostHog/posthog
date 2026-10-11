@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the Financial Modeling Prep stable API docs. Keyed by the schema/endpoint name
 # returned by get_schemas. Any endpoint, column, or table description not covered here falls back to

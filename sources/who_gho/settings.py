@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # The API returns the full result set for a request with no default page cap, but $top is
 # capped by the server at 1000. Paginate every endpoint at that cap to keep responses bounded --

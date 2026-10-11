@@ -5,9 +5,7 @@ Sourced from the Grafana IRM OnCall API reference and the Grafana Incident API r
 names in `settings.py` `GRAFANA_IRM_ENDPOINTS`. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _ONCALL_DOCS = "https://grafana.com/docs/grafana-cloud/alerting-and-irm/irm/reference/oncall-api/"
 _INCIDENT_DOCS = "https://grafana.com/docs/grafana-cloud/alerting-and-irm/irm/reference/incident-api/"

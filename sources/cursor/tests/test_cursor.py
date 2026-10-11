@@ -9,8 +9,6 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.cursor import cursor
 from sources.cursor.cursor import (
     CursorResumeConfig,
@@ -23,6 +21,7 @@ from sources.cursor.cursor import (
     validate_credentials,
 )
 from sources.cursor.settings import CURSOR_ENDPOINTS
+from sources.sdk import SourceResponse
 
 DAY_MS = 24 * 60 * 60 * 1000
 WINDOW_MS = cursor.MAX_WINDOW_DAYS * DAY_MS

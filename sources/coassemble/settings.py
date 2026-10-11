@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # The documented default page size for the list endpoints. We request it explicitly so the
 # "short page means last page" termination check compares against the size the server enforces.

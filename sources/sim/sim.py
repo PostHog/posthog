@@ -2,23 +2,20 @@ from typing import Any, cast
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    create_auth,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.sim._config import SimSourceConfig
 from sources.sim.settings import ENDPOINTS, PAGE_SIZE
 

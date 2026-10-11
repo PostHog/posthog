@@ -1,21 +1,17 @@
 import dataclasses
 from typing import Any, Optional
 
-from posthog.security.url_validation import is_url_allowed
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.active_campaign.settings import ACTIVE_CAMPAIGN_ENDPOINTS
+from sources.sdk import (
+    EndpointResource,
+    OffsetPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    is_url_allowed,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.active_campaign.settings import ACTIVE_CAMPAIGN_ENDPOINTS
 
 # ActiveCampaign caps `limit` at 100 records per page across all list endpoints.
 PAGE_SIZE = 100

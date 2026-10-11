@@ -7,30 +7,24 @@ from uuid import uuid4
 import jwt
 from requests import PreparedRequest
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.onehundredms.settings import API_BASE_URL, ENDPOINTS, PARTITION_KEY, PRIMARY_KEYS
+from sources.sdk import (
+    BearerTokenAuth,
     Endpoint,
     EndpointResource,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    RESTClient,
     SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.onehundredms.settings import API_BASE_URL, ENDPOINTS, PARTITION_KEY, PRIMARY_KEYS
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
     from sources.onehundredms._config import OneHundredMsSourceConfig
+    from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 @frozen

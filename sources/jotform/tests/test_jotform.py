@@ -8,12 +8,9 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.jotform.jotform import JotformResumeConfig, _format_filter_value, jotform_source, validate_credentials
 from sources.jotform.settings import ENDPOINTS, JOTFORM_ENDPOINTS
+from sources.sdk import RESTClientRetryableError
 
 US_BASE = "https://api.jotform.com"
 

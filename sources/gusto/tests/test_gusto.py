@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.gusto.gusto import (
     DEFAULT_WINDOW_START,
     GUSTO_API_VERSION_2024_04_01,
@@ -27,6 +25,7 @@ from sources.gusto.gusto import (
     validate_credentials,
 )
 from sources.gusto.settings import ENDPOINTS, GUSTO_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 class _FakeResponse:

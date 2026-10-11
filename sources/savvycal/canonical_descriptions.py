@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the SavvyCal OpenAPI spec (https://api.savvycal.com/v1/spec).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

@@ -9,10 +9,6 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-
 from sources.freshchat.freshchat import (
     FreshchatHostNotAllowedError,
     FreshchatResumeConfig,
@@ -20,6 +16,7 @@ from sources.freshchat.freshchat import (
     validate_credentials,
 )
 from sources.freshchat.settings import PER_PAGE, USERS_CREATED_FROM
+from sources.sdk import RESTClientNonRetryableError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

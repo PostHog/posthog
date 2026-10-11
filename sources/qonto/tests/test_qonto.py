@@ -10,16 +10,11 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.qonto._config import QontoSourceConfig
 from sources.qonto.qonto import QontoResumeConfig, qonto_source, validate_credentials
 from sources.qonto.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.qonto.source import QontoSource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceResponse
 
 CONFIG = QontoSourceConfig(login="example-company", secret_key="fake-secret")
 

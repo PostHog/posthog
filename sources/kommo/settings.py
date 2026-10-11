@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Kommo caps every list endpoint at 250 entities per response.
 PAGE_LIMIT = 250

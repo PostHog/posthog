@@ -95,7 +95,7 @@ Nest because tooling boundaries become path-scoped (`products/<product>/**` for 
 
 `sources/` holds the warehouse source vendors.
 Each directory is one vendor. The product loader finds every `sources/<vendor>/source.py` on its own.
-Vendors still import shared code from `products.warehouse_sources`. The target is that a vendor imports shared code only from `sources.sdk`.
+A vendor imports shared code only from `sources.sdk`. tach and import-linter enforce this.
 Vendor tests run in the `warehouse_sources` product job, with the Django test config of the repo.
 Team warehouse-sources owns the tree.
 Vendors that other code imports (core-coupled vendors) stay in `products/warehouse_sources/`.

@@ -13,13 +13,8 @@ from requests.exceptions import (
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.freshsales.settings import FRESHSALES_ENDPOINTS, FreshsalesEndpointConfig
+from sources.sdk import ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 
 # Freshsales bundles live at https://<alias>.myfreshworks.com/crm/sales/api. We always template the
 # host from a validated alias, so the stored API key can only ever be sent to a *.myfreshworks.com

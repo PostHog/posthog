@@ -6,27 +6,6 @@ import requests
 from requests import PreparedRequest, Response
 from requests.auth import HTTPBasicAuth
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-    IncrementalConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.medusa.settings import (
     CONNECT_TIMEOUT_SECONDS,
     MAX_RESPONSE_BYTES,
@@ -40,6 +19,21 @@ from sources.medusa.settings import (
     REQUEST_TIMEOUT_SECONDS,
     RESPONSE_READ_CHUNK_BYTES,
     MedusaEndpointConfig,
+)
+from sources.sdk import (
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+    OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    _NoRedirectSession,
+    frozen,
+    make_tracked_adapter,
+    parse_datetime_value,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 HTTPS_REQUIRED_ERROR = "Medusa server URL must use HTTPS"

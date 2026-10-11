@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field, replace
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, IncrementalFieldType
 
 VAPI_BASE_URL = "https://api.vapi.ai"
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 OKENDO_BASE_URL = "https://api.okendo.io/enterprise"
 # Okendo's Merchant REST API is date-versioned and rejects requests without this header.

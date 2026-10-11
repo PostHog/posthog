@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Ubidots hosts vary by account tier: Industrial/enterprise accounts live on
 # industrial.api.ubidots.com, legacy STEM/educational accounts on things.ubidots.com. Both expose

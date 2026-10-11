@@ -8,13 +8,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.dbt.queries import DISCOVERY_VALIDATION_QUERY, MODEL_UNIQUE_IDS_QUERY
 from sources.dbt.settings import (
     DBT_DISCOVERY_PAGE_SIZE,
@@ -26,6 +19,7 @@ from sources.dbt.settings import (
     DbtEndpointConfig,
     DbtRunFanoutConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, _is_host_safe, frozen, make_tracked_session
 
 HOST_NOT_ALLOWED_ERROR = "The dbt base URL is not allowed"
 

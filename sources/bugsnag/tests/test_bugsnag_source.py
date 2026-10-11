@@ -2,11 +2,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.bugsnag._config import BugsnagSourceConfig
 from sources.bugsnag.settings import BUGSNAG_ENDPOINTS, BugsnagScope
 from sources.bugsnag.source import BugsnagSource
+from sources.sdk import SourceInputs
 
 
 def _source_inputs(schema_name: str = "errors") -> SourceInputs:

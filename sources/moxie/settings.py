@@ -1,7 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 # Moxie's Public API is served from a per-workspace pod host (e.g. `pod00.withmoxie.dev`), captured
 # as the `base_url` credential field rather than hardcoded here. This is the path segment every pod

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # How an endpoint advances through pages:
 # - "token":  Jira's enhanced search returns an opaque ``nextPageToken`` (issues only).

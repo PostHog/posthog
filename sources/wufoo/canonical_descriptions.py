@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Wufoo REST API v3 docs (https://www.wufoo.com/docs/api/v3/).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-
 from sources.mux import source as source_module
 from sources.mux._config import MuxSourceConfig
 from sources.mux.source import MuxSource
+from sources.sdk import SourceFieldInputConfig
 
 
 def _config() -> MuxSourceConfig:

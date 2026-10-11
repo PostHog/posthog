@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Printify API docs (https://developers.printify.com).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.

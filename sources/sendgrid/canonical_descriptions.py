@@ -6,9 +6,7 @@ Sourced from the official Twilio SendGrid v3 API reference
 Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Shared shape of the suppression endpoints (bounces, blocks, invalid emails, spam reports).
 _SUPPRESSION_COLUMNS = {

@@ -6,36 +6,26 @@ from urllib.parse import urlparse
 import requests
 from requests import Response
 
-from posthog.cloud_utils import is_cloud
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    EndpointResource,
-)
-
 from sources.coolify.settings import (
     COOLIFY_ENDPOINTS,
     DEPLOYMENTS_PAGE_SIZE,
     MAX_DEPLOYMENTS_OFFSET,
     CoolifyEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    EndpointResource,
+    OffsetPaginator,
+    Resource,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    _is_host_safe,
+    build_dependent_resource,
+    find_values,
+    is_cloud,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 # Every Coolify endpoint lives under this prefix, on the customer's own instance

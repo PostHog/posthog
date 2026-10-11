@@ -2,19 +2,16 @@ import datetime
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.openalex.settings import OPENALEX_ENDPOINTS, OpenAlexEndpointConfig
+from sources.sdk import (
+    EndpointResource,
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.openalex.settings import OPENALEX_ENDPOINTS, OpenAlexEndpointConfig
 
 OPENALEX_BASE_URL = "https://api.openalex.org"
 # Maximum the API accepts; anything higher is rejected with "per-page parameter must be

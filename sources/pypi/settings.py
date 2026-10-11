@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # A file's upload time never changes once published, so it's a stable partition key for the
 # releases stream. We expose the raw ISO 8601 string PyPI already returns (`upload_time_iso_8601`).

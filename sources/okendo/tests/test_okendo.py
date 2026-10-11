@@ -8,10 +8,9 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.okendo.okendo import OkendoResumeConfig, okendo_source, validate_credentials
 from sources.okendo.settings import OKENDO_API_VERSION, REVIEW_STATUSES
+from sources.sdk import SourceResponse
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 OKENDO_SESSION_PATCH = "sources.okendo.okendo.make_tracked_session"

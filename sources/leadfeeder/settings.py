@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Leadfeeder (Dealfront) exposes two vendor API generations, both served from
 # https://api.leadfeeder.com. The source dispatches between them on the resolved API-version pin

@@ -2,12 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.firecrawl._config import FirecrawlSourceConfig
 from sources.firecrawl.firecrawl import FirecrawlResumeConfig
 from sources.firecrawl.source import FirecrawlSource
+from sources.sdk import ResumableSourceManager, SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 def _config() -> FirecrawlSourceConfig:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # "token": Sumo Logic management APIs paginated with `limit` + `token` params; the response body
 #     carries the record list under `data_key` plus a `next` continuation token.

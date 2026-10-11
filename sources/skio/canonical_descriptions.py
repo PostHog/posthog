@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions follow the schema published at https://code.skio.com. Skio's data model mirrors
 # Shopify's GraphQL objects; `platformId` is always the Shopify GID of the mirrored object

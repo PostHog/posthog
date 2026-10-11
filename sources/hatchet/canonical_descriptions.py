@@ -7,9 +7,7 @@ table. The nested `metadata` object is flattened onto each row (`id`, `created_a
 so those appear as top-level columns. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # workflow_runs and tasks are both V1TaskSummary rows off the same endpoint (only_tasks toggles
 # DAG-level runs vs individual task runs), so they share a column dictionary.

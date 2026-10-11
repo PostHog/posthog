@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `FLUTTERWAVE_ENDPOINTS`, which matc
 `ExternalDataSchema.name` of a synced Flutterwave table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _V3_REFERENCE = "https://developer.flutterwave.com/v3.0.0/reference"
 

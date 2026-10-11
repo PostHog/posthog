@@ -8,10 +8,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.tickettailor.settings import ENDPOINTS
 from sources.tickettailor.tickettailor import (
     PAGE_SIZE,

@@ -6,16 +6,6 @@ from typing import Any, Optional
 from requests import Request, Response, Session
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.agilecrm.settings import (
     AGILECRM_ENDPOINTS,
     AGILECRM_FANOUT_ENDPOINTS,
@@ -27,6 +17,15 @@ from sources.agilecrm.settings import (
     TICKETS_PRIMARY_KEYS,
     TICKETS_SORT_KEY,
     AgileCRMFanoutConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 # A valid Agile CRM subdomain is a single DNS label: letters, digits and hyphens only. Constraining

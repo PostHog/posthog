@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.openalex.openalex import (
     PAGE_SIZE,
     OpenAlexResumeConfig,
@@ -19,6 +17,7 @@ from sources.openalex.openalex import (
     validate_credentials,
 )
 from sources.openalex.settings import ENDPOINTS, OPENALEX_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.openalex.openalex"
 INSTITUTION_FILTER = "authorships.institutions.lineage:i27837315"

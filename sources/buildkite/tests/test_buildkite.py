@@ -10,8 +10,6 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.buildkite.buildkite import (
     BuildkiteResumeConfig,
     _build_initial_params,
@@ -20,6 +18,7 @@ from sources.buildkite.buildkite import (
     validate_credentials,
 )
 from sources.buildkite.settings import BUILDKITE_ENDPOINTS
+from sources.sdk import SourceResponse
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

@@ -9,9 +9,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.aws_sagemaker._config import AwsSagemakerSourceConfig
 from sources.aws_sagemaker.aws_sagemaker import (
     TRANSPORT_RETRY,
@@ -24,6 +21,7 @@ from sources.aws_sagemaker.aws_sagemaker import (
     get_rows,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager, UnknownResourceError
 
 
 @pytest.fixture

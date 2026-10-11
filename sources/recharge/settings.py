@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Recharge caps page size at 250 (default 50). Larger pages mean fewer
 # round-trips against the leaky-bucket rate limit (40 burst, ~2 req/s sustained).

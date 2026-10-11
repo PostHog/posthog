@@ -8,13 +8,11 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.catchpoint._config import CatchpointSourceConfig
 from sources.catchpoint.catchpoint import CatchpointResumeConfig, catchpoint_source
 from sources.catchpoint.settings import AUTH_ERROR, INCOMPLETE_ERROR, PERMISSION_ERROR
 from sources.catchpoint.source import CatchpointSource
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 BASE_URL = "https://io.catchpoint.com/api/v3"
 

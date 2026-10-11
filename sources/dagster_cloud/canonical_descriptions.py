@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Timestamp columns are Dagster epoch-seconds floats at the API, normalized to ISO-8601 UTC strings
 # on ingest (see dagster_cloud.py:_epoch_to_iso).

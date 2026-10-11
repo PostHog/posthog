@@ -2,7 +2,7 @@ import re
 import json
 from typing import TypedDict
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 
 class GoogleAnalyticsReportSchema(TypedDict):

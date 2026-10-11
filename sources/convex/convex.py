@@ -14,16 +14,16 @@ from requests.exceptions import (
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from sources.sdk import (
     DEFAULT_RETRY,
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
     make_tracked_session,
+    update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 logger = logging.getLogger(__name__)
 

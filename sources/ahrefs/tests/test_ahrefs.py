@@ -9,15 +9,10 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.ahrefs._config import AhrefsSourceConfig
 from sources.ahrefs.ahrefs import ahrefs_source, validate_credentials
 from sources.ahrefs.source import AhrefsSource
+from sources.sdk import RESTClientRetryableError, SourceInputs, UnknownResourceError
 
 CLIENT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
 SOURCE_MODULE = "sources.ahrefs.ahrefs"

@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `BREX_ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced Brex table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "card_transactions": {

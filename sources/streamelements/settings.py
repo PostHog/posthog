@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Vendor API versions. The label is the base-URL segment (kappa/<version>): v3 serves every
 # endpoint this source reads at the same paths as v2 and only adds a giveaways collection we

@@ -9,10 +9,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.thinkific.settings import THINKIFIC_ENDPOINTS
 from sources.thinkific.thinkific import (
     THINKIFIC_BASE_URL,

@@ -3,8 +3,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.vultr._config import VultrSourceConfig
 from sources.vultr.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.vultr.settings import ENDPOINTS

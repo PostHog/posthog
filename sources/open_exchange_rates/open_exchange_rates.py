@@ -8,11 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.open_exchange_rates.settings import OPEN_EXCHANGE_RATES_ENDPOINTS
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 BASE_URL = "https://openexchangerates.org/api"
 DEFAULT_BASE_CURRENCY = "USD"

@@ -5,21 +5,20 @@ from urllib.parse import urlparse
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.plausible.settings import (
     DEFAULT_BACKFILL_DAYS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     PlausibleEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    SyncWindow,
+    make_tracked_session,
+    rest_api_resource,
 )
 
 # Plausible Cloud; self-hosted instances override this via the source's host field.

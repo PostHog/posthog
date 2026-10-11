@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 HEYREACH_BASE_URL = "https://api.heyreach.io/api/public"
 # Documented maximum page size for the paginated list endpoints.

@@ -9,8 +9,7 @@ from django.test import override_settings
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.sevdesk._config import SevdeskSourceConfig
 
 

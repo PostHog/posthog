@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, incremental_field
 
 # v1 is the legacy Sunshine custom objects API (`/api/sunshine/`, no version token). v2 is the
 # current custom objects API under the standard Support API (`/api/v2/custom_objects`). Zendesk is

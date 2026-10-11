@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # AQL pages are requested with in-query .offset()/.limit(). 1000 rows keeps response bodies small
 # while limiting round trips; the AQL server-side hard limit is far above this.

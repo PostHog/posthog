@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Twelve Labs v1.3 API docs (https://docs.twelvelabs.io/v1.3/api-reference).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

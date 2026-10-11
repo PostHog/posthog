@@ -1,7 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 CLOUDTRAIL_API_VERSION = "2013-11-01"
 TARGET_PREFIXES = {CLOUDTRAIL_API_VERSION: "com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101"}

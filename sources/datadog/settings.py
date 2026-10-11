@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 PaginationStyle = Literal["cursor", "page", "offset", "record_id", "none"]
 # How a timestamp filter value is rendered for the endpoint's query param. Datadog uses a

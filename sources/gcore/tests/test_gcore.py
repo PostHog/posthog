@@ -9,11 +9,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.gcore.gcore import GcoreCheckpoint, gcore_source, validate_credentials
 from sources.gcore.source import GcoreSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
 
 TRANSPORT = "sources.gcore.gcore"
 NOW = datetime(2026, 1, 5, 12, 30, tzinfo=UTC)

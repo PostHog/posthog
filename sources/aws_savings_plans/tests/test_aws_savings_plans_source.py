@@ -8,11 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_savings_plans._config import AwsSavingsPlansSourceConfig
 from sources.aws_savings_plans.source import AwsSavingsPlansSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 MODULE = "sources.aws_savings_plans.aws_savings_plans"
 

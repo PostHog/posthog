@@ -5,8 +5,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.checkout_com.checkout_com import CheckoutComResumeConfig
 from sources.checkout_com.reports import (
     MAX_DISCOVERY_PAGES,
@@ -18,6 +16,7 @@ from sources.checkout_com.reports import (
     discover_report_types,
     report_type_table_name,
 )
+from sources.sdk import ResumableSourceManager
 
 SESSION_PATCH = "sources.checkout_com.reports.make_tracked_session"
 

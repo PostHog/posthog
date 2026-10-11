@@ -9,13 +9,7 @@ from django.conf import settings
 import requests
 from requests_oauthlib import OAuth1
 
-from posthog.dataclasses import frozen
-from posthog.models.integration.model import Integration
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import Integration, ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 from sources.twitter_ads.settings import (
     API_VERSION,
     ENTITY_TABLES,

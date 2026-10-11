@@ -5,13 +5,10 @@ from unittest import mock
 
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.dynamodb._config import DynamoDBSourceConfig
 from sources.dynamodb.dynamodb import DynamoDBResumeConfig
 from sources.dynamodb.source import DynamoDBSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceSchema
 
 _SOURCE_MODULE = "sources.dynamodb.source"
 

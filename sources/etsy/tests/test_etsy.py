@@ -12,8 +12,6 @@ import structlog
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.etsy.etsy import (
     DAILY_QUOTA_EXHAUSTED_ERROR,
     ETSY_HISTORY_START,
@@ -30,6 +28,7 @@ from sources.etsy.etsy import (
     validate_credentials,
 )
 from sources.etsy.settings import ETSY_ENDPOINTS, LISTING_STATES
+from sources.sdk import ResumableSourceManager
 
 _SESSION_PATCH = "sources.etsy.etsy.make_tracked_session"
 _API_KEY = "etsy-keystring-abcdef123456"

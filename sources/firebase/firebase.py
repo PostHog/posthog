@@ -13,19 +13,6 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    incremental_field,
-    rank_incremental_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
-
 from sources.firebase.settings import (
     AUTH_USERS_PAGE_SIZE,
     AUTH_USERS_PRIMARY_KEY,
@@ -71,6 +58,17 @@ from sources.firebase.settings import (
     is_supported_incremental_field_name,
     realtime_database_table_name,
 )
+from sources.sdk import (
+    IncrementalField,
+    IncrementalFieldType,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    incremental_field,
+    make_tracked_session,
+    rank_incremental_fields,
+)
+from sources.sdk.internals import NamingConvention, incremental_type_to_initial_value
 
 LOGGER: FilteringBoundLogger = structlog.get_logger(__name__)
 

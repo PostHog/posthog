@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.adobe_analytics.adobe_analytics import (
     AdobeAnalyticsClient,
     AdobeAnalyticsResumeConfig,
@@ -23,6 +21,7 @@ from sources.adobe_analytics.adobe_analytics import (
     resolve_window,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 _MODULE = "sources.adobe_analytics.adobe_analytics"
 

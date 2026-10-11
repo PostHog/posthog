@@ -1,9 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen, incremental_field
 
 # The OpenAPI document declares no `servers` entry, so the base URL is hardcoded.
 KICKSCALE_BASE_URL = "https://api.kickscale.com"

@@ -9,10 +9,7 @@ from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.shortio.settings import ENDPOINTS, SHORTIO_ENDPOINTS
 from sources.shortio.shortio import SHORTIO_BASE_URL, shortio_source, validate_credentials
 

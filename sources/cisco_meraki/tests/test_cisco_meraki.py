@@ -8,14 +8,6 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClient,
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.cisco_meraki._config import CiscoMerakiSourceConfig
 from sources.cisco_meraki.cisco_meraki import CiscoMerakiResumeConfig, cisco_meraki_source, validate_credentials
 from sources.cisco_meraki.settings import (
@@ -26,6 +18,14 @@ from sources.cisco_meraki.settings import (
     REGION_ERROR,
 )
 from sources.cisco_meraki.source import CiscoMerakiSource
+from sources.sdk import (
+    RESTClient,
+    RESTClientRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
+)
 
 BASE_URL = "https://api.meraki.com/api/v1/organizations/123456"
 

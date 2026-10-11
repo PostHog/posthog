@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Lightfield caps list-endpoint page size at 25 (`limit` defaults to 25, maximum 25).
 LIGHTFIELD_PAGE_SIZE = 25

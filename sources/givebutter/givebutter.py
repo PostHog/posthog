@@ -2,28 +2,23 @@ from typing import TYPE_CHECKING, Any
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.givebutter.settings import BASE_URL, ENDPOINTS, REQUEST_TIMEOUT_SECONDS
+from sources.sdk import (
+    BearerTokenAuth,
+    EndpointResource,
+    Resource,
     RESTAPIConfig,
+    RESTClient,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
     rest_api_resource,
     rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.givebutter.settings import BASE_URL, ENDPOINTS, REQUEST_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+    from sources.sdk import ResumableSourceManager, SourceInputs
 
 AUTH_ERROR = "Your Givebutter API key is invalid or expired. Generate a new API key and reconnect."
 PERMISSION_ERROR = "Your Givebutter API key cannot access this table. Check the key's permissions in Givebutter."

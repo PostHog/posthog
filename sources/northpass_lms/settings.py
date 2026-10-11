@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Northpass exposes no server-side timestamp filter (list endpoints only accept page/limit/q and a
 # fixed default sort), so every endpoint is full refresh only — there is no reliable incremental

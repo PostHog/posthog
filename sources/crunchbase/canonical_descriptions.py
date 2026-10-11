@@ -7,9 +7,7 @@ Column names mirror the `field_ids` requested per collection in `settings.py`. C
 fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by every Crunchbase entity; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

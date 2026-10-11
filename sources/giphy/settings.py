@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # GIPHY's content endpoints return current snapshots and expose no server-side
 # created_at/updated_at filter, so every endpoint is full-refresh only. The GIF

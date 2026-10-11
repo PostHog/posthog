@@ -7,8 +7,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.nager_date.nager_date import (
     BACKFILL_YEARS_BACK,
     BASE_URL,
@@ -23,6 +21,7 @@ from sources.nager_date.nager_date import (
     validate_credentials,
 )
 from sources.nager_date.settings import COUNTRIES, COUNTRY_INFO, NEXT_PUBLIC_HOLIDAYS, PUBLIC_HOLIDAYS
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.nager_date.nager_date"
 

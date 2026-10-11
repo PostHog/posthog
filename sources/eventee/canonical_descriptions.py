@@ -5,9 +5,7 @@ the endpoint names in `settings.py` `EVENTEE_ENDPOINTS`, which match the `Extern
 a synced Eventee table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://publiceventeeapi.docs.apiary.io/"
 

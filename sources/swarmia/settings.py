@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Swarmia's Export API returns time-windowed aggregate reports (CSV), not paginated entity lists.
 # Each endpoint is synced by iterating fixed, complete windows (ISO weeks, calendar months, or

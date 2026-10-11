@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.tvmaze.tvmaze import UPDATES_CHUNK_SIZE, TVMazeResumeConfig, check_connection, tvmaze_source
 
 REST_CLIENT_SESSION_FACTORY = (

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _USER_DOCS = "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/"
 _MEDIA_DOCS = "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/"

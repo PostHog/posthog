@@ -6,9 +6,7 @@ OpenAPI spec at https://api.deno.com/v2/openapi.json). Keyed by the endpoint nam
 here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "apps": {

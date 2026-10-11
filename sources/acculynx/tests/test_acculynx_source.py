@@ -7,12 +7,10 @@ from unittest.mock import MagicMock
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.acculynx._config import AcculynxSourceConfig
 from sources.acculynx.acculynx import AcculynxResumeConfig
 from sources.acculynx.source import AcculynxSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 @pytest.mark.parametrize(

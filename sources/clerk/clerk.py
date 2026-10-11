@@ -7,22 +7,18 @@ from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.clerk.settings import CLERK_ENDPOINTS, RETIRED_ENDPOINTS, ClerkEndpointConfig
+from sources.sdk import (
+    BasePaginator,
     Endpoint,
     EndpointResource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    capture_exception,
+    make_tracked_session,
+    rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.clerk.settings import CLERK_ENDPOINTS, RETIRED_ENDPOINTS, ClerkEndpointConfig
 
 
 @dataclasses.dataclass

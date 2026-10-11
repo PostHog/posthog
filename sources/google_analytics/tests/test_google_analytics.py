@@ -10,8 +10,6 @@ from django.db import OperationalError
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.models.integration import Integration
-
 from sources.google_analytics import google_analytics as ga
 from sources.google_analytics._config import GoogleAnalyticsSourceConfig
 from sources.google_analytics.google_analytics import (
@@ -31,6 +29,7 @@ from sources.google_analytics.google_analytics import (
     _runreport_backoff_seconds,
     google_analytics_source,
 )
+from sources.sdk import Integration
 
 TODAY = dt.date(2026, 4, 30)
 

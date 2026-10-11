@@ -6,9 +6,8 @@ import pytest
 
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_schemas
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
+from sources.sdk.testing import build_default_schemas
 from sources.turso._config import TursoSourceConfig
 from sources.turso.source import TursoSource
 

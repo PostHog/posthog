@@ -5,10 +5,7 @@ Keyed by the endpoint names in `settings.py` `KUBECOST_ENDPOINTS`, which match t
 `ExternalDataSchema.name` of a synced Kubecost table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-    CanonicalEndpoint,
-)
+from sources.sdk import CanonicalDescriptions, CanonicalEndpoint
 
 _ALLOCATION_DOCS_URL = "https://docs.kubecost.com/apis/monitoring-apis/api-allocation"
 

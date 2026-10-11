@@ -8,11 +8,8 @@ import structlog
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.revolut_merchant.source import RevolutMerchantSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse, UnknownResourceError
 
 
 def items(response: SourceResponse) -> Iterable[Any]:

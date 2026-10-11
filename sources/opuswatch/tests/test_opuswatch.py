@@ -8,9 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.opuswatch.opuswatch import OPUSWatchResumeConfig, build_date_window_params, opuswatch_source
+from sources.sdk import ResumableSourceManager
 
 TODAY = date(2025, 1, 10)
 

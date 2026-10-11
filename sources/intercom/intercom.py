@@ -9,30 +9,23 @@ from requests import Request, Response, Session
 from requests.exceptions import HTTPError
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+from sources.intercom.settings import INTERCOM_ENDPOINTS, IntercomEndpointConfig
+from sources.sdk import (
     DEFAULT_RETRY,
-    make_tracked_session,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
     BasePaginator,
+    Endpoint,
+    EndpointResource,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
     PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.intercom.settings import INTERCOM_ENDPOINTS, IntercomEndpointConfig
 
 INTERCOM_API_BASE = "https://api.intercom.io"
 # Version used for credential validation at source-create time, where no row pin exists yet.

@@ -8,9 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
 from sources.vimeo._config import VimeoSourceConfig
 from sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.vimeo.source import VimeoSource

@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 # Several Deel endpoints cap `limit` below 100, so stay safely under every cap.
 PAGE_SIZE = 50

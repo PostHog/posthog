@@ -9,13 +9,10 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.mono._config import MonoSourceConfig
 from sources.mono.mono import MonoResumeConfig, mono_source, validate_credentials
 from sources.mono.source import MonoSource
+from sources.sdk import ResumableSourceManager, SourceResponse, UnknownResourceError
 
 BASE_URL = "https://api.withmono.com/v2"
 CONFIG = MonoSourceConfig(api_key="test_sk_fake_mono_key", start_date="2020-01-01")

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # tawk.to's full API reference is only provided after REST API access approval, so column
 # coverage is limited to fields verified from public sources; everything else falls back to

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Flutterwave v3's only server-side timestamp filter is the `from`/`to` window over each record's
 # `created_at`, and the API exposes no `updated_at` cursor. Transactions, settlements, refunds,

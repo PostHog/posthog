@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Raygun's data API is a single global host (no regional variants) exposing v3 REST/JSON.
 RAYGUN_BASE_URL = "https://api.raygun.com/v3"

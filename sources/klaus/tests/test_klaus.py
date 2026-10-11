@@ -5,8 +5,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.klaus.klaus import (
     DEFAULT_FROM_DATE,
     KlausResumeConfig,
@@ -18,6 +16,7 @@ from sources.klaus.klaus import (
     validate_credentials,
 )
 from sources.klaus.settings import KLAUS_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.klaus.klaus"
 

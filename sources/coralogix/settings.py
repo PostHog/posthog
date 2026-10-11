@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # The regional clusters the query API lives on (the `domain` select options in source.py).
 # Enforced at request time: the generated config's Literal type is NOT validated when parsing

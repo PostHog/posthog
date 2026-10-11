@@ -5,16 +5,6 @@ from typing import Any, Optional
 
 from dateutil import parser as dateutil_parser
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.plivo.settings import (
     MAX_QUERY_RANGE_DAYS,
     PAGE_SIZE,
@@ -22,6 +12,15 @@ from sources.plivo.settings import (
     PLIVO_ENDPOINTS,
     RETENTION_DAYS,
     PlivoEndpointConfig,
+)
+from sources.sdk import (
+    HttpBasicAuth,
+    OffsetPaginator,
+    RESTClient,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    validate_via_probe,
 )
 
 

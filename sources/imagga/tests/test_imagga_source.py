@@ -1,10 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.imagga._config import ImaggaSourceConfig
 from sources.imagga.source import ImaggaSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestImaggaSource:

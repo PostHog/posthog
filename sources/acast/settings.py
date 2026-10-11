@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from sources.sdk import EndpointResource
 
 BASE_URL = "https://open.acast.com/rest/"
 

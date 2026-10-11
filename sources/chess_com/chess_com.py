@@ -10,11 +10,8 @@ from django.conf import settings
 from requests import HTTPError, Session
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.chess_com.settings import GAMES, PRIMARY_KEYS
+from sources.sdk import SourceResponse, make_tracked_session, validate_via_probe
 
 CHESS_COM_API_URL = "https://api.chess.com/pub"
 REQUEST_TIMEOUT_SECONDS = 30

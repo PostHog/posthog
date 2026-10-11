@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 # Entra ID (Azure AD) token endpoint; the tenant id is interpolated into the path.

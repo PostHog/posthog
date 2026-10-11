@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # AskNicely caps (and defaults) the responses page size at 50,000 rows per request;
 # stay well below that so a single page is cheap to parse and hold in memory.

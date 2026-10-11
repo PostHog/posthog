@@ -4,25 +4,19 @@ from typing import Any, cast
 
 from requests import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.lexware_office.settings import BASE_URL, ENDPOINTS, SEARCH_WINDOW_LIMIT
+from sources.sdk import (
     ClientConfig,
     Endpoint,
     PaginatorConfig,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    build_dependent_resource,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.lexware_office.settings import BASE_URL, ENDPOINTS, SEARCH_WINDOW_LIMIT
 
 AUTH_ERROR = "Your Lexware Office API key is invalid or expired. Create a new key and reconnect."
 PERMISSION_ERROR = "Your Lexware Office API key cannot read this resource. Enable read access for the selected tables."

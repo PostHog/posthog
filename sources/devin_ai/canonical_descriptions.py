@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the Devin (Cognition AI) v3 API reference (https://docs.devin.ai/api-reference).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

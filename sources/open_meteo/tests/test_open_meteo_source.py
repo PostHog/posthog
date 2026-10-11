@@ -6,13 +6,11 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.open_meteo._config import OpenMeteoSourceConfig
 from sources.open_meteo.open_meteo import OpenMeteoResumeConfig
 from sources.open_meteo.source import OpenMeteoSource
+from sources.sdk import ResumableSourceManager, SourceInputs
+from sources.sdk.testing import error_message_matches
 
 SOURCE_MODULE = "sources.open_meteo.source"
 

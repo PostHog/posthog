@@ -1,8 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Default history pulled on the first sync. Days beyond the deployment's configured
 # ETL retention return empty sets, so over-asking is harmless.

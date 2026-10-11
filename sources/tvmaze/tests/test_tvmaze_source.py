@@ -1,5 +1,4 @@
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-
+from sources.sdk import ReleaseStatus
 from sources.tvmaze._config import TVMazeSourceConfig
 from sources.tvmaze.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.tvmaze.settings import ENDPOINTS

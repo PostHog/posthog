@@ -9,10 +9,9 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.referralhero.referralhero import ReferralHeroResumeConfig, referralhero_source, validate_credentials
 from sources.referralhero.source import ReferralHeroSource
+from sources.sdk import SourceResponse
 
 
 def batches(source: SourceResponse) -> Iterable[list[dict[str, Any]]]:

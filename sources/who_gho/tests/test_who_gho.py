@@ -7,11 +7,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import RESTClientNonRetryableError, ResumableSourceManager
 from sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
     WhoGhoResumeConfig,

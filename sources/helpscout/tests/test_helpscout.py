@@ -7,10 +7,9 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-
 from sources.helpscout.helpscout import HelpScoutResumeConfig, _client_config, helpscout_source, validate_credentials
 from sources.helpscout.settings import ENDPOINTS, HELP_SCOUT_API_BASE, HELP_SCOUT_API_BASE_V3, HELP_SCOUT_ENDPOINTS
+from sources.sdk import BearerTokenAuth
 
 # RESTClient builds its HTTP session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

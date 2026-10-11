@@ -2,13 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.scaleway import source as source_module
 from sources.scaleway._config import ScalewaySourceConfig
 from sources.scaleway.settings import ENDPOINTS
 from sources.scaleway.source import ScalewaySource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType, SourceInputs
 
 
 def _config() -> ScalewaySourceConfig:

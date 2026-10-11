@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Region -> Serving Layer API base URL. Orca hosts a US and an EU cloud plus a generic
 # default; the token is only valid for the region it was generated in, so the user picks one.

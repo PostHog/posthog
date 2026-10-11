@@ -1,7 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-    CanonicalEndpoint,
-)
+from sources.sdk import CanonicalDescriptions, CanonicalEndpoint
 
 _METRICS_DOCS_URL = "https://api.telemetry.confluent.cloud/docs"
 

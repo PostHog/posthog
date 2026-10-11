@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Lambda Cloud API reference (v1.10.0),
 # https://cloud.lambda.ai/api/v1/docs. Keys match the endpoint names returned by `get_schemas`.

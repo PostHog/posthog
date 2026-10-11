@@ -5,9 +5,7 @@ the resource names in `settings.py` `ENDPOINTS`, which match the `ExternalDataSc
 synced Meteostat table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _STATION_ID_COLUMN = "Meteostat weather station ID this record belongs to, as configured in the source settings."
 

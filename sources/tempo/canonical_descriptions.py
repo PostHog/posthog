@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Tempo REST API v4 OpenAPI spec (https://apidocs.tempo.io).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # The pagination guide (api.ownerreservations.com/help/guides/api-pagination-etags) documents a
 # default page size of 20 and a maximum of 100; always request the max to minimise round trips

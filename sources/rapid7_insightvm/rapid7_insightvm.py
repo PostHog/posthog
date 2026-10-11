@@ -4,21 +4,16 @@ from urllib.parse import urlencode
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.rapid7_insightvm.settings import API_BASE_PATH, MAX_PAGE_SIZE, RAPID7_INSIGHTVM_ENDPOINTS, REGION_HOSTS
+from sources.sdk import (
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    find_values,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.rapid7_insightvm.settings import API_BASE_PATH, MAX_PAGE_SIZE, RAPID7_INSIGHTVM_ENDPOINTS, REGION_HOSTS
 
 
 @dataclasses.dataclass

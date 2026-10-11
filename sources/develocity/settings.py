@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 API_DOCS_URL = "https://docs.develocity.ai/2026.3/reference/develocity-api/"
 PAGE_SIZE = 100

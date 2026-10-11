@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Algolia REST API reference (https://www.algolia.com/doc/rest-api/search/).
 # `records` holds the user's own index objects, so its columns are index-specific and left to the

@@ -8,9 +8,6 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.logicmonitor._config import LogicmonitorSourceConfig
 from sources.logicmonitor.logicmonitor import (
     AUTH_ERROR,
@@ -20,6 +17,7 @@ from sources.logicmonitor.logicmonitor import (
     portal_url,
 )
 from sources.logicmonitor.source import LogicmonitorSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 BASE = "https://example.logicmonitor.com/santaba/rest/"
 MODULE = "sources.logicmonitor.logicmonitor"

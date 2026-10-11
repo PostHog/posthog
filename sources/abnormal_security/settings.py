@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from sources.sdk import frozen, incremental_field
 
 API_DOCS_URL = "https://app.swaggerhub.com/apis-docs/abnormal-security/abx/1.5.0"
 REGION_HOSTS = {

@@ -9,12 +9,10 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.komodor._config import KomodorSourceConfig
 from sources.komodor.komodor import KomodorResumeConfig, komodor_source, validate_credentials
 from sources.komodor.source import KomodorSource
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 
 def response(body: dict[str, Any], status: int = 200) -> Response:

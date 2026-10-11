@@ -3,13 +3,12 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.beehiiv._config import BeehiivSourceConfig
 from sources.beehiiv.beehiiv import BeehiivResumeConfig
 from sources.beehiiv.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.beehiiv.settings import ENDPOINTS
 from sources.beehiiv.source import BeehiivSource
+from sources.sdk import SourceInputs
 
 VALIDATE_PATCH = "sources.beehiiv.source.validate_beehiiv_credentials"
 

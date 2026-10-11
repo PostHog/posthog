@@ -9,11 +9,9 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.courier.courier import CourierResumeConfig, courier_source, get_resource, validate_credentials
 from sources.courier.settings import ENDPOINTS_CONFIG, FANOUT_ENDPOINT_CONFIGS
+from sources.sdk import ResumableSourceManager, SourceResponse
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 COURIER_SESSION_PATCH = "sources.courier.courier.make_tracked_session"

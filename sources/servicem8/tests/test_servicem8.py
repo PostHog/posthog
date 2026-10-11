@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.servicem8.servicem8 import (
     ServiceM8Paginator,
     ServiceM8ResumeConfig,

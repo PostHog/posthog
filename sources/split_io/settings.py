@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField
 
 # Vendor API versions. The Split (now Harness FME) Admin API is served under /internal/api/v2
 # (flag sets under v3) — the very paths this source already calls end-to-end, which the

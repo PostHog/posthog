@@ -1,13 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.doit._config import DoItSourceConfig
 from sources.doit.doit import DOIT_RETRY, DoItReport, doit_list_reports
 from sources.doit.source import DoItSource
+from sources.sdk import DEFAULT_RETRY, SourceInputs
+from sources.sdk.testing import error_message_matches
 
 _SOURCE_MODULE = "sources.doit.source"
 _DOIT_MODULE = "sources.doit.doit"

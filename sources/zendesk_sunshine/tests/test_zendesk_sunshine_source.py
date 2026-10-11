@@ -5,8 +5,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 from sources.zendesk_sunshine._config import ZendeskSunshineSourceConfig
 from sources.zendesk_sunshine.settings import ENDPOINTS_BY_VERSION, ZENDESK_SUNSHINE_V1, ZENDESK_SUNSHINE_V2
 from sources.zendesk_sunshine.source import ZendeskSunshineSource

@@ -1,10 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, ResponseAction, frozen
 
 API_BASE_URL = "https://api.xsolla.com/merchant"
 API_DOCS_URL = "https://developers.xsolla.com/api/getting-started/"

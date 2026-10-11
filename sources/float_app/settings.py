@@ -1,8 +1,6 @@
 from typing import Literal
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 # Float caps `per-page` at 200 (default 50). Always request the max to minimise round trips.
 PER_PAGE = 200

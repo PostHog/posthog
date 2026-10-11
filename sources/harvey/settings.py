@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import UNVERSIONED_API_VERSION, IncrementalField, IncrementalFieldType
 
 # Harvey moved its Usage and Query History APIs from v1 to the v2 event-based schema and retired v1
 # on 2025-06-30. The source's history requests (sync and probe) already target the v2 endpoints

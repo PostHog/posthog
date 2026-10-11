@@ -10,8 +10,7 @@ from django.test import override_settings
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from sources.sdk import IncrementalFieldType, SourceInputs
 
 
 @pytest.fixture

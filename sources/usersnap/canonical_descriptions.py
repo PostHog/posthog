@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from Usersnap's REST API v0.1 OpenAPI spec
 # (https://app.swaggerhub.com/apis/usersnap6/usersnap-api/0.1).

@@ -5,9 +5,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.asaas._config import AsaasSourceConfig
 from sources.asaas.asaas import (
     PRODUCTION_BASE_URL,
@@ -20,6 +17,7 @@ from sources.asaas.asaas import (
     validate_credentials,
 )
 from sources.asaas.source import AsaasSource
+from sources.sdk import Endpoint, ResumableSourceManager
 
 _INCREMENTAL_ENDPOINTS = {"Payments", "Transfers"}
 _FULL_REFRESH_ENDPOINTS = {"Customers", "Subscriptions", "Installments"}

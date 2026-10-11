@@ -7,11 +7,10 @@ from unittest import mock
 
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
-
 from sources.depot._config import DepotSourceConfig
 from sources.depot.depot import DEPOT_CI_SERVICE_URL
 from sources.depot.source import DepotSource
+from sources.sdk import ExternalDataSchemaSyncType
 
 MODULE = "sources.depot.depot"
 

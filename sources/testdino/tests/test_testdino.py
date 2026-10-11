@@ -10,14 +10,14 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+from sources.sdk import (
     RESTClientNonRetryableError,
+    ResumableSourceManager,
+    SourceInputs,
+    SourceResponse,
+    UnknownResourceError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
+from sources.sdk.testing import activate_safe_point
 from sources.testdino._config import TestDinoSourceConfig as SourceConfig
 from sources.testdino.settings import API_BASE_URL
 from sources.testdino.source import TestDinoSource

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Doc-sourced descriptions for Jotform's well-known tables. See https://api.jotform.com/docs/.
 # Partial coverage is fine — any missing endpoint/column falls back to LLM enrichment.

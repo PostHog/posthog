@@ -5,10 +5,6 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-
 from sources.cast_ai.cast_ai import (
     CastAiResumeConfig,
     _client_config,
@@ -19,6 +15,7 @@ from sources.cast_ai.cast_ai import (
     validate_credentials,
 )
 from sources.cast_ai.settings import COST_REPORT_STEP_SECONDS
+from sources.sdk import SinglePagePaginator
 
 
 class _FakeDltResource:

@@ -2,9 +2,7 @@ from dataclasses import field
 from enum import StrEnum
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Codecov returns only the top level of the tree unless `depth` asks for more, and no real
 # repository nests source files deeper than this.

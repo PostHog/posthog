@@ -8,8 +8,6 @@ from unittest import mock
 import requests
 import requests_mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.bill_com.bill_com import (
     PAGE_SIZE,
     BillComAuthError,
@@ -24,6 +22,7 @@ from sources.bill_com.bill_com import (
     get_rows,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 _MODULE = "sources.bill_com.bill_com"
 

@@ -11,10 +11,7 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
+from sources.sdk import IncrementalFieldType, ResumableSourceManager, SourceInputs, SourceResponse
 from sources.us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
 from sources.us_treasury_fiscal_data.us_treasury_fiscal_data import (
     FiscalDataResumeConfig,

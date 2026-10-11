@@ -2,11 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-
 from sources.resend._config import ResendAuthMethodConfig, ResendSourceConfig
 from sources.resend.oauth import ResendIntegrationAuth
 from sources.resend.source import ResendSource
+from sources.sdk import BearerTokenAuth
 
 
 def _api_key_config(api_key: str = "re_test_key") -> ResendSourceConfig:

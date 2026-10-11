@@ -7,10 +7,6 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.power_bi_admin.settings import (
     ACTIVITY_EVENTS_ENDPOINT,
     ACTIVITY_EVENTS_RETENTION_DAYS,
@@ -22,6 +18,7 @@ from sources.power_bi_admin.settings import (
     POWER_BI_ADMIN_ENDPOINTS,
     TOKEN_SCOPE,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATE_TIMEOUT_SECONDS = 30

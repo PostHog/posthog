@@ -7,10 +7,6 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-
 from sources.hitpay.hitpay import (
     HitpayResumeConfig,
     _format_charge_date,
@@ -20,6 +16,7 @@ from sources.hitpay.hitpay import (
     validate_credentials,
 )
 from sources.hitpay.settings import HITPAY_ENDPOINTS, RECURRING_BILLING_STATUSES
+from sources.sdk import SinglePagePaginator
 
 # RESTClient (and the hand-rolled RecurringBilling client) build their session via
 # make_tracked_session, imported directly into the hitpay module.

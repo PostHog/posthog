@@ -3,27 +3,20 @@ from typing import Any, cast
 
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.knowbe4.settings import KNOWBE4_ENDPOINTS, KNOWBE4_REGION_HOSTS, KnowBe4EndpointConfig
+from sources.sdk import (
     BasePaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.knowbe4.settings import KNOWBE4_ENDPOINTS, KNOWBE4_REGION_HOSTS, KnowBe4EndpointConfig
 
 
 def build_base_url(region: str) -> str:

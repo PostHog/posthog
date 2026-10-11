@@ -8,11 +8,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClient,
-    RESTClientRetryableError,
-)
-
 from sources.browser_use.browser_use import (
     BROWSER_USE_BASE_URL,
     BrowserUseResumeConfig,
@@ -20,6 +15,7 @@ from sources.browser_use.browser_use import (
     validate_credentials,
 )
 from sources.browser_use.settings import BROWSER_USE_API_VERSION_V3, BROWSER_USE_API_VERSION_V4, BROWSER_USE_ENDPOINTS
+from sources.sdk import RESTClient, RESTClientRetryableError
 
 # browser_use builds its tracked session in its own module and hands it to the REST client.
 SESSION_PATCH = "sources.browser_use.browser_use.make_tracked_session"

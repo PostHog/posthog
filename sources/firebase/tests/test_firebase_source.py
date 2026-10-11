@@ -4,13 +4,10 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
 from sources.firebase._config import FirebaseKeyFileConfig, FirebaseSourceConfig
 from sources.firebase.settings import AUTH_USERS_TABLE
 from sources.firebase.source import FirebaseSource
+from sources.sdk import IncrementalFieldType, SourceInputs, incremental_field
 
 _GET_TABLES = "sources.firebase.source.get_tables"
 _GET_INCREMENTAL_FIELDS = "sources.firebase.source.get_incremental_fields"

@@ -4,12 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.onepassword import source as source_module
 from sources.onepassword._config import OnePasswordSourceConfig
 from sources.onepassword.settings import ENDPOINTS
 from sources.onepassword.source import OnePasswordSource
+from sources.sdk import SourceInputs
 
 ALL_FEATURES_INTROSPECTION = {
     "uuid": "OK41XEGLRTH4YKO5YRTCPNX3IU",

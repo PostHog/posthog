@@ -1,10 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, PartitionFormat, PartitionMode
 
 
 @dataclass

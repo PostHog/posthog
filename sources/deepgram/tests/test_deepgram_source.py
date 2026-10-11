@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.deepgram import source as source_module
 from sources.deepgram._config import DeepgramSourceConfig
 from sources.deepgram.source import DeepgramSource
+from sources.sdk import SourceInputs
 
 
 def _inputs(**overrides: Any) -> SourceInputs:

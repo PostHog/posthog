@@ -1,11 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 # CodeScene's list endpoints take a generic `filter` expression but no server-side timestamp
 # filter, so every endpoint here is full refresh only.

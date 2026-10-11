@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Dodo Payments serves test and live data from two entirely separate hosts, each with its own
 # API key. A key issued for one mode is rejected by the other, so the mode is an explicit source

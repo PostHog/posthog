@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # InsightVM's Insight Platform Cloud API is deployed per data-residency region. A single API key
 # belongs to one region, so the host is chosen by the `region` form field rather than a

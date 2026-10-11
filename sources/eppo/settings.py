@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Eppo's public API (https://eppo.cloud/api/v1) returns a plain JSON array for every list
 # endpoint below (no envelope, no total count). Endpoints with a documented "limit"/"offset"

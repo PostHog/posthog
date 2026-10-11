@@ -1,11 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, PartitionFormat, PartitionMode
 
 DEEPSOURCE_API_URL = "https://api.deepsource.com/graphql/"
 

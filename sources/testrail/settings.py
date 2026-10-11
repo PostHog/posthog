@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Paginated bulk endpoints accept a `limit` of up to 250; the largest page minimises round trips.
 PAGE_SIZE = 250

@@ -9,8 +9,6 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_security_hub import aws_security_hub
 from sources.aws_security_hub._config import AwsSecurityHubSourceConfig
 from sources.aws_security_hub.aws_security_hub import (
@@ -23,6 +21,7 @@ from sources.aws_security_hub.aws_security_hub import (
     validate_credentials,
 )
 from sources.aws_security_hub.source import AwsSecurityHubSource
+from sources.sdk import ResumableSourceManager
 
 VERSION = "2018-10-26"
 

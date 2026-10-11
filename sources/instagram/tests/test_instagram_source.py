@@ -6,14 +6,6 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldOauthConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.instagram._config import InstagramSourceConfig
 from sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
@@ -24,6 +16,13 @@ from sources.instagram.instagram import (
 )
 from sources.instagram.settings import INSTAGRAM_ENDPOINTS
 from sources.instagram.source import InstagramSource
+from sources.sdk import (
+    IntegrationAccountListingError,
+    ResumableSourceManager,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    VersionDeprecation,
+)
 
 SOURCE_MODULE = "sources.instagram.source"
 ACCOUNT_ID = "17841400000000000"

@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Bluesky's public AppView (see `bluesky.py`). No auth is required for any of the endpoints below.
 BASE_URL = "https://public.api.bsky.app"

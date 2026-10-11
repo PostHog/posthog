@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Awin caps the transactions/report date windows at 31 days per request, so any range wider than
 # this must be chunked. We use 30 to stay safely inside the (inclusive) limit.

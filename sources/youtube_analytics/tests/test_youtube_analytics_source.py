@@ -7,14 +7,7 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccountListingError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import ERROR_TOKEN_REFRESH_FAILED, IntegrationAccountListingError, ResumableSourceManager, SourceInputs
 from sources.youtube_analytics._config import YouTubeAnalyticsSourceConfig
 from sources.youtube_analytics.settings import (
     CHANNEL_DAILY,

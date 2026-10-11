@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Logz.io hosts its API behind a region-specific domain matching the account's data region. The
 # stored API token is only valid against the account's own region, so the region is a required

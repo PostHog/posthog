@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Alguna Public API OpenAPI spec (version 2026-04-01):
 # https://alguna.com/docs/api-reference/v2/overview

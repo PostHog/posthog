@@ -8,10 +8,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.simplesat.settings import ENDPOINTS, SIMPLESAT_ENDPOINTS
 from sources.simplesat.simplesat import (
     SIMPLESAT_BASE_URL,

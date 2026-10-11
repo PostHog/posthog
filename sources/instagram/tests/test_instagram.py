@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.instagram.instagram import (
     _ACCOUNT_ID_NOT_NUMERIC_ERROR,
     AUTH_ERROR_PREFIX,
@@ -42,6 +40,7 @@ from sources.instagram.settings import (
     MAX_INSIGHTS_LOOKBACK_DAYS,
     MEDIA_INSIGHT_METRICS,
 )
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.instagram.instagram"
 LOGGER = structlog.get_logger("instagram-tests")

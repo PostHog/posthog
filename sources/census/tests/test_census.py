@@ -5,10 +5,6 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-
 from sources.census.census import (
     CensusResumeConfig,
     census_source,
@@ -16,6 +12,7 @@ from sources.census.census import (
     get_resource,
     validate_credentials,
 )
+from sources.sdk import PageNumberPaginator
 
 
 class _FakeDltResource:

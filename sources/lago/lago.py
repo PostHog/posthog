@@ -30,23 +30,18 @@ from urllib.parse import quote, urlencode, urlparse
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.lago.settings import LAGO_ENDPOINTS, LagoEndpointConfig
+from sources.sdk import (
+    ClientConfig,
+    PageNumberPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    _is_host_safe,
+    build_dependent_resource,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.lago.settings import LAGO_ENDPOINTS, LagoEndpointConfig
 
 DEFAULT_API_HOST = "https://api.getlago.com"
 API_VERSION_PATH = "/api/v1"

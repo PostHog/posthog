@@ -3,23 +3,19 @@ from urllib.parse import urlsplit
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.braintrust._config import BraintrustSourceConfig
 from sources.braintrust.settings import AUTH_ERRORS, ENDPOINTS, PAGE_SIZE
+from sources.sdk import (
+    BearerTokenAuth,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 
 @frozen
@@ -28,9 +24,7 @@ class BraintrustResumeConfig:
 
 
 def validated_api_url(api_url: str, team_id: int) -> str:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- Keep Django models off the config import path.
-        ValidateDatabaseHostMixin,
-    )
+    from sources.sdk import ValidateDatabaseHostMixin  # noqa: PLC0415 -- Keep Django models off the config import path.
 
     error = "Enter an HTTPS API URL without a path, query, or credentials."
     try:

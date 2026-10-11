@@ -8,30 +8,22 @@ from requests import Request, Response, Session
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
-    DEFAULT_RETRY,
-    make_tracked_session,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    OffsetPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.close.search import ALL_CUSTOM_FIELDS_SELECTOR, iter_search_rows
 from sources.close.settings import CLOSE_ENDPOINTS, CloseEndpointConfig
+from sources.sdk import (
+    DEFAULT_RETRY,
+    BasePaginator,
+    Endpoint,
+    EndpointResource,
+    OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+)
 
 CLOSE_BASE_URL = "https://api.close.com/api/v1"
 PAGE_LIMIT = 100

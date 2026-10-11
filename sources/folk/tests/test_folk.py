@@ -7,8 +7,6 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.folk.folk import (
     FolkResumeConfig,
     FolkUntrustedURLError,
@@ -17,6 +15,7 @@ from sources.folk.folk import (
     probe_credentials,
 )
 from sources.folk.settings import FOLK_BASE_URL
+from sources.sdk import UnknownResourceError
 
 # folk_source lets the RESTClient build its own tracked session, so the transport is mocked at the
 # framework seam; the credential probe builds its session inside the folk module.

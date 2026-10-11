@@ -9,8 +9,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Request, RequestException, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.trunk_io.settings import FAILING_TESTS_DEFAULT_LOOKBACK_DAYS
 from sources.trunk_io.trunk_io import (
     TrunkCursorPaginator,

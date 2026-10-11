@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Aggregates for recent days keep changing as visits arrive, so incremental syncs re-pull a
 # trailing window and merge on (date, ...dimensions).

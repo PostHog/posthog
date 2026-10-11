@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 USERSNAP_BASE_URL = "https://platform.usersnap.com/v0.1"
 # Feedback list pages accept limit 1-100 (default 10).

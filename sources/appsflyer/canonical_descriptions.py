@@ -7,9 +7,7 @@ Keyed by the report names in `settings.py` `APPSFLYER_ENDPOINTS`, which match th
 snake_case (see `_normalize_header`); columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Columns shared across the aggregate-by-date reports (CSV headers normalized to snake_case).
 _COMMON_COLUMNS = {

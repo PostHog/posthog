@@ -5,9 +5,7 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType, SourceInputs
 from sources.transistor._config import TransistorSourceConfig
 from sources.transistor.settings import ENDPOINTS, TRANSISTOR_ENDPOINTS
 from sources.transistor.source import TransistorSource

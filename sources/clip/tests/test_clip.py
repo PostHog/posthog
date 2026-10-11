@@ -11,14 +11,11 @@ from unittest.mock import MagicMock
 import requests
 import requests_mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.clip._config import ClipSourceConfig
 from sources.clip.clip import ClipResumeConfig, clip_source, validate_credentials
 from sources.clip.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.clip.source import ClipSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse, UnknownResourceError
 
 BASE = "https://api-gw.payclip.com"
 AUTH = "Basic " + base64.b64encode(b"test-key:test-secret").decode()

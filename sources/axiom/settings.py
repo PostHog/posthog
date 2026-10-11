@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from sources.sdk import Endpoint
 
 API_VERSION = "v2"
 BASE_URL = f"https://api.axiom.co/{API_VERSION}/"

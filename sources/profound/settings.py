@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Profound splits into three shapes: the organization reference lists, the per-category reference
 # lists, and the v2 report endpoints. The last two take one category each, so they fan out over the

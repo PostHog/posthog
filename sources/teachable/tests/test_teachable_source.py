@@ -1,7 +1,6 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 from sources.teachable._config import TeachableSourceConfig
 from sources.teachable.settings import ENDPOINTS, TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS
 from sources.teachable.source import TeachableSource

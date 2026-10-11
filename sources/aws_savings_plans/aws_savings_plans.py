@@ -11,13 +11,6 @@ from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_savings_plans._config import AwsSavingsPlansSourceConfig
 from sources.aws_savings_plans.settings import (
     COST_EXPLORER_API_VERSION,
@@ -29,6 +22,7 @@ from sources.aws_savings_plans.settings import (
     SIGNING_REGION,
     SavingsPlansEndpoint,
 )
+from sources.sdk import BoundedRetry, ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 
 TRANSPORT_RETRY = BoundedRetry(
     total=3,

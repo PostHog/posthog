@@ -9,11 +9,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.frontegg._config import FronteggSourceConfig
 from sources.frontegg.frontegg import FronteggAuth, FronteggResumeConfig, frontegg_source
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 TRANSPORT = "sources.frontegg.frontegg"
 REST_CLIENT = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"

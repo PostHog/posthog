@@ -3,12 +3,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.bigeye._config import BigeyeSourceConfig
 from sources.bigeye.bigeye import BigeyeResumeConfig
 from sources.bigeye.source import BigeyeSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

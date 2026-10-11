@@ -1,9 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import DependentEndpointConfig, IncrementalField
 
 # The list endpoints accept a `limit`; the docs don't state a hard maximum, so 100 keeps each page
 # reasonably sized while minimising round trips.

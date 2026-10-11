@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `MARKETSTACK_ENDPOINTS`, which matc
 `ExternalDataSchema.name` of a synced table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://marketstack.com/documentation"
 

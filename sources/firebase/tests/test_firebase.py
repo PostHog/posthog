@@ -12,9 +12,6 @@ import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
 from sources.firebase.firebase import (
     AccessTokenProvider,
     FirebaseAuthError,
@@ -66,6 +63,8 @@ from sources.firebase.tests.conftest import (
     FakeSession,
     credentials,
 )
+from sources.sdk import IncrementalFieldType
+from sources.sdk.testing import error_message_matches
 
 _FIREBASE_MODULE = "sources.firebase.firebase"
 _SESSION_FACTORY = f"{_FIREBASE_MODULE}.make_tracked_session"

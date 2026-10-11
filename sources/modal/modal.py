@@ -7,18 +7,12 @@ import modal
 from grpclib import GRPCError, Status
 from modal.exception import AuthError, PermissionDeniedError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.modal.settings import ENDPOINTS, PARTITION_KEY, PRIMARY_KEYS
+from sources.sdk import SourceResponse, frozen, schema_for_resource
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
     from sources.modal._config import ModalSourceConfig
+    from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 AUTH_ERROR = "Modal authentication failed. Check your token ID and token secret."

@@ -6,10 +6,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.recreation.recreation import RecreationResumeConfig, recreation_source
 from sources.recreation.settings import PAGE_LIMIT
+from sources.sdk import ResumableSourceManager
 
 
 def _ridb_response(records: list[dict[str, Any]], total_count: int, offset: int) -> Response:

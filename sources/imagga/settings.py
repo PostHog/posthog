@@ -1,9 +1,6 @@
 from dataclasses import dataclass
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
+from sources.sdk import PartitionFormat, PartitionMode
 
 
 @dataclass

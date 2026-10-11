@@ -8,10 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.crates_io.settings import CRATES_IO_ENDPOINTS, CratesIOEndpointConfig
+from sources.sdk import SourceResponse, make_tracked_session
 
 CRATES_IO_BASE_URL = "https://crates.io/api/v1"
 

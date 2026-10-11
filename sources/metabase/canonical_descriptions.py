@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Metabase API reference (https://www.metabase.com/docs/latest/api-documentation).
 # Partial coverage is fine — any endpoint, column, or table-level description not listed here falls

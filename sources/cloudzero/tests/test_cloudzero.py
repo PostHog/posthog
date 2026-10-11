@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.cloudzero.cloudzero import (
     KEY_REJECTED_MESSAGE,
     PROBE_FAILED_MESSAGE,
@@ -20,6 +18,7 @@ from sources.cloudzero.cloudzero import (
     get_resource,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 class TestRollingIncrementalStartDate:

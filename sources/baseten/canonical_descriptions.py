@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Baseten management API OpenAPI spec (https://api.baseten.co/v1/spec). Keys match
 # the endpoint names returned by BasetenSource.get_schemas.

@@ -6,11 +6,6 @@ from unittest.mock import Mock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-
 from sources.cortex.cortex import (
     _encode_entity_tag,
     _format_cortex_datetime,
@@ -20,6 +15,7 @@ from sources.cortex.cortex import (
     validate_credentials,
 )
 from sources.cortex.settings import CORTEX_ENDPOINTS
+from sources.sdk import PageNumberPaginator, SinglePagePaginator
 
 
 class _FakeDltResource:

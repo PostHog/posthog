@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 AZURE_DEVOPS_BASE_URL = "https://dev.azure.com"
 # Release Management is the one area served from its own host.

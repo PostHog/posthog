@@ -8,9 +8,7 @@ dimension + metric set; columns are the GA4 dimension/metric API names. Columns 
 to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # GA4 dimensions reused across reports.
 _DATE = {"date": "The date the report row aggregates, in YYYYMMDD form."}

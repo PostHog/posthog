@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _ACS_COLUMNS = {
     "NAME": "Human-readable name of the geography (e.g. state or county name).",

@@ -3,10 +3,9 @@ from typing import Any, Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.autumn._config import AutumnSourceConfig
 from sources.autumn.source import AutumnSource
+from sources.sdk import SourceInputs
 
 
 def _make_inputs(

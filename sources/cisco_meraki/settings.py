@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 REGION_HOSTS = {
     "global": "api.meraki.com",

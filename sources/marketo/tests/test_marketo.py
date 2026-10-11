@@ -11,8 +11,6 @@ import requests
 from requests import Response
 from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.marketo.marketo import (
     BULK_CHUNK_ROWS,
     MarketoAPIError,
@@ -34,6 +32,7 @@ from sources.marketo.marketo import (
     validate_credentials,
 )
 from sources.marketo.settings import MARKETO_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 SESSION_PATCH = "sources.marketo.marketo.make_tracked_session"
 

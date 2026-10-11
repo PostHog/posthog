@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from Kandji's (Iru) public API docs. Columns not covered here fall back to LLM enrichment,
 # so partial coverage is fine; keys match the endpoint/schema names returned by `get_schemas`.

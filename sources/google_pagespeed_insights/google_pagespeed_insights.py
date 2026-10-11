@@ -10,10 +10,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.google_pagespeed_insights.settings import PAGESPEED_ENDPOINTS, PageSpeedEndpointConfig
+from sources.sdk import SourceResponse, make_tracked_session
 
 # The PageSpeed Insights v5 API is a single GET endpoint that runs an on-demand Lighthouse analysis of
 # a supplied URL and returns a large nested JSON document. Auth is a Google Cloud API key on the `key`

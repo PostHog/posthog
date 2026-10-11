@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # How a list endpoint is walked:
 # - "offset":   `limit`/`offset` query params over a bare JSON array (suppression endpoints).

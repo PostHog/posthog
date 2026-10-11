@@ -4,10 +4,9 @@ from unittest import mock
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.my_hours._config import MyHoursSourceConfig
 from sources.my_hours.source import MyHoursSource
+from sources.sdk import SourceInputs
 
 
 def _make_inputs(schema_name: str = "clients") -> SourceInputs:

@@ -1,10 +1,8 @@
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.gorgias._config import GorgiasSourceConfig
 from sources.gorgias.source import GorgiasSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 SOURCE_MODULE = "sources.gorgias.source"
 

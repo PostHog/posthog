@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
-
 from sources.linkrunner import linkrunner
 from sources.linkrunner.linkrunner import (
     LinkrunnerRateLimitError,
@@ -20,6 +18,7 @@ from sources.linkrunner.linkrunner import (
     get_rows,
     validate_credentials,
 )
+from sources.sdk.testing import boundary_checkpoint
 
 
 class TestFormatTimestamp:

@@ -7,8 +7,7 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.waydev.waydev import WaydevResumeConfig, get_resource, validate_credentials, waydev_source
 
 # validate_credentials builds its own tracked session in the waydev module.

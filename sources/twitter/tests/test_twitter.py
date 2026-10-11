@@ -9,10 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import ResumableSourceManager, SourceResponse, UnknownResourceError
 from sources.twitter.settings import TWITTER_ENDPOINTS
 from sources.twitter.twitter import (
     TwitterResumeConfig,

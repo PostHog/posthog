@@ -8,13 +8,10 @@ from unittest.mock import MagicMock
 
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.onehundredms._config import OneHundredMsSourceConfig
 from sources.onehundredms.onehundredms import OneHundredMsResumeConfig
 from sources.onehundredms.source import OneHundredMsSource
+from sources.sdk import ResumableSourceManager, SourceInputs, UnknownResourceError
 
 
 @pytest.fixture

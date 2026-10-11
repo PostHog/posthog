@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Every Business Central API v2.0 entity except `companies` lives under a company, so the whole
 # catalog below is company-scoped fan-out with `companies` as the parent.

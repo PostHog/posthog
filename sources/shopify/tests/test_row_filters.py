@@ -4,12 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
-    ColumnTypeCategory,
-    RowFilterColumn,
-    ValidatedRowFilter,
-)
-
+from sources.sdk import RowFilterColumn, ValidatedRowFilter
+from sources.sdk.testing import ColumnTypeCategory
 from sources.shopify.constants import BLOGS, COLLECTIONS, CUSTOMERS, ORDERS
 from sources.shopify.shopify import row_filter_search_terms, shopify_source
 from sources.shopify.source import ShopifySource

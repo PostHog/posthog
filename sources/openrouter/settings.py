@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # The /activity rollups only cover the last 30 completed UTC days; older data isn't retrievable
 # through this endpoint, so both the first sync and every incremental sync are bounded to this window.

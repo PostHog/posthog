@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Flowlu REST API spec (https://www.flowlu.com/api/json/openapien.json);
 # developers.flowlu.com is the API host, not a docs site.

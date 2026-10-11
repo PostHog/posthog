@@ -5,9 +5,7 @@ Keyed by the schema names in `settings.py` `ENDPOINTS`, which match the `Externa
 of a synced Harvest table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Every Harvest object carries these, so they're merged into each entry rather than repeated.
 _COMMON_COLUMNS = {

@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `STACK_OVERFLOW_FOR_TEAMS_ENDPOINTS
 `ExternalDataSchema.name` of a synced table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _API_DOCS_URL = "https://api.stackoverflowteams.com/docs"
 

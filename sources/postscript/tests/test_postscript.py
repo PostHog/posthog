@@ -5,11 +5,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-
 from sources.postscript.postscript import (
     PostscriptResumeConfig,
     _format_postscript_datetime,
@@ -18,6 +13,7 @@ from sources.postscript.postscript import (
     postscript_source,
     validate_credentials,
 )
+from sources.sdk import PageNumberPaginator, SinglePagePaginator
 
 
 def _subscribers_response(total_pages: int) -> Mock:

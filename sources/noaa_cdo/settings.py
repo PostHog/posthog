@@ -1,5 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, ResponseAction
 
 API_BASE_URL = "https://www.ncei.noaa.gov/cdo-web/api"
 API_DOCS_URL = "https://www.ncei.noaa.gov/cdo-web/webservices/v2"

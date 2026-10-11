@@ -14,8 +14,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.app_store_connect.app_store_connect import (
     _ANALYTICS_SNAPSHOT_DECISION_NAMESPACE,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
@@ -48,6 +46,7 @@ from sources.app_store_connect.app_store_connect import (
     parse_app_ids,
 )
 from sources.app_store_connect.settings import APP_STORE_CONNECT_ENDPOINTS, ENDPOINTS, SALES_REPORT_LOOKBACK_DAYS
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.app_store_connect.app_store_connect"
 

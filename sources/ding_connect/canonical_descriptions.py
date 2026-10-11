@@ -5,9 +5,7 @@ Keyed by the resource names in `settings.py` `ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced DingConnect table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://www.dingconnect.com/Api/Description"
 

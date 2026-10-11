@@ -7,10 +7,9 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.quo.quo import QuoResumeConfig, quo_source, validate_credentials
 from sources.quo.settings import QUO_API_VERSION_2026_03_30, QUO_API_VERSION_V1
+from sources.sdk import UnknownResourceError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

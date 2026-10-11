@@ -5,9 +5,6 @@ import requests
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.notion._config import NotionSourceConfig
 from sources.notion.notion import (
     ADMIN_TOKEN_INVALID_ERROR,
@@ -18,6 +15,8 @@ from sources.notion.notion import (
     get_rows,
 )
 from sources.notion.source import NotionSource
+from sources.sdk import SourceInputs
+from sources.sdk.testing import error_message_matches
 
 NOTION_MODULE = "sources.notion.notion"
 

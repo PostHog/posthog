@@ -4,9 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.mistral_ai.source import MistralAISource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 def _make_inputs(**overrides: Any) -> MagicMock:

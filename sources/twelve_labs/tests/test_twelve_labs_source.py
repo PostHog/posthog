@@ -3,8 +3,7 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.twelve_labs import source as source_module
 from sources.twelve_labs._config import TwelveLabsSourceConfig
 from sources.twelve_labs.source import TwelveLabsSource

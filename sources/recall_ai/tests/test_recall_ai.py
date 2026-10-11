@@ -8,9 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.recall_ai.recall_ai import RecallAIResumeConfig, _to_iso8601, base_url_for_region, recall_ai_source
+from sources.sdk import ResumableSourceManager
 
 BASE_URL = "https://us-east-1.recall.ai"
 

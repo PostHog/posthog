@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
     Dynamics365ConfigurationError,
@@ -25,6 +23,7 @@ from sources.dynamics365.dynamics365 import (
     token_url,
 )
 from sources.dynamics365.settings import DYNAMICS365_ENDPOINTS, ENDPOINTS
+from sources.sdk import SourceResponse
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 AUTH_SESSION_PATCH = (

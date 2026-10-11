@@ -13,8 +13,6 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.cody import cody
 from sources.cody.cody import (
     CodyCredentialsError,
@@ -27,6 +25,7 @@ from sources.cody.cody import (
     normalize_instance_url,
     validate_credentials,
 )
+from sources.sdk import SourceResponse
 
 CSV_BODY = "User Email,Chats,Completion Acceptance Rate (CAR%)\na@b.com,12,0.5\nc@d.com,3,0.25\n"
 

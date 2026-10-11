@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the Mistral AI OpenAPI spec (https://docs.mistral.ai/api/). Partial coverage is fine —
 # any column not described here falls back to LLM enrichment.

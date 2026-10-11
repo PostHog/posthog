@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Any, Literal
 
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 # DataForSEO serves every dataset as a POST "live" endpoint under https://api.dataforseo.com/v3.
 # The request body is an array with one task object ({"target": ..., "location_name": ...}) and

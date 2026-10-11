@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # TeamCity pages with the `count` locator dimension; the server batches at ~100 by default
 # but accepts larger counts. Occurrence rows are small, so we fetch them in bigger pages.

@@ -8,10 +8,9 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.mercury.mercury import MercuryResumeConfig, format_incremental_value, get_resource, mercury_source
 from sources.mercury.settings import ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 class TestFormatIncrementalValue:

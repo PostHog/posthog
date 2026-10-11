@@ -7,9 +7,8 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-
 from sources.e2b.e2b import E2BConfigurationError, E2BResumeConfig, E2BRetryableError, e2b_source, validate_credentials
+from sources.sdk import RESTClient
 
 # e2b builds its own tracked session and hands it to the RESTClient, so patch it in the e2b module.
 E2B_SESSION_PATCH = "sources.e2b.e2b.make_tracked_session"

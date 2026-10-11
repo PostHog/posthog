@@ -9,12 +9,11 @@ from unittest.mock import Mock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_glue_data_catalog import aws_glue_data_catalog as glue
 from sources.aws_glue_data_catalog._config import AwsGlueDataCatalogSourceConfig
 from sources.aws_glue_data_catalog.settings import ENDPOINTS, GLUE_API_VERSION
 from sources.aws_glue_data_catalog.source import AwsGlueDataCatalogSource
+from sources.sdk import ResumableSourceManager
 
 
 def config(region: str = "eu-west-1", token: str | None = None) -> AwsGlueDataCatalogSourceConfig:

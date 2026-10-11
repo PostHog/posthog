@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Veeqo defaults to tiny pages (12 on most endpoints, 10 on warehouses), so the page
 # size is always set explicitly. `/products` documents a maximum of 100; the other

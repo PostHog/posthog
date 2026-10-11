@@ -5,8 +5,7 @@ from unittest import mock
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.twelve_data import source as source_module
 from sources.twelve_data._config import TwelveDataSourceConfig
 from sources.twelve_data.source import TwelveDataSource

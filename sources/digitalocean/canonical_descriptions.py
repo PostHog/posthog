@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the DigitalOcean API v2 reference (https://docs.digitalocean.com/reference/api/).
 # Applied directly as authoritative column/table descriptions; any endpoint or column not

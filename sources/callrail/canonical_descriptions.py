@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from CallRail's public v3 API docs (https://apidocs.callrail.com). Keyed by
 # the endpoint name from ENDPOINTS / get_schemas. Partial coverage is fine — anything not listed

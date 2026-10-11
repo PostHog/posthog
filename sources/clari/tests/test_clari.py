@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
-
 from sources.clari.clari import (
     ClariResumeConfig,
     ClariRetryableError,
@@ -19,6 +17,7 @@ from sources.clari.clari import (
     validate_credentials,
 )
 from sources.clari.settings import ACTIVITY_INITIAL_LOOKBACK_DAYS
+from sources.sdk.internals import validate_incremental_sync
 
 _MODULE = "sources.clari.clari"
 

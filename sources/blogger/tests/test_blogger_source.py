@@ -5,10 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.blogger import source as source_module
 from sources.blogger.source import BloggerSource
+from sources.sdk import SourceInputs
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:

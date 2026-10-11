@@ -8,13 +8,10 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.my_hours import my_hours
 from sources.my_hours.my_hours import MY_HOURS_BASE_URL, MyHoursApiKeyAuth, check_access, my_hours_source
 from sources.my_hours.settings import ENDPOINTS, MY_HOURS_ENDPOINTS
+from sources.sdk import RESTClientRetryableError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

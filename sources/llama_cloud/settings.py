@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # LlamaCloud API keys are region-specific: a key minted in one region only works
 # against that region's host (https://developers.llamaindex.ai/python/cloud/general/regions).

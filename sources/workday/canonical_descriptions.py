@@ -10,9 +10,7 @@ Every Workday REST collection item carries the same instance envelope — `id` (
 `href` (the absolute API URL of the instance) — so those three are described on every table.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://community.workday.com/sites/default/files/file-hosting/restapi/index.html"
 

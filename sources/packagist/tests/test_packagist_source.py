@@ -2,10 +2,9 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.packagist._config import PackagistSourceConfig
 from sources.packagist.source import PackagistSource
+from sources.sdk import SourceInputs
 
 
 def _make_inputs(

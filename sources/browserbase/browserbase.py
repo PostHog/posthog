@@ -3,30 +3,25 @@ from typing import Any, cast
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    BasePaginator,
-    ClientConfig,
-    Endpoint,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.browserbase.settings import (
     BROWSERBASE_ENDPOINTS,
     CURSOR_PARAM,
     CURSOR_PATH,
     MAX_PAGE_SIZE,
     BrowserbaseEndpointConfig,
+)
+from sources.sdk import (
+    BasePaginator,
+    ClientConfig,
+    Endpoint,
+    JSONResponseCursorPaginator,
+    RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
 
 BROWSERBASE_BASE_URL = "https://api.browserbase.com/v1"

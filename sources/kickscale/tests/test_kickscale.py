@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, Mock, patch
 from parameterized import parameterized
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.kickscale.kickscale import (
     KickscaleAuth,
     KickscalePageNumberPaginator,
@@ -21,6 +19,7 @@ from sources.kickscale.kickscale import (
     kickscale_source,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 class TestKickscaleAuth:

@@ -4,8 +4,6 @@ from typing import cast
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.qualys_vmdr.qualys_vmdr import (
     MISSING_GATEWAY_ERROR,
     QualysVmdrResponseTooLargeError,
@@ -22,6 +20,7 @@ from sources.qualys_vmdr.qualys_vmdr import (
     validate_credentials,
 )
 from sources.qualys_vmdr.settings import QUALYS_VMDR_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 _MODULE = "sources.qualys_vmdr.qualys_vmdr"
 

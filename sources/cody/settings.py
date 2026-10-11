@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 REPORTS_PATH = "/api/reports/by-user-client-date"
 CREDITS_PATH = "/api/credits"

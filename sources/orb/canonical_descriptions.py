@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the public Orb API reference (https://docs.withorb.com/api-reference).
 # Keyed by the schema/endpoint name returned by `get_schemas`.

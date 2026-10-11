@@ -18,16 +18,9 @@ analytics streams added to the catalog later are covered without code changes.
 
 from collections.abc import Mapping
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-    CanonicalEndpoint,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.app_store_connect.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.app_store_connect.settings import APP_STORE_CONNECT_ENDPOINTS, AppStoreConnectEndpointConfig
+from sources.sdk import CanonicalDescriptions, CanonicalEndpoint, ExternalDataSourceType, frozen
 
 _ANALYTICS_KIND = "analytics_report"
 

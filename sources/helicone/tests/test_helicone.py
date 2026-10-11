@@ -8,8 +8,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.helicone.helicone import (
     HeliconeResumeConfig,
     _eval_scores_rows,
@@ -30,6 +28,7 @@ from sources.helicone.settings import (
     SESSIONS_ENDPOINT,
     USERS_ENDPOINT,
 )
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.helicone.helicone"
 

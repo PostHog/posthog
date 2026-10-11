@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.codemagic.codemagic import (
     CodemagicBuildsPaginator,
     CodemagicResumeConfig,
@@ -16,6 +14,7 @@ from sources.codemagic.codemagic import (
     validate_credentials,
 )
 from sources.codemagic.settings import CODEMAGIC_V1, CODEMAGIC_V3
+from sources.sdk import ResumableSourceManager
 
 
 class TestCodemagicBuildsPaginator:

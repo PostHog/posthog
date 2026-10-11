@@ -1,6 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 INSPECTOR_API_VERSION = "2020-06-08"
 DEFAULT_REGION = "us-east-1"

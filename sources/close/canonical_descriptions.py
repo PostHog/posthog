@@ -5,10 +5,7 @@ Sourced from the official Close API reference (https://developer.close.com/) and
 `ExternalDataSchema.name` of a synced Close table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-    CanonicalEndpoint,
-)
+from sources.sdk import CanonicalDescriptions, CanonicalEndpoint
 
 # Fields shared by most Close objects; merged into each entry so we don't repeat them.
 _COMMON_COLUMNS = {

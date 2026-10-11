@@ -5,10 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.dataforseo.dataforseo import MAX_KEYWORDS
 from sources.dataforseo.source import DataForSEOSource
+from sources.sdk.testing import error_message_matches
 
 MODULE = "sources.dataforseo.source"
 

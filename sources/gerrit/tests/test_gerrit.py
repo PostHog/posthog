@@ -9,8 +9,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.gerrit import gerrit as gerrit_module
 from sources.gerrit.gerrit import (
     HOST_NOT_ALLOWED_ERROR,
@@ -22,6 +20,7 @@ from sources.gerrit.gerrit import (
     normalize_host,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 def _response(*, status_code: int = 200, text: str = "", is_redirect: bool = False) -> mock.MagicMock:

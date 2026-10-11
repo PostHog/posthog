@@ -4,9 +4,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
-
 from sources.firehydrant.source import FireHydrantSource
+from sources.sdk import SourceFieldSelectConfig
 
 
 def _config() -> Any:

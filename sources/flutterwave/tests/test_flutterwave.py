@@ -10,11 +10,8 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.flutterwave.flutterwave import FlutterwaveResumeConfig, base_url, flutterwave_source, validate_credentials
+from sources.sdk import RESTClientRetryableError
 
 # get_rows builds the tracked session (capture=False) and hands it to the REST client, and
 # validate_credentials builds its probe session, both via this import — so one patch covers both.

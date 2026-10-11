@@ -2,9 +2,7 @@ from collections.abc import Callable
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, frozen
 
 HEROKU_BASE_URL = "https://api.heroku.com"
 

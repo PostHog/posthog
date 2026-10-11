@@ -6,9 +6,7 @@ Keyed by the endpoint names in `settings.py` `PRODUCTBOARD_ENDPOINTS`, which mat
 `/entities` resource and share a common shape. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields shared by Productboard entity objects (served via the `/entities` resource).
 _ENTITY_COLUMNS = {

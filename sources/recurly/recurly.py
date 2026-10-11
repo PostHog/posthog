@@ -5,17 +5,16 @@ from urllib.parse import parse_qs, urlparse
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.recurly.settings import RECURLY_BASE_URLS, RECURLY_ENDPOINTS
+from sources.sdk import (
+    BasePaginator,
+    EndpointResource,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-from sources.recurly.settings import RECURLY_BASE_URLS, RECURLY_ENDPOINTS
 
 # Pinning the API version is required — Recurly rejects requests without it.
 RECURLY_API_VERSION = "v2021-02-25"

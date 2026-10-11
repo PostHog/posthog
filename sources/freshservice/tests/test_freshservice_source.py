@@ -5,10 +5,9 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.freshservice._config import FreshserviceSourceConfig
 from sources.freshservice.source import FreshserviceSource
+from sources.sdk import SourceInputs
 
 PATCH_VALIDATE = "sources.freshservice.source.validate_freshservice_credentials"
 

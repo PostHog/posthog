@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # OnePageCRM timestamps are ISO 8601 strings (e.g. "2018-05-16T11:52:09Z"); the `modified_since`
 # list filter accepts a UNIX timestamp and returns only resources modified since that time.

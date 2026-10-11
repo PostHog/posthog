@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Sift (JustSift) API docs (https://developers.justsift.com).
 # Person profiles are largely dynamic (custom fields vary per organization), so only the stable,

@@ -5,19 +5,16 @@ from urllib.parse import urlencode
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.elasticemail.settings import ELASTICEMAIL_ENDPOINTS, PAGE_SIZE, ElasticEmailEndpointConfig
+from sources.sdk import (
+    OffsetPaginator,
+    ResponseAction,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.elasticemail.settings import ELASTICEMAIL_ENDPOINTS, PAGE_SIZE, ElasticEmailEndpointConfig
 
 ELASTICEMAIL_BASE_URL = "https://api.elasticemail.com/v4"
 

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from Nebius AI Studio (Token Factory) docs, which follow the OpenAI-compatible
 # object schemas. Keyed by the endpoint/schema name returned by `get_schemas`.

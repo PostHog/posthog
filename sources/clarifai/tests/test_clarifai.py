@@ -7,15 +7,10 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.clarifai._config import ClarifaiSourceConfig
 from sources.clarifai.clarifai import ClarifaiClient, ClarifaiResumeConfig
 from sources.clarifai.source import ClarifaiSource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, UnknownResourceError
 
 BASE_URL = "https://api.clarifai.com/v2/users/example-user/apps/example-app/"
 

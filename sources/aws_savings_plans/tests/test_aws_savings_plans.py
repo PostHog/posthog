@@ -11,8 +11,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from botocore.session import get_session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_savings_plans._config import AwsSavingsPlansSourceConfig
 from sources.aws_savings_plans.aws_savings_plans import (
     AwsSavingsPlansClient,
@@ -23,6 +21,7 @@ from sources.aws_savings_plans.aws_savings_plans import (
     validate_credentials,
 )
 from sources.aws_savings_plans.settings import ENDPOINTS, SAVINGS_PLANS_API_VERSION
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.aws_savings_plans.aws_savings_plans"
 

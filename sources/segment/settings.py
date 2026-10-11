@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Twilio Segment exposes two regional hosts for the same workspace-scoped Public API. The token is
 # bound to one region, so the user picks it at connect time (Airbyte models this as `region: api|eu1`).

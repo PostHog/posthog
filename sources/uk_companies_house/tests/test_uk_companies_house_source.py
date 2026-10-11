@@ -5,9 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import ResumableSourceManager, SourceInputs
 from sources.uk_companies_house._config import UkCompaniesHouseSourceConfig
 from sources.uk_companies_house.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.uk_companies_house.settings import COMPANIES, ENDPOINT_SPECS, ENDPOINTS

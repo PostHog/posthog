@@ -4,27 +4,22 @@ from typing import Any, Optional
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    RESTClient,
-    create_auth,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    create_response_hooks,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.airops.settings import AIROPS_ENDPOINTS, AirOpsEndpointConfig
+from sources.sdk import (
+    EndpointResource,
     JSONResponseCursorPaginator,
     PageNumberPaginator,
+    RESTAPIConfig,
+    RESTClient,
     SinglePagePaginator,
+    SourceResponse,
+    create_auth,
+    create_response_hooks,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.airops.settings import AIROPS_ENDPOINTS, AirOpsEndpointConfig
 
 AIROPS_BASE_URL = "https://api.airops.com"
 APPS_PATH = "public_api/airops_apps"

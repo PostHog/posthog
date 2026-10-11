@@ -2,12 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.openai_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.openai_ads.settings import ENDPOINTS
 from sources.openai_ads.source import OpenAIAdsSource
+from sources.sdk import ExternalDataSourceType, ReleaseStatus, SourceFieldInputConfig
 
 _ENTITY_ENDPOINTS = ["campaigns", "ad_groups", "ads"]
 _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", "ad_account_insights"]

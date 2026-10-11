@@ -8,12 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.getdx._config import GetdxSourceConfig
 from sources.getdx.getdx import API_ERROR, AUTH_ERROR, PERMISSION_ERROR, GetdxResumeConfig
 from sources.getdx.source import GetdxSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 @pytest.fixture

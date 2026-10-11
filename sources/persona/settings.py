@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Persona's list endpoints return records newest-first (reverse-chronological on created-at) and are
 # paginated with a `page[after]=<object id>` cursor. Incremental endpoints expose a server-side

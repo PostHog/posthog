@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOWNLOAD_COUNTS_DOCS = "https://github.com/npm/registry/blob/master/docs/download-counts.md"
 _REGISTRY_API_DOCS = "https://github.com/npm/registry/blob/master/docs/REGISTRY-API.md"

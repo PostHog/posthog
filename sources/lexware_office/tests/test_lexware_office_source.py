@@ -4,10 +4,9 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.lexware_office._config import LexwareOfficeSourceConfig
 from sources.lexware_office.source import LexwareOfficeSource
+from sources.sdk import UnknownResourceError
 
 BASE = "https://api.lexware.io/v1"
 

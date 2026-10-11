@@ -2,11 +2,10 @@ from typing import Literal
 
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-
 from sources.metabase._config import MetabaseAuthMethodConfig, MetabaseSourceConfig
 from sources.metabase.metabase import MetabaseAuth
 from sources.metabase.source import MetabaseSource
+from sources.sdk import _is_host_safe
 
 
 def _config(selection: Literal["api_key", "session"] = "api_key", **auth_kwargs) -> MetabaseSourceConfig:

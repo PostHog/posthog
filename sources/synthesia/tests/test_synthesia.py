@@ -8,9 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import ResumableSourceManager, UnknownResourceError
 from sources.synthesia.source import SynthesiaSource
 from sources.synthesia.synthesia import SynthesiaResumeConfig, synthesia_source, validate_credentials
 

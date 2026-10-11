@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 API_BASE_URL = "https://api.applicationinsights.io"
 API_DOCS_URL = "https://learn.microsoft.com/en-us/rest/api/application-insights/query/execute"

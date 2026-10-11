@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every row carries `analysis_timestamp`, a derived ISO 8601 UTC timestamp of when PageSpeed Insights
 # ran the Lighthouse analysis (parsed from the API's `analysisUTCTimestamp`). Each sync produces a

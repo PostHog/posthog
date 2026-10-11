@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the AppFollow API v2 documentation (https://docs.api.appfollow.io/reference/overview and
 # the per-endpoint response-field references). Partial coverage is fine — anything omitted falls back

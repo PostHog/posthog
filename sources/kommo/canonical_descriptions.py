@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `ENDPOINTS`, which match the `Exter
 of a synced Kommo table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Fields Kommo repeats across most entities, merged into each entry rather than restated.
 _COMMON_COLUMNS = {

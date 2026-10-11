@@ -5,9 +5,7 @@ Keyed by the endpoint names in `settings.py` `ZYLO_ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced Zylo table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Timestamps present on nearly every Zylo object; merged into each entry so we don't repeat them.
 _SYSTEM_COLUMNS = {

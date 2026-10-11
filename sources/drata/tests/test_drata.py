@@ -10,10 +10,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
 from sources.drata.drata import (
     REGION_BASE_URLS,
     DrataResumeConfig,
@@ -22,6 +18,7 @@ from sources.drata.drata import (
     validate_credentials,
 )
 from sources.drata.settings import DRATA_ENDPOINTS, ENDPOINTS
+from sources.sdk import RESTClientRetryableError
 
 US_BASE_URL = REGION_BASE_URLS["US"]
 

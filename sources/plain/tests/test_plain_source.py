@@ -1,7 +1,6 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.plain._config import PlainSourceConfig
 from sources.plain.source import PlainSource
+from sources.sdk.testing import error_message_matches
 
 
 class TestPlainSource:

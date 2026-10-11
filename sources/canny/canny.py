@@ -5,23 +5,19 @@ from typing import Any, Optional
 import requests
 from requests import PreparedRequest, Response
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.canny.settings import CANNY_API_VERSION_V2, CANNY_ENDPOINTS, CannyEndpointConfig
+from sources.sdk import (
+    AuthConfigBase,
     BasePaginator,
     OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
     _inject_param,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.canny.settings import CANNY_API_VERSION_V2, CANNY_ENDPOINTS, CannyEndpointConfig
 
 CANNY_BASE_URL = "https://canny.io/api"
 # Airbyte's community connector pages every Canny list endpoint at 100 records.

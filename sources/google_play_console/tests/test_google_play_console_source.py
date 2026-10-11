@@ -3,12 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
 from sources.google_play_console._config import GooglePlayConsoleKeyFileConfig, GooglePlayConsoleSourceConfig
 from sources.google_play_console.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.google_play_console.settings import BREAKDOWN_TABLES, ENDPOINTS, LIST_ENDPOINTS, METRIC_SETS, PRIMARY_KEYS
 from sources.google_play_console.source import GooglePlayConsoleSource
+from sources.sdk import IncrementalFieldType
 
 SOURCE_MODULE = GooglePlayConsoleSource.__module__
 

@@ -8,9 +8,7 @@ entity-set names in `settings.py` `BUSINESS_CENTRAL_ENDPOINTS`, which match the
 companies and stamps the parent company onto every child row so the primary key stays unique.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _API_REFERENCE = "https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/api-reference/v2.0"
 

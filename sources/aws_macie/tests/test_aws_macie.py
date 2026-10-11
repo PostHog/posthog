@@ -10,9 +10,6 @@ from unittest.mock import Mock, patch
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_macie._config import AwsMacieSourceConfig
 from sources.aws_macie.aws_macie import (
     AwsMacieClient,
@@ -22,6 +19,7 @@ from sources.aws_macie.aws_macie import (
     validate_credentials,
 )
 from sources.aws_macie.source import AwsMacieSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 class MemoryResumeManager(ResumableSourceManager[AwsMacieResumeConfig]):

@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Synthesized surrogate key for a timeseries row. DataHub's own uniqueness rule for a timeseries
 # document spans the timestamp, event granularity, urn, message id and partition spec, and none of

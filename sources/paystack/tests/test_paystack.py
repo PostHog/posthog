@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.paystack.paystack import (
     PAGE_SIZE,
     PaystackPaginator,
@@ -15,6 +13,7 @@ from sources.paystack.paystack import (
     paystack_source,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 def _meta(page: int, page_count: int) -> dict[str, Any]:

@@ -8,10 +8,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.zendesk_sell.zendesk_sell import (
     PER_PAGE,
     ZendeskSellResumeConfig,

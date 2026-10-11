@@ -4,20 +4,18 @@ from uuid import UUID
 
 from requests.exceptions import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.kapa_ai.settings import BASE_URL, ENDPOINTS
+from sources.sdk import (
+    EndpointResource,
+    Resource,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
     rest_api_resource,
     rest_api_resources,
+    schema_for_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.kapa_ai.settings import BASE_URL, ENDPOINTS
 
 AUTH_ERRORS = {
     401: "Your kapa.ai API key is invalid or expired. Create a new key and reconnect.",

@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the official openFDA field-reference docs (https://open.fda.gov/apis/).
 # Keyed by endpoint name (matches ENDPOINTS / get_schemas). Partial coverage is fine — any endpoint,

@@ -8,14 +8,12 @@ from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.arcade._config import ArcadeSourceConfig
 from sources.arcade.arcade import ArcadeResumeConfig, arcade_source, validate_credentials
 from sources.arcade.settings import AUTH_ERROR, INSIGHTS_ERROR, PERMISSION_ERROR, PLAN_ERROR, PROVISIONING_ERROR
 from sources.arcade.source import ArcadeSource
+from sources.sdk import ResumableSourceManager, SourceResponse
+from sources.sdk.testing import activate_safe_point
 
 
 @pytest.fixture

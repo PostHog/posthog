@@ -3,19 +3,9 @@ from typing import Any
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.calendarific._config import CalendarificSourceConfig
 from sources.calendarific.settings import AUTH_ERROR, ENDPOINTS, SUBSCRIPTION_ERROR
+from sources.sdk import Endpoint, EndpointResource, Resource, RESTAPIConfig, SourceResponse, rest_api_resource
 
 
 class CalendarificClient:

@@ -3,26 +3,21 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+from sources.emailoctopus.settings import EMAILOCTOPUS_ENDPOINTS, EmailOctopusEndpointConfig, EmailOctopusFanOut
+from sources.sdk import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponsePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.emailoctopus.settings import EMAILOCTOPUS_ENDPOINTS, EmailOctopusEndpointConfig, EmailOctopusFanOut
 
 EMAILOCTOPUS_BASE_URL = "https://api.emailoctopus.com"
 # The v2 API caps a page at 100 results.

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 CODEMAGIC_V1 = "v1"
 CODEMAGIC_V3 = "v3"

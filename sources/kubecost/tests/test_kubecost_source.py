@@ -1,10 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from sources.kubecost._config import KubecostSourceConfig
 from sources.kubecost.source import KubecostSource
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestKubecostSource:

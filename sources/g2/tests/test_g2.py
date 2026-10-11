@@ -5,8 +5,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.g2 import g2
 from sources.g2.g2 import (
     G2ResumeConfig,
@@ -19,6 +17,7 @@ from sources.g2.g2 import (
     validate_credentials,
 )
 from sources.g2.settings import G2_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 class _FakeResumeManager(ResumableSourceManager[G2ResumeConfig]):

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Helicone runs regional deployments. An API key belongs to a single org in one region, so the
 # host is chosen by the `region` form field rather than a user-supplied URL (no SSRF surface —

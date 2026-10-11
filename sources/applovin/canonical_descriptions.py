@@ -5,11 +5,8 @@ endpoint names in `settings.py` `APPLOVIN_ENDPOINTS`, which match the `ExternalD
 of a synced AppLovin table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
-
 from sources.applovin.settings import COHORT_DAY_OFFSETS
+from sources.sdk import CanonicalDescriptions
 
 _MAX_REPORT_DOCS_URL = "https://support.applovin.com/en/max/reporting-apis/revenue-reporting-api"
 _REPORT_DOCS_URL = "https://support.applovin.com/en/growth/promoting-your-apps/api/reporting-api"

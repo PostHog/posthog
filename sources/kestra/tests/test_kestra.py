@@ -11,12 +11,10 @@ from unittest.mock import MagicMock, patch
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.kestra._config import KestraAuthMethodConfig, KestraSourceConfig
 from sources.kestra.kestra import kestra_source, validate_credentials
 from sources.kestra.source import KestraSource
+from sources.sdk import SourceInputs, UnknownResourceError
 
 
 @pytest.fixture

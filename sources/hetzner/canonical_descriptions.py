@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the official Hetzner Cloud API reference (https://docs.hetzner.cloud/).
 # Partial coverage is fine — any table, column, or endpoint not listed here falls back to LLM enrichment.

@@ -2,25 +2,20 @@ import dataclasses
 from typing import Any, Optional
 from urllib.parse import quote
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.beehiiv.settings import ENDPOINTS, MAX_PAGE, PAGE_SIZE, PUBLICATION_PATH_PLACEHOLDER
+from sources.sdk import (
     BasePaginator,
-    JSONResponseCursorPaginator,
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.beehiiv.settings import ENDPOINTS, MAX_PAGE, PAGE_SIZE, PUBLICATION_PATH_PLACEHOLDER
 
 BASE_HOST = "https://api.beehiiv.com"
 REQUEST_TIMEOUT_SECONDS = 30.0

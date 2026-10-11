@@ -8,11 +8,7 @@ from unittest.mock import MagicMock, patch
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager
 from sources.ynab.source import YnabSource
 from sources.ynab.ynab import YnabResumeConfig, validate_credentials, ynab_source
 

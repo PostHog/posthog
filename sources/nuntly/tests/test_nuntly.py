@@ -7,10 +7,9 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.nuntly.nuntly import NuntlyResumeConfig, nuntly_source, validate_credentials
 from sources.nuntly.settings import ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:

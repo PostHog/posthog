@@ -3,8 +3,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import ResumableSourceManager
 from sources.zoho_crm._config import ZohoCRMSourceConfig
 from sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from sources.zoho_crm.source import ZohoCRMSource

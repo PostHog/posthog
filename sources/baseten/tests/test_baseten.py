@@ -6,10 +6,9 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.baseten.baseten import BasetenResumeConfig, baseten_source, validate_credentials
 from sources.baseten.settings import BASETEN_ENDPOINTS, ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

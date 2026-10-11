@@ -8,12 +8,6 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests import HTTPError
 
-from posthog.temporal.common.errors import NonReportableError
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.promptwatch._config import PromptWatchSourceConfig
 from sources.promptwatch.promptwatch import PromptWatchResumeConfig, promptwatch_source, validate_credentials
 from sources.promptwatch.settings import (
@@ -25,6 +19,7 @@ from sources.promptwatch.settings import (
     QUOTA_ERROR,
 )
 from sources.promptwatch.source import PromptWatchSource
+from sources.sdk import NonReportableError, RESTClient, ResumableSourceManager, SourceInputs
 
 
 @pytest.fixture

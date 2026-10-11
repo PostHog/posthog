@@ -5,9 +5,7 @@ Sourced from the official Propertyware OpenAPI 3.0 spec. Keyed by the resource n
 Propertyware table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _API_DOCS_URL = "https://app.propertyware.com/apidocs/index.html"
 

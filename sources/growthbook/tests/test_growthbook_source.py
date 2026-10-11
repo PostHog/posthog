@@ -5,14 +5,9 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.growthbook._config import GrowthBookSourceConfig
 from sources.growthbook.source import GrowthBookSource
+from sources.sdk import RESTClientRetryableError, SourceInputs, UnknownResourceError
 
 
 @pytest.mark.parametrize(

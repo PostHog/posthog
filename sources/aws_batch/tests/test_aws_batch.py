@@ -9,9 +9,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_batch import (
     aws_batch as transport,
     source as source_module,
@@ -28,6 +25,7 @@ from sources.aws_batch.aws_batch import (
 )
 from sources.aws_batch.settings import BATCH_API_VERSION
 from sources.aws_batch.source import AwsBatchSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 
 @pytest.fixture

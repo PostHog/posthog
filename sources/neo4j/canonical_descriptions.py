@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalEndpoint,
-)
+from sources.sdk import CanonicalEndpoint
 
 NODE_DESCRIPTION: CanonicalEndpoint = {
     "description": "Nodes with this label, including their properties and labels.",

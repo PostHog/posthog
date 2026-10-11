@@ -4,11 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.financial_modelling.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.financial_modelling.settings import ENDPOINTS
 from sources.financial_modelling.source import FinancialModellingSource
+from sources.sdk import SourceInputs
 
 
 def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:

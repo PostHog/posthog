@@ -5,9 +5,7 @@ the resource names in `settings.py` `CLEVER_ENDPOINTS`, which match the `Externa
 of a synced Clever table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _LINKS_COLUMN = "Related resource links Clever attaches to every object."
 

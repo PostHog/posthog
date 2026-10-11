@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every row carries `dt_iso`, a derived ISO 8601 UTC timestamp describing the point in time the
 # observation/forecast slot refers to (parsed from the API's `dateTime` string or `date` object). It

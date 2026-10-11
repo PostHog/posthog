@@ -2,26 +2,21 @@ import dataclasses
 from collections.abc import Iterable, Iterator
 from typing import Any, Optional, cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.alguna.settings import ALGUNA_ENDPOINTS, PAGE_LIMIT, AlgunaEndpointConfig
+from sources.sdk import (
+    BearerTokenAuth,
+    ClientConfig,
+    OffsetPaginator,
     RESTAPIConfig,
     RESTClient,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    OffsetPaginator,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    build_dependent_resource,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.alguna.settings import ALGUNA_ENDPOINTS, PAGE_LIMIT, AlgunaEndpointConfig
 
 ALGUNA_BASE_URL = "https://api.alguna.io"
 # Alguna's API is date-versioned; every request must send this header or calls fail.

@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.appstack.appstack import (
     AppstackResumeConfig,
     _export_window_start,
@@ -17,6 +15,7 @@ from sources.appstack.appstack import (
     validate_credentials,
 )
 from sources.appstack.settings import PAGE_SIZE
+from sources.sdk import ResumableSourceManager
 
 
 class TestToUnixSeconds:

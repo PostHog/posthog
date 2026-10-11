@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # OpenCorporates caps `per_page` at 100 and `page` at 100, so at most ~10,000 rows are reachable
 # per search query — narrower jurisdiction/query scoping is required to go deeper.

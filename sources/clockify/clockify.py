@@ -5,31 +5,24 @@ from typing import Any, Optional, cast
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resources,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.clockify.settings import CLOCKIFY_ENDPOINTS, ClockifyEndpointConfig
+from sources.sdk import (
     BasePaginator,
-    PageNumberPaginator,
-    ParamLocation,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    PageNumberPaginator,
+    ParamLocation,
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rename_parent_fields,
+    rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.clockify.settings import CLOCKIFY_ENDPOINTS, ClockifyEndpointConfig
 
 # Global host. Clockify also serves regional hosts (euc1/use2/euw2/apse2); the global host
 # resolves to the user's region, so a single base URL works for every key.

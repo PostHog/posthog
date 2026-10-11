@@ -8,13 +8,10 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    DEFAULT_RETRY_ATTEMPTS,
-    RESTClientRetryableError,
-)
-
 from sources.bluetally.bluetally import PAGE_SIZE, BluetallyResumeConfig, bluetally_source, validate_credentials
 from sources.bluetally.settings import BLUETALLY_ENDPOINTS, ENDPOINTS
+from sources.sdk import RESTClientRetryableError
+from sources.sdk.testing import DEFAULT_RETRY_ATTEMPTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

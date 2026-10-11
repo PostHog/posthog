@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the public Browserbase API reference (https://docs.browserbase.com/reference/api).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

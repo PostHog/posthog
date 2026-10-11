@@ -1,10 +1,9 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
 from sources.cloudsmith._config import CloudsmithSourceConfig
 from sources.cloudsmith.settings import CLOUDSMITH_ENDPOINTS
 from sources.cloudsmith.source import CloudsmithSource
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestCloudsmithSource:

@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.pardot.pardot import (
     PardotPageTokenExpiredError,
     PardotQueryRejectedError,
@@ -22,6 +20,7 @@ from sources.pardot.pardot import (
     validate_credentials,
 )
 from sources.pardot.settings import PARDOT_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 SESSION_PATCH = "sources.pardot.pardot.make_tracked_session"
 REFRESH_PATCH = "sources.pardot.pardot.salesforce_refresh_access_token"

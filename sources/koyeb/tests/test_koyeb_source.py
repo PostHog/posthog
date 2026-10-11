@@ -5,11 +5,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.koyeb import source as koyeb_source_module
 from sources.koyeb._config import KoyebSourceConfig
 from sources.koyeb.source import KoyebSource
+from sources.sdk import SourceInputs
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:

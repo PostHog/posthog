@@ -9,25 +9,20 @@ import structlog
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.mailersend.settings import MAILERSEND_ENDPOINTS, MailerSendEndpointConfig
+from sources.sdk import (
+    ClientConfig,
+    JSONResponsePaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    SyncWindow,
+    make_tracked_session,
+    rename_parent_fields,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    rename_parent_fields,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.mailersend.settings import MAILERSEND_ENDPOINTS, MailerSendEndpointConfig
 
 logger = structlog.get_logger(__name__)
 

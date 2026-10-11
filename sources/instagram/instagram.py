@@ -10,12 +10,6 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.instagram.settings import (
     ACCOUNT_INSIGHT_METRICS,
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
@@ -30,6 +24,7 @@ from sources.instagram.settings import (
     PAGE_SIZE,
     InstagramEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, capture_exception, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5

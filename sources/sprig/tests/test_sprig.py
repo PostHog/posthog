@@ -8,11 +8,7 @@ import requests_mock
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
+from sources.sdk import JSONResponseCursorPaginator, ResumableSourceManager
 from sources.sprig.settings import ENDPOINTS, SPRIG_API_BASE_URL, SPRIG_ENDPOINTS
 from sources.sprig.sprig import (
     SprigRedirectError,

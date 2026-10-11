@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.jenkins import jenkins
 from sources.jenkins.jenkins import (
     JenkinsResumeConfig,
@@ -22,6 +20,7 @@ from sources.jenkins.jenkins import (
     normalize_base_url,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 def _resp(payload: Any, status: int = 200) -> MagicMock:

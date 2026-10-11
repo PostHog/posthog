@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the BugSnag Data Access API docs (https://bugsnagapiv2.docs.apiary.io/). Partial
 # coverage is fine — any endpoint, column, or table missing here falls back to LLM enrichment.

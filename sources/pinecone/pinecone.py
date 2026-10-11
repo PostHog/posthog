@@ -1,26 +1,19 @@
 from collections.abc import Generator
 from typing import TYPE_CHECKING, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.pinecone.settings import BASE_URL, ENDPOINTS
+from sources.sdk import (
+    RESTAPIConfig,
+    RESTClient,
+    SourceResponse,
+    create_auth,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-        ClientConfig,
-        Endpoint,
-        EndpointResource,
-    )
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+    from sources.sdk import ClientConfig, Endpoint, EndpointResource, ResumableSourceManager
 
 
 @frozen

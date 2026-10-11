@@ -10,8 +10,6 @@ import requests
 from botocore.session import Session
 from botocore.validate import validate_parameters
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_inspector._config import AwsInspectorSourceConfig
 from sources.aws_inspector.aws_inspector import (
     AwsInspectorClient,
@@ -22,6 +20,7 @@ from sources.aws_inspector.aws_inspector import (
     validate_credentials,
 )
 from sources.aws_inspector.source import AwsInspectorSource
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.aws_inspector.aws_inspector"
 

@@ -8,9 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.demodesk.demodesk import DemodeskResumeConfig, demodesk_source, to_iso8601, validate_credentials
+from sources.sdk import ResumableSourceManager
 
 _SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source"

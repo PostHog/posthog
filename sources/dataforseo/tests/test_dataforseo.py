@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.dataforseo.dataforseo import (
     DATAFORSEO_BASE_URL,
     MAX_PAGES_PER_TARGET,
@@ -21,6 +19,7 @@ from sources.dataforseo.dataforseo import (
     validate_credentials,
 )
 from sources.dataforseo.settings import DATAFORSEO_ENDPOINTS, ENDPOINTS, KEYWORD_SCOPES
+from sources.sdk import ResumableSourceManager
 
 TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope == "target"]
 UNTARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope != "target"]

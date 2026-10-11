@@ -5,13 +5,11 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.docusign._config import DocusignAuthTypeConfig, DocusignSourceConfig
 from sources.docusign.docusign import DocusignResumeConfig
 from sources.docusign.settings import DOCUSIGN_ENDPOINTS
 from sources.docusign.source import DocusignSource
+from sources.sdk import ResumableSourceManager, SourceInputs
 
 _VALIDATE = "sources.docusign.source.validate_docusign_credentials"
 

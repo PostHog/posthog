@@ -8,18 +8,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.matomo.settings import (
     DEFAULT_BACKFILL_DAYS,
     MATOMO_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     VISIT_FINALITY_WINDOW_SECONDS,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, frozen, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 120
 # Matomo Cloud caps Live methods at 200/min and reports at 350/min per IP.

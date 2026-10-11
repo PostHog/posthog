@@ -4,20 +4,19 @@ from typing import Any, ClassVar
 
 from requests import HTTPError
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.proofpoint_tap._config import ProofpointTapSourceConfig
 from sources.proofpoint_tap.settings import AUTH_ERRORS, BASE_URL, ENDPOINTS, MIN_WINDOW, OVERLAP, RETENTION, WINDOW
+from sources.sdk import (
+    Resource,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceCursorManager,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+    schema_for_resource,
+)
 
 
 @frozen

@@ -6,14 +6,13 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.aws_cost_anomaly_detection import (
     aws_cost_anomaly_detection as transport_module,
     source as source_module,
 )
 from sources.aws_cost_anomaly_detection._config import AwsCostAnomalyDetectionSourceConfig
 from sources.aws_cost_anomaly_detection.source import AwsCostAnomalyDetectionSource
+from sources.sdk import SourceInputs
 
 
 def make_inputs(

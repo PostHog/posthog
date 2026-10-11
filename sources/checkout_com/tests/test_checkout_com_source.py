@@ -3,13 +3,10 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAUTH2_PERMANENT_ERROR_MARKER,
-)
-
 from sources.checkout_com._config import CheckoutComSourceConfig
 from sources.checkout_com.payments import SYNC_BUDGET_EXCEEDED_MARKER, UNRESOLVED_REFERENCES_MARKER
 from sources.checkout_com.source import CheckoutComSource
+from sources.sdk import OAUTH2_PERMANENT_ERROR_MARKER
 
 DISCOVER_PATCH = "sources.checkout_com.source.discover_report_types"
 _STATIC_SCHEMAS = [

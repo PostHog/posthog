@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Every Rippling REST list endpoint supports the same standard query params
 # (cursor/limit pagination, OData-style `filter`, `order_by` on id/created_at/

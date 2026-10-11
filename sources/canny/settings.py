@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Canny exposes every resource through a POST `/list` endpoint. Most v1 endpoints use skip/limit
 # offset pagination with a `hasMore` flag; the Ideas-era v1 endpoints (groups, ideas, insights) and

@@ -7,10 +7,8 @@ from unittest.mock import MagicMock
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import ResumableSourceManager, SourceInputs
+from sources.sdk.testing import error_message_matches
 from sources.sim._config import SimSourceConfig
 from sources.sim.sim import (
     AUTH_ERROR,

@@ -8,8 +8,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
@@ -19,6 +17,7 @@ from sources.gong.gong import (
     gong_source,
     validate_credentials,
 )
+from sources.sdk import ResumableSourceManager
 
 
 class _FakeResponse:

@@ -7,12 +7,8 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.gusto.settings import GUSTO_ENDPOINTS, GustoEndpointConfig
+from sources.sdk import ResumableSourceManager, SourceResponse, SyncWindow, make_tracked_session
 
 # Gusto runs a separate demo environment with its own credentials; partner apps build against demo
 # until Gusto approves them for production.

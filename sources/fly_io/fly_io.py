@@ -2,27 +2,22 @@ from collections.abc import Callable
 from typing import Any, cast
 from urllib.parse import quote
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.fly_io.settings import FLY_IO_ENDPOINTS, FlyIoEndpointConfig
+from sources.sdk import (
+    BasePaginator,
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
     RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    make_parent_key_name,
+    make_tracked_session,
     rest_api_resource,
     rest_api_resources,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
-    make_parent_key_name,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.fly_io.settings import FLY_IO_ENDPOINTS, FlyIoEndpointConfig
 
 FLY_IO_BASE_URL = "https://api.machines.dev/v1"
 

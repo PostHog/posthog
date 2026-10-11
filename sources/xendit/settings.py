@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Xendit's public API only exposes two list endpoints that enumerate a merchant's own records:
 # `GET /transactions` (the unified money-movement ledger) and `GET /v2/accounts` (xenPlatform

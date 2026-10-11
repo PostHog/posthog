@@ -8,9 +8,7 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import ResumableSourceManager, UnknownResourceError
 from sources.slash._config import SlashSourceConfig
 from sources.slash.slash import SlashResumeConfig, slash_source, validate_credentials
 from sources.slash.source import SlashSource

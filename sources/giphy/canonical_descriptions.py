@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Sourced from the official GIPHY API schema docs (https://developers.giphy.com/docs/api/schema/).
 # The GIF Object is shared by every trending/search endpoint, so its column descriptions are

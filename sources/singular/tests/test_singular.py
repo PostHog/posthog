@@ -9,8 +9,7 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
+from sources.sdk.testing import error_message_matches
 from sources.singular.settings import HISTORY_DAYS, LOOKUPS
 from sources.singular.singular import (
     ACCESS_ERROR,

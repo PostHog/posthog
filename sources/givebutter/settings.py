@@ -1,10 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import PaginatorConfig
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, PageNumberPaginator, PaginatorConfig, frozen
 
 BASE_URL = "https://api.givebutter.com/v1/"
 PAGE_SIZE = 100

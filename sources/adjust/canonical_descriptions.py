@@ -7,9 +7,7 @@ Keyed by the report names in `settings.py` `ADJUST_REPORTS`, which match the
 names Adjust returns verbatim; columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DOCS_URL = "https://dev.adjust.com/en/api/rs-api/"
 

@@ -3,11 +3,10 @@ from unittest import mock
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.openweather._config import OpenWeatherSourceConfig
 from sources.openweather.settings import API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0
 from sources.openweather.source import OpenWeatherSource
+from sources.sdk import SourceInputs
 
 
 def _make_inputs(schema_name: str = "current_weather", api_version: str | None = None) -> SourceInputs:

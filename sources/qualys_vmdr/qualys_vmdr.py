@@ -14,13 +14,8 @@ import defusedxml.ElementTree as DET
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.security.url_validation import is_url_allowed
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.qualys_vmdr.settings import QUALYS_VMDR_ENDPOINTS, QualysVmdrEndpointConfig
+from sources.sdk import ResumableSourceManager, SourceResponse, is_url_allowed, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 300  # long list requests stream slowly with keep-alive bytes
 MAX_RATE_LIMIT_WAIT_SECONDS = 120

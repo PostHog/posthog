@@ -5,9 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.rokt_ads.rokt_ads import (
     DateWindow,
     ReportCapabilities,
@@ -17,6 +14,8 @@ from sources.rokt_ads.rokt_ads import (
 )
 from sources.rokt_ads.settings import CAMPAIGN_METRICS, ENDPOINTS, PRIMARY_KEYS, SCHEMA_NAMES
 from sources.rokt_ads.source import RoktAdsSource
+from sources.sdk import ResumableSourceManager
+from sources.sdk.testing import error_message_matches
 
 SOURCE_MODULE = "sources.rokt_ads.source"
 

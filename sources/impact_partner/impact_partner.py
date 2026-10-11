@@ -7,16 +7,13 @@ import requests
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.impact_partner.settings import (
     IMPACT_PARTNER_ENDPOINTS,
     MAX_LOOKBACK_DAYS,
     MAX_WINDOW_DAYS,
     ImpactPartnerEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 BASE_URL = "https://api.impact.com"
 

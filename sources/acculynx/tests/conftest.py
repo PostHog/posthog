@@ -11,13 +11,11 @@ from django.conf import settings
 import fakeredis
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import resumable
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.acculynx._config import AcculynxSourceConfig
 from sources.acculynx.acculynx import AcculynxResumeConfig
 from sources.acculynx.source import AcculynxSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
+from sources.sdk.testing import resumable
 
 
 @pytest.fixture

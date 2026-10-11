@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # usageCost windows span at most 31 days per request (from_date..to_date, both inclusive).
 USAGE_COST_MAX_WINDOW_DAYS = 31

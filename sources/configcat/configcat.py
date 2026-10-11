@@ -6,17 +6,8 @@ from urllib.parse import urlencode
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.configcat.settings import CONFIGCAT_ENDPOINTS, ConfigCatEndpointConfig
+from sources.sdk import RESTAPIConfig, SinglePagePaginator, SourceResponse, make_tracked_session, rest_api_resource
 
 CONFIGCAT_BASE_URL = "https://api.configcat.com"
 # Cheap org-level list used to confirm the Public API credential is genuine. The credential is

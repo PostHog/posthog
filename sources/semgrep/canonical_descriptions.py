@@ -1,8 +1,6 @@
 # Descriptions sourced from the official Semgrep API reference (https://semgrep.dev/api/v1/docs/)
 # and its published OpenAPI spec (https://semgrep.dev/api/v1/public_v1.openapi.yaml).
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _FAN_OUT_COLUMNS = {
     "deployment_id": "Unique numerical identifier of the Semgrep deployment this row belongs to (added by PostHog).",

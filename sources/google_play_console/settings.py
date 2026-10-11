@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, incremental_field
 
 # Play aggregates vitals per calendar day (it also exposes HOURLY, but the user-weighted
 # release-quality metrics teams care about are the daily ones).

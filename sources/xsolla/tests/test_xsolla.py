@@ -9,9 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests_mock
 from requests import Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import ResumableSourceManager, SourceResponse
 from sources.xsolla._config import XsollaSourceConfig
 from sources.xsolla.settings import AUTH_ERROR
 from sources.xsolla.xsolla import MERCHANT_ID_ERROR, XsollaResumeConfig, validate_credentials, xsolla_source

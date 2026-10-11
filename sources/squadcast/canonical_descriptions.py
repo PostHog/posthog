@@ -6,9 +6,7 @@ Sourced from the official SolarWinds Incident Response (Squadcast) API reference
 Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Stamped onto every fan-out row by the transport; not part of the upstream payload.
 _TEAM_ID_COLUMN = "ID of the Squadcast team the row belongs to (added by PostHog during sync)."

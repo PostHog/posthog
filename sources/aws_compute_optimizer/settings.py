@@ -1,4 +1,4 @@
-from posthog.dataclasses import frozen
+from sources.sdk import frozen
 
 API_VERSION = "2019-11-01"
 API_DOCS_URL = "https://docs.aws.amazon.com/compute-optimizer/latest/APIReference/"

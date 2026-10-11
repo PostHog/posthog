@@ -1,7 +1,4 @@
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen, incremental_field
 
 DAILY_REPORT = "daily_report"
 # Singular's report rows carry the day as `start_date`/`end_date`. The source adds one `date`

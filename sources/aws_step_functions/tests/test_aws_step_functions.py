@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.aws_step_functions._config import AwsStepFunctionsSourceConfig
 from sources.aws_step_functions.aws_step_functions import (
     AwsStepFunctionsClient,
@@ -22,6 +20,7 @@ from sources.aws_step_functions.aws_step_functions import (
 )
 from sources.aws_step_functions.settings import API_VERSION
 from sources.aws_step_functions.source import AwsStepFunctionsSource
+from sources.sdk import SourceResponse
 
 SM1 = "arn:aws:states:us-east-1:123456789012:stateMachine:example-one"
 SM2 = "arn:aws:states:us-east-1:123456789012:stateMachine:example-two"

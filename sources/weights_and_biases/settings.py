@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Verified server-side against the live GraphQL API: `runs(filters:)` honors MongoDB-style
 # `{"createdAt": {"$gt": ...}}` / `{"heartbeatAt": {"$gt": ...}}` filters (a future-dated

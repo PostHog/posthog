@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # US cloud host. EU-region accounts use https://eu.api.smith.langchain.com and self-hosted
 # deployments use their own host — the user overrides via the source's `host` field.

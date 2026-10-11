@@ -3,13 +3,10 @@ import pytest
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
 from sources.givebutter._config import GivebutterSourceConfig
 from sources.givebutter.source import GivebutterSource
+from sources.sdk import BearerTokenAuth, RESTClient, UnknownResourceError
+from sources.sdk.testing import error_message_matches
 
 API = "https://api.givebutter.com/v1/"
 

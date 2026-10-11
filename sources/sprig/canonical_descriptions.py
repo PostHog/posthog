@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the public Sprig Data Export API reference
 # (https://docs.sprig.com/reference/sprig-api/overview). Keyed by the schema/endpoint name

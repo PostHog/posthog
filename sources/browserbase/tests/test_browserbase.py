@@ -8,12 +8,8 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClient,
-    RESTClientRetryableError,
-)
-
 from sources.browserbase.browserbase import BROWSERBASE_BASE_URL, browserbase_source, validate_credentials
+from sources.sdk import RESTClient, RESTClientRetryableError
 
 # Both the sync transport and the credential probe build their session via the
 # browserbase module's make_tracked_session (passed into the client config).

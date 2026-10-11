@@ -1,8 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
+from sources.sdk import IncrementalFieldType
 from sources.squadcast.settings import ENDPOINTS
 from sources.squadcast.source import SquadcastSource
 

@@ -2,14 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from sources.hetzner._config import HetznerSourceConfig
 from sources.hetzner.source import HetznerSource
+from sources.sdk import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 
 class TestHetznerSource:

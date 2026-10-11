@@ -7,41 +7,33 @@ from urllib.parse import urlparse
 import requests
 from requests import PreparedRequest, Request, Response
 
-from posthog.cloud_utils import is_cloud
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    Endpoint,
-    EndpointResource,
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-    build_dependent_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
-    OffsetPaginator,
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    ClientConfig,
-    IncrementalConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.discourse.settings import (
     DISCOURSE_ENDPOINTS,
     POSTS_PAGE_SIZE,
     USER_ACTION_PUBLIC_TYPES,
     DiscourseEndpointConfig,
+)
+from sources.sdk import (
+    AuthConfigBase,
+    BasePaginator,
+    ClientConfig,
+    DependentEndpointConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+    OffsetPaginator,
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceResponse,
+    _is_host_safe,
+    build_dependent_resource,
+    frozen,
+    is_cloud,
+    make_tracked_session,
+    parse_datetime_value,
+    rest_api_resource,
 )
 
 REQUEST_TIMEOUT_SECONDS = 30

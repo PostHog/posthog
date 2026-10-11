@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Mux API reference (https://www.mux.com/docs/api-reference).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {

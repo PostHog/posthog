@@ -10,9 +10,7 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import ConnectionError, HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse
 from sources.soda_cloud._config import SodaCloudSourceConfig
 from sources.soda_cloud.settings import AUTH_ERROR, PERMISSION_ERROR
 from sources.soda_cloud.soda_cloud import SodaCloudResumeConfig

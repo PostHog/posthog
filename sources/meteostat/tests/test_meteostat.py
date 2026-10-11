@@ -8,8 +8,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.meteostat.meteostat import (
     NO_STATIONS_ERROR,
     MeteostatResumeConfig,
@@ -29,6 +27,7 @@ from sources.meteostat.settings import (
     MINIMUM_START_DATE,
     MONTHLY_ENDPOINT,
 )
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.meteostat.meteostat"
 

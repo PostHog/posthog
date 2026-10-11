@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Freshcaller allows up to 1000 records per page (default 10). Match Airbyte's connector,
 # which pulls the max page size to keep the request count (and thus rate-limit pressure) low.

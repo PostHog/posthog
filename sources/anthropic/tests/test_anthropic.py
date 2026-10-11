@@ -9,11 +9,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
-    source_items_are_framework_output,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
     AnthropicResumeConfig,
@@ -36,6 +31,8 @@ from sources.anthropic.settings import (
     USAGE_GROUP_BY_FALLBACKS,
 )
 from sources.anthropic.source import AnthropicSource
+from sources.sdk.internals import source_items_are_framework_output
+from sources.sdk.testing import error_message_matches
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

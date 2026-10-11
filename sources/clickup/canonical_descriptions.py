@@ -5,9 +5,7 @@ the endpoint names in `settings.py` `CLICKUP_ENDPOINTS`, which match the `Extern
 of a synced ClickUp table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "workspaces": {

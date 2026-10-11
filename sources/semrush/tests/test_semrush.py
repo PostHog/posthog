@@ -7,8 +7,7 @@ from unittest.mock import patch
 
 from requests import RequestException, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import UnknownResourceError
 from sources.semrush.semrush import semrush_source, validate_credentials
 from sources.semrush.settings import (
     ACCESS_ERROR,

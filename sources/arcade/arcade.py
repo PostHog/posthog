@@ -1,21 +1,6 @@
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-    PaginatorConfig,
-    ResponseAction,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.arcade._config import ArcadeSourceConfig
 from sources.arcade.settings import (
     AUTH_ERROR,
@@ -26,6 +11,17 @@ from sources.arcade.settings import (
     PERMISSION_ERROR,
     PLAN_ERROR,
     PROVISIONING_ERROR,
+)
+from sources.sdk import (
+    Endpoint,
+    EndpointResource,
+    PaginatorConfig,
+    ResponseAction,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
 )
 
 ERROR_MESSAGES = (AUTH_ERROR, PLAN_ERROR, PROVISIONING_ERROR, INSIGHTS_ERROR, PERMISSION_ERROR)

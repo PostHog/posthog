@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions taken from the Upstash Developer API reference
 # (https://upstash.com/docs/devops/developer-api). Keyed by the endpoint/schema name from

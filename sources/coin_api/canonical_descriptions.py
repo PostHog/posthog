@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the public CoinAPI v1 REST docs (https://docs.coinapi.io/market-data/rest-api).
 # Partial coverage is fine — anything not described here falls back to LLM enrichment.

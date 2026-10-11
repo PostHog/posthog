@@ -1,9 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import Endpoint, IncrementalField, frozen
 
 BASE_URL = "https://api.kapa.ai"
 THREAD_INCLUDES = "feedback,status_tag,custom_tags,interaction_tags,end_user,integration"

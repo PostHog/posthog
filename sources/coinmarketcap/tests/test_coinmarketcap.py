@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.coinmarketcap.coinmarketcap import (
     CoinMarketCapPaginator,
     CoinMarketCapResumeConfig,
@@ -29,6 +27,7 @@ from sources.coinmarketcap.settings import (
     PAGE_SIZE,
 )
 from sources.coinmarketcap.source import CoinMarketCapSource
+from sources.sdk import ResumableSourceManager
 
 
 def _full_page() -> list[dict[str, Any]]:

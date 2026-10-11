@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Cloudability's v3 API is REST/JSON, authenticated with an API key sent as the HTTP Basic
 # username (empty password). None of these endpoints expose a server-side "modified since"

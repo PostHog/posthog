@@ -8,9 +8,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-
 from sources.blogger.blogger import BloggerResumeConfig, _format_rfc3339, blogger_source, validate_credentials
+from sources.sdk import APIKeyAuth
 
 # blogger builds its (sanitized) tracked session itself, so both the pipeline transport and
 # validate_credentials patch the blogger module's make_tracked_session.

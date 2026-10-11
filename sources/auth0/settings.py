@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField, incremental_field
 
 # Auth0 refuses to page past the first 1000 results of a searchable collection, so the
 # endpoints that expose a searchable timestamp walk history in windows: once a window is

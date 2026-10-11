@@ -6,10 +6,7 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
-
+from sources.sdk import RESTClientNonRetryableError
 from sources.wordpress import wordpress as wordpress_module
 from sources.wordpress.settings import WORDPRESS_ENDPOINTS
 from sources.wordpress.wordpress import (

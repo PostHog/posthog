@@ -4,10 +4,8 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.rki_covid.settings import RKI_COVID_ENDPOINTS, RKICovidEndpointConfig
+from sources.sdk import SourceResponse, make_tracked_session
 
 RKI_COVID_BASE_URL = "https://api.corona-zahlen.org"
 

@@ -9,11 +9,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-    RESTClientRetryableError,
-)
-
 from sources.elasticemail import elasticemail
 from sources.elasticemail.elasticemail import (
     AUTH_ERROR_MARKER,
@@ -26,6 +21,7 @@ from sources.elasticemail.elasticemail import (
     validate_credentials,
 )
 from sources.elasticemail.settings import ELASTICEMAIL_ENDPOINTS
+from sources.sdk import RESTClientNonRetryableError, RESTClientRetryableError
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"

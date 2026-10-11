@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # AWS Organizations is a global service: the docs state there is "a single global endpoint for
 # all of the AWS Regions in each partition", so both the host and the SigV4 signing region are

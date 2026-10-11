@@ -3,8 +3,7 @@ from unittest.mock import patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import SourceInputs
 from sources.sonar_cloud import source as source_module
 from sources.sonar_cloud._config import SonarCloudSourceConfig
 from sources.sonar_cloud.source import SonarCloudSource

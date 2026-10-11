@@ -1,8 +1,6 @@
 from dataclasses import field
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # Amplitude exposes regional deployments. The project's API key + secret key authenticate
 # against a single project that lives in one region, so the host is chosen by the `region`

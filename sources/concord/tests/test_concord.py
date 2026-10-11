@@ -8,10 +8,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.concord import concord
 from sources.concord.concord import (
     ConcordResumeConfig,
@@ -29,6 +25,9 @@ from sources.concord.concord import (
     validate_credentials,
 )
 from sources.concord.settings import CONCORD_ENDPOINTS
+from sources.sdk import ResumableSourceManager
+from sources.sdk.internals import Batcher
+from sources.sdk.testing import boundary_checkpoint
 
 
 class FakeManager(ResumableSourceManager[ConcordResumeConfig]):

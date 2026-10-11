@@ -9,10 +9,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.tempo.settings import ENDPOINTS, TEMPO_ENDPOINTS
 from sources.tempo.tempo import (
     PAGE_SIZE,

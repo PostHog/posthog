@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # How an endpoint is fetched. Routed on in `clickup.py:clickup_source`.
 #   "workspaces"          -> GET /team (lists the workspaces the token can access)

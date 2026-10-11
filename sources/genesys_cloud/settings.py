@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Genesys Cloud hosts each org in one region. The region domain builds both the API host
 # (api.{domain}) and the login host (login.{domain}), so only these exact values are accepted.

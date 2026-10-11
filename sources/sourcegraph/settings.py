@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Field selections stick to long-stable parts of the Sourcegraph GraphQL schema so the same
 # query validates on older self-hosted instances, not just sourcegraph.com.

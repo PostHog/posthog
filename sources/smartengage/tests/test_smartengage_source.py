@@ -1,7 +1,6 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 from sources.smartengage._config import SmartEngageSourceConfig
 from sources.smartengage.settings import ENDPOINTS
 from sources.smartengage.source import SmartEngageSource

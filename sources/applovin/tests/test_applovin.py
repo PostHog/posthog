@@ -8,8 +8,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.applovin.applovin import (
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
@@ -30,6 +28,7 @@ from sources.applovin.settings import (
     REPORT_PAGE_SIZE,
     REPORT_WINDOW_DAYS,
 )
+from sources.sdk import ResumableSourceManager
 
 _MODULE = "sources.applovin.applovin"
 

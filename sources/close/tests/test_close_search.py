@@ -6,11 +6,10 @@ from unittest.mock import MagicMock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.close import search as close_search
 from sources.close.close import close_search_source
 from sources.close.search import CloseCursorExpiredError, CloseSearchError, iter_search_rows
+from sources.sdk import ResumableSourceManager
 
 BASE_URL = "https://api.close.com/api/v1"
 

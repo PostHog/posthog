@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Descriptions sourced from the Pulumi Cloud REST API reference
 # (https://www.pulumi.com/docs/reference/cloud-rest-api/) and the OpenAPI spec the service publishes

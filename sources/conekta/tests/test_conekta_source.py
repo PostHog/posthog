@@ -1,13 +1,12 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.conekta._config import ConektaSourceConfig
 from sources.conekta.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.conekta.conekta import ConektaResumeConfig
 from sources.conekta.settings import API_VERSION, CONEKTA_ENDPOINTS
 from sources.conekta.source import ConektaSource
+from sources.sdk import ResumableSourceManager
 
 API_CLIENT_PATCH = "sources.conekta.source.api_client"
 

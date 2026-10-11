@@ -2,8 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from sources.sdk import SourceFieldInputConfig, SourceFieldInputConfigType
 from sources.vantage.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from sources.vantage.settings import ENDPOINTS
 from sources.vantage.source import VantageSource

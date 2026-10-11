@@ -10,8 +10,6 @@ import requests
 import structlog
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_cost_anomaly_detection import aws_cost_anomaly_detection
 from sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
     ENABLEMENT_MESSAGE,
@@ -28,6 +26,7 @@ from sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
     validate_credentials,
 )
 from sources.aws_cost_anomaly_detection.settings import AWS_COST_ANOMALY_DETECTION_ENDPOINTS
+from sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 

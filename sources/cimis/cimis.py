@@ -8,9 +8,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.cimis.settings import (
     CIMIS_BASE_URL,
     CIMIS_DATA_EPOCH,
@@ -20,6 +17,7 @@ from sources.cimis.settings import (
     DEFAULT_HOURLY_DATA_ITEMS,
     CimisEndpointConfig,
 )
+from sources.sdk import SourceResponse, make_tracked_session
 
 REQUEST_TIMEOUT = 60
 # CIMIS sits behind a WAF that rejects requests without a browser-like User-Agent.

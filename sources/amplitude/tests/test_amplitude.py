@@ -13,8 +13,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
     _auth_headers,
@@ -33,6 +31,7 @@ from sources.amplitude.settings import (
     COHORTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
 )
+from sources.sdk import ResumableSourceManager
 
 MODULE = "sources.amplitude.amplitude"
 

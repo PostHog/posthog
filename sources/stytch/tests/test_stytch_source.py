@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
+from sources.sdk.testing import error_message_matches
 from sources.stytch._config import StytchSourceConfig
 from sources.stytch.source import StytchSource
 from sources.stytch.stytch import StytchAPIError, get_rows

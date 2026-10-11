@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # The well-known entry point of the public NuGet V3 API. Every other base URL (search,
 # registrations, catalog) is discovered from this document at run time, per the API contract.

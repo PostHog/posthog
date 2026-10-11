@@ -1,9 +1,8 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
 from sources.cast_ai._config import CastAiSourceConfig
 from sources.cast_ai.source import CastAiSource
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestCastAiSource:

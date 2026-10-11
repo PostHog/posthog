@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Rows don't carry an export timestamp themselves, so the transport injects the
 # producing job's updatedAt — that injected field is the incremental cursor.

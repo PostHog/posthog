@@ -1,8 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType, SortMode
 
 # Twilio serves resources from several hosts. The legacy 2010-04-01 Account API lives on the main host;
 # newer product APIs (Verify, Messaging Services, Conversations) each sit on their own subdomain.

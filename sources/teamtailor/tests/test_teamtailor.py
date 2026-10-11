@@ -10,10 +10,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-
+from sources.sdk import RESTClientRetryableError
 from sources.teamtailor import teamtailor
 from sources.teamtailor.settings import ENDPOINTS, TEAMTAILOR_ENDPOINTS
 from sources.teamtailor.teamtailor import (

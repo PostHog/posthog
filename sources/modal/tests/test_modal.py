@@ -11,10 +11,6 @@ from grpclib import GRPCError, Status
 from modal.exception import AuthError, PermissionDeniedError, ResourceExhaustedError, ServiceError
 from modal.types import BillingReportItem
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.modal._config import ModalSourceConfig
 from sources.modal.modal import (
     ModalAuthenticationError,
@@ -24,6 +20,7 @@ from sources.modal.modal import (
     validate_credentials,
 )
 from sources.modal.source import ModalSource
+from sources.sdk import ResumableSourceManager, SourceInputs, SourceResponse, UnknownResourceError
 
 NOW = datetime(2026, 3, 15, 12, 34, 56, tzinfo=UTC)
 

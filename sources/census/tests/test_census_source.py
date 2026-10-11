@@ -1,9 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
 from sources.census._config import CensusSourceConfig
 from sources.census.source import CensusSource
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestCensusSource:

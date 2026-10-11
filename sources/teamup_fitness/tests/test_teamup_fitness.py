@@ -8,11 +8,7 @@ from unittest.mock import MagicMock
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
+from sources.sdk import Resource, ResumableSourceManager, SourceInputs, UnknownResourceError
 from sources.teamup_fitness._config import TeamupFitnessSourceConfig
 from sources.teamup_fitness.settings import AUTH_ERROR, PERMISSION_ERROR, PROVIDER_ERROR
 from sources.teamup_fitness.source import TeamupFitnessSource

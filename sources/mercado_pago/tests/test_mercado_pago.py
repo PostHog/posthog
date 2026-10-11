@@ -10,15 +10,10 @@ from unittest.mock import MagicMock
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.mercado_pago._config import MercadoPagoSourceConfig
 from sources.mercado_pago.mercado_pago import MercadoPagoResumeConfig
 from sources.mercado_pago.source import MercadoPagoSource
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, SourceInputs
 
 TOKEN = "fake-mercado-pago-token"
 NOW = datetime(2026, 6, 15, 12, tzinfo=UTC)

@@ -8,21 +8,17 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+from sources.metabase.settings import METABASE_ENDPOINTS, MetabaseEndpointConfig
+from sources.sdk import (
+    Endpoint,
     RESTAPIConfig,
+    SinglePagePaginator,
+    SourceResponse,
+    _is_host_safe,
+    frozen,
+    make_tracked_session,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.metabase.settings import METABASE_ENDPOINTS, MetabaseEndpointConfig
 
 REQUEST_TIMEOUT_SECONDS = 60
 

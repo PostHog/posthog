@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldOauthConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
 from sources.helpscout._config import HelpScoutSourceConfig
 from sources.helpscout.helpscout import HelpScoutResumeConfig
 from sources.helpscout.settings import ENDPOINTS
 from sources.helpscout.source import HelpScoutSource
+from sources.sdk import ExternalDataSourceType, ReleaseStatus, ResumableSourceManager, SourceFieldOauthConfig
 
 
 class TestHelpScoutSource:

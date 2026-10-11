@@ -7,13 +7,10 @@ from unittest.mock import MagicMock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
 from sources.retell_ai._config import RetellAISourceConfig
 from sources.retell_ai.source import RetellAISource
 from sources.retell_ai.tests.conftest import response
+from sources.sdk import RESTClientRetryableError, SourceInputs, UnknownResourceError
 
 
 @pytest.mark.parametrize("status", [200, 401, 403])

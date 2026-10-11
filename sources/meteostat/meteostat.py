@@ -7,10 +7,6 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
 from sources.meteostat.settings import (
     BASE_URL,
     DEFAULT_START_DATE,
@@ -21,6 +17,7 @@ from sources.meteostat.settings import (
     MINIMUM_START_DATE,
     MeteostatEndpointConfig,
 )
+from sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 REQUEST_TIMEOUT_SECONDS = 60
 

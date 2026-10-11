@@ -6,10 +6,7 @@ Sourced from Apple's App Store Connect API reference
 table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-    CanonicalEndpoint,
-)
+from sources.sdk import CanonicalDescriptions, CanonicalEndpoint
 
 # Columns every analytics report stream shares: the sync's own key columns plus the
 # fields Apple includes in every report.

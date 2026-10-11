@@ -4,14 +4,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-
 from sources.app_store_connect._config import AppStoreConnectSourceConfig
 from sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
@@ -21,6 +13,8 @@ from sources.app_store_connect.app_store_connect import (
 )
 from sources.app_store_connect.settings import APP_STORE_CONNECT_ENDPOINTS, ENDPOINTS, REPORT_ENDPOINTS
 from sources.app_store_connect.source import AppStoreConnectSource
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from sources.sdk.testing import error_message_matches
 
 SOURCE_MODULE = "sources.app_store_connect.source"
 

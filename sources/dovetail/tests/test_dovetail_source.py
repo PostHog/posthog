@@ -1,9 +1,8 @@
 import pytest
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
-
 from sources.dovetail._config import DovetailSourceConfig
 from sources.dovetail.source import DovetailSource
+from sources.sdk import DataWarehouseSourceCategory, ReleaseStatus
 
 
 class TestDovetailSource:

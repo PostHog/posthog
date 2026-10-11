@@ -1,12 +1,7 @@
 from dataclasses import field
 from typing import Any, Literal, Optional
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType, frozen
 
 # Verified against a live instance (meta.discourse.org): /latest.json returns 30 topics/page,
 # /groups.json returns 20/page, /directory_items.json returns 50/page — all terminate on the

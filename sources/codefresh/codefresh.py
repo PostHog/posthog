@@ -3,21 +3,18 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+from sources.codefresh.settings import ACCOUNT_ID_PLACEHOLDER, CODEFRESH_ENDPOINTS, CodefreshEndpointConfig
+from sources.sdk import (
     BasePaginator,
     OffsetPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
+    SourceResponse,
+    make_tracked_session,
+    rest_api_resource,
+    validate_via_probe,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-from sources.codefresh.settings import ACCOUNT_ID_PLACEHOLDER, CODEFRESH_ENDPOINTS, CodefreshEndpointConfig
 
 # Only the US SaaS host is supported. EU / self-hosted installs use a different host, which we don't
 # let the user retarget yet (it would mean sending the stored API key to an arbitrary host).

@@ -10,12 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-
+from sources.sdk import RESTClientRetryableError, ResumableSourceManager, UnknownResourceError
 from sources.sevenshifts._config import SevenShiftsSourceConfig
 from sources.sevenshifts.sevenshifts import sevenshifts_source, validate_credentials
 from sources.sevenshifts.source import SevenShiftsSource

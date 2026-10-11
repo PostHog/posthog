@@ -6,9 +6,7 @@ Keyed by the resource names in `settings.py` `ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced Flow table. Columns absent here fall back to LLM enrichment.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Users": {

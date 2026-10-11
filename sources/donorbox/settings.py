@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 API_VERSION = "v1"
 API_BASE_URL = "https://donorbox.org/api/"

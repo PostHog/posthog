@@ -7,9 +7,7 @@ measurement object into `<Item>_Value`, `<Item>_Qc`, and `<Item>_Unit` columns, 
 identity columns are described here; the per-measurement columns fall back to the LLM.
 """
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _DATA_DOCS_URL = "https://et.water.ca.gov/Rest/Index"
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.types import IncrementalField
+from sources.sdk import IncrementalField
 
 # Invoice Ninja defaults `per_page` to 20 and accepts larger values; 100 keeps request counts low
 # without risking the larger-payload timeouts seen on very high page sizes.

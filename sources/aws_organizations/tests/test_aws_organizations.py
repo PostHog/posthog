@@ -9,8 +9,6 @@ from unittest import mock
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
 from sources.aws_organizations import aws_organizations
 from sources.aws_organizations.aws_organizations import (
     AwsOrganizationsClient,
@@ -29,6 +27,7 @@ from sources.aws_organizations.settings import (
     ORGANIZATIONS_ENDPOINT_URL,
     POLICY_FILTERS,
 )
+from sources.sdk import ResumableSourceManager
 
 LOGGER = structlog.get_logger()
 

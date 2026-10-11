@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 _INSIGHTS_COMMON_COLUMNS = {
     "id": "Composite bucket identifier (start=<unix>:end=<unix>:entity_id=<id>), unique per time bucket and entity.",

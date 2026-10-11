@@ -2,22 +2,19 @@ import re
 from datetime import datetime
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    SinglePagePaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-
 from sources.scalr._config import ScalrSourceConfig
 from sources.scalr.settings import ENDPOINTS
+from sources.sdk import (
+    BearerTokenAuth,
+    RESTAPIConfig,
+    RESTClient,
+    ResumableSourceManager,
+    SinglePagePaginator,
+    SourceInputs,
+    SourceResponse,
+    frozen,
+    rest_api_resource,
+)
 
 HEADERS = {"Accept": "application/vnd.api+json", "Content-Type": "application/vnd.api+json"}
 
@@ -28,7 +25,7 @@ class ScalrResumeConfig:
 
 
 def base_url(config: ScalrSourceConfig, team_id: int, api_version: str) -> str:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (  # noqa: PLC0415 -- Keep Django models off the source registration path.
+    from sources.sdk import (  # noqa: PLC0415 -- Keep Django models off the source registration path.
         ValidateDatabaseHostMixin,
     )
 

@@ -5,12 +5,7 @@ from django.test import override_settings
 
 import requests
 
-from posthog.models.integration.model import Integration
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
-    IntegrationAccountListingError,
-)
-
+from sources.sdk import Integration, IntegrationAccountListingError
 from sources.twitter_ads._config import TwitterAdsSourceConfig
 from sources.twitter_ads.settings import ACCOUNT_ACCESS_DENIED, MISSING_APP, MISSING_INTEGRATION, REVOKED_GRANT
 from sources.twitter_ads.source import TwitterAdsSource

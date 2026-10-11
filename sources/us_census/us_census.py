@@ -6,9 +6,7 @@ from urllib.parse import urlencode
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
+from sources.sdk import SourceResponse, make_tracked_session
 from sources.us_census.settings import (
     CENSUS_API_BASE_URL,
     MAX_VARIABLES_PER_QUERY,

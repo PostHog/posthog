@@ -1,6 +1,4 @@
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
-    CanonicalDescriptions,
-)
+from sources.sdk import CanonicalDescriptions
 
 # Curated from the Buildkite v2 REST API docs (https://buildkite.com/docs/apis/rest-api).
 # Keyed by the endpoint/schema name from settings.ENDPOINTS.

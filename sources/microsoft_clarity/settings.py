@@ -1,4 +1,4 @@
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from sources.sdk import IncrementalField, IncrementalFieldType
 
 # Clarity's Data Export API always returns every metric type (Traffic, ScrollDepth, EngagementTime,
 # PopularPages, dead/rage/quickback/error clicks, ScriptErrorCount, ...) in a single response — there
