@@ -33,6 +33,12 @@ A breakdown stack floors only its top segment, so the option is aimed at single-
 The static layer draws true sizes and a tiny bar grows to a clickable nub under the cursor; while its track is hovered, the floored bar is also revealed in its plain color.
 The default `'always'` floors the static layer too.
 
+## Solid track
+
+`bars.track: 'solid'` draws one neutral track per band, in `theme.gridColor`, behind every bar in the band, on any layout.
+It is the "remainder of the whole" backdrop for horizontal bar lists, as in `BarList`.
+Unlike the hatched track it ignores `trackData` and has no hover highlight.
+
 ## Interactive extent: `trackData`
 
 `Series.trackData[i]` caps a bar's interactive extent at a per-bar ceiling in value units.

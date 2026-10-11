@@ -1,6 +1,6 @@
 import { type BarRect, type BarRoundedCorners } from '../../../core/canvas-renderer'
 
-const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+export const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
 
 /** One fully-rounded rect per band, spanning the union of that band's stacked segments — the
  *  pill the bar layer is clipped to for `roundStackEnds`. Bars in the same band share a band-axis

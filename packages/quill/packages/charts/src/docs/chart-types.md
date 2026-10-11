@@ -74,6 +74,23 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 - A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
 - `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
 
+## BarList
+
+Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
+It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`.
+
+- It takes the same `series` as `PieChart` and values a row the same way, as the sum of its data floored at 0. Rows keep the order of `series`, so sort them first.
+- `config.scale: 'max'` (default) fills the track with the largest row. `'total'` makes the track the whole, so a bar shows its share.
+- `total` sets the whole that shares are taken of. It defaults to the sum of the rows. Set it when the rows are the top of a larger whole.
+- `config.valueDisplay` picks the value column: `'value'` (default), `'percent'`, or `'both'` for `share · value`. `valueFormatter` formats the value part and the default tooltip.
+  With `labelPosition: 'start'`, a list narrower than 28rem shows only the share for `'both'`, so the bar keeps its room. The root is a size container for this query, so it takes its width from its parent and not from its content.
+- `renderLabel(series)` replaces the label cell content, for example with an icon or a link. The labels and values are DOM, outside the canvas, so a link in a label needs no overlay attribute.
+- `config.labelPosition: 'start'` (default) puts the label left of the bar and the value right of it. The label column sizes to its content up to 40% of the width and truncates past that. The value column sizes to its content, and the bar column takes the rest.
+- `config.labelPosition: 'top'` puts the label and the value on one line above the bar. Use it for long labels such as URL paths, or for narrow lists, because the bar and the label get the full width. The label line sits on top of the chart, so the tooltip shows only over the bar and its track.
+- Each row is `config.rowHeight` tall (default 28, or 40 for `'top'`) and each bar is `config.barHeight` thick (default 12, or 8 for `'top'`). The chart takes its height from the rows, so it does not need a parent with a fixed height.
+- The tooltip uses `hitArea: 'band'`, so a row reports its tooltip anywhere along its track. A `tooltip` render prop receives the row as `seriesData[0]`, with its raw `value` and its `fraction` of the total, as on `PieChart`.
+- A non-zero row stays at least 4px long, so a row with a tiny share still shows next to the largest row.
+
 ## BoxPlot
 
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
