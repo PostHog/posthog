@@ -4,7 +4,7 @@
  * This is the Kafka-Java / python-kafka default, NOT the CRC32 `consistent_random` default of
  * librdkafka clients (node-rdkafka). The cohort-stream-processor routes a merge to the worker that
  * owns `murmur2(key) mod 64`, so producers feeding it must reproduce this exact math. Mirrors the
- * Rust side at `rust/cohort-core/src/partitioner.rs`; both are pinned to the
+ * Rust side at `rust/cohort-stream-processor/src/partitions/partitioner.rs`; both are pinned to the
  * published Kafka test vectors.
  *
  * `Math.imul` + `>>> 0` reproduce Rust's wrapping `u32` arithmetic (`wrapping_mul` and unsigned
