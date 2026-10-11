@@ -1257,10 +1257,11 @@ class TestScoutTrialLaunch(APIBaseTest):
             "reference_generation_id": str(uuid4()),
         }
         self.config.save(update_fields=["rubrics"])
+        comparison_id = str(uuid4())
         variant_id = str(uuid4())
         launch_ids = [str(uuid4()), str(uuid4())]
         payload = {
-            "comparison_id": str(uuid4()),
+            "comparison_id": comparison_id,
             "baseline_variant_id": variant_id,
             "variants": [
                 {
@@ -1284,13 +1285,13 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 202
             dispatch.assert_called_once()
             _make_run(self.team, metadata={"scout_trial": {"version": 1, "launch_id": launch_ids[0]}})
-            plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{payload['comparison_id']}/plan.json"
+            plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
             self.documents[plan_key] = json.dumps(
                 {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-3"}
             )
 
             resumed = self.client.post(
-                f"{base}trial_comparison_resume/", {"comparison_id": payload["comparison_id"]}, format="json"
+                f"{base}trial_comparison_resume/", {"comparison_id": comparison_id}, format="json"
             )
             retry = self.client.post(f"{base}trial_comparison/", payload, format="json")
             for response in (resumed, retry):
@@ -1304,10 +1305,10 @@ class TestScoutTrialLaunch(APIBaseTest):
                 ) as start_run,
                 self.assertRaisesMessage(TrialEvaluationError, "obsolete judge"),
             ):
-                dispatch_trial_comparison(self.team.id, UUID(payload["comparison_id"]))
+                dispatch_trial_comparison(self.team.id, UUID(comparison_id))
             connect.assert_not_called()
             start_run.assert_not_called()
-            saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": payload["comparison_id"]})
+            saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_id})
             assert saved.status_code == 200, saved.data
 
     @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id", "stale_version"])

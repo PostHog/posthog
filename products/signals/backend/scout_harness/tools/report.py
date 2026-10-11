@@ -542,6 +542,10 @@ def _capture_trial_report(
         "billing_exempt_reason": None,
         "channel_id": None,
     }
+    if not judgement.safety.choice:
+        document["suppression_source"] = "safety_judge"
+        document["suppression_explanation"] = judgement.safety.explanation or None
+    TrialReport.apply_actionability(document, judgement.actionability)
     artefacts = [
         _trial_artefact(store.run, "note", scout_report_provenance(store.run).model_dump(mode="json")),
         _trial_artefact(
@@ -772,8 +776,7 @@ def _capture_trial_edit(
             content = assessment.model_dump(mode="json")
             report.artefacts.append(_trial_artefact(store.run, kind, content))
             if isinstance(assessment, ActionabilityAssessment):
-                document["actionability"] = assessment.actionability.value
-                document["already_addressed"] = assessment.already_addressed
+                report.apply_actionability(document, assessment)
                 addressed = "already addressed" if assessment.already_addressed else "not yet addressed"
                 note = f"Set actionability: {assessment.actionability.value} ({addressed})"
             else:

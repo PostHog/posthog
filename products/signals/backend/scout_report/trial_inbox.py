@@ -15,13 +15,8 @@ from rest_framework.response import Response
 
 from posthog.models import User
 
-from products.signals.backend.artefact_schemas import ActionabilityChoice
-from products.signals.backend.models import (
-    MAX_SCOUT_REPORT_NOTES,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportSuppressionSource,
-)
+from products.signals.backend.artefact_schemas import ActionabilityAssessment
+from products.signals.backend.models import MAX_SCOUT_REPORT_NOTES, SignalReport, SignalReportArtefact
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.serializers import ReportMetricListSerializer, ReportMetricSerializer
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -63,6 +58,22 @@ class TrialInboxReads:
     def _github_login(self) -> str | None:
         return self.view._get_github_login(cast(User, self.view.request.user))
 
+    @cached_property
+    def _source_reports_naming_viewer(self) -> set[str]:
+        source_ids = [report.source_report_id for report in self.store.reports() if report.source_report_id]
+        user = cast(User, self.view.request.user)
+        return {
+            str(report_id)
+            for report_id in report_ids_naming_reviewers(
+                team_id=self.store.run.team_id,
+                user_uuids=[str(user.uuid)],
+                github_logins=[self._github_login] if self._github_login else [],
+                logins_match_unidentified_only=False,
+            )
+            .filter(report_id__in=source_ids)
+            .values_list("report_id", flat=True)
+        }
+
     def _decorate(
         self, report: TrialReport, document: dict[str, JsonValue], *, include_source_metadata: bool = True
     ) -> dict[str, JsonValue]:
@@ -78,40 +89,24 @@ class TrialInboxReads:
             )
             document["source_products"] = cast(list[JsonValue], sorted(source_products))
             document["scout_name"] = self.store.run.skill_name
-        user = cast(User, self.view.request.user)
-        reviewers = next(
-            (
-                artefact["content"]
-                for artefact in reversed(report.artefacts)
-                if artefact["type"] == "suggested_reviewers"
-            ),
-            None,
-        )
-        if isinstance(reviewers, list):
-            login = self._github_login
-            document["is_suggested_reviewer"] = any(
-                isinstance(entry, dict)
-                and (entry.get("user_uuid") == str(user.uuid) or (login and entry.get("github_login") == login))
-                for entry in reviewers
-            )
-        elif (
-            reviewers is None
-            and report.source_report_id is not None
-            and any(artefact["type"] == "actionability_judgment" for artefact in report.artefacts)
+        if report.source_report_id and any(
+            artefact["type"] == "actionability_judgment" for artefact in report.artefacts
         ):
-            # The live flag is forced false for a ready, not actionable report, so a private
-            # actionability change needs the shared reviewer membership again.
-            login = self._github_login
-            document["is_suggested_reviewer"] = (
-                report_ids_naming_reviewers(
-                    team_id=self.store.run.team_id,
-                    user_uuids=[str(user.uuid)],
-                    github_logins=[login] if login else [],
-                    logins_match_unidentified_only=False,
+            # The source annotation excludes non-actionable reports before private decisions are applied.
+            document["is_suggested_reviewer"] = report.source_report_id in self._source_reports_naming_viewer
+        for artefact in reversed(report.artefacts):
+            if artefact["type"] != "suggested_reviewers":
+                continue
+            entries = artefact["content"]
+            if isinstance(entries, list):
+                user = cast(User, self.view.request.user)
+                login = self._github_login
+                document["is_suggested_reviewer"] = any(
+                    isinstance(entry, dict)
+                    and (entry.get("user_uuid") == str(user.uuid) or (login and entry.get("github_login") == login))
+                    for entry in entries
                 )
-                .filter(report_id=report.source_report_id)
-                .exists()
-            )
+            break
         if document.get("status") == "failed" or (
             document.get("status") == "ready" and document.get("actionability") == "not_actionable"
         ):
@@ -132,14 +127,15 @@ class TrialInboxReads:
                 changed_fields.add("repo_slug")
         if any(artefact["type"] == "repo_selection" for artefact in report.artefacts):
             changed_fields.add("repo_slug")
-        if any(artefact["type"] == "actionability_judgment" for artefact in report.artefacts):
-            changed_fields.update({"actionability", "already_addressed"})
+        for artefact in reversed(report.artefacts):
+            if artefact["type"] == "actionability_judgment":
+                report.apply_actionability(document, ActionabilityAssessment.model_validate(artefact["content"]))
+                break
         if any(artefact["type"] == "priority_judgment" for artefact in report.artefacts):
             changed_fields.add("priority")
         for field in changed_fields:
             if field in report.document:
                 document[field] = report.document[field]
-        cls._apply_private_suppression(report, document)
         signal_count = live.get("signal_count", 0)
         document["signal_count"] = (signal_count if isinstance(signal_count, int) else 0) + len(report.evidence)
         weight = live.get("total_weight", 0)
@@ -165,32 +161,6 @@ class TrialInboxReads:
         count = live.get("artefact_count", 0)
         document["artefact_count"] = (count if isinstance(count, int) else 0) + len(report.artefacts)
         return document
-
-    @staticmethod
-    def _apply_private_suppression(report: TrialReport, document: dict[str, JsonValue]) -> None:
-        # Mirrors SignalReportSerializer._suppression: a dismissal or an unsafe verdict wins over actionability.
-        if document.get("suppression_source") not in {
-            SignalReportSuppressionSource.NOT_ACTIONABLE,
-            SignalReportSuppressionSource.SYSTEM,
-        }:
-            return
-        judgment = next(
-            (
-                artefact["content"]
-                for artefact in reversed(report.artefacts)
-                if artefact["type"] == "actionability_judgment"
-            ),
-            None,
-        )
-        if not isinstance(judgment, dict):
-            return
-        explanation = judgment.get("explanation")
-        if judgment.get("actionability") == ActionabilityChoice.NOT_ACTIONABLE:
-            document["suppression_source"] = SignalReportSuppressionSource.NOT_ACTIONABLE.value
-            document["suppression_explanation"] = explanation if isinstance(explanation, str) and explanation else None
-        else:
-            document["suppression_source"] = SignalReportSuppressionSource.SYSTEM.value
-            document["suppression_explanation"] = None
 
     def _serialize_private_metrics(self, report: TrialReport, document: dict[str, JsonValue], *, listing: bool) -> None:
         # Source metrics already have the viewer's policy applied, and list projections omit the query it needs.
