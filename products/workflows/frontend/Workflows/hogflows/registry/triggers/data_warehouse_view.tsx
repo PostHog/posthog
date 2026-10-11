@@ -167,7 +167,6 @@ registerTriggerType({
     icon: <IconServer />,
     description: 'Trigger when a materialized view adds or updates a row',
     group: 'Data warehouse',
-    featureFlag: 'cdp-dwh-view-source',
     matchConfig: (config) => isDataWarehouseViewTriggerConfig(config),
     buildConfig: () => ({
         type: 'data-warehouse-view',
