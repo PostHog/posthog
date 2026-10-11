@@ -503,6 +503,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert draft.document["suppression_source"] == expected_source
         assert draft.document["suppression_explanation"] == expected_explanation
         if source == "later_dismissal":
+            assert original is not None
             SignalReportArtefact.objects.create(
                 team=self.team, report=original, type="dismissal", content=json.dumps({"reason": "analysis_wrong"})
             )
