@@ -29,7 +29,9 @@ const meta: Meta<ControllerStoryProps> = {
         viewMode: 'story',
         mockDate: '2023-05-01',
         testOptions: {
-            waitForSelector: '.PlayerSeekbar__slider',
+            waitForSelector: '.PlayerSeekbar__sources__item--loaded',
+            // Seekbar buffer bar finishes painting after the recording loads, past the suite-wide default.
+            snapshotSettleTimeMs: 1000,
         },
     },
     decorators: [

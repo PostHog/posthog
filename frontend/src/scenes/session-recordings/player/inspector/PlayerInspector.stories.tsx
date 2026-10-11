@@ -18,6 +18,11 @@ type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Components/PlayerInspector',
     component: PlayerInspector,
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="player-inspector-ready"]',
+        },
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -98,10 +103,13 @@ const meta: Meta = {
             sessionRecordingId: '12345',
             playerKey: 'story-template',
         })
-        const { sessionPlayerMetaData } = useValues(dataLogic)
-
+        const { sessionEventsData, sessionEventsDataLoading, sessionPlayerMetaData, snapshotsLoading } =
+            useValues(dataLogic)
         const { loadSnapshots, loadEvents } = useActions(dataLogic)
-        loadSnapshots()
+
+        useEffect(() => {
+            loadSnapshots()
+        }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
         // TODO you have to call actions in a particular order
         // and only when some other data has already been loaded
@@ -110,8 +118,13 @@ const meta: Meta = {
             loadEvents()
         }, [sessionPlayerMetaData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+        const isReady = !!sessionPlayerMetaData && !!sessionEventsData && !sessionEventsDataLoading && !snapshotsLoading
+
         return (
-            <div className="flex flex-col gap-2 min-w-96 min-h-120">
+            <div
+                className="flex flex-col gap-2 min-w-96 min-h-120"
+                data-attr={isReady ? 'player-inspector-ready' : undefined}
+            >
                 <BindLogic
                     logic={sessionRecordingPlayerLogic}
                     props={{

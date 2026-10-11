@@ -558,6 +558,8 @@ export const RecordingViews: Story = {
             // The player mounts rrweb inside its own frame document. Without this wait the snapshot is
             // taken as soon as the notebook renders, so it catches whichever frame the replay reached.
             waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
+            // Replay player keeps painting after the recording loads, past the suite-wide default.
+            snapshotSettleTimeMs: 1000,
         },
     },
 }
