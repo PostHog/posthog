@@ -81,6 +81,9 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
     config?: TimeSeriesBarChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable` — marks which bars the handler acts on, so the
+     *  pointer cursor appears on those and the drag crosshair survives on the rest. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. See `BarChartProps.onDateRangeZoom`. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
@@ -96,6 +99,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     dataAttr,
     className,
@@ -188,6 +192,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                isPointClickable={isPointClickable}
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
