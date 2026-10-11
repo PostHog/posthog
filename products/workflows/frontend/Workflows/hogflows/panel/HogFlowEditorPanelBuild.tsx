@@ -382,18 +382,12 @@ export function HogFlowEditorPanelBuild({
                         </span>
                     </HogFlowEditorToolbarNode>
                 )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                    <HogFlowEditorToolbarNode
-                        key="ai-task"
-                        action={AI_TASK_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {AI_TASK_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </span>
-                    </HogFlowEditorToolbarNode>
-                )}
+                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE} onActionSelect={onActionSelect}>
+                    <span className="inline-flex items-center gap-1.5">
+                        {AI_TASK_ACTION_NODE.name}
+                        <LemonTag type="completion">Beta</LemonTag>
+                    </span>
+                </HogFlowEditorToolbarNode>
                 {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
                 Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
                 undefined, which would otherwise pass. */}

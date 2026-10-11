@@ -6440,12 +6440,22 @@ def _create_task_template() -> dict:
     return template
 
 
+def _run_scout_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-posthog-run-scout"
+    template["name"] = "Run scout"
+    template["inputs_schema"] = [
+        {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True}
+    ]
+    return template
+
+
 class TestFlagGatedTemplates(APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_template_to_db(_create_task_template())
+        sync_template_to_db(_run_scout_template())
 
-    def _post_flow_with_create_task_action(self):
+    def _post_flow_with_gated_action(self):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6459,7 +6469,10 @@ class TestFlagGatedTemplates(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+            "config": {
+                "template_id": "template-posthog-run-scout",
+                "inputs": {"skill_name": {"value": "signals-scout-general"}},
+            },
         }
         # The MCP client header selects strict validation - the path agents and API callers
         # actually use. Web-client draft saves stay lenient; the gate holds at publish there.
@@ -6469,7 +6482,7 @@ class TestFlagGatedTemplates(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
-    def _post_flow_with_create_task_action_as_web(self):
+    def _post_flow_with_gated_action_as_web(self):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6483,7 +6496,10 @@ class TestFlagGatedTemplates(APIBaseTest):
             "id": "action_1",
             "name": "action_1",
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+            "config": {
+                "template_id": "template-posthog-run-scout",
+                "inputs": {"skill_name": {"value": "signals-scout-general"}},
+            },
         }
         return self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
@@ -6497,16 +6513,16 @@ class TestFlagGatedTemplates(APIBaseTest):
         ]
     )
     def test_gated_template_requires_feature_flag(self, _name, flag_enabled, expected_status):
-        # The builder hides the AI task step behind a flag, but agents and API callers write
+        # The builder hides the run scout step behind a flag, but agents and API callers write
         # workflows through this endpoint directly - without the server-side gate they could
         # attach the step on any team.
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=flag_enabled
         ) as mock_gate:
-            response = self._post_flow_with_create_task_action()
+            response = self._post_flow_with_gated_action()
 
         assert response.status_code == expected_status, response.json()
-        assert mock_gate.call_args.args[0] == "workflow-ai-task-action"
+        assert mock_gate.call_args.args[0] == "workflow-run-scout-action"
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert "Template not found" in response.json()["detail"]
 
@@ -6516,11 +6532,11 @@ class TestFlagGatedTemplates(APIBaseTest):
             "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
             side_effect=Exception("flag service down"),
         ):
-            assert gated_template_enabled("workflow-ai-task-action", self.team) is False
+            assert gated_template_enabled("workflow-run-scout-action", self.team) is False
 
     def _create_active_flow_with_gated_step(self) -> str:
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            response = self._post_flow_with_create_task_action()
+            response = self._post_flow_with_gated_action()
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             flow_id = response.json()["id"]
             activate = self.client.patch(
@@ -6562,7 +6578,7 @@ class TestFlagGatedTemplates(APIBaseTest):
         # draft. Grandfathering must not treat that as authorization: activation re-checks the
         # flag, or the draft path becomes a gate bypass.
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
-            create = self._post_flow_with_create_task_action_as_web()
+            create = self._post_flow_with_gated_action_as_web()
             assert create.status_code == status.HTTP_201_CREATED, create.json()
             flow_id = create.json()["id"]
 
@@ -6581,7 +6597,10 @@ class TestFlagGatedTemplates(APIBaseTest):
             "id": "action_2",
             "name": "action_2",
             "type": "function",
-            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Another"}}},
+            "config": {
+                "template_id": "template-posthog-run-scout",
+                "inputs": {"skill_name": {"value": "signals-scout-general"}},
+            },
         }
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=False):
             response = self.client.patch(
@@ -6623,12 +6642,11 @@ class TestCreateTaskActionValidation(APIBaseTest):
         }
         # Strict validation, same as any programmatic caller - the path a misconfigured
         # workflow is actually authored through.
-        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
-            return self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows",
-                {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
-                HTTP_X_POSTHOG_CLIENT="mcp",
-            )
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
 
     def test_rejects_a_connector_the_workflow_owner_cannot_mount(self):
         response = self._post_flow({"connectors": {"value": ["nonexistent-installation"]}})
@@ -6826,13 +6844,7 @@ class TestRunScoutActionValidation(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        template = deepcopy(webhook_template)
-        template["id"] = "template-posthog-run-scout"
-        template["name"] = "Run scout"
-        template["inputs_schema"] = [
-            {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True}
-        ]
-        sync_template_to_db(template)
+        sync_template_to_db(_run_scout_template())
 
     def _post_flow(self, team: Team):
         trigger_action = {
