@@ -51,7 +51,8 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     if (!linkedStylesheet) {
         throw new Error('stable css: the entry has no stylesheet to split')
     }
-    const order = Object.keys(outputs[linkedStylesheet].inputs)
+    const linkedStylesheetInputs = outputs[linkedStylesheet].inputs
+    const order = Object.keys(linkedStylesheetInputs)
     const rank = new Map(order.map((file, index) => [file, index]))
 
     const boot = new Set(bootEntries.filter((entry) => inputs[entry]))
@@ -160,11 +161,10 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     // Each group's place in the entry stylesheet, so the loader can keep lazy groups in that order
     // whatever order scenes load them in.
     const rankOfGroup = new Map([...groups.keys()].map((name) => [name, firstRank(name)]))
-    const linkedInputs = outputs[linkedStylesheet].inputs
     const bytesOfGroup = new Map(
         [...groups].map(([name, files]) => [
             name,
-            files.reduce((sum, file) => sum + linkedInputs[file].bytesInOutput, 0),
+            files.reduce((sum, file) => sum + linkedStylesheetInputs[file].bytesInOutput, 0),
         ])
     )
     return { groups, eager, lazyGroupsByEntry, rankOfGroup, bytesOfGroup }
