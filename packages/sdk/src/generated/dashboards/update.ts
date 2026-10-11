@@ -510,6 +510,11 @@ export interface DashboardsUpdateRequestDashboardPatchTileOpenApiWidget {
     description?: string
 }
 
+/**
+ * * `winner` - Winner
+ * * `cheeky-hog` - Cheeky hog
+ */
+export type DashboardsUpdateRequestDashboardTileBadgeEnum = 'winner' | 'cheeky-hog'
 export interface DashboardsUpdateRequestDashboardPatchTileOpenApi {
     /** Dashboard tile ID to update. */
     id?: number
@@ -517,6 +522,16 @@ export interface DashboardsUpdateRequestDashboardPatchTileOpenApi {
     layouts?: DashboardsUpdateRequestDashboardPatchTileOpenApiLayouts
     /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
     show_description?: boolean
+    /**
+     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+     * @maxLength 100
+     */
+    group_key?: string | null
+    /** Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.
+     *
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog */
+    badge?: DashboardsUpdateRequestDashboardTileBadgeEnum | DashboardsUpdateRequestNullEnum
     /** Nested widget row updates. */
     widget?: DashboardsUpdateRequestDashboardPatchTileOpenApiWidget
 }
@@ -551,6 +566,14 @@ export type DashboardsUpdateInputGridSpacing = 'tight' | 'condensed' | 'standard
  * * `stable` - stable
  */
 export type DashboardsUpdateInputLayoutCompaction = 'vertical' | 'horizontal' | 'stable'
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export type DashboardsUpdateInputGroupTitles = DashboardsUpdateInputGroupTitlesVariant1 | null
+export interface DashboardsUpdateInputGroupTitlesVariant1 {
+    [key: string]: string
+}
+
 export interface DashboardsUpdateInput {
     /** A unique integer value identifying this dashboard. */
     id: number
@@ -592,6 +615,8 @@ export interface DashboardsUpdateInput {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: DashboardsUpdateInputLayoutCompaction
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardsUpdateInputGroupTitles
     /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardsUpdateRequestDashboardPatchTileOpenApi[]
     /** Template key to create the dashboard from a predefined template. */
@@ -678,6 +703,13 @@ export type DashboardsUpdateDataCustomizationTileSpacing = 'tight' | 'condensed'
  */
 export type DashboardsUpdateDataCustomizationLayoutCompaction = 'vertical' | 'horizontal' | 'stable'
 /**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export interface DashboardsUpdateDataCustomizationGroupTitles {
+    [key: string]: string
+}
+
+/**
  * Dashboard display settings.
  */
 export interface DashboardsUpdateDataCustomization {
@@ -695,6 +727,8 @@ export interface DashboardsUpdateDataCustomization {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     readonly layout_compaction?: DashboardsUpdateDataCustomizationLayoutCompaction
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    readonly group_titles?: DashboardsUpdateDataCustomizationGroupTitles
 }
 
 export type DashboardsUpdateDataTiles = readonly DashboardsUpdateDataTilesVariant1[]

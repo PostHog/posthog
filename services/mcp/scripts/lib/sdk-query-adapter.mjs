@@ -135,7 +135,6 @@ export function resolveQueryOperation(api, querySchema, config, category, toolNa
             bindings: Object.keys(input.properties).map((name) => ({ name, wireName: name, location: 'body' })),
             injectBody: {},
             inputSchema: registry.runtime(`${prefix}Input`),
-            responses: { 200: registry.runtime(`${prefix}Output`), 202: registry.runtime(`${prefix}Output`) },
             query: { kind, filterTestAccounts },
             response: {},
             list: false,

@@ -3,8 +3,8 @@ import type { ToolCatalog, ToolSearchResult } from '../discovery-types.js'
 export const catalog: ToolCatalog = {
     schemaVersion: 1,
     packageVersion: '0.1.0',
-    sourceRevision: '3ba731d9a0fbc000bd371a6ee46b1342cca0c7fb9b86cf8d800ff3b5d4061e8d',
-    schemaHash: '74fd86e2ee5602f987997d2f00d2b32414d27cc116f8f12c77b48ca1fa31138c',
+    sourceRevision: 'cf4ea6ae619625ab3a134e8ea16aac2ad94677f054a17ff1b1e4b15362a67f01',
+    schemaHash: 'be5cc5708ae0a3d1d986a38b81e2bb668ca9eee2905182ed5abb1400d2e7faa4',
     tools: [
         {
             method: 'accessControl.accessControlDefaultObjectsList',
@@ -4987,6 +4987,12 @@ export const catalog: ToolCatalog = {
             descriptionFile: 'catalog/signals/scout-config-list.json',
         },
         {
+            method: 'signals.scoutConfigPrecheckTest',
+            toolName: 'scout-config-precheck-test',
+            title: 'Test a scout pre-check',
+            descriptionFile: 'catalog/signals/scout-config-precheck-test.json',
+        },
+        {
             method: 'signals.scoutConfigSync',
             toolName: 'scout-config-sync',
             title: 'Sync scout configs',
@@ -9535,7 +9541,7 @@ export const descriptions: (ToolSearchResult & { description: string })[] = [
         title: 'Update dashboard',
         descriptionFile: 'catalog/dashboards/update.json',
         description:
-            "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+            "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
     },
     {
         method: 'dataCatalog.dataCatalogCertificationCertifyExecute',
@@ -13231,6 +13237,14 @@ export const descriptions: (ToolSearchResult & { description: string })[] = [
             "List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name. Pair with `scout-config-update` to tune them.",
     },
     {
+        method: 'signals.scoutConfigPrecheckTest',
+        toolName: 'scout-config-precheck-test',
+        title: 'Test a scout pre-check',
+        descriptionFile: 'catalog/signals/scout-config-precheck-test.json',
+        description:
+            "Run a scout's pre-check query once by its config `id` and return the rows, without starting a run and without saving anything. Pass `precheck_query` to try a query before you save it with `scout-config-update`, or omit it to try the saved one. The query gets the same `{since}` (the start of the last run that ran) and `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one JSON object per line. A query error comes back in `error`: fix the query and test again.",
+    },
+    {
         method: 'signals.scoutConfigSync',
         toolName: 'scout-config-sync',
         title: 'Sync scout configs',
@@ -13244,7 +13258,7 @@ export const descriptions: (ToolSearchResult & { description: string })[] = [
         title: 'Update a scout config',
         descriptionFile: 'catalog/signals/scout-config-update.json',
         description:
-            "Tune one scout by its config `id`: change its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart; set null to return to the rolling interval. You can also configure `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids with integrations-users-retrieve. `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+            "Tune one scout by its config `id`: change its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart; set null to return to the rolling interval. You can also configure `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids with integrations-users-retrieve. Set `precheck_query` to a HogQL `SELECT` so a scheduled run starts only when the query returns something: no rows, or one false value such as a zero `count()`, skips the run; `{since}` and `{now}` bind the last run that ran and the current time. Try the query with `scout-config-precheck-test` first. `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
     },
     {
         method: 'signals.scoutCreate',

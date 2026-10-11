@@ -135,25 +135,7 @@
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
         },
         {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema32",
-            "importPath": "@posthog/sdk/replay-vision",
-            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
-            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
-        },
-        {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema34",
-            "importPath": "@posthog/sdk/replay-vision",
-            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
-            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
-        },
-        {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema33",
-            "importPath": "@posthog/sdk/replay-vision",
-            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
-            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
-        },
-        {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema35",
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema29",
             "importPath": "@posthog/sdk/replay-vision",
             "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
@@ -165,25 +147,13 @@
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
         },
         {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema31Variant1",
-            "importPath": "@posthog/sdk/replay-vision",
-            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
-            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
-        },
-        {
             "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema36",
             "importPath": "@posthog/sdk/replay-vision",
             "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
         },
         {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema36Variant1",
-            "importPath": "@posthog/sdk/replay-vision",
-            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
-            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
-        },
-        {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema29",
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema38",
             "importPath": "@posthog/sdk/replay-vision",
             "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
@@ -201,7 +171,49 @@
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
         },
         {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema35",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema35Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema40",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema40Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema33",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
             "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema41",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema43",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema45",
             "importPath": "@posthog/sdk/replay-vision",
             "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
@@ -213,7 +225,7 @@
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
         },
         {
-            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema43",
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema47",
             "importPath": "@posthog/sdk/replay-vision",
             "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
             "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
@@ -400,11 +412,11 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema19",
-            "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+            "effectiveDescription": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+                    "text": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
@@ -415,11 +427,11 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema21",
-            "effectiveDescription": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+            "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+                    "text": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
@@ -430,11 +442,11 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema23",
-            "effectiveDescription": "Whether this scout runs on its schedule. Defaults to true.",
+            "effectiveDescription": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Whether this scout runs on its schedule. Defaults to true.",
+                    "text": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
@@ -445,11 +457,11 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema25",
-            "effectiveDescription": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+            "effectiveDescription": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+                    "text": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
@@ -460,11 +472,11 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema27",
-            "effectiveDescription": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "effectiveDescription": "Whether this scout runs on its schedule. Defaults to true.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+                    "text": "Whether this scout runs on its schedule. Defaults to true.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
@@ -475,11 +487,11 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema29",
-            "effectiveDescription": "Destinations that receive each finding or report this scout emits. Empty by default.",
+            "effectiveDescription": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Destinations that receive each finding or report this scout emits. Empty by default.",
+                    "text": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
@@ -489,7 +501,37 @@
             ]
         },
         {
-            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema29",
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema31",
+            "effectiveDescription": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema31"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema33",
+            "effectiveDescription": "Destinations that receive each finding or report this scout emits. Empty by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Destinations that receive each finding or report this scout emits. Empty by default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema33"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema33",
             "field": "slack",
             "effectiveDescription": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
             "layers": [
@@ -499,13 +541,13 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
-                        "pointer": "#/$defs/__schema30/properties/slack"
+                        "pointer": "#/$defs/__schema34/properties/slack"
                     }
                 }
             ]
         },
         {
-            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema29",
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema33",
             "field": "webhook",
             "effectiveDescription": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle.",
             "layers": [
@@ -515,13 +557,13 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
-                        "pointer": "#/$defs/__schema30/properties/webhook"
+                        "pointer": "#/$defs/__schema34/properties/webhook"
                     }
                 }
             ]
         },
         {
-            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema37",
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema41",
             "effectiveDescription": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
             "layers": [
                 {
@@ -530,13 +572,13 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
-                        "pointer": "#/$defs/__schema37"
+                        "pointer": "#/$defs/__schema41"
                     }
                 }
             ]
         },
         {
-            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema39",
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema43",
             "effectiveDescription": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
             "layers": [
                 {
@@ -545,13 +587,13 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
-                        "pointer": "#/$defs/__schema39"
+                        "pointer": "#/$defs/__schema43"
                     }
                 }
             ]
         },
         {
-            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema41",
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema45",
             "effectiveDescription": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
             "layers": [
                 {
@@ -560,7 +602,7 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
-                        "pointer": "#/$defs/__schema41"
+                        "pointer": "#/$defs/__schema45"
                     }
                 }
             ]
@@ -1014,6 +1056,22 @@
         },
         {
             "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "lifecycle_locked",
+            "effectiveDescription": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/lifecycle_locked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
             "field": "allowed_mcp_tools",
             "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
             "layers": [
@@ -1040,6 +1098,22 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/replay_vision.ts",
                         "pointer": "#/Shape2/properties/tool_preset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "precheck_query",
+            "effectiveDescription": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/precheck_query"
                     }
                 }
             ]

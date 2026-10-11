@@ -4095,6 +4095,11 @@
         "method": "signals.scoutConfigList"
     },
     {
+        "toolName": "scout-config-precheck-test",
+        "status": "exported",
+        "method": "signals.scoutConfigPrecheckTest"
+    },
+    {
         "toolName": "scout-config-sync",
         "status": "exported",
         "method": "signals.scoutConfigSync"

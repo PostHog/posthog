@@ -75,6 +75,12 @@
             "declaration": "dist/generated/review-hog/review-hog-reviews-get.d.ts"
         },
         {
+            "name": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-get.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-get.d.ts"
+        },
+        {
             "name": "ReviewHogReviewHogReviewsGetData",
             "importPath": "@posthog/sdk/review-hog",
             "source": "src/generated/review-hog/review-hog-reviews-get.ts",
@@ -694,6 +700,182 @@
             ]
         },
         {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "title",
+            "effectiveDescription": "One-line summary of the finding.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One-line summary of the finding.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "file",
+            "effectiveDescription": "Repository-relative path of the affected file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository-relative path of the affected file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/file"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "lines",
+            "effectiveDescription": "Affected line ranges within the file.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Affected line ranges within the file.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/lines"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "body",
+            "effectiveDescription": "Description of the problem.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the problem.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/body"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "suggestion",
+            "effectiveDescription": "The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body with the fix direction instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body with the fix direction instead.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/suggestion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "priority",
+            "effectiveDescription": "The reviewer's priority for the finding.\n\n* `must_fix` - Must fix\n* `should_fix` - Should fix\n* `consider` - Consider",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The reviewer's priority for the finding.\n\n* `must_fix` - Must fix\n* `should_fix` - Should fix\n* `consider` - Consider",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "source_perspective",
+            "effectiveDescription": "The session that raised the finding: the main review or a lens.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The session that raised the finding: the main review or a lens.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/source_perspective"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "disposition",
+            "effectiveDescription": "Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.\n\n* `old_code` - On unchanged code\n* `dedup_prior` - Repeat of an earlier review\n* `dedup_comment` - Already in a PR comment\n* `dedup_anchor` - Same spot as another finding\n* `dedup_sibling` - Repeat of a finding\n* `cap` - Over the limit",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.\n\n* `old_code` - On unchanged code\n* `dedup_prior` - Repeat of an earlier review\n* `dedup_comment` - Already in a PR comment\n* `dedup_anchor` - Same spot as another finding\n* `dedup_sibling` - Repeat of a finding\n* `cap` - Over the limit",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/disposition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "duplicate_of",
+            "effectiveDescription": "For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/duplicate_of"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "comment_url",
+            "effectiveDescription": "Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/comment_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetResponseShape9",
+            "field": "rank",
+            "effectiveDescription": "For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape9/properties/rank"
+                    }
+                }
+            ]
+        },
+        {
             "typeName": "ReviewHogReviewHogReviewsGetData",
             "field": "id",
             "effectiveDescription": "The review report's id, for fetching the review's detail.",
@@ -929,6 +1111,22 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/review_hog.ts",
                         "pointer": "#/Shape1/properties/review_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetData",
+            "field": "review_design",
+            "effectiveDescription": "How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).\n\n* `pipeline` - Pipeline\n* `single_agent` - Single agent",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).\n\n* `pipeline` - Pipeline\n* `single_agent` - Single agent",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/review_design"
                     }
                 }
             ]
@@ -1297,6 +1495,22 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/review_hog.ts",
                         "pointer": "#/Shape1/properties/dismissed_findings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsGetData",
+            "field": "dropped_findings",
+            "effectiveDescription": "The returned turn's findings a single-agent (Standard) review raised but did not post, each with the reason. Empty for pipeline turns and for turns that predate the record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The returned turn's findings a single-agent (Standard) review raised but did not post, each with the reason. Empty for pipeline turns and for turns that predate the record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/dropped_findings"
                     }
                 }
             ]

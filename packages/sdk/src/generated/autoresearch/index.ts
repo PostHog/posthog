@@ -67,6 +67,7 @@ export type {
     AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape3,
     AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape5,
     AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2,
+    AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6,
     AutoresearchAutoresearchOnlinePerformanceRetrieveData,
     AutoresearchAutoresearchOnlinePerformanceRetrieveOutput,
 } from './autoresearch-online-performance-retrieve.js'

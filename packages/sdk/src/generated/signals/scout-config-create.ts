@@ -50,9 +50,14 @@ export type SignalsScoutConfigCreateRequestSchema15 = string
 export type SignalsScoutConfigCreateRequestSchema13 = SignalsScoutConfigCreateRequestSchema15[]
 
 /**
+ * Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.
+ */
+export type SignalsScoutConfigCreateRequestSchema16 = boolean
+
+/**
  * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
  */
-export type SignalsScoutConfigCreateRequestSchema16 = string[] | null
+export type SignalsScoutConfigCreateRequestSchema18 = string[] | null
 
 /**
  * Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
@@ -60,53 +65,58 @@ export type SignalsScoutConfigCreateRequestSchema16 = string[] | null
  * * `read_only` - Read only
  * * `support_notes` - Support notes
  */
-export type SignalsScoutConfigCreateRequestSchema18 = 'read_only' | 'support_notes'
+export type SignalsScoutConfigCreateRequestSchema20 = 'read_only' | 'support_notes'
+/**
+ * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+ */
+export type SignalsScoutConfigCreateRequestSchema22 = string | null
+
 /**
  * Whether this scout runs on its schedule. Defaults to true.
  */
-export type SignalsScoutConfigCreateRequestSchema20 = boolean
+export type SignalsScoutConfigCreateRequestSchema24 = boolean
 
 /**
  * Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.
  */
-export type SignalsScoutConfigCreateRequestSchema22 = boolean
+export type SignalsScoutConfigCreateRequestSchema26 = boolean
 
 /**
  * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
  * @minimum 30
  * @maximum 43200
  */
-export type SignalsScoutConfigCreateRequestSchema24 = number
+export type SignalsScoutConfigCreateRequestSchema28 = number
 
-export type SignalsScoutConfigCreateRequestSchema29 = string | null
+export type SignalsScoutConfigCreateRequestSchema33 = string | null
 
 /**
  * @maxLength 255
  * @pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
  */
-export type SignalsScoutConfigCreateRequestSchema31 = string
+export type SignalsScoutConfigCreateRequestSchema35 = string
 
-export type SignalsScoutConfigCreateRequestSchema30 = SignalsScoutConfigCreateRequestSchema31[] | null
+export type SignalsScoutConfigCreateRequestSchema34 = SignalsScoutConfigCreateRequestSchema35[] | null
 
-export type SignalsScoutConfigCreateRequestSchema32 = boolean
+export type SignalsScoutConfigCreateRequestSchema36 = boolean
 
-export type SignalsScoutConfigCreateRequestSchema28 = SignalsScoutConfigCreateRequestSchema28Variant1 | null
-export interface SignalsScoutConfigCreateRequestSchema28Variant1 {
+export type SignalsScoutConfigCreateRequestSchema32 = SignalsScoutConfigCreateRequestSchema32Variant1 | null
+export interface SignalsScoutConfigCreateRequestSchema32Variant1 {
     /**
      * ID of the Slack integration whose bot posts this scout's findings and reports.
      * @minimum 1
      */
     integration_id: number
     /** Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set. */
-    channel?: SignalsScoutConfigCreateRequestSchema29 | null
+    channel?: SignalsScoutConfigCreateRequestSchema33 | null
     /** Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel. */
-    users?: SignalsScoutConfigCreateRequestSchema30 | null
+    users?: SignalsScoutConfigCreateRequestSchema34 | null
     /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
-    thread_reports?: SignalsScoutConfigCreateRequestSchema32
+    thread_reports?: SignalsScoutConfigCreateRequestSchema36
 }
 
-export type SignalsScoutConfigCreateRequestSchema33 = SignalsScoutConfigCreateRequestSchema33Variant1 | null
-export interface SignalsScoutConfigCreateRequestSchema33Variant1 {
+export type SignalsScoutConfigCreateRequestSchema37 = SignalsScoutConfigCreateRequestSchema37Variant1 | null
+export interface SignalsScoutConfigCreateRequestSchema37Variant1 {
     /** Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. */
     hog_function_id: string
 }
@@ -114,11 +124,11 @@ export interface SignalsScoutConfigCreateRequestSchema33Variant1 {
 /**
  * Destinations that receive each finding or report this scout emits. Empty by default.
  */
-export interface SignalsScoutConfigCreateRequestSchema26 {
+export interface SignalsScoutConfigCreateRequestSchema30 {
     /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
-    slack?: SignalsScoutConfigCreateRequestSchema28 | null
+    slack?: SignalsScoutConfigCreateRequestSchema32 | null
     /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
-    webhook?: SignalsScoutConfigCreateRequestSchema33 | null
+    webhook?: SignalsScoutConfigCreateRequestSchema37 | null
 }
 
 /**
@@ -127,28 +137,28 @@ export interface SignalsScoutConfigCreateRequestSchema26 {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type SignalsScoutConfigCreateRequestSchema34 = 'trusted' | 'full'
+export type SignalsScoutConfigCreateRequestSchema38 = 'trusted' | 'full'
 /**
  * Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.
  */
-export type SignalsScoutConfigCreateRequestSchema36 = boolean
+export type SignalsScoutConfigCreateRequestSchema40 = boolean
 
 /**
  * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
  */
-export type SignalsScoutConfigCreateRequestSchema38 = string | null
+export type SignalsScoutConfigCreateRequestSchema42 = string | null
 
 /**
  * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
  * @maxLength 200
  */
-export type SignalsScoutConfigCreateRequestSchema40 = string
+export type SignalsScoutConfigCreateRequestSchema44 = string
 
 /**
  * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
  * @maxLength 200
  */
-export type SignalsScoutConfigCreateRequestSchema42 = string
+export type SignalsScoutConfigCreateRequestSchema46 = string
 
 /**
  * Request body for registering a scout config without waiting for the coordinator tick.
@@ -169,34 +179,38 @@ export interface SignalsScoutConfigCreateInput {
     repositories?: SignalsScoutConfigCreateRequestSchema10
     /** Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run. */
     write_scopes?: SignalsScoutConfigCreateRequestSchema13
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked?: SignalsScoutConfigCreateRequestSchema16
     /** Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag. */
-    allowed_mcp_tools?: SignalsScoutConfigCreateRequestSchema16 | null
+    allowed_mcp_tools?: SignalsScoutConfigCreateRequestSchema18 | null
     /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
      *
      * * `read_only` - Read only
      * * `support_notes` - Support notes */
-    tool_preset?: SignalsScoutConfigCreateRequestSchema18
+    tool_preset?: SignalsScoutConfigCreateRequestSchema20
+    /** Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off. */
+    precheck_query?: SignalsScoutConfigCreateRequestSchema22 | null
     /** Whether this scout runs on its schedule. Defaults to true. */
-    enabled?: SignalsScoutConfigCreateRequestSchema20
+    enabled?: SignalsScoutConfigCreateRequestSchema24
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
-    emit?: SignalsScoutConfigCreateRequestSchema22
+    emit?: SignalsScoutConfigCreateRequestSchema26
     /** Minutes between runs (30–43200). Defaults to 1440 (every 24 hours). */
-    run_interval_minutes?: SignalsScoutConfigCreateRequestSchema24
+    run_interval_minutes?: SignalsScoutConfigCreateRequestSchema28
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
-    output_destinations?: SignalsScoutConfigCreateRequestSchema26
+    output_destinations?: SignalsScoutConfigCreateRequestSchema30
     /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: SignalsScoutConfigCreateRequestSchema34
+    network_access?: SignalsScoutConfigCreateRequestSchema38
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
-    auto_pause_exempt?: SignalsScoutConfigCreateRequestSchema36
+    auto_pause_exempt?: SignalsScoutConfigCreateRequestSchema40
     /** Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. */
-    run_cron_schedule?: SignalsScoutConfigCreateRequestSchema38 | null
+    run_cron_schedule?: SignalsScoutConfigCreateRequestSchema42 | null
     /** Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead. */
-    display_name?: SignalsScoutConfigCreateRequestSchema40
+    display_name?: SignalsScoutConfigCreateRequestSchema44
     /** The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first. */
-    skill_name: SignalsScoutConfigCreateRequestSchema42
+    skill_name: SignalsScoutConfigCreateRequestSchema46
 }
 
 /**
@@ -337,10 +351,14 @@ export interface SignalsScoutConfigCreateData {
     repositories?: string[]
     /** Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run. */
     write_scopes: string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked: boolean
     /** Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag. */
     allowed_mcp_tools: null | string[]
     /** Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted. */
     tool_preset: null | string
+    /** Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off. */
+    precheck_query: null | string
     /** When the coordinator last dispatched this scout. Null if it has never run. */
     last_run_at: null | string
     /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */

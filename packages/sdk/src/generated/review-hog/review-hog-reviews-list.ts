@@ -119,6 +119,11 @@ export interface ReviewHogReviewHogReviewsListResponseShape2 {
      * * `full` - Deep
      * * `flash` - Standard */
     review_mode: null | 'full' | 'flash'
+    /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+     *
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent */
+    review_design: null | 'pipeline' | 'single_agent'
     /** Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL. */
     status_comment_url: null | string
     /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */

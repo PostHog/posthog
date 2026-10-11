@@ -229,17 +229,23 @@ test('failed discovery can be retried and API failures never trigger project fal
     }
 })
 
-test('invalid input never reaches the network and invalid output is a structured error', async () => {
+test('input is validated while successful responses use TypeScript contracts without schema validation', async () => {
     const client = makeClient(() => assert.fail('invalid input reached the network'))
     for (const input of [{ id: '17' }, { id: 17, surprise: true }, { id: NaN }, { id: 17, value: () => 1 }]) {
         await assert.rejects(client.featureFlags.archive(input), errorKind('input_validation'))
     }
     for (const body of [{ id: 17 }, { ...flag, id: '17' }]) {
-        await assert.rejects(
-            makeClient(async () => json(body)).featureFlags.archive({ id: 17 }),
-            errorKind('response_validation')
-        )
+        for (const status of [200, 201]) {
+            const result = await makeClient(async () => json(body, status)).featureFlags.archive({ id: 17 })
+            assert.equal(result.data.id, body.id)
+            assert.equal(result.meta.status, status)
+        }
     }
+    const dashboard = { id: 18, name: 'Sample dashboard' }
+    const dashboards = await makeClient(async () => json({ results: [dashboard] })).dashboards.list({ limit: 1 })
+    assert.deepEqual(dashboards.data.results, [
+        { ...dashboard, _posthogUrl: 'https://us.posthog.com/project/23/dashboard/18' },
+    ])
     await assert.rejects(
         makeClient(async () => new Response('invalid JSON')).featureFlags.archive({ id: 17 }),
         errorKind('response_validation')

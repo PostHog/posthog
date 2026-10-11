@@ -71,6 +71,7 @@ const createDefinition: OperationDefinition = {
         { name: 'quick_filter_ids', wireName: 'quick_filter_ids', location: 'body' },
         { name: 'grid_spacing', wireName: 'grid_spacing', location: 'body' },
         { name: 'layout_compaction', wireName: 'layout_compaction', location: 'body' },
+        { name: 'group_titles', wireName: 'group_titles', location: 'body' },
         { name: 'use_template', wireName: 'use_template', location: 'body' },
         { name: 'use_dashboard', wireName: 'use_dashboard', location: 'body' },
         { name: 'delete_insights', wireName: 'delete_insights', location: 'body' },
@@ -124,6 +125,24 @@ const createDefinition: OperationDefinition = {
                             type: 'string',
                             writeOnly: true,
                         },
+                        group_titles: {
+                            additionalProperties: { type: 'string', maxLength: 200 },
+                            writeOnly: true,
+                            anyOf: [
+                                {
+                                    additionalProperties: { type: 'string', maxLength: 200 },
+                                    writeOnly: true,
+                                    type: 'object',
+                                    properties: {},
+                                    required: [],
+                                },
+                                {
+                                    additionalProperties: { type: 'string', maxLength: 200 },
+                                    writeOnly: true,
+                                    type: 'null',
+                                },
+                            ],
+                        },
                         use_template: { type: 'string', writeOnly: true },
                         use_dashboard: {
                             writeOnly: true,
@@ -172,195 +191,6 @@ const createDefinition: OperationDefinition = {
                     ],
                 },
                 JsonObject: { type: 'object', additionalProperties: { $ref: '#/components/schemas/JsonValue' } },
-            },
-        },
-    },
-    responses: {
-        '201': {
-            $ref: '#/components/schemas/DashboardsCreateOutput',
-            components: {
-                schemas: {
-                    DashboardsCreateOutput: {
-                        type: 'object',
-                        properties: {
-                            data: { $ref: '#/components/schemas/DashboardsCreateData' },
-                            meta: { $ref: '#/components/schemas/ResponseMeta' },
-                        },
-                        required: ['data', 'meta'],
-                    },
-                    DashboardsCreateData: {
-                        type: 'object',
-                        properties: {
-                            id: { type: 'integer', readOnly: true },
-                            name: { maxLength: 400, anyOf: [{ maxLength: 400, type: 'string' }] },
-                            description: { type: 'string' },
-                            pinned: { type: 'boolean' },
-                            created_at: { type: 'string', format: 'date-time', readOnly: true },
-                            created_by: {
-                                type: 'object',
-                                properties: {
-                                    id: { type: 'integer', readOnly: true },
-                                    first_name: { type: 'string', maxLength: 150 },
-                                    last_name: { type: 'string', maxLength: 150 },
-                                    email: { type: 'string', format: 'email', maxLength: 254 },
-                                    role_at_organization: {
-                                        oneOf: [
-                                            {
-                                                $ref: '#/components/schemas/DashboardsCreateResponseRoleAtOrganizationEnumWithoutNulls',
-                                            },
-                                            {
-                                                $ref: '#/components/schemas/DashboardsCreateResponseBlankEnumWithoutNulls',
-                                            },
-                                            {
-                                                $ref: '#/components/schemas/DashboardsCreateResponseNullEnumWithoutNulls',
-                                            },
-                                        ],
-                                    },
-                                },
-                                required: ['email', 'id'],
-                                readOnly: true,
-                            },
-                            last_accessed_at: {
-                                format: 'date-time',
-                                readOnly: true,
-                                anyOf: [{ format: 'date-time', readOnly: true, type: 'string' }],
-                            },
-                            last_viewed_at: {
-                                format: 'date-time',
-                                readOnly: true,
-                                anyOf: [{ format: 'date-time', readOnly: true, type: 'string' }],
-                            },
-                            folder: { readOnly: true, anyOf: [{ readOnly: true, type: 'string' }] },
-                            file_system_id: {
-                                format: 'uuid',
-                                readOnly: true,
-                                anyOf: [{ format: 'uuid', readOnly: true, type: 'string' }],
-                            },
-                            file_system_path: { readOnly: true, anyOf: [{ readOnly: true, type: 'string' }] },
-                            is_shared: { type: 'boolean', readOnly: true },
-                            filters: {
-                                type: 'object',
-                                additionalProperties: true,
-                                readOnly: true,
-                                properties: {},
-                                required: [],
-                            },
-                            variables: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            tags: { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                            last_refresh: { format: 'date-time', anyOf: [{ format: 'date-time', type: 'string' }] },
-                            persisted_filters: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            persisted_variables: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            team_id: { type: 'integer', readOnly: true },
-                            customization: {
-                                type: 'object',
-                                properties: {
-                                    tile_spacing: {
-                                        enum: ['tight', 'condensed', 'standard', 'relaxed', 'wide'],
-                                        type: 'string',
-                                    },
-                                    layout_compaction: { enum: ['vertical', 'horizontal', 'stable'], type: 'string' },
-                                },
-                                readOnly: true,
-                                required: [],
-                            },
-                            tiles: {
-                                anyOf: [
-                                    {
-                                        items: {
-                                            type: 'object',
-                                            additionalProperties: true,
-                                            properties: {},
-                                            required: [],
-                                        },
-                                        readOnly: true,
-                                        type: 'array',
-                                    },
-                                ],
-                            },
-                            _posthogUrl: { type: 'string', format: 'uri' },
-                            _agentNote: { type: 'string' },
-                        },
-                        required: [
-                            'created_at',
-                            'created_by',
-                            'customization',
-                            'filters',
-                            'id',
-                            'is_shared',
-                            'team_id',
-                            '_posthogUrl',
-                            '_agentNote',
-                        ],
-                    },
-                    DashboardsCreateResponseRoleAtOrganizationEnumWithoutNulls: {
-                        enum: [
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'student',
-                            'other',
-                        ],
-                        type: 'string',
-                    },
-                    DashboardsCreateResponseBlankEnumWithoutNulls: { enum: [''] },
-                    DashboardsCreateResponseNullEnumWithoutNulls: { type: 'null' },
-                    JsonValue: {
-                        anyOf: [
-                            { type: 'string' },
-                            { type: 'number' },
-                            { type: 'boolean' },
-                            { type: 'null' },
-                            { $ref: '#/components/schemas/JsonObject' },
-                            { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                        ],
-                    },
-                    JsonObject: { type: 'object', additionalProperties: { $ref: '#/components/schemas/JsonValue' } },
-                    ResponseMeta: {
-                        type: 'object',
-                        properties: { status: { type: 'integer' }, requestId: { type: 'string' } },
-                        required: ['status'],
-                    },
-                },
             },
         },
     },
@@ -472,189 +302,6 @@ const getDefinition: OperationDefinition = {
                     },
                     required: ['id'],
                     additionalProperties: false,
-                },
-            },
-        },
-    },
-    responses: {
-        '200': {
-            $ref: '#/components/schemas/DashboardsGetOutput',
-            components: {
-                schemas: {
-                    DashboardsGetOutput: {
-                        type: 'object',
-                        properties: {
-                            data: { $ref: '#/components/schemas/DashboardsGetData' },
-                            meta: { $ref: '#/components/schemas/ResponseMeta' },
-                        },
-                        required: ['data', 'meta'],
-                    },
-                    DashboardsGetData: {
-                        type: 'object',
-                        properties: {
-                            id: { type: 'integer', readOnly: true },
-                            name: { maxLength: 400, anyOf: [{ maxLength: 400, type: 'string' }] },
-                            description: { type: 'string' },
-                            pinned: { type: 'boolean' },
-                            created_at: { type: 'string', format: 'date-time', readOnly: true },
-                            created_by: {
-                                type: 'object',
-                                properties: {
-                                    id: { type: 'integer', readOnly: true },
-                                    first_name: { type: 'string', maxLength: 150 },
-                                    last_name: { type: 'string', maxLength: 150 },
-                                    email: { type: 'string', format: 'email', maxLength: 254 },
-                                    role_at_organization: {
-                                        oneOf: [
-                                            {
-                                                $ref: '#/components/schemas/DashboardsGetResponseRoleAtOrganizationEnumWithoutNulls',
-                                            },
-                                            { $ref: '#/components/schemas/DashboardsGetResponseBlankEnumWithoutNulls' },
-                                            { $ref: '#/components/schemas/DashboardsGetResponseNullEnumWithoutNulls' },
-                                        ],
-                                    },
-                                },
-                                required: ['email', 'id'],
-                                readOnly: true,
-                            },
-                            last_accessed_at: {
-                                format: 'date-time',
-                                readOnly: true,
-                                anyOf: [{ format: 'date-time', readOnly: true, type: 'string' }],
-                            },
-                            last_viewed_at: {
-                                format: 'date-time',
-                                readOnly: true,
-                                anyOf: [{ format: 'date-time', readOnly: true, type: 'string' }],
-                            },
-                            folder: { readOnly: true, anyOf: [{ readOnly: true, type: 'string' }] },
-                            file_system_id: {
-                                format: 'uuid',
-                                readOnly: true,
-                                anyOf: [{ format: 'uuid', readOnly: true, type: 'string' }],
-                            },
-                            file_system_path: { readOnly: true, anyOf: [{ readOnly: true, type: 'string' }] },
-                            is_shared: { type: 'boolean', readOnly: true },
-                            filters: {
-                                type: 'object',
-                                additionalProperties: true,
-                                readOnly: true,
-                                properties: {},
-                                required: [],
-                            },
-                            variables: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            tags: { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                            last_refresh: { format: 'date-time', anyOf: [{ format: 'date-time', type: 'string' }] },
-                            persisted_filters: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            persisted_variables: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            team_id: { type: 'integer', readOnly: true },
-                            customization: {
-                                type: 'object',
-                                properties: {
-                                    tile_spacing: {
-                                        enum: ['tight', 'condensed', 'standard', 'relaxed', 'wide'],
-                                        type: 'string',
-                                    },
-                                    layout_compaction: { enum: ['vertical', 'horizontal', 'stable'], type: 'string' },
-                                },
-                                readOnly: true,
-                                required: [],
-                            },
-                            tiles: {
-                                anyOf: [
-                                    {
-                                        items: {
-                                            type: 'object',
-                                            additionalProperties: true,
-                                            properties: {},
-                                            required: [],
-                                        },
-                                        readOnly: true,
-                                        type: 'array',
-                                    },
-                                ],
-                            },
-                            _posthogUrl: { type: 'string', format: 'uri' },
-                        },
-                        required: [
-                            'created_at',
-                            'created_by',
-                            'customization',
-                            'filters',
-                            'id',
-                            'is_shared',
-                            'team_id',
-                            '_posthogUrl',
-                        ],
-                    },
-                    DashboardsGetResponseRoleAtOrganizationEnumWithoutNulls: {
-                        enum: [
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'student',
-                            'other',
-                        ],
-                        type: 'string',
-                    },
-                    DashboardsGetResponseBlankEnumWithoutNulls: { enum: [''] },
-                    DashboardsGetResponseNullEnumWithoutNulls: { type: 'null' },
-                    JsonValue: {
-                        anyOf: [
-                            { type: 'string' },
-                            { type: 'number' },
-                            { type: 'boolean' },
-                            { type: 'null' },
-                            { $ref: '#/components/schemas/JsonObject' },
-                            { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                        ],
-                    },
-                    JsonObject: { type: 'object', additionalProperties: { $ref: '#/components/schemas/JsonValue' } },
-                    ResponseMeta: {
-                        type: 'object',
-                        properties: { status: { type: 'integer' }, requestId: { type: 'string' } },
-                        required: ['status'],
-                    },
                 },
             },
         },
@@ -773,247 +420,6 @@ const listDefinition: OperationDefinition = {
             },
         },
     },
-    responses: {
-        '200': {
-            $ref: '#/components/schemas/DashboardsListOutput',
-            components: {
-                schemas: {
-                    DashboardsListOutput: {
-                        type: 'object',
-                        properties: {
-                            data: { $ref: '#/components/schemas/DashboardsListData' },
-                            meta: { $ref: '#/components/schemas/ResponseMeta' },
-                        },
-                        required: ['data', 'meta'],
-                    },
-                    DashboardsListData: {
-                        type: 'object',
-                        required: ['count', 'results', '_posthogUrl'],
-                        properties: {
-                            count: { type: 'integer' },
-                            next: {
-                                format: 'uri',
-                                anyOf: [
-                                    { format: 'uri', type: 'string' },
-                                    { format: 'uri', type: 'null' },
-                                ],
-                            },
-                            previous: {
-                                format: 'uri',
-                                anyOf: [
-                                    { format: 'uri', type: 'string' },
-                                    { format: 'uri', type: 'null' },
-                                ],
-                            },
-                            results: {
-                                type: 'array',
-                                items: {
-                                    type: 'object',
-                                    properties: {
-                                        id: { type: 'integer', readOnly: true },
-                                        name: {
-                                            readOnly: true,
-                                            anyOf: [
-                                                { readOnly: true, type: 'string' },
-                                                { readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        description: { type: 'string', readOnly: true },
-                                        pinned: { type: 'boolean', readOnly: true },
-                                        created_at: { type: 'string', format: 'date-time', readOnly: true },
-                                        created_by: {
-                                            type: 'object',
-                                            properties: {
-                                                id: { type: 'integer', readOnly: true },
-                                                uuid: { type: 'string', format: 'uuid', readOnly: true },
-                                                distinct_id: {
-                                                    maxLength: 200,
-                                                    anyOf: [
-                                                        { maxLength: 200, type: 'string' },
-                                                        { maxLength: 200, type: 'null' },
-                                                    ],
-                                                },
-                                                first_name: { type: 'string', maxLength: 150 },
-                                                last_name: { type: 'string', maxLength: 150 },
-                                                email: { type: 'string', format: 'email', maxLength: 254 },
-                                                is_email_verified: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
-                                                hedgehog_config: {
-                                                    additionalProperties: true,
-                                                    readOnly: true,
-                                                    anyOf: [
-                                                        {
-                                                            additionalProperties: true,
-                                                            readOnly: true,
-                                                            type: 'object',
-                                                            properties: {},
-                                                            required: [],
-                                                        },
-                                                        { additionalProperties: true, readOnly: true, type: 'null' },
-                                                    ],
-                                                },
-                                                role_at_organization: {
-                                                    oneOf: [
-                                                        {
-                                                            $ref: '#/components/schemas/DashboardsListResponseRoleAtOrganizationEnum',
-                                                        },
-                                                        {
-                                                            $ref: '#/components/schemas/DashboardsListResponseBlankEnum',
-                                                        },
-                                                        { $ref: '#/components/schemas/DashboardsListResponseNullEnum' },
-                                                    ],
-                                                },
-                                            },
-                                            required: ['email', 'hedgehog_config', 'id', 'uuid'],
-                                            readOnly: true,
-                                        },
-                                        last_accessed_at: {
-                                            format: 'date-time',
-                                            readOnly: true,
-                                            anyOf: [
-                                                { format: 'date-time', readOnly: true, type: 'string' },
-                                                { format: 'date-time', readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        last_viewed_at: {
-                                            format: 'date-time',
-                                            readOnly: true,
-                                            anyOf: [
-                                                { format: 'date-time', readOnly: true, type: 'string' },
-                                                { format: 'date-time', readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        folder: {
-                                            readOnly: true,
-                                            anyOf: [
-                                                { readOnly: true, type: 'string' },
-                                                { readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        file_system_id: {
-                                            format: 'uuid',
-                                            readOnly: true,
-                                            anyOf: [
-                                                { format: 'uuid', readOnly: true, type: 'string' },
-                                                { format: 'uuid', readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        file_system_path: {
-                                            readOnly: true,
-                                            anyOf: [
-                                                { readOnly: true, type: 'string' },
-                                                { readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        is_shared: { type: 'boolean', readOnly: true },
-                                        deleted: { type: 'boolean', readOnly: true },
-                                        creation_mode: {
-                                            enum: ['default', 'template', 'duplicate', 'unlisted'],
-                                            type: 'string',
-                                            readOnly: true,
-                                        },
-                                        tags: { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                                        restriction_level: { enum: [21, 37], type: 'integer', readOnly: true },
-                                        effective_restriction_level: {
-                                            enum: [21, 37],
-                                            type: 'integer',
-                                            readOnly: true,
-                                        },
-                                        effective_privilege_level: { enum: [21, 37], type: 'integer', readOnly: true },
-                                        user_access_level: {
-                                            readOnly: true,
-                                            anyOf: [
-                                                { readOnly: true, type: 'string' },
-                                                { readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        access_control_version: { type: 'string', readOnly: true },
-                                        last_refresh: {
-                                            format: 'date-time',
-                                            readOnly: true,
-                                            anyOf: [
-                                                { format: 'date-time', readOnly: true, type: 'string' },
-                                                { format: 'date-time', readOnly: true, type: 'null' },
-                                            ],
-                                        },
-                                        team_id: { type: 'integer', readOnly: true },
-                                        search_match_type: {
-                                            readOnly: true,
-                                            oneOf: [
-                                                {
-                                                    $ref: '#/components/schemas/DashboardsListResponseSearchMatchTypeEnum',
-                                                },
-                                                { $ref: '#/components/schemas/DashboardsListResponseNullEnum' },
-                                            ],
-                                        },
-                                        _posthogUrl: { type: 'string', format: 'uri' },
-                                    },
-                                    required: [
-                                        'access_control_version',
-                                        'created_at',
-                                        'created_by',
-                                        'creation_mode',
-                                        'deleted',
-                                        'description',
-                                        'effective_privilege_level',
-                                        'effective_restriction_level',
-                                        'file_system_id',
-                                        'file_system_path',
-                                        'folder',
-                                        'id',
-                                        'is_shared',
-                                        'last_accessed_at',
-                                        'last_refresh',
-                                        'last_viewed_at',
-                                        'name',
-                                        'pinned',
-                                        'restriction_level',
-                                        'search_match_type',
-                                        'team_id',
-                                        'user_access_level',
-                                        '_posthogUrl',
-                                    ],
-                                },
-                            },
-                            _posthogUrl: { type: 'string', format: 'uri' },
-                        },
-                    },
-                    DashboardsListResponseRoleAtOrganizationEnum: {
-                        enum: [
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'student',
-                            'other',
-                        ],
-                        type: 'string',
-                    },
-                    DashboardsListResponseBlankEnum: { enum: [''] },
-                    DashboardsListResponseNullEnum: { type: 'null' },
-                    JsonValue: {
-                        anyOf: [
-                            { type: 'string' },
-                            { type: 'number' },
-                            { type: 'boolean' },
-                            { type: 'null' },
-                            { $ref: '#/components/schemas/JsonObject' },
-                            { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                        ],
-                    },
-                    JsonObject: { type: 'object', additionalProperties: { $ref: '#/components/schemas/JsonValue' } },
-                    DashboardsListResponseSearchMatchTypeEnum: { enum: ['exact', 'similar'], type: 'string' },
-                    ResponseMeta: {
-                        type: 'object',
-                        properties: { status: { type: 'integer' }, requestId: { type: 'string' } },
-                        required: ['status'],
-                    },
-                },
-            },
-        },
-    },
     response: {},
     list: true,
     urlPrefix: '/dashboard',
@@ -1037,6 +443,7 @@ const updateDefinition: OperationDefinition = {
         { name: 'quick_filter_ids', wireName: 'quick_filter_ids', location: 'body' },
         { name: 'grid_spacing', wireName: 'grid_spacing', location: 'body' },
         { name: 'layout_compaction', wireName: 'layout_compaction', location: 'body' },
+        { name: 'group_titles', wireName: 'group_titles', location: 'body' },
         { name: 'tiles', wireName: 'tiles', location: 'body' },
         { name: 'use_template', wireName: 'use_template', location: 'body' },
         { name: 'use_dashboard', wireName: 'use_dashboard', location: 'body' },
@@ -1093,6 +500,18 @@ const updateDefinition: OperationDefinition = {
                         },
                         grid_spacing: { enum: ['tight', 'condensed', 'standard', 'relaxed', 'wide'], type: 'string' },
                         layout_compaction: { enum: ['vertical', 'horizontal', 'stable'], type: 'string' },
+                        group_titles: {
+                            additionalProperties: { type: 'string', maxLength: 200 },
+                            anyOf: [
+                                {
+                                    additionalProperties: { type: 'string', maxLength: 200 },
+                                    type: 'object',
+                                    properties: {},
+                                    required: [],
+                                },
+                                { additionalProperties: { type: 'string', maxLength: 200 }, type: 'null' },
+                            ],
+                        },
                         tiles: {
                             type: 'array',
                             items: { $ref: '#/components/schemas/DashboardsUpdateRequestDashboardPatchTileOpenApi' },
@@ -1170,6 +589,19 @@ const updateDefinition: OperationDefinition = {
                             required: ['sm'],
                         },
                         show_description: { type: 'boolean' },
+                        group_key: {
+                            maxLength: 100,
+                            anyOf: [
+                                { maxLength: 100, type: 'string' },
+                                { maxLength: 100, type: 'null' },
+                            ],
+                        },
+                        badge: {
+                            oneOf: [
+                                { $ref: '#/components/schemas/DashboardsUpdateRequestDashboardTileBadgeEnum' },
+                                { $ref: '#/components/schemas/DashboardsUpdateRequestNullEnum' },
+                            ],
+                        },
                         widget: {
                             type: 'object',
                             properties: {
@@ -1231,6 +663,7 @@ const updateDefinition: OperationDefinition = {
                     },
                     required: [],
                 },
+                DashboardsUpdateRequestDashboardTileBadgeEnum: { enum: ['winner', 'cheeky-hog'], type: 'string' },
                 DashboardsUpdateRequestNotebookWidgetConfig: {
                     additionalProperties: false,
                     properties: {
@@ -1574,193 +1007,6 @@ const updateDefinition: OperationDefinition = {
             },
         },
     },
-    responses: {
-        '200': {
-            $ref: '#/components/schemas/DashboardsUpdateOutput',
-            components: {
-                schemas: {
-                    DashboardsUpdateOutput: {
-                        type: 'object',
-                        properties: {
-                            data: { $ref: '#/components/schemas/DashboardsUpdateData' },
-                            meta: { $ref: '#/components/schemas/ResponseMeta' },
-                        },
-                        required: ['data', 'meta'],
-                    },
-                    DashboardsUpdateData: {
-                        type: 'object',
-                        properties: {
-                            id: { type: 'integer', readOnly: true },
-                            name: { maxLength: 400, anyOf: [{ maxLength: 400, type: 'string' }] },
-                            description: { type: 'string' },
-                            pinned: { type: 'boolean' },
-                            created_at: { type: 'string', format: 'date-time', readOnly: true },
-                            created_by: {
-                                type: 'object',
-                                properties: {
-                                    id: { type: 'integer', readOnly: true },
-                                    first_name: { type: 'string', maxLength: 150 },
-                                    last_name: { type: 'string', maxLength: 150 },
-                                    email: { type: 'string', format: 'email', maxLength: 254 },
-                                    role_at_organization: {
-                                        oneOf: [
-                                            {
-                                                $ref: '#/components/schemas/DashboardsUpdateResponseRoleAtOrganizationEnumWithoutNulls',
-                                            },
-                                            {
-                                                $ref: '#/components/schemas/DashboardsUpdateResponseBlankEnumWithoutNulls',
-                                            },
-                                            {
-                                                $ref: '#/components/schemas/DashboardsUpdateResponseNullEnumWithoutNulls',
-                                            },
-                                        ],
-                                    },
-                                },
-                                required: ['email', 'id'],
-                                readOnly: true,
-                            },
-                            last_accessed_at: {
-                                format: 'date-time',
-                                readOnly: true,
-                                anyOf: [{ format: 'date-time', readOnly: true, type: 'string' }],
-                            },
-                            last_viewed_at: {
-                                format: 'date-time',
-                                readOnly: true,
-                                anyOf: [{ format: 'date-time', readOnly: true, type: 'string' }],
-                            },
-                            folder: { readOnly: true, anyOf: [{ readOnly: true, type: 'string' }] },
-                            file_system_id: {
-                                format: 'uuid',
-                                readOnly: true,
-                                anyOf: [{ format: 'uuid', readOnly: true, type: 'string' }],
-                            },
-                            file_system_path: { readOnly: true, anyOf: [{ readOnly: true, type: 'string' }] },
-                            is_shared: { type: 'boolean', readOnly: true },
-                            filters: {
-                                type: 'object',
-                                additionalProperties: true,
-                                readOnly: true,
-                                properties: {},
-                                required: [],
-                            },
-                            variables: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            tags: { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                            last_refresh: { format: 'date-time', anyOf: [{ format: 'date-time', type: 'string' }] },
-                            persisted_filters: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            persisted_variables: {
-                                additionalProperties: true,
-                                readOnly: true,
-                                anyOf: [
-                                    {
-                                        additionalProperties: true,
-                                        readOnly: true,
-                                        type: 'object',
-                                        properties: {},
-                                        required: [],
-                                    },
-                                ],
-                            },
-                            team_id: { type: 'integer', readOnly: true },
-                            customization: {
-                                type: 'object',
-                                properties: {
-                                    tile_spacing: {
-                                        enum: ['tight', 'condensed', 'standard', 'relaxed', 'wide'],
-                                        type: 'string',
-                                    },
-                                    layout_compaction: { enum: ['vertical', 'horizontal', 'stable'], type: 'string' },
-                                },
-                                readOnly: true,
-                                required: [],
-                            },
-                            tiles: {
-                                anyOf: [
-                                    {
-                                        items: {
-                                            type: 'object',
-                                            additionalProperties: true,
-                                            properties: {},
-                                            required: [],
-                                        },
-                                        readOnly: true,
-                                        type: 'array',
-                                    },
-                                ],
-                            },
-                            _posthogUrl: { type: 'string', format: 'uri' },
-                        },
-                        required: [
-                            'created_at',
-                            'created_by',
-                            'customization',
-                            'filters',
-                            'id',
-                            'is_shared',
-                            'team_id',
-                            '_posthogUrl',
-                        ],
-                    },
-                    DashboardsUpdateResponseRoleAtOrganizationEnumWithoutNulls: {
-                        enum: [
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'student',
-                            'other',
-                        ],
-                        type: 'string',
-                    },
-                    DashboardsUpdateResponseBlankEnumWithoutNulls: { enum: [''] },
-                    DashboardsUpdateResponseNullEnumWithoutNulls: { type: 'null' },
-                    JsonValue: {
-                        anyOf: [
-                            { type: 'string' },
-                            { type: 'number' },
-                            { type: 'boolean' },
-                            { type: 'null' },
-                            { $ref: '#/components/schemas/JsonObject' },
-                            { type: 'array', items: { $ref: '#/components/schemas/JsonValue' } },
-                        ],
-                    },
-                    JsonObject: { type: 'object', additionalProperties: { $ref: '#/components/schemas/JsonValue' } },
-                    ResponseMeta: {
-                        type: 'object',
-                        properties: { status: { type: 'integer' }, requestId: { type: 'string' } },
-                        required: ['status'],
-                    },
-                },
-            },
-        },
-    },
     response: {
         exclude: [
             'effective_restriction_level',
@@ -2054,7 +1300,7 @@ export interface DashboardsClient {
      */
     list(input: DashboardsListInput, options?: RequestOptions): Promise<DashboardsListOutput>
     /**
-     * Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
+     * Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
      *
      * @mcpTool dashboard-update
      *

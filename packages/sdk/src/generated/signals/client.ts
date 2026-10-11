@@ -79,6 +79,10 @@ import type {
 import type { SignalsScoutConfigCreateInput, SignalsScoutConfigCreateOutput } from './scout-config-create.js'
 import type { SignalsScoutConfigDeleteInput, SignalsScoutConfigDeleteOutput } from './scout-config-delete.js'
 import type { SignalsScoutConfigListInput, SignalsScoutConfigListOutput } from './scout-config-list.js'
+import type {
+    SignalsScoutConfigPrecheckTestInput,
+    SignalsScoutConfigPrecheckTestOutput,
+} from './scout-config-precheck-test.js'
 import type { SignalsScoutConfigSyncInput, SignalsScoutConfigSyncOutput } from './scout-config-sync.js'
 import type { SignalsScoutConfigUpdateInput, SignalsScoutConfigUpdateOutput } from './scout-config-update.js'
 import type { SignalsScoutCreateInput, SignalsScoutCreateOutput } from './scout-create.js'
@@ -567,6 +571,19 @@ export interface SignalsClient {
      */
     scoutConfigList(input: SignalsScoutConfigListInput, options?: RequestOptions): Promise<SignalsScoutConfigListOutput>
     /**
+     * Run a scout's pre-check query once by its config `id` and return the rows, without starting a run and without saving anything. Pass `precheck_query` to try a query before you save it with `scout-config-update`, or omit it to try the saved one. The query gets the same `{since}` (the start of the last run that ran) and `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one JSON object per line. A query error comes back in `error`: fix the query and test again.
+     *
+     * @sourceDescription Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the saved one. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
+     *
+     * @mcpTool scout-config-precheck-test
+     *
+     * @requiredScopes signal_scout:read, query:read
+     */
+    scoutConfigPrecheckTest(
+        input: SignalsScoutConfigPrecheckTestInput,
+        options?: RequestOptions
+    ): Promise<SignalsScoutConfigPrecheckTestOutput>
+    /**
      * Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `scout-config-update` to tune the returned configs.
      *
      * @sourceDescription Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
@@ -577,7 +594,7 @@ export interface SignalsClient {
      */
     scoutConfigSync(input: SignalsScoutConfigSyncInput, options?: RequestOptions): Promise<SignalsScoutConfigSyncOutput>
     /**
-     * Tune one scout by its config `id`: change its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart; set null to return to the rolling interval. You can also configure `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids with integrations-users-retrieve. `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+     * Tune one scout by its config `id`: change its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart; set null to return to the rolling interval. You can also configure `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids with integrations-users-retrieve. Set `precheck_query` to a HogQL `SELECT` so a scheduled run starts only when the query returns something: no rows, or one false value such as a zero `count()`, skips the run; `{since}` and `{now}` bind the last run that ran and the current time. Try the query with `scout-config-precheck-test` first. `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
      *
      * @sourceDescription Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
      *
@@ -1246,6 +1263,8 @@ export function createSignalsClient(runtime: Runtime): SignalsClient {
             runtime.executeTool<SignalsScoutConfigDeleteOutput>('scout-config-delete', input, options),
         scoutConfigList: (input, options) =>
             runtime.executeTool<SignalsScoutConfigListOutput>('scout-config-list', input, options),
+        scoutConfigPrecheckTest: (input, options) =>
+            runtime.executeTool<SignalsScoutConfigPrecheckTestOutput>('scout-config-precheck-test', input, options),
         scoutConfigSync: (input, options) =>
             runtime.executeTool<SignalsScoutConfigSyncOutput>('scout-config-sync', input, options),
         scoutConfigUpdate: (input, options) =>

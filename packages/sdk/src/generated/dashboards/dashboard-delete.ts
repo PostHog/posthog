@@ -65,6 +65,13 @@ export interface DashboardsDashboardDeleteResponseShape8 {
     [key: string]: JsonValue | null
 }
 
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export interface DashboardsDashboardDeleteResponseShape10 {
+    [key: string]: string
+}
+
 export interface DashboardsDashboardDeleteResponseShape9 {
     /** Named tile density preset.
      *
@@ -80,9 +87,15 @@ export interface DashboardsDashboardDeleteResponseShape9 {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardsDashboardDeleteResponseShape10
 }
 
-export interface DashboardsDashboardDeleteResponseShape10 {
+export interface DashboardsDashboardDeleteResponseShape11 {
+    [key: string]: string
+}
+
+export interface DashboardsDashboardDeleteResponseShape12 {
     [key: string]: JsonValue | null
 }
 
@@ -146,7 +159,9 @@ export interface DashboardsDashboardDeleteData {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: 'vertical' | 'horizontal' | 'stable'
-    tiles: null | DashboardsDashboardDeleteResponseShape10[]
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: null | DashboardsDashboardDeleteResponseShape11
+    tiles: null | DashboardsDashboardDeleteResponseShape12[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
     /** ID of an existing dashboard to duplicate. */

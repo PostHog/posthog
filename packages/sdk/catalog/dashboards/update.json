@@ -4,7 +4,7 @@
     "operationId": "dashboards_partial_update",
     "title": "Update dashboard",
     "category": "Dashboards",
-    "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+    "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
     "requiredScopes": ["dashboard:write"],
     "annotations": {
         "readOnly": false,
@@ -303,6 +303,12 @@
             "declaration": "dist/generated/dashboards/update.d.ts"
         },
         {
+            "name": "DashboardsUpdateRequestDashboardTileBadgeEnum",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
             "name": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/update.ts",
@@ -322,6 +328,18 @@
         },
         {
             "name": "DashboardsUpdateInputLayoutCompaction",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateInputGroupTitles",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateInputGroupTitlesVariant1",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/update.ts",
             "declaration": "dist/generated/dashboards/update.d.ts"
@@ -387,6 +405,12 @@
             "declaration": "dist/generated/dashboards/update.d.ts"
         },
         {
+            "name": "DashboardsUpdateDataCustomizationGroupTitles",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
             "name": "DashboardsUpdateDataCustomization",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/update.ts",
@@ -414,7 +438,7 @@
     "methodDocumentation": [
         {
             "role": "override",
-            "text": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+            "text": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
             "source": {
                 "kind": "mcp_yaml",
                 "file": "products/dashboards/mcp/tools.yaml"
@@ -727,6 +751,38 @@
         },
         {
             "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "group_key",
+            "effectiveDescription": "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchTileOpenApi/properties/group_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "badge",
+            "effectiveDescription": "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.\n\n* `winner` - Winner\n* `cheeky-hog` - Cheeky hog",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.\n\n* `winner` - Winner\n* `cheeky-hog` - Cheeky hog",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchTileOpenApi/properties/badge"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
             "field": "widget",
             "effectiveDescription": "Nested widget row updates.",
             "layers": [
@@ -817,6 +873,21 @@
                         "kind": "openapi",
                         "file": "openapi.json",
                         "pointer": "#/components/schemas/DashboardPatchWidgetOpenApi/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardTileBadgeEnum",
+            "effectiveDescription": "* `winner` - Winner\n* `cheeky-hog` - Cheeky hog",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `winner` - Winner\n* `cheeky-hog` - Cheeky hog",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardTileBadgeEnum"
                     }
                 }
             ]
@@ -1648,6 +1719,22 @@
         },
         {
             "typeName": "DashboardsUpdateInput",
+            "field": "group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/group_titles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
             "field": "tiles",
             "effectiveDescription": "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.",
             "layers": [
@@ -1832,6 +1919,22 @@
                         "kind": "openapi",
                         "file": "openapi.json",
                         "pointer": "#/components/schemas/DashboardCustomization/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "customization.group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/group_titles"
                     }
                 }
             ]

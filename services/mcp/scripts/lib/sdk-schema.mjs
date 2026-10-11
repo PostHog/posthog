@@ -690,9 +690,6 @@ export function resolveSdkOperation(spec, config, category, toolName, yamlFile, 
             bindings,
             injectBody: config.soft_delete ? { deleted: true } : (config.inject_body ?? {}),
             inputSchema: registry.runtime(`${prefix}Input`),
-            responses: Object.fromEntries(
-                Object.entries(responses).map(([status, value]) => [status, registry.runtime(value.outputName)])
-            ),
             response: config.response ?? {},
             list: !!config.list,
             urlPrefix: config.url_prefix ?? category.url_prefix ?? '',

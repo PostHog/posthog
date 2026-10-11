@@ -9328,6 +9328,8 @@ export interface DashboardsDashboardUpdateTextTileData {
     filters_overrides?: JsonValue | null
     show_description?: null | false | true
     transparent_background?: null | false | true
+    group_key?: null | string
+    badge?: null | 'winner' | 'cheeky-hog'
     /** Canonical PostHog URL returned by the MCP handler. */
     _posthogUrl: string
 }
