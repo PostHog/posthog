@@ -1,18 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
-    DropdownMenuTrigger,
-} from '@posthog/quill'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuTrigger } from '@posthog/quill'
 
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 import type { InsightLogicProps } from '~/types'
 
+import { MenuChoiceItem } from '../MenuChoiceItem'
 import { EditableWord } from './EditableWord'
 import { insightSentenceLogic } from './insightSentenceLogic'
 
@@ -25,11 +20,11 @@ export function SentenceDateRange({
     insightProps: InsightLogicProps
     label: string
 }): JSX.Element {
-    const { trendsQuery, overriddenSlots } = useValues(insightSentenceLogic(insightProps))
+    const { seriesQuery, overriddenSlots } = useValues(insightSentenceLogic(insightProps))
     const { changeDateRange } = useActions(insightSentenceLogic(insightProps))
 
-    const dateFrom = trendsQuery?.dateRange?.date_from ?? null
-    const dateTo = trendsQuery?.dateRange?.date_to ?? null
+    const dateFrom = seriesQuery?.dateRange?.date_from ?? null
+    const dateTo = seriesQuery?.dateRange?.date_to ?? null
     const selected = DATE_OPTIONS.find(
         (option) => (option.values[0] ?? null) === dateFrom && (option.values[1] ?? null) === dateTo
     )
@@ -58,9 +53,9 @@ export function SentenceDateRange({
                     }}
                 >
                     {DATE_OPTIONS.map((option) => (
-                        <DropdownMenuRadioItem key={option.key} value={option.key}>
+                        <MenuChoiceItem key={option.key} value={option.key}>
                             {option.key}
-                        </DropdownMenuRadioItem>
+                        </MenuChoiceItem>
                     ))}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>

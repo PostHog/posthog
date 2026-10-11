@@ -2,15 +2,22 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import type { LogicWrapper } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { seriesNodeToGroupNode } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate, insightVizDataLogicType } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import type { CompareFilter, DashboardFilter, DateRange, TrendsQuery } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter, isGroupNode, isTrendsQuery } from '~/queries/utils'
+import type {
+    CompareFilter,
+    DashboardFilter,
+    DateRange,
+    FunnelsQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { hasBreakdownFilter, isFunnelsQuery, isGroupNode, isTrendsQuery } from '~/queries/utils'
 import { BaseMathType, CountPerActorMathType, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
-import type { InsightLogicProps, IntervalType } from '~/types'
+import type { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, IntervalType } from '~/types'
 
 import {
     apiValueToMathType,
@@ -21,17 +28,30 @@ import type { mathsLogicType } from 'products/product_analytics/frontend/insight
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
+import { buildFunnelSentence } from './buildFunnelSentence'
 import {
     buildSentence,
     collapsedSeries,
+    funnelSentenceInputFromQuery,
     sentenceInputFromQuery,
     seriesLabel,
+    seriesLetter,
     seriesNodeFromPick,
 } from './buildSentence'
 import type { Sentence, SentenceInput, SentenceSlot } from './buildSentence'
 
+export interface FunnelActorOption {
+    groupTypeIndex: number | null
+    label: string
+}
+
 export interface MeasureOption {
     value: string
+    label: string
+}
+
+export interface FormulaLetter {
+    letter: string
     label: string
 }
 
@@ -57,8 +77,11 @@ export interface insightSentenceLogicValues {
     perUserMeasureOptions: MeasureOption[]
     propertyMeasureOptions: MeasureOption[]
     collapsedSeriesLabels: string[]
+    formulaLetters: FormulaLetter[]
     formulaPending: boolean
     formulas: string[]
+    funnelActorOptions: FunnelActorOption[]
+    funnelsQuery: FunnelsQuery | null
     overriddenSlots: SentenceSlot[]
     pendingFilterSeriesIndex: number | null
     renamingSeriesIndex: number | null
@@ -67,6 +90,7 @@ export interface insightSentenceLogicValues {
     seriesColors: (string | null)[]
     seriesExpanded: boolean
     seriesMathTypes: string[]
+    seriesQuery: TrendsQuery | FunnelsQuery | null
     trendsQuery: TrendsQuery | null
 }
 
@@ -100,6 +124,19 @@ export interface insightSentenceLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    changeFunnelActor: (groupTypeIndex: number | null) => {
+        groupTypeIndex: number | null
+    }
+    changeFunnelView: (view: FunnelVizType) => {
+        view: FunnelVizType
+    }
+    changeFunnelWindow: (
+        interval: number,
+        unit: FunnelConversionWindowTimeUnit
+    ) => {
+        interval: number
+        unit: FunnelConversionWindowTimeUnit
     }
     changeInterval: (interval: IntervalType) => {
         interval: IntervalType
@@ -189,7 +226,13 @@ export interface insightSentenceLogicActions {
         property: string
         propertyGroupType: TaxonomicFilterGroupType
     }
+    removeFilters: () => {
+        value: true
+    }
     removeSeries: (seriesIndex: number) => {
+        seriesIndex: number
+    }
+    removeSeriesFilters: (seriesIndex: number) => {
         seriesIndex: number
     }
     removeSplit: () => {
@@ -231,6 +274,9 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             name,
         }),
         changeDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        changeFunnelActor: (groupTypeIndex: number | null) => ({ groupTypeIndex }),
+        changeFunnelView: (view: FunnelVizType) => ({ view }),
+        changeFunnelWindow: (interval: number, unit: FunnelConversionWindowTimeUnit) => ({ interval, unit }),
         changeInterval: (interval: IntervalType) => ({ interval }),
         changeSeriesEvent: (
             seriesIndex: number,
@@ -256,7 +302,9 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             name?: string
         ) => ({ seriesIndex, groupType, value, name }),
         duplicateSeries: (seriesIndex: number) => ({ seriesIndex }),
+        removeFilters: true,
         removeSeries: (seriesIndex: number) => ({ seriesIndex }),
+        removeSeriesFilters: (seriesIndex: number) => ({ seriesIndex }),
         removeSplit: true,
         renameSeries: (seriesIndex: number, name: string) => ({ seriesIndex, name }),
         setFormulaPending: (pending: boolean) => ({ pending }),
@@ -328,12 +376,45 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             (querySource: insightSentenceLogicValues['querySource']): TrendsQuery | null =>
                 querySource && isTrendsQuery(querySource) ? querySource : null,
         ],
+        funnelsQuery: [
+            (s) => [s.querySource],
+            (querySource: insightSentenceLogicValues['querySource']): FunnelsQuery | null =>
+                querySource && isFunnelsQuery(querySource) ? querySource : null,
+        ],
+        seriesQuery: [
+            (s) => [s.trendsQuery, s.funnelsQuery],
+            (trendsQuery: TrendsQuery | null, funnelsQuery: FunnelsQuery | null): TrendsQuery | FunnelsQuery | null =>
+                trendsQuery ?? funnelsQuery,
+        ],
         sentenceInput: [
-            (s) => [s.trendsQuery, s.mathDefinitions],
+            (s) => [s.trendsQuery, s.funnelsQuery, s.mathDefinitions],
             (
                 trendsQuery: TrendsQuery | null,
+                funnelsQuery: FunnelsQuery | null,
                 mathDefinitions: insightSentenceLogicValues['mathDefinitions']
-            ): SentenceInput | null => (trendsQuery ? sentenceInputFromQuery(trendsQuery, mathDefinitions) : null),
+            ): SentenceInput | null => {
+                if (trendsQuery) {
+                    return sentenceInputFromQuery(trendsQuery, mathDefinitions)
+                }
+                return funnelsQuery ? funnelSentenceInputFromQuery(funnelsQuery, mathDefinitions) : null
+            },
+        ],
+        funnelActorOptions: [
+            (s) => [s.mathDefinitions],
+            (mathDefinitions: insightSentenceLogicValues['mathDefinitions']): FunnelActorOption[] => [
+                { groupTypeIndex: null, label: 'Users' },
+                ...Object.entries(mathDefinitions).flatMap(([value, definition]) => {
+                    const prefix = `${GroupMathType.UniqueGroup}::`
+                    return definition && value.startsWith(prefix)
+                        ? [
+                              {
+                                  groupTypeIndex: Number(value.slice(prefix.length)),
+                                  label: capitalizeFirstLetter(definition.name),
+                              },
+                          ]
+                        : []
+                }),
+            ],
         ],
         sentence: [
             (s) => [s.sentenceInput, s.seriesExpanded, s.pendingFilterSeriesIndex, s.formulaPending],
@@ -342,10 +423,15 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
                 seriesExpanded: boolean,
                 pendingFilterSeriesIndex: number | null,
                 formulaPending: boolean
-            ): Sentence | null =>
-                sentenceInput
-                    ? buildSentence(sentenceInput, { seriesExpanded, pendingFilterSeriesIndex, formulaPending })
-                    : null,
+            ): Sentence | null => {
+                if (!sentenceInput) {
+                    return null
+                }
+                const options = { seriesExpanded, pendingFilterSeriesIndex, formulaPending }
+                return sentenceInput.funnel
+                    ? buildFunnelSentence(sentenceInput, options)
+                    : buildSentence(sentenceInput, options)
+            },
         ],
         formulas: [
             (s) => [s.trendsQuery],
@@ -367,6 +453,14 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             (s) => [s.sentenceInput],
             (sentenceInput: SentenceInput | null): string[] =>
                 sentenceInput ? collapsedSeries(sentenceInput).map(seriesLabel) : [],
+        ],
+        formulaLetters: [
+            (s) => [s.sentenceInput],
+            (sentenceInput: SentenceInput | null): FormulaLetter[] =>
+                (sentenceInput?.series ?? []).map((series, seriesIndex) => ({
+                    letter: seriesLetter(seriesIndex),
+                    label: seriesLabel(series),
+                })),
         ],
         seriesColors: [
             (s) => [s.trendsQuery, s.sentenceInput, s.indexedResults, s.getTrendsColor],
@@ -432,6 +526,38 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
         ],
     }),
     listeners(({ actions, values }) => ({
+        changeFunnelWindow: ({ interval, unit }) => {
+            const query = values.funnelsQuery
+            if (!query) {
+                return
+            }
+            actions.updateQuerySource({
+                funnelsFilter: {
+                    ...query.funnelsFilter,
+                    funnelWindowInterval: interval,
+                    funnelWindowIntervalUnit: unit,
+                },
+            } as QuerySourceUpdate)
+        },
+        changeFunnelActor: ({ groupTypeIndex }) => {
+            const query = values.funnelsQuery
+            if (!query) {
+                return
+            }
+            actions.updateQuerySource({
+                aggregation_group_type_index: groupTypeIndex,
+                funnelsFilter: { ...query.funnelsFilter, funnelAggregateByHogQL: undefined },
+            } as QuerySourceUpdate)
+        },
+        changeFunnelView: ({ view }) => {
+            const query = values.funnelsQuery
+            if (!query) {
+                return
+            }
+            actions.updateQuerySource({
+                funnelsFilter: { ...query.funnelsFilter, funnelVizType: view },
+            } as QuerySourceUpdate)
+        },
         changeInterval: ({ interval }) => {
             actions.updateQuerySource({ interval } as QuerySourceUpdate)
         },
@@ -439,7 +565,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateDateRange({ date_from: dateFrom, date_to: dateTo })
         },
         toggleCompare: () => {
-            actions.updateCompareFilter({ compare: !values.trendsQuery?.compareFilter?.compare })
+            actions.updateCompareFilter({ compare: !values.seriesQuery?.compareFilter?.compare })
         },
         changeSeriesMath: ({ seriesIndex, mathType }) => {
             const query = values.trendsQuery
@@ -481,7 +607,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
         changeSeriesEvent: ({ seriesIndex, groupType, value, name }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             const node = query ? seriesNodeFromPick(groupType, value, name, query.series[seriesIndex]) : null
             if (!query || !node) {
                 return
@@ -490,7 +616,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
         addSeries: ({ groupType, value, name }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             const node = seriesNodeFromPick(groupType, value, name)
             if (!query || !node) {
                 return
@@ -501,14 +627,14 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ breakdownFilter: undefined } as QuerySourceUpdate)
         },
         removeSplitAt: ({ splitIndex }) => {
-            const breakdownFilter = values.trendsQuery?.breakdownFilter
+            const breakdownFilter = values.seriesQuery?.breakdownFilter
             const remaining = breakdownFilter?.breakdowns?.filter((_, index) => index !== splitIndex) ?? []
             actions.updateQuerySource({
                 breakdownFilter: remaining.length ? { ...breakdownFilter, breakdowns: remaining } : undefined,
             } as QuerySourceUpdate)
         },
         changeSplitBins: ({ splitIndex, bins }) => {
-            const breakdownFilter = values.trendsQuery?.breakdownFilter
+            const breakdownFilter = values.seriesQuery?.breakdownFilter
             if (!breakdownFilter) {
                 return
             }
@@ -524,7 +650,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ breakdownFilter: next } as QuerySourceUpdate)
         },
         changeSplitLimit: ({ limit }) => {
-            const breakdownFilter = values.trendsQuery?.breakdownFilter
+            const breakdownFilter = values.seriesQuery?.breakdownFilter
             if (!breakdownFilter) {
                 return
             }
@@ -552,7 +678,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
         duplicateSeries: ({ seriesIndex }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             const node = query?.series[seriesIndex]
             if (!query || !node) {
                 return
@@ -565,7 +691,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
         renameSeries: ({ seriesIndex, name }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             if (!query) {
                 return
             }
@@ -575,7 +701,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
         combineSeriesEvent: ({ seriesIndex, groupType, value, name }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             const existing = query?.series[seriesIndex]
             const added = seriesNodeFromPick(groupType, value, name)
             if (!query || !existing || !added) {
@@ -588,7 +714,7 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
         splitCombinedSeries: ({ seriesIndex }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             const group = query?.series[seriesIndex]
             if (!query || !group || !isGroupNode(group)) {
                 return
@@ -621,11 +747,28 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             } as QuerySourceUpdate)
         },
         removeSeries: ({ seriesIndex }) => {
-            const query = values.trendsQuery
+            const query = values.seriesQuery
             if (!query || query.series.length < 2) {
                 return
             }
             const series = query.series.filter((_, index) => index !== seriesIndex)
+            actions.updateQuerySource({ series } as QuerySourceUpdate)
+        },
+        removeFilters: () => {
+            actions.updateQuerySource({ properties: undefined })
+        },
+        removeSeriesFilters: ({ seriesIndex }) => {
+            const query = values.seriesQuery
+            if (!query) {
+                return
+            }
+            const series = query.series.map((node, index) => {
+                if (index !== seriesIndex) {
+                    return node
+                }
+                const { properties: _removed, ...rest } = node
+                return rest
+            })
             actions.updateQuerySource({ series } as QuerySourceUpdate)
         },
     })),

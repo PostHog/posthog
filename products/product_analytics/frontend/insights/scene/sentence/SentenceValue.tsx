@@ -6,6 +6,8 @@ import { SentenceDateRange } from './SentenceDateRange'
 import { SentenceEvent } from './SentenceEvent'
 import { SentenceFilters } from './SentenceFilters'
 import { SentenceFormula } from './SentenceFormula'
+import { SentenceFunnelActor } from './SentenceFunnelActor'
+import { SentenceFunnelWindow } from './SentenceFunnelWindow'
 import { SentenceInterval } from './SentenceInterval'
 import { SentenceMeasure } from './SentenceMeasure'
 import { SentenceMoreSeries } from './SentenceMoreSeries'
@@ -32,6 +34,10 @@ export function SentenceValue({
                     label={part.text}
                 />
             )
+        case 'funnelActor':
+            return <SentenceFunnelActor insightProps={insightProps} label={part.text} />
+        case 'funnelWindow':
+            return <SentenceFunnelWindow insightProps={insightProps} label={part.text} />
         case 'moreSeries':
             return <SentenceMoreSeries insightProps={insightProps} label={part.text} />
         case 'dateRange':

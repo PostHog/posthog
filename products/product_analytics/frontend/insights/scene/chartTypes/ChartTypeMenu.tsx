@@ -9,7 +9,6 @@ import {
     DropdownMenuGroup,
     DropdownMenuLabel,
     DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
     ItemContent,
@@ -22,6 +21,7 @@ import { ChartDisplayType } from '~/types'
 
 import { ChartDisplayIcon } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon'
 
+import { MenuChoiceItem } from '../MenuChoiceItem'
 import { chartTypeStripLogic } from './chartTypeStripLogic'
 
 export function ChartTypeMenu({
@@ -58,7 +58,7 @@ export function ChartTypeMenu({
                                 onValueChange={(value: ChartDisplayType) => selectChartType(value, 'all_types')}
                             >
                                 {group.options.map((option) => (
-                                    <DropdownMenuRadioItem
+                                    <MenuChoiceItem
                                         key={option.display}
                                         value={option.display}
                                         disabled={!!option.disabledReason}
@@ -78,7 +78,7 @@ export function ChartTypeMenu({
                                         ) : (
                                             <span>{option.label}</span>
                                         )}
-                                    </DropdownMenuRadioItem>
+                                    </MenuChoiceItem>
                                 ))}
                             </DropdownMenuRadioGroup>
                         </DropdownMenuGroup>

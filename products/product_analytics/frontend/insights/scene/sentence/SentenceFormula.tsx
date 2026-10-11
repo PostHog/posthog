@@ -17,7 +17,7 @@ export function SentenceFormula({
     insightProps: InsightLogicProps
     label: string
 }): JSX.Element {
-    const { formulas, formulaPending } = useValues(insightSentenceLogic(insightProps))
+    const { formulas, formulaLetters, formulaPending } = useValues(insightSentenceLogic(insightProps))
     const { setFormulas, setFormulaPending } = useActions(insightSentenceLogic(insightProps))
     const [open, setOpen] = useState(formulaPending)
     const [drafts, setDrafts] = useState<string[]>(formulas.length ? formulas : [''])
@@ -45,13 +45,31 @@ export function SentenceFormula({
                 }
             }}
         >
-            <PopoverTrigger render={<EditableWord color="purple" data-attr="quill-insight-sentence-formula" />}>
+            <PopoverTrigger
+                render={
+                    <EditableWord
+                        color="purple"
+                        onRemove={formulas.length ? () => setFormulas([]) : undefined}
+                        removeLabel="Remove formula"
+                        data-attr="quill-insight-sentence-formula"
+                    />
+                }
+            >
                 {label}
             </PopoverTrigger>
             <PopoverContent align="start" aria-label="Formula" className="w-80 gap-3">
-                <Text size="xs" variant="muted">
-                    Use the letter beside each event, for example A / B or A + B.
-                </Text>
+                <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                    {formulaLetters.map(({ letter, label }) => (
+                        <li key={letter} className="flex items-baseline gap-2">
+                            <Text size="sm" weight="semibold" className="w-4 shrink-0">
+                                {letter}
+                            </Text>
+                            <Text size="sm" variant="muted" className="min-w-0 break-words">
+                                {label}
+                            </Text>
+                        </li>
+                    ))}
+                </ul>
                 <div className="flex flex-col gap-2">
                     {drafts.map((draft, index) => (
                         <div key={index} className="flex items-center gap-2">
@@ -82,6 +100,9 @@ export function SentenceFormula({
                         </div>
                     ))}
                 </div>
+                <Text size="xs" variant="muted">
+                    Use the letters to write a formula, for example A / B or A + B.
+                </Text>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <Button
                         variant="link"

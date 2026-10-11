@@ -18,7 +18,16 @@ export function SentenceCompare({
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<EditableWord color="orange" data-attr="quill-insight-sentence-compare" />}>
+            <DropdownMenuTrigger
+                render={
+                    <EditableWord
+                        color="orange"
+                        onRemove={toggleCompare}
+                        removeLabel="Stop comparing"
+                        data-attr="quill-insight-sentence-compare"
+                    />
+                }
+            >
                 {label}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">

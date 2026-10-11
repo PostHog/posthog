@@ -23,7 +23,9 @@ export function SentenceEvent({
     seriesIndex: number
     label: string
 }): JSX.Element {
-    const { trendsQuery, seriesColors, renamingSeriesIndex } = useValues(insightSentenceLogic(insightProps))
+    const { seriesQuery, funnelsQuery, seriesColors, renamingSeriesIndex } = useValues(
+        insightSentenceLogic(insightProps)
+    )
     const {
         changeSeriesEvent,
         combineSeriesEvent,
@@ -37,8 +39,9 @@ export function SentenceEvent({
     // The picker then adds its pick to this event instead of replacing the event.
     const [combining, setCombining] = useState(false)
 
-    const node = trendsQuery?.series[seriesIndex]
-    const seriesCount = trendsQuery?.series.length ?? 0
+    const node = seriesQuery?.series[seriesIndex]
+    const seriesCount = seriesQuery?.series.length ?? 0
+    const isFunnel = !!funnelsQuery
     const isCombined = !!node && isGroupNode(node)
     const groupType = node && isActionsNode(node) ? TaxonomicFilterGroupType.Actions : TaxonomicFilterGroupType.Events
     const value = node && isActionsNode(node) ? node.id : node && isEventsNode(node) ? node.event : undefined
@@ -87,8 +90,9 @@ export function SentenceEvent({
                     </div>
                 ) : (
                     <SentenceEventActions
+                        noun={isFunnel ? 'step' : 'event'}
                         onFilter={
-                            seriesCount > 1
+                            seriesCount > 1 || isFunnel
                                 ? () => {
                                       close()
                                       setPendingFilterSeriesIndex(seriesIndex)
@@ -129,6 +133,8 @@ export function SentenceEvent({
                     aria-expanded={open}
                     onClick={toggle}
                     lineColor={seriesColors[seriesIndex] ?? undefined}
+                    onRemove={seriesCount > 1 ? () => removeSeries(seriesIndex) : undefined}
+                    removeLabel={isFunnel ? 'Remove this step' : 'Remove this event'}
                     data-attr="quill-insight-sentence-event"
                 >
                     {label}

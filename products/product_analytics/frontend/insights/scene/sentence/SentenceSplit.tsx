@@ -6,7 +6,6 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -17,6 +16,7 @@ import {
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { InsightLogicProps } from '~/types'
 
+import { MenuChoiceItem } from '../MenuChoiceItem'
 import { EditableWord } from './EditableWord'
 import { insightSentenceLogic } from './insightSentenceLogic'
 import { SplitPickerPopover } from './SplitPickerPopover'
@@ -58,15 +58,16 @@ export function SentenceSplit({
     splitIndex: number
     label: string
 }): JSX.Element {
-    const { trendsQuery, overriddenSlots } = useValues(insightSentenceLogic(insightProps))
+    const { seriesQuery, trendsQuery, overriddenSlots } = useValues(insightSentenceLogic(insightProps))
     const { changeSplitBins, changeSplitLimit, removeSplit, removeSplitAt } = useActions(
         insightSentenceLogic(insightProps)
     )
     // The same picker either replaces this split or adds one after it.
     const [adding, setAdding] = useState(false)
-    const breakdownFilter = trendsQuery?.breakdownFilter
+    const breakdownFilter = seriesQuery?.breakdownFilter
     const split = splitAt(breakdownFilter, splitIndex)
     const splitCount = breakdownFilter?.breakdowns?.length ?? (split ? 1 : 0)
+    const remove = (): void => (splitCount > 1 ? removeSplitAt(splitIndex) : removeSplit())
 
     return (
         <SplitPickerPopover
@@ -81,6 +82,8 @@ export function SentenceSplit({
                                 <EditableWord
                                     color="green"
                                     overridden={overriddenSlots.includes('split')}
+                                    onRemove={remove}
+                                    removeLabel="Remove this split"
                                     data-attr="quill-insight-sentence-split"
                                 />
                             }
@@ -96,7 +99,7 @@ export function SentenceSplit({
                             >
                                 Change property
                             </DropdownMenuItem>
-                            {splitCount < MAX_SPLITS && (
+                            {!!trendsQuery && splitCount < MAX_SPLITS && (
                                 <DropdownMenuItem
                                     onClick={() => {
                                         setAdding(true)
@@ -117,9 +120,9 @@ export function SentenceSplit({
                                             }
                                         >
                                             {BIN_COUNTS.map((count) => (
-                                                <DropdownMenuRadioItem key={count} value={String(count)}>
+                                                <MenuChoiceItem key={count} value={String(count)}>
                                                     {`${count} ranges`}
-                                                </DropdownMenuRadioItem>
+                                                </MenuChoiceItem>
                                             ))}
                                         </DropdownMenuRadioGroup>
                                     </DropdownMenuSubContent>
@@ -133,18 +136,15 @@ export function SentenceSplit({
                                         onValueChange={(value: string) => changeSplitLimit(Number(value))}
                                     >
                                         {LIMITS.map((limit) => (
-                                            <DropdownMenuRadioItem key={limit} value={String(limit)}>
+                                            <MenuChoiceItem key={limit} value={String(limit)}>
                                                 {`Top ${limit}`}
-                                            </DropdownMenuRadioItem>
+                                            </MenuChoiceItem>
                                         ))}
                                     </DropdownMenuRadioGroup>
                                 </DropdownMenuSubContent>
                             </DropdownMenuSub>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() => (splitCount > 1 ? removeSplitAt(splitIndex) : removeSplit())}
-                            >
+                            <DropdownMenuItem variant="destructive" onClick={remove}>
                                 Remove this split
                             </DropdownMenuItem>
                         </DropdownMenuContent>

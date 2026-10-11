@@ -4,6 +4,7 @@ import { IconCopy, IconFilter, IconPencil, IconPlus, IconTrash, IconUndo } from 
 import { Button } from '@posthog/quill'
 
 export interface SentenceEventActionsProps {
+    noun: 'event' | 'step'
     /** Null hides the action. A filter on one event only matters once there are several events. */
     onFilter: (() => void) | null
     onRename: () => void
@@ -22,6 +23,7 @@ function keepFocus(event: MouseEvent): void {
 
 /** What can be done to the event the picker was opened from, apart from changing it. */
 export function SentenceEventActions({
+    noun,
     onFilter,
     onRename,
     onDuplicate,
@@ -39,7 +41,7 @@ export function SentenceEventActions({
                     data-attr="quill-insight-event-action-filter"
                 >
                     <IconFilter />
-                    Filter this event
+                    {`Filter this ${noun}`}
                 </Button>
             )}
             <Button size="sm" onMouseDown={keepFocus} onClick={onRename} data-attr="quill-insight-event-action-rename">
@@ -72,7 +74,7 @@ export function SentenceEventActions({
                     data-attr="quill-insight-event-action-split-apart"
                 >
                     <IconUndo />
-                    Show as separate lines
+                    {noun === 'step' ? 'Make separate steps' : 'Show as separate lines'}
                 </Button>
             )}
             {onRemove && (

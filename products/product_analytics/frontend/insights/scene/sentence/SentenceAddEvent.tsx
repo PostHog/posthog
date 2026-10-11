@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -9,6 +9,7 @@ import { EventPickerPopover } from './EventPickerPopover'
 import { insightSentenceLogic } from './insightSentenceLogic'
 
 export function SentenceAddEvent({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+    const { funnelsQuery } = useValues(insightSentenceLogic(insightProps))
     const { addSeries } = useActions(insightSentenceLogic(insightProps))
 
     return (
@@ -23,7 +24,7 @@ export function SentenceAddEvent({ insightProps }: { insightProps: InsightLogicP
                     data-attr="quill-insight-add-event"
                 >
                     <IconPlus />
-                    and another event
+                    {funnelsQuery ? 'and another step' : 'and another event'}
                 </Button>
             )}
         />

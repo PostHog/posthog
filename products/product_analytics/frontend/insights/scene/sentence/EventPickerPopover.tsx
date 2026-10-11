@@ -25,7 +25,11 @@ export function EventPickerPopover({
     const [open, setOpen] = useState(false)
     const pickerKey = useId()
     const triggerSlotRef = useRef<HTMLSpanElement>(null)
-    const getTriggerElement = useCallback((): Element | null => triggerSlotRef.current?.firstElementChild ?? null, [])
+    // A trigger word that can be removed has a wrapper around its button.
+    const getTriggerElement = useCallback(
+        (): Element | null => triggerSlotRef.current?.querySelector('button') ?? null,
+        []
+    )
 
     return (
         <>

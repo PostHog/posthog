@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -18,8 +18,8 @@ export function SentenceAdditions({ insightProps }: { insightProps: InsightLogic
         return null
     }
 
-    const canAddFormula = !sentenceInput.formulas.length && !formulaPending
-    const canAddCompare = !sentenceInput.comparing
+    const canAddFormula =
+        !sentenceInput.funnel && sentenceInput.series.length > 1 && !sentenceInput.formulas.length && !formulaPending
 
     return (
         <>
@@ -57,49 +57,27 @@ export function SentenceAdditions({ insightProps }: { insightProps: InsightLogic
                     )}
                 />
             )}
-            {/* The two least used additions share one button while both are unset, so the row stays short. */}
-            {canAddFormula && canAddCompare ? (
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        render={<Button variant="outline" size="sm" data-attr="quill-insight-add-more" />}
-                    >
-                        <IconPlus />
-                        more
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="min-w-56">
-                        <DropdownMenuItem onClick={() => setFormulaPending(true)} data-attr="quill-insight-add-formula">
-                            Combine the events with a formula
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => toggleCompare()} data-attr="quill-insight-add-compare">
-                            Compare to the previous period
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            ) : (
-                <>
-                    {canAddFormula && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setFormulaPending(true)}
-                            data-attr="quill-insight-add-formula"
-                        >
-                            <IconPlus />
-                            combined with a formula
-                        </Button>
-                    )}
-                    {canAddCompare && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => toggleCompare()}
-                            data-attr="quill-insight-add-compare"
-                        >
-                            <IconPlus />
-                            compared to the previous period
-                        </Button>
-                    )}
-                </>
+            {canAddFormula && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormulaPending(true)}
+                    data-attr="quill-insight-add-formula"
+                >
+                    <IconPlus />
+                    combined with a formula
+                </Button>
+            )}
+            {!sentenceInput.comparing && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleCompare()}
+                    data-attr="quill-insight-add-compare"
+                >
+                    <IconPlus />
+                    compared to the previous period
+                </Button>
             )}
         </>
     )

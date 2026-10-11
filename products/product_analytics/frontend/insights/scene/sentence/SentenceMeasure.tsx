@@ -6,7 +6,6 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -18,6 +17,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import type { InsightLogicProps } from '~/types'
 
+import { MenuChoiceItem } from '../MenuChoiceItem'
 import { EditableWord } from './EditableWord'
 import { insightSentenceLogic } from './insightSentenceLogic'
 import { PropertyPickerPopover } from './PropertyPickerPopover'
@@ -74,9 +74,9 @@ export function SentenceMeasure({
                                 onValueChange={(value: string) => changeSeriesMath(seriesIndex, value)}
                             >
                                 {measureOptions.map((option) => (
-                                    <DropdownMenuRadioItem key={option.value} value={option.value}>
+                                    <MenuChoiceItem key={option.value} value={option.value}>
                                         {option.label}
-                                    </DropdownMenuRadioItem>
+                                    </MenuChoiceItem>
                                 ))}
                             </DropdownMenuRadioGroup>
                             <DropdownMenuSeparator />
@@ -104,9 +104,9 @@ export function SentenceMeasure({
                                         onValueChange={(value: string) => changeSeriesMath(seriesIndex, value)}
                                     >
                                         {perUserMeasureOptions.map((option) => (
-                                            <DropdownMenuRadioItem key={option.value} value={option.value}>
+                                            <MenuChoiceItem key={option.value} value={option.value}>
                                                 {option.label}
-                                            </DropdownMenuRadioItem>
+                                            </MenuChoiceItem>
                                         ))}
                                     </DropdownMenuRadioGroup>
                                 </DropdownMenuSubContent>

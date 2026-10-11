@@ -1,16 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
-    DropdownMenuTrigger,
-    Text,
-} from '@posthog/quill'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuTrigger, Text } from '@posthog/quill'
 
 import type { InsightLogicProps, IntervalType } from '~/types'
 
+import { MenuChoiceItem } from '../MenuChoiceItem'
 import { EditableWord } from './EditableWord'
 import { insightSentenceLogic } from './insightSentenceLogic'
 
@@ -21,7 +15,7 @@ export function SentenceInterval({
     insightProps: InsightLogicProps
     label: string
 }): JSX.Element {
-    const { enabledIntervals, trendsQuery, overriddenSlots } = useValues(insightSentenceLogic(insightProps))
+    const { enabledIntervals, seriesQuery, overriddenSlots } = useValues(insightSentenceLogic(insightProps))
     const { changeInterval } = useActions(insightSentenceLogic(insightProps))
 
     return (
@@ -39,20 +33,20 @@ export function SentenceInterval({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">
                 <DropdownMenuRadioGroup
-                    value={trendsQuery?.interval ?? 'day'}
+                    value={seriesQuery?.interval ?? 'day'}
                     onValueChange={(value: string) => changeInterval(value as IntervalType)}
                 >
                     {Object.entries(enabledIntervals)
                         .filter(([, option]) => !option.hidden)
                         .map(([value, option]) => (
-                            <DropdownMenuRadioItem key={value} value={value} disabled={!!option.disabledReason}>
+                            <MenuChoiceItem key={value} value={value} disabled={!!option.disabledReason}>
                                 <span>{option.label}</span>
                                 {option.disabledReason && (
                                     <Text size="xs" variant="muted" render={<span />}>
                                         {option.disabledReason}
                                     </Text>
                                 )}
-                            </DropdownMenuRadioItem>
+                            </MenuChoiceItem>
                         ))}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>

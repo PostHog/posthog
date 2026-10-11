@@ -26,8 +26,10 @@ import { ChartSettingsPopover } from './chartSettings/ChartSettingsPopover'
 import { ChartTypeAccordion } from './chartTypes/ChartTypeAccordion'
 import { ChartTypePopover } from './chartTypes/ChartTypePopover'
 import { InsightDataChecks } from './dataChecks/InsightDataChecks'
+import { FunnelViewMenu } from './funnel/FunnelViewMenu'
 import { InsightAdvancedMenu } from './InsightAdvancedMenu'
 import { InsightDraftActions } from './InsightDraftActions'
+import { InsightKindMenu } from './InsightKindMenu'
 import { DashboardFilterMark } from './sentence/DashboardFilterMark'
 import { InsightSentence } from './sentence/InsightSentence'
 
@@ -82,6 +84,7 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
             <SceneContent data-attr="quill-insight-scene">
                 <SceneTitleSection
                     name={insightName}
+                    nameSuffix={<InsightKindMenu insightProps={insightProps} />}
                     description={insight.description || null}
                     resourceType={{ type: getInsightIconTypeFromQuery(query) }}
                     isLoading={insightLoading && !insight.id}
@@ -97,6 +100,7 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
                     insightProps={insightProps}
                     trailing={
                         <div className="flex shrink-0 items-center gap-2">
+                            <FunnelViewMenu insightProps={insightProps} />
                             <ChartTypePopover insightProps={insightProps} />
                             <ChartSettingsPopover insightProps={insightProps} />
                         </div>

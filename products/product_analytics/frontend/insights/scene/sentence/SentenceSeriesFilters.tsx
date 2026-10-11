@@ -21,7 +21,7 @@ export function SentenceSeriesFilters({
     label: string
 }): JSX.Element {
     const { pendingFilterSeriesIndex } = useValues(insightSentenceLogic(insightProps))
-    const { setPendingFilterSeriesIndex } = useActions(insightSentenceLogic(insightProps))
+    const { removeSeriesFilters, setPendingFilterSeriesIndex } = useActions(insightSentenceLogic(insightProps))
     const isPending = pendingFilterSeriesIndex === seriesIndex
     const [open, setOpen] = useState(isPending)
     const target = useMemo((): FiltersTarget => ({ kind: 'series', seriesIndex }), [seriesIndex])
@@ -42,7 +42,16 @@ export function SentenceSeriesFilters({
                 }
             }}
         >
-            <PopoverTrigger render={<EditableWord color="green" data-attr="quill-insight-sentence-series-filters" />}>
+            <PopoverTrigger
+                render={
+                    <EditableWord
+                        color="green"
+                        onRemove={isPending ? undefined : () => removeSeriesFilters(seriesIndex)}
+                        removeLabel="Remove these filters"
+                        data-attr="quill-insight-sentence-series-filters"
+                    />
+                }
+            >
                 {label}
             </PopoverTrigger>
             <PopoverContent

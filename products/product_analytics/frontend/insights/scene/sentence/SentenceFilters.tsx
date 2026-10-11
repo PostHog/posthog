@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -14,6 +14,7 @@ export function SentenceFilters({
     label: string
 }): JSX.Element {
     const { overriddenSlots } = useValues(insightSentenceLogic(insightProps))
+    const { removeFilters } = useActions(insightSentenceLogic(insightProps))
 
     return (
         <FiltersPopover
@@ -24,6 +25,8 @@ export function SentenceFilters({
                     aria-expanded={open}
                     onClick={toggle}
                     overridden={overriddenSlots.includes('filters')}
+                    onRemove={removeFilters}
+                    removeLabel="Remove filters"
                     data-attr="quill-insight-sentence-filters"
                 >
                     {label}
