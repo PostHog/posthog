@@ -1,9 +1,14 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -149,5 +154,40 @@ describe('liveEventsLogic', () => {
                 expect(JSON.parse(url.searchParams.get('properties')!)).toEqual(expectedProperties)
             }
         })
+    })
+    describe('expired livestream token', () => {
+        it('refetches the team and reopens the stream with the fresh token', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/@current/': () => [200, { ...MOCK_DEFAULT_TEAM, live_events_token: 'fresh-token' }],
+                },
+            })
+            const firstCall = streamSpy.mock.calls[0][1]
+            expect(firstCall.headers.Authorization).toEqual(`Bearer ${MOCK_DEFAULT_TEAM.live_events_token}`)
+
+            firstCall.onError(new ApiError('Unauthorized', 401))
+
+            await waitFor(() => expect(streamSpy).toHaveBeenCalledTimes(2))
+            expect(streamSpy.mock.calls[1][1].headers.Authorization).toEqual('Bearer fresh-token')
+        })
+
+        it('tries the refetch again when it fails, rather than leaving the stream closed', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/projects/@current/': () => {
+                        attempts += 1
+                        return attempts === 1
+                            ? [500, {}]
+                            : [200, { ...MOCK_DEFAULT_TEAM, live_events_token: 'fresh-token' }]
+                    },
+                },
+            })
+
+            streamSpy.mock.calls[0][1].onError(new ApiError('Unauthorized', 401))
+
+            await waitFor(() => expect(streamSpy).toHaveBeenCalledTimes(2), { timeout: 8000 })
+            expect(streamSpy.mock.calls[1][1].headers.Authorization).toEqual('Bearer fresh-token')
+        }, 10000)
     })
 })

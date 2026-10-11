@@ -6,6 +6,11 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** A 401: the request's credential was refused, so the caller needs a new one before it retries. */
+export function isUnauthorizedError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 401
+}
+
 /** DRF code for `PostHogFeatureFlagPermission` (posthog/permissions.py). Keep in sync with the backend. */
 export const FEATURE_FLAG_REQUIRED_ERROR_CODE = 'feature_flag_required'
 
