@@ -1808,6 +1808,8 @@ export interface DataWarehouseSourceUsageApi {
 }
 
 export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
     /** Human-readable warning shown to the user */
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
