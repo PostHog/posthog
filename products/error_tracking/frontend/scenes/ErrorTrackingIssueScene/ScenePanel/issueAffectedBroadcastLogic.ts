@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -16,15 +15,19 @@ import { IntegrationType } from '~/types'
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
+    MessageAudience,
     captureMessageAudienceClicked,
     cohortAudienceProperties,
-    messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import {
     emailSenderWarning,
     emailSuspensionWarning,
 } from 'products/workflows/frontend/MessageAudience/messageAudienceReadiness'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
+import {
+    checkPreviousRecipients,
+    openBroadcastAfterCheck,
+} from 'products/workflows/frontend/MessageAudience/previousRecipients'
 import { workflowsEmailSuspensionLogic } from 'products/workflows/frontend/workflowsEmailSuspensionLogic'
 
 export const AFFECTED_LOOKBACK_DAYS = 30
@@ -58,6 +61,7 @@ export interface issueAffectedBroadcastLogicValues {
     affectedCountLoading: boolean
     audienceCohort: CohortApi | null
     audienceCohortLoading: boolean
+    continuing: boolean
     countFailed: boolean
     isModalOpen: boolean
     sendWarnings: string[]
@@ -160,6 +164,14 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                 closeModal: () => false,
             },
         ],
+        continuing: [
+            false,
+            {
+                createAudience: () => true,
+                createAudienceFailure: () => false,
+                closeModal: () => false,
+            },
+        ],
         countFailed: [
             false,
             {
@@ -205,28 +217,30 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
         ],
     })),
 
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         openModal: () => {
             // The click on the entry point, before any outcome, so abandoned attempts count too.
             captureMessageAudienceClicked(SOURCE, 'broadcast')
             actions.loadAffectedCount()
         },
-        createAudienceSuccess: ({ audienceCohort }) => {
+        createAudienceSuccess: async ({ audienceCohort }) => {
             if (!audienceCohort) {
                 return
             }
+            const audience: MessageAudience = {
+                properties: cohortAudienceProperties(audienceCohort),
+                source: SOURCE,
+                sourceRecord: `error_tracking:${props.issueId}`,
+                sourceRecordName: props.issueName || 'this issue',
+                broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
+                broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
+            }
+            // The new cohort fills in the background, so counting the overlap now would read zero.
+            const check = await checkPreviousRecipients(String(values.currentProjectId), audience, {
+                measureOverlap: false,
+            })
             actions.closeModal()
-            router.actions.push(
-                messageAudienceUrl(
-                    {
-                        properties: cohortAudienceProperties(audienceCohort),
-                        source: SOURCE,
-                        broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
-                        broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
-                    },
-                    'broadcast'
-                )
-            )
+            openBroadcastAfterCheck(audience, check)
         },
         createAudienceFailure: () => {
             lemonToast.error("Couldn't save the people affected. Try again.")

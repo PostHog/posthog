@@ -554,6 +554,19 @@
             ],
             "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n* `loops` - Loops\n* `broadcasts` - Broadcasts"
         },
+        "source_record": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "pattern": "^[a-z_]+:[A-Za-z0-9_-]+$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
+        },
         "status": {
             "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
             "enum": ["draft", "active", "archived"],
