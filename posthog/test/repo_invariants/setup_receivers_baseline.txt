@@ -121,6 +121,7 @@ post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_gith
 post_delete:products.surveys.backend.models.survey_changed
 post_delete:products.tasks.backend.models.delete_task_session_object
 post_delete:products.tasks.backend.search_index.channel_deleted
+post_delete:products.web_analytics.backend.heatmap_history_expiry.delete_request_images
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
 post_delete:products.workflows.backend.receivers.optimization_deleted
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_oauth
@@ -302,6 +303,7 @@ pre_save:products.feature_flags.backend.flag_version_sync.capture_flag_definitio
 pre_save:products.feature_flags.backend.session_recording_links.capture_replay_link_key_before_save
 pre_save:products.signals.backend.receivers.capture_prior_state
 pre_save:products.surveys.backend.models.pre_save_survey
+pre_save:products.web_analytics.backend.heatmap_history_expiry.invalidate_history
 user_logged_in:posthog.models.activity_logging.signal_handlers.log_user_login_activity
 user_logged_in:posthog.models.activity_logging.signal_handlers.post_login
 user_logged_out:posthog.models.activity_logging.signal_handlers.log_user_logout_activity
