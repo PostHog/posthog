@@ -1,11 +1,12 @@
 import uuid
 import asyncio
+from dataclasses import replace
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES
-from products.signals.backend.emission.direct_gate import steering_filters_signal
+from products.signals.backend.emission.direct_gate import DIRECT_SOURCE_SYSTEM_ONE_PROMPT, steering_filters_signal
 from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.system_one_decision import SignalsDecisionError
@@ -76,12 +77,18 @@ class TestSteeringFiltersSignal:
         client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_steering_drops_the_signal_and_reports_it_as_filtered(self):
-        dropped, client, capture = await _run_gate({"steering": "Ignore errors from localhost."})
+    @pytest.mark.parametrize("managed", [False, True])
+    async def test_steering_drops_the_signal_and_reports_it_as_filtered(self, managed: bool):
+        control = DIRECT_SOURCE_SYSTEM_ONE_PROMPT
+        if managed:
+            control = replace(control, policy=control.policy + "\nManaged wording trial", version=2, source="managed")
+        with patch(f"{GATE_MODULE_PATH}.current_prompt", return_value=control):
+            dropped, client, capture = await _run_gate({"steering": "Ignore errors from localhost."})
 
         assert dropped is True
         prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "Ignore errors from localhost." in prompt
+        assert "Managed wording trial" not in prompt
         # `extra` reaches the gate too, so a rule can name a fact the description does not carry.
         assert '"fingerprint": "abc123"' in prompt
         event, _team, _organization, output, properties = capture.call_args.args

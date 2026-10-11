@@ -322,6 +322,12 @@ def actionability_prompt_name(prompt: str, source_product: str, source_type: str
     return f"signals-actionability-{source}"
 
 
+def actionability_system_one_prompt(policy: str, source_product: str, source_type: str) -> SystemOnePrompt:
+    return bundled_prompt(
+        actionability_prompt_name(policy, source_product, source_type), policy, ACTIONABILITY_SYSTEM_ONE_QUESTION, 0.5
+    )
+
+
 async def check_actionability(
     client: AsyncAnthropic,
     team_id: int,
@@ -331,6 +337,7 @@ async def check_actionability(
     include_record_metadata: bool = False,
     context_fields: tuple[str, ...] = (),
     system_one_prompt: SystemOnePrompt | None = None,
+    steering: SourceSteering | None = None,
 ) -> bool:
     """One record's actionability verdict, fail-open: every retry exhausted returns actionable.
 
@@ -352,11 +359,8 @@ async def check_actionability(
         description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
     prompt = actionability_prompt.format(description=description)
     if system_one_prompt is None:
-        system_one_prompt = bundled_prompt(
-            actionability_prompt_name(actionability_prompt, output.source_product, output.source_type),
-            actionability_prompt,
-            ACTIONABILITY_SYSTEM_ONE_QUESTION,
-            0.5,
+        system_one_prompt = actionability_system_one_prompt(
+            actionability_prompt, output.source_product, output.source_type
         )
 
     async def sonnet_verdict(trace_id: str | None) -> bool:
@@ -366,7 +370,7 @@ async def check_actionability(
             gateway_mode=gateway_mode,
             team_id=team_id,
             trace_id=trace_id,
-            prompt=system_one_prompt,
+            prompt=dataclasses.replace(system_one_prompt, policy=actionability_prompt, version=None, source="bundled"),
         )
         for attempt in range(LLM_MAX_ATTEMPTS):
             if attempt > 0:
@@ -407,6 +411,12 @@ async def check_actionability(
         source_product=output.source_product,
         state={"source": output.source_product, "policy_and_record": prompt},
         prompt=system_one_prompt,
+        build_state=lambda selected: {
+            "source": output.source_product,
+            "policy_and_record": apply_steering(selected.policy, steering or SourceSteering()).format(
+                description=description
+            ),
+        },
         traditional=sonnet_verdict,
         verdict=lambda result: result,
         system_one_result=lambda result, _category: result,
@@ -424,14 +434,9 @@ async def filter_actionable(
 ) -> list[SignalEmitterOutput]:
     if not outputs:
         return []
-    fallback = bundled_prompt(
-        actionability_prompt_name(actionability_prompt, outputs[0].source_product, outputs[0].source_type),
-        actionability_prompt,
-        ACTIONABILITY_SYSTEM_ONE_QUESTION,
-        0.5,
-    )
+    fallback = actionability_system_one_prompt(actionability_prompt, outputs[0].source_product, outputs[0].source_type)
     system_one_prompt = current_prompt(fallback)
-    resolved_prompt = apply_steering(system_one_prompt.policy, steering or SourceSteering())
+    resolved_prompt = apply_steering(fallback.policy, steering or SourceSteering())
     client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
     gateway_mode = resolve_ai_gateway_config() is not None
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
@@ -451,6 +456,7 @@ async def filter_actionable(
                     include_record_metadata=include_record_metadata,
                     context_fields=context_fields,
                     system_one_prompt=system_one_prompt,
+                    steering=steering,
                 )
             except Exception:
                 logger.exception(

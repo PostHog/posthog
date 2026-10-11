@@ -1310,6 +1310,11 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
+# Separate read-only llm_prompt:read credential, scoped to the prompt library project.
+SIGNALS_PROMPT_PERSONAL_API_KEY = get_from_env("SIGNALS_PROMPT_PERSONAL_API_KEY", "")
+SIGNALS_PROMPT_PROJECT_API_KEY = get_from_env("SIGNALS_PROMPT_PROJECT_API_KEY", "")
+SIGNALS_PROMPT_HOST = get_from_env("SIGNALS_PROMPT_HOST", "https://us.posthog.com")
+
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
 HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jeeves-0.1")
