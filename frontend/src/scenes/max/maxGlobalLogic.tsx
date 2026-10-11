@@ -437,6 +437,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             logic.actions.startNewConversation()
             logic.actions.setPendingBindTaskId(taskId)
         },
+        loadConversationFailure: ({ errorObject }) => {
+            // A deleted or inaccessible chat renders NotFound in the thread, so a 404 needs no toast
+            if (errorObject?.status === 404) {
+                return
+            }
+            lemonToast.error(errorObject?.detail || 'Failed to load the chat.')
+        },
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },

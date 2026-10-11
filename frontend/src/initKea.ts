@@ -99,6 +99,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'loadConversation', // maxGlobalLogic's loadConversationFailure listener toasts; a missing chat renders NotFound in the thread
 ]
 
 /*
@@ -131,6 +132,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadConversation', // A `?chat=` id the API does not return renders NotFound in the Max thread
 ])
 
 /*
