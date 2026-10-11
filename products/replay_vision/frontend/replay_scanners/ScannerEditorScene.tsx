@@ -53,6 +53,7 @@ import { ScannerGoalOverview } from './components/ScannerGoalOverview'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { startScannerFromTemplate } from './components/startScannerFromTemplate'
 import { parseExperimentScannerParams } from './experimentTargeting'
 import { leaveScannerEditor, replayScannerLogic } from './replayScannerLogic'
 import {
@@ -123,7 +124,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
+    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext, scannerDraftSavedAt } =
+        useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
@@ -162,7 +164,13 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         }
         if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
             if (step === 'template') {
-                router.actions.push(urls.replayVisionScannerDetails(scannerId))
+                // With a saved draft, a jump ahead resumes it like the banner does. Without one, it is
+                // a start from scratch, so it takes the same path as the blank card and gets tracked.
+                if (scannerDraftSavedAt !== null) {
+                    router.actions.push(urls.replayVisionScannerDetails(scannerId))
+                } else {
+                    startScannerFromTemplate(null)
+                }
                 return
             }
             advance()

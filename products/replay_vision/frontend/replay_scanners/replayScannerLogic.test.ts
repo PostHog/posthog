@@ -1758,6 +1758,14 @@ describe('replayScannerLogic', () => {
             })
         })
 
+        it.each(defaultScannerTemplates.map((t) => [t.key, t.scanner_config.prompt]))(
+            'startFromTemplate(%s) fills in the template prompt',
+            (templateKey, prompt) => {
+                logic.actions.startFromTemplate(templateKey)
+                expect(logic.values.scanner?.scanner_config?.prompt).toEqual(prompt)
+            }
+        )
+
         it('the last path taken is what the save reports', async () => {
             // Each of these replaces the form, so someone who drafts with AI and then picks a
             // template saved the template's scanner. Reporting the first path would credit the AI
