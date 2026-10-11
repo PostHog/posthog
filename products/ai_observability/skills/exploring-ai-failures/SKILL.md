@@ -32,13 +32,13 @@ high volume, `exploring-llm-clusters`.
 
 ## Tools
 
-| Tool                            | Purpose                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------ |
-| `posthog:query-llm-traces-list` | List candidate traces — filter by error, sort by a metric, scope by type |
-| `posthog:query-llm-trace`       | Read a trace in full to see what actually went wrong                     |
-| `posthog:execute-sql`           | Find metric outliers, discover the trace taxonomy, count failure modes   |
-| `posthog:llma-evaluation-list`  | Find existing evals whose failures might reveal a new mode               |
-| `posthog:generate-app-url`      | Build a region- and project-qualified deep link to a trace or list       |
+| Tool                            | Purpose                                                                |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `posthog:query-llm-traces-list` | List candidate traces — filter by error or type (no metric sort)       |
+| `posthog:query-llm-trace`       | Read a trace in full to see what actually went wrong                   |
+| `posthog:execute-sql`           | Find metric outliers, discover the trace taxonomy, count failure modes |
+| `posthog:llma-evaluation-list`  | Find existing evals whose failures might reveal a new mode             |
+| `posthog:generate-app-url`      | Build a region- and project-qualified deep link to a trace or list     |
 
 Detailed queries for each strategy below are in
 [references/finding-traces.md](references/finding-traces.md). The full `$ai_*` event schema (and the
