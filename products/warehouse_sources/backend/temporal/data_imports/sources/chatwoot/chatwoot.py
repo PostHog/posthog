@@ -67,6 +67,7 @@ RESPONSE_TOO_LARGE_ERROR = "Chatwoot response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Chatwoot response download was too slow"
 INVALID_ACCOUNT_ID_ERROR = "Chatwoot account ID must be a number"
 REPORTING_EVENTS_UNAVAILABLE_ERROR = "Chatwoot reporting events are not available on this instance"
+RETRYABLE_API_ERROR = "Chatwoot API error (retryable)"
 
 # Authority chars that let `urlparse` and the HTTP client disagree on where the host ends. A userinfo
 # separator or a (raw or percent-encoded) backslash in `https://169.254.169.254\@attacker.example`
@@ -225,7 +226,7 @@ def _fetch_json(session: requests.Session, url: str, logger: FilteringBoundLogge
     # Chatwoot rate-limits at 3000 req/min per IP (rack-attack default) and returns a plain 429.
     if response.status_code == 429 or response.status_code >= 500:
         response.close()
-        raise ChatwootRetryableError(f"Chatwoot API error (retryable): status={response.status_code}, url={url}")
+        raise ChatwootRetryableError(f"{RETRYABLE_API_ERROR}: status={response.status_code}, url={url}")
 
     if response.is_redirect or response.is_permanent_redirect:
         response.close()
