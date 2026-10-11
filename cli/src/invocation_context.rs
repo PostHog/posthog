@@ -184,7 +184,24 @@ pub fn context() -> &'static InvocationContext {
     INVOCATION_CONTEXT.get().expect("Context has been set up")
 }
 
+/// Follows the `DO_NOT_TRACK` convention (https://consoledonottrack.com): any
+/// set value other than empty, `0` or `false` turns telemetry off.
+pub fn telemetry_disabled() -> bool {
+    do_not_track_requested(std::env::var("DO_NOT_TRACK").ok().as_deref())
+}
+
+fn do_not_track_requested(value: Option<&str>) -> bool {
+    value.map(str::trim).is_some_and(|value| {
+        !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+    })
+}
+
 pub fn init_posthog_telemetry() {
+    if telemetry_disabled() {
+        debug!("Telemetry disabled by DO_NOT_TRACK");
+        return;
+    }
+
     let Some(token) = option_env!("POSTHOG_API_TOKEN") else {
         debug!("Posthog api token not set at build time - is this a debug build?");
         return;
@@ -362,6 +379,16 @@ mod tests {
         assert!(is_broken_pipe_panic(&exception_event(
             "failed printing to stdout: Broken pipe (os error 32)"
         )));
+    }
+
+    #[test]
+    fn do_not_track_disables_telemetry_for_truthy_values() {
+        for value in ["1", "true", "TRUE", "yes", " 1 "] {
+            assert!(do_not_track_requested(Some(value)), "{value:?}");
+        }
+        for value in [None, Some(""), Some("0"), Some("false"), Some("False")] {
+            assert!(!do_not_track_requested(value), "{value:?}");
+        }
     }
 
     #[test]

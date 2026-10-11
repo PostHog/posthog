@@ -6,7 +6,7 @@ use std::{env, fs};
 use thiserror::Error;
 
 use crate::error::CapturedError;
-use crate::invocation_context::{current_invocation_id, InvocationContext};
+use crate::invocation_context::{current_invocation_id, telemetry_disabled, InvocationContext};
 use crate::utils::homedir::posthog_home_dir_if_available;
 
 const API_CLI_BUNDLE: &str = "posthog-api-cli.mjs";
@@ -266,6 +266,11 @@ fn inject_credentials(cmd: &mut Command, invocation_context: Option<&InvocationC
 }
 
 fn inject_analytics_env(cmd: &mut Command) {
+    if telemetry_disabled() {
+        cmd.env_remove("POSTHOG_ANALYTICS_API_KEY");
+        cmd.env_remove("POSTHOG_ANALYTICS_HOST");
+        return;
+    }
     if let Some(token) = option_env!("POSTHOG_API_TOKEN") {
         if env::var_os("POSTHOG_ANALYTICS_API_KEY").is_none() {
             cmd.env("POSTHOG_ANALYTICS_API_KEY", token);
