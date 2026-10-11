@@ -3819,8 +3819,11 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             ).query
         if not query:
             raise exceptions.ValidationError({"precheck_query": "This scout has no pre-check query. Give one to test."})
-        result = dry_run_scout_precheck(team, config, query)
-        return Response(SignalScoutPrecheckTestSerializer(dataclasses.asdict(result)).data)
+        result = dry_run_scout_precheck(team, config, query, user=cast(User, request.user))
+        acting_user = User.objects.filter(pk=result.acting_user_id).first() if result.acting_user_id else None
+        return Response(
+            SignalScoutPrecheckTestSerializer({**dataclasses.asdict(result), "acting_user": acting_user}).data
+        )
 
     @extend_schema(
         request=None,

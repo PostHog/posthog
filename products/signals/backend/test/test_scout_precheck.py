@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team, User
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
@@ -25,6 +25,8 @@ from products.skills.backend.models.skills import LLMSkill
 NOW = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
 SKILL = "signals-scout-errors"
 NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp > {since} AND timestamp <= {now}"
+# An access-scoped system table: a query with no user is denied it.
+DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
@@ -99,6 +101,15 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         assert result.row_count == PRECHECK_MAX_ROWS
         assert result.rows_text is not None and len(result.rows_text.splitlines()) == PRECHECK_MAX_ROWS
 
+    def test_reads_access_scoped_system_tables_as_the_acting_user(self) -> None:
+        self._config(DASHBOARDS_QUERY)
+
+        result, capture = self._evaluate()
+
+        assert result is not None
+        assert (result.outcome, result.reason) == ("skip", "false_value")
+        assert capture.call_args.kwargs["properties"]["acting_user_id"] == self.user.pk
+
     def test_query_error_runs_the_scout(self) -> None:
         self._config("SELECT nope FROM not_a_table WHERE timestamp > {since}")
 
@@ -130,11 +141,14 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("no_query", None, SignalScoutConfig.Status.ACTIVE),
-            ("breaker_probe", "SELECT 1 WHERE 0", SignalScoutConfig.Status.PAUSED_BY_SYSTEM),
+            ("no_query", None, SignalScoutConfig.Status.ACTIVE, True),
+            ("breaker_probe", "SELECT 1 WHERE 0", SignalScoutConfig.Status.PAUSED_BY_SYSTEM, True),
+            ("no_member_can_act", "SELECT 1 WHERE 0", SignalScoutConfig.Status.ACTIVE, False),
         ]
     )
-    def test_no_precheck(self, _name, query, status) -> None:
+    def test_no_precheck(self, _name, query, status, has_member) -> None:
+        if not has_member:
+            OrganizationMembership.objects.filter(organization=self.organization).delete()
         config = self._config(query)
         SignalScoutConfig.all_teams.filter(pk=config.pk).update(
             status=status,
@@ -265,6 +279,15 @@ class TestScoutPrecheckTestAPI(ClickhouseTestMixin, APIBaseTest):
                 False,
             ),
             (
+                "reads_system_tables_as_the_requester",
+                None,
+                {"precheck_query": DASHBOARDS_QUERY},
+                False,
+                "false_value",
+                1,
+                False,
+            ),
+            (
                 "query_error_runs_the_scout",
                 None,
                 {"precheck_query": "SELECT nope FROM not_a_table"},
@@ -287,8 +310,18 @@ class TestScoutPrecheckTestAPI(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         assert (data["would_run"], data["reason"], data["row_count"]) == (would_run, reason, row_count)
         assert (data["error"] is not None) is has_error
+        assert data["acting_user"] is None
         start.assert_not_called()
         assert not SignalScoutRun.all_teams.filter(team=self.team).exists()
+
+    def test_precheck_test_names_the_acting_user_when_it_is_someone_else(self) -> None:
+        other = User.objects.create_and_join(self.organization, "scout-owner@example.com", None)
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(enabled_by=other)
+
+        response = self.client.post(self._url("precheck_test/"), {"precheck_query": NEW_EVENTS_QUERY}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["acting_user"]["id"] == other.id
 
     def test_precheck_test_without_any_query_is_rejected(self) -> None:
         response = self.client.post(self._url("precheck_test/"), {}, format="json")

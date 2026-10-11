@@ -15,6 +15,10 @@ being quiet.
 
 A query error never turns the scout off: the run continues as if there were no pre-check.
 
+A scheduled pre-check runs as the scout's acting user (`acting_user.resolve_scout_run_acting_user`),
+so it can read the same tables the run can read. A query with no user loses every access-scoped
+`system.*` table and every warehouse table. The dry run runs as the person who asked for it.
+
 The query comes from the first source that applies (`resolve_effective_precheck`):
 
 1. `precheck_disabled` on the config: no pre-check, the scout runs every due tick.
@@ -50,9 +54,10 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import groups
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_query_for, scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_PRECHECK_ROWS_BYTES, SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.team_limits import (
@@ -119,6 +124,9 @@ class PrecheckDryRunResult:
     rows_text: str = ""
     # Set only for an error the person who wrote the query can act on, such as a syntax error.
     error: str | None = None
+    # The user scheduled runs check the query as, set only when that is not the requester. Their
+    # access can differ, so a table the dry run reads can still fail on a scheduled run.
+    acting_user_id: int | None = None
 
 
 def parse_precheck_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -199,6 +207,8 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
             "skill_name",
             "created_at",
             "status",
+            "enabled_by",
+            "created_by",
             "precheck_query",
             "precheck_disabled",
             "run_interval_minutes",
@@ -214,15 +224,26 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
     if effective.query is None:
         return None
 
+    team = Team.objects.select_related("organization").get(pk=team_id)
+    acting_user = resolve_scout_run_acting_user(team, skill_name, config)
+    user = User.objects.filter(pk=acting_user.user_id).first() if acting_user is not None else None
+    # With no member to act as, the run does not start either, so there is nothing to gate.
+    if user is None:
+        logger.info(
+            "signals_scout: no acting user for the pre-check, skipping it",
+            team_id=team_id,
+            skill_name=skill_name,
+        )
+        return None
+
     now = now or timezone.now()
     since = precheck_since(config)
-    team = Team.objects.select_related("organization").get(pk=team_id)
     interval_minutes = precheck_interval_minutes(config, team, now)
     started = time.monotonic()
     error_type: str | None = None
 
     try:
-        found = _run_query(team, effective.query, since=since, now=now, interval_minutes=interval_minutes)
+        found = _run_query(team, user, effective.query, since=since, now=now, interval_minutes=interval_minutes)
     except Exception as error:
         error_type = type(error).__name__
         logger.warning(
@@ -242,6 +263,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         config=config,
         result=result,
         effective=effective,
+        acting_user_id=user.pk,
         duration_ms=round((time.monotonic() - started) * 1000),
         error_type=error_type,
     )
@@ -249,14 +271,20 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
 
 
 def dry_run_scout_precheck(
-    team: Team, config: SignalScoutConfig, query: str, now: datetime | None = None
+    team: Team, config: SignalScoutConfig, query: str, *, user: User, now: datetime | None = None
 ) -> PrecheckDryRunResult:
-    """Run a pre-check query the way the next scheduled run would, and change nothing."""
+    """Run a pre-check query the way the next scheduled run would, and change nothing.
+
+    The query runs as `user`, never as the acting user. Otherwise anyone who can edit the scout
+    could read tables through the acting user's access that they cannot read themselves.
+    """
     now = now or timezone.now()
     since = precheck_since(config)
     interval_minutes = precheck_interval_minutes(config, team, now)
+    acting_user = resolve_scout_run_acting_user(team, config.skill_name, config)
+    acting_user_id = acting_user.user_id if acting_user is not None and acting_user.user_id != user.pk else None
     try:
-        found = _run_query(team, query, since=since, now=now, interval_minutes=interval_minutes)
+        found = _run_query(team, user, query, since=since, now=now, interval_minutes=interval_minutes)
     except Exception as error:
         logger.info(
             "signals_scout: pre-check dry run failed",
@@ -274,6 +302,7 @@ def dry_run_scout_precheck(
             now=now,
             interval_minutes=interval_minutes,
             error=message,
+            acting_user_id=acting_user_id,
         )
     result = _result_from_rows(found)
     return PrecheckDryRunResult(
@@ -285,6 +314,7 @@ def dry_run_scout_precheck(
         row_count=len(found.rows),
         columns=tuple(str(column) for column in found.columns),
         rows_text=_render_rows(found),
+        acting_user_id=acting_user_id,
     )
 
 
@@ -309,7 +339,9 @@ def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
     return PrecheckResult(outcome="run", reason="rows", row_count=len(found.rows), rows_text=_render_rows(found))
 
 
-def _run_query(team: Team, query: str, *, since: datetime, now: datetime, interval_minutes: int) -> _PrecheckRows:
+def _run_query(
+    team: Team, user: User, query: str, *, since: datetime, now: datetime, interval_minutes: int
+) -> _PrecheckRows:
     parsed = parse_select(query, placeholders=_placeholders(since=since, now=now, interval_minutes=interval_minutes))
     capped = _cap_rows(parsed)
     with tags_context(product=Product.SIGNALS, feature=Feature.ENRICHMENT, team_id=team.pk):
@@ -317,6 +349,7 @@ def _run_query(team: Team, query: str, *, since: datetime, now: datetime, interv
             query_type="scout_precheck",
             query=capped,
             team=team,
+            user=user,
             workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=PRECHECK_TIMEOUT_S),
         )
@@ -360,6 +393,7 @@ def _capture_precheck_evaluated(
     config: SignalScoutConfig,
     result: PrecheckResult,
     effective: EffectivePrecheck,
+    acting_user_id: int,
     duration_ms: int,
     error_type: str | None,
 ) -> None:
@@ -374,7 +408,10 @@ def _capture_precheck_evaluated(
                 "reason": result.reason,
                 "row_count": result.row_count,
                 "duration_ms": duration_ms,
+                # The exception class, so a denied table (`TableAccessDeniedError`) reads apart from
+                # a syntax error or a timeout.
                 "error_type": error_type,
+                "acting_user_id": acting_user_id,
                 "query_source": effective.source,
                 "rollout_bucket": effective.rollout_bucket,
             },
