@@ -397,11 +397,7 @@ pub(crate) fn decode_body_if_gzip_magic(
     }
 }
 
-/// Build the OTLP/HTTP success response in the encoding of the request.
-///
-/// OTLP exporters decode the body with the request's Content-Type, so a JSON body
-/// after a protobuf request makes them log a decode error for each batch.
-/// An empty body is a valid encoding of an empty `Export*ServiceResponse`.
+/// Protobuf clients can't decode a JSON body.
 fn export_success_response(headers: &HeaderMap) -> Response {
     let is_protobuf = headers
         .get(CONTENT_TYPE)
