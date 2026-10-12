@@ -430,6 +430,7 @@ export function filterToMetricConfig(
                             kind: NodeKind.ActionsNode,
                             id: action.id,
                             name: action.name,
+                            custom_name: action.custom_name,
                             properties: action.properties,
                             order: action.order,
                         }) as ActionsNode & { order?: number }
