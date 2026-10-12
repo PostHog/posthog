@@ -1,18 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { parseLogTimestamp } from 'products/logs/frontend/utils'
 import { ErrorIssuesList } from 'products/tracing/frontend/components/TraceDrawer/ErrorIssuesList'
-import {
-    TraceErrorsLogicProps,
-    TraceErrorsScope,
-    traceErrorsLogic,
-} from 'products/tracing/frontend/components/TraceDrawer/traceErrorsLogic'
+import { TraceErrorsScope, traceErrorsLogic } from 'products/tracing/frontend/components/TraceDrawer/traceErrorsLogic'
 import { SESSION_ERRORS_WINDOW_HOURS } from 'products/tracing/frontend/errorCorrelation'
+
+import { buildLogErrorsLogicProps } from './buildLogErrorsLogicProps'
 
 const SCOPE_ORDER: TraceErrorsScope[] = ['span', 'trace', 'session']
 
@@ -57,26 +55,23 @@ export interface RelatedErrorsTabProps {
 }
 
 export function RelatedErrorsTab({ log, sessionId, initialScope }: RelatedErrorsTabProps): JSX.Element {
-    // Some pipelines send epoch timestamps, which the logic's window would read as an invalid date.
-    const timestamp = parseLogTimestamp(log.timestamp)
-    const logicProps: TraceErrorsLogicProps = {
-        traceId: log.trace_id,
-        spanId: log.span_id || null,
-        timestamp: timestamp.isValid() ? timestamp.toISOString() : null,
-        sessionId,
-        initialScope,
-    }
-
     return (
-        <BindLogic logic={traceErrorsLogic} props={logicProps}>
-            <RelatedErrorsTabContent />
+        <BindLogic logic={traceErrorsLogic} props={buildLogErrorsLogicProps(log, sessionId)}>
+            <RelatedErrorsTabContent initialScope={initialScope} />
         </BindLogic>
     )
 }
 
-function RelatedErrorsTabContent(): JSX.Element {
+function RelatedErrorsTabContent({ initialScope }: { initialScope: TraceErrorsScope | null }): JSX.Element {
     const { issues, issuesLoading, issuesFailed, availableScopes, effectiveScope } = useValues(traceErrorsLogic)
     const { loadIssues, setScope } = useActions(traceErrorsLogic)
+
+    // Runs only when the requested scope changes, so a scope the user then picks in the tab stays.
+    useEffect(() => {
+        if (initialScope && initialScope !== effectiveScope) {
+            setScope(initialScope)
+        }
+    }, [initialScope]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!effectiveScope) {
         return (
