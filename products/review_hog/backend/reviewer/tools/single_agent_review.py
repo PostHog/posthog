@@ -57,6 +57,14 @@ LENS_PRIORITY_FILE = SINGLE_AGENT_PROMPT_PATH / "lens_priority.md"
 # The AI gateway turns this line into an OpenAI prompt cache breakpoint. Everything above it is the
 # same for the main session and the lens sessions of one part, so they read it from one cache entry.
 PROMPT_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint -->"
+# What a copy of the marker in pull request text becomes, so the prompt holds only ours.
+_QUOTED_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint (quoted) -->"
+
+
+def without_cache_marker(text: str) -> str:
+    """Pull request text with any copy of the cache marker defused, so it cannot pose as the real one."""
+    return text.replace(PROMPT_CACHE_MARKER, _QUOTED_CACHE_MARKER)
+
 
 # The leading HTML comment of a prompt file holds attribution for maintainers, not instructions.
 _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
@@ -183,18 +191,19 @@ class SingleAgentPrompt:
         not_shown = {f.filename for f in in_scope} - {f.filename for f in shown}
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
+        covered = self._covered_findings()
         return template.render(
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
-            PR_TITLE=self.pr_metadata.title,
-            PR_DESCRIPTION=self.pr_metadata.body.strip() or "(no description provided)",
-            FILE_LIST=self._file_list(not_shown),
-            SCOPE=", ".join(f"`{path}`" for path in scope) if scope else None,
-            DIFF=self._diff(shown),
+            PR_TITLE=without_cache_marker(self.pr_metadata.title),
+            PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
+            FILE_LIST=without_cache_marker(self._file_list(not_shown)),
+            SCOPE=without_cache_marker(", ".join(f"`{path}`" for path in scope)) if scope else None,
+            DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
-            COVERED_FINDINGS=self._covered_findings(),
+            COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
             CACHE_MARKER=PROMPT_CACHE_MARKER,
             GUIDELINES=self.guidelines,
             OUTPUT_SCHEMA=output_schema,
