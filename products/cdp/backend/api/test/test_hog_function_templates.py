@@ -335,9 +335,9 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         # an agent that can list it would try to use it and loop on "Template not found". Ordinary
         # hidden templates keep being listed (the workflow editor depends on that, see above).
         HogFunctionTemplate.objects.create(
-            template_id="template-posthog-create-task",
+            template_id="template-posthog-run-scout",
             sha="1.0.0",
-            name="Create AI task",
+            name="Run scout",
             description="A flag-gated template",
             code="return event",
             code_language="hog",
@@ -353,7 +353,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         listed_ids = [template["id"] for template in response.json()["results"]]
-        assert ("template-posthog-create-task" in listed_ids) is flag_enabled
+        assert ("template-posthog-run-scout" in listed_ids) is flag_enabled
 
     def test_hidden_templates_excluded_from_public_catalog(self):
         HogFunctionTemplate.objects.create(

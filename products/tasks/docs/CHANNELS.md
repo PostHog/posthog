@@ -73,13 +73,13 @@ The endpoint posts a `space_setup_started` feed message with `kind`, `subject`, 
 A feed write failure does not cancel setup.
 The endpoint requires the same public API scopes it grants to the setup task. The task can write tasks, canvases, workflows, and its own context page; it has read access to the project data it uses for research.
 User text stays in JSON-encoded data blocks in the setup and loop prompts.
-Goal setup returns 503 without starting a task when `template-posthog-create-task` is missing or the `workflow-ai-task-action` flag is disabled for the project.
+Goal setup returns 503 without starting a task when `template-posthog-create-task` is missing.
 Sync HogFunction templates after the CDP API starts, then retry setup.
 The context prompt includes the server's `team_id` and `channel_id` so a new Space page passes wiki validation.
 When no eligible population exists, setup records the measure as unknown and does not invent a target. The loops still start enabled; the Plan loop keeps trying to verify the measure on each run.
 
 Before enabling `code-space-setup`, deploy the setup endpoint and sync the workflow templates.
-Enable `workflow-ai-task-action` for the target project and `loops` plus `loops-hog-flows` for its Desktop users.
+Enable `loops` and `loops-hog-flows` for the target project's Desktop users.
 Reconcile enabled context wikis before rollout so legacy `channels/` pages move under `projects/<project-id>/spaces/`.
 Verify a setup in a test project: the Context page saves with `autonomy: propose`, the plan and status keys hold the first plan, all four goal loops appear enabled, and their test runs succeed.
 Keep the setup flag off if any dependency check fails.

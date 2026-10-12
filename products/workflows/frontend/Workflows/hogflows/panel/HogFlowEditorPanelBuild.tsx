@@ -377,13 +377,7 @@ export function HogFlowEditorPanelBuild({
                         onActionSelect={onActionSelect}
                     />
                 )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                    <HogFlowEditorToolbarNode
-                        key="ai-task"
-                        action={AI_TASK_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    />
-                )}
+                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE} onActionSelect={onActionSelect} />
                 {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
                 Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
                 undefined, which would otherwise pass. */}
