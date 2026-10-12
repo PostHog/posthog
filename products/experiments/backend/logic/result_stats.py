@@ -17,6 +17,27 @@ StatsMethod = Literal["bayesian", "frequentist"]
 
 _INTERVAL_KEYS = ("credible_interval", "confidence_interval")
 
+_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields)
+_VARIANT_FIELDS_BY_METHOD = {
+    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields),
+    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields),
+}
+
+
+def _declared_fields_only(value: object, fields: frozenset[str]) -> object:
+    if not isinstance(value, Mapping):
+        return value
+    return {key: item for key, item in value.items() if key in fields}
+
+
+def _declared_variant_fields_only(variant: object) -> object:
+    if not isinstance(variant, Mapping):
+        return variant
+    method = variant.get("method")
+    fields = _VARIANT_FIELDS_BY_METHOD.get(method) if isinstance(method, str) else None
+    # A variant without a known method has no model to validate against, so it fails validation as it is.
+    return variant if fields is None else _declared_fields_only(variant, fields)
+
 
 def _mean(total: float, number_of_samples: int) -> float | None:
     return total / number_of_samples if number_of_samples else None
@@ -113,17 +134,21 @@ class MetricResultStats:
         """Return None instead of raising when the row does not parse or has no baseline."""
         if not isinstance(raw, Mapping):
             return None
+        # A stored row is a full response dump in the schema of its write time. It can carry keys that the
+        # current schema forbids: the cache fields of a cached response at the top level, and fields that a
+        # later schema renamed or removed inside the baseline and the variants. The models reject unknown
+        # keys, so keep only the keys that they declare. Schema drift then does not discard the row.
+        baseline = _declared_fields_only(raw.get("baseline"), _BASELINE_FIELDS)
         variant_results = raw.get("variant_results")
         if isinstance(variant_results, list):
             # sanitize_non_finite stores an overflowed interval bound as null, which the schema rejects.
             # Drop such an interval so that the counts and means of the day still render.
-            variant_results = [_without_non_finite_intervals(variant) for variant in variant_results]
-        # A stored row is a full response dump in the schema of its write time. It can carry keys that the
-        # current schema forbids, such as the cache fields of a cached response. Validate only the fields
-        # that the stats read, so that schema drift in other fields does not discard the row.
+            variant_results = [
+                _without_non_finite_intervals(_declared_variant_fields_only(variant)) for variant in variant_results
+            ]
         try:
             response = ExperimentQueryResponse.model_validate(
-                {"baseline": raw.get("baseline"), "variant_results": variant_results}
+                {"baseline": baseline, "variant_results": variant_results}
             )
         except ValidationError:
             return None

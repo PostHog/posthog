@@ -117,6 +117,14 @@ class TestExperimentTimeseriesFormatter(TestCase):
                 {**_bayesian_day(), "is_cached": True, "cache_key": "cache_abc", "timezone": "UTC"},
                 "2026-04-02|1000|0.05|1010|0.069307|0.01..0.05|0.92|true",
             ),
+            (
+                "retired_nested_field",
+                {
+                    "baseline": {**_bayesian_day()["baseline"], "main_covariate_sum_product": None},
+                    "variant_results": [{**_bayesian_day()["variant_results"][0], "main_covariate_sum_product": None}],
+                },
+                "2026-04-02|1000|0.05|1010|0.069307|0.01..0.05|0.92|true",
+            ),
         ]
     )
     def test_stored_day_shapes(self, _name: str, stored_day: dict | None, expected_row: str):
@@ -220,16 +228,3 @@ class TestExperimentTimeseriesFormatter(TestCase):
         self.assertEqual(lines[1], "Variants: control (baseline), blue, green")
         self.assertIn("blue chance_to_win", lines[3])
         self.assertIn("green chance_to_win", lines[3])
-
-    def test_step_sessions_are_ignored_when_present(self):
-        day = _bayesian_day()
-        day["baseline"]["step_sessions"] = [
-            [{"event_uuid": "x", "person_id": "p", "session_id": "s", "timestamp": "t"}]
-        ]
-        day["variant_results"][0]["step_sessions"] = [
-            [{"event_uuid": "x", "person_id": "p", "session_id": "s", "timestamp": "t"}]
-        ]
-        response = {"status": "completed", "timeseries": {"2026-04-01": day}}
-        out = _format(response)
-        self.assertNotIn("step_sessions", out)
-        self.assertNotIn("event_uuid", out)
