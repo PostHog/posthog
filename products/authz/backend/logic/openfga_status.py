@@ -50,7 +50,11 @@ def get_openfga_status() -> OpenFgaStatus:
                 error=None,
             )
         store = client.get_store()
-        model = client.read_latest_authorization_model().authorization_model
+        model = (
+            client.read_authorization_model()
+            if os.getenv("OPENFGA_AUTHORIZATION_MODEL_ID")
+            else client.read_latest_authorization_model()
+        ).authorization_model
     except Exception as exc:
         return _unreachable(api_url, exc)
     finally:

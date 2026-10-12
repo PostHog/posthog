@@ -19,6 +19,7 @@ def get_openfga_client() -> OpenFgaClient:
         ClientConfiguration(
             api_url=os.getenv("OPENFGA_API_URL", "http://127.0.0.1:8080"),
             store_id=store_id,
+            authorization_model_id=os.getenv("OPENFGA_AUTHORIZATION_MODEL_ID"),
             credentials=credentials,
             timeout_millisec=5000,
         )

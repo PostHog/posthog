@@ -173,7 +173,8 @@ go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --tests products/authz/m
 
 The model covers users, organizations, organization members, roles, projects, dashboards, and insights.
 It models most-specific access resolution, not legacy highest-level resolution.
-The model does not replace Django permission checks or populate relationships from the database.
+The model does not replace Django permission checks.
+The opt-in dashboard mirror populates relationships from the database as described below.
 Use the fixtures in `products/authz/model.fga.yaml` as examples when writing local tuples:
 
 - Use `user:<user_id>` for the actor and `organization_member:<membership_id>#user` for member overrides.
@@ -216,6 +217,59 @@ Keep each object's project, category, and policy in the same organization and pr
 Store one member/default level per scope and replace the old level when it changes.
 OpenFGA does not enforce relationship cardinality or compare organization IDs across tuple paths.
 Application checks still enforce request-specific rules such as API scopes, reauthentication, verified domains, and the last-owner invariant.
+
+#### Dashboard authorization mirror
+
+Set `OPENFGA_SYNC_ENABLED=1` in `.env.local` for the web and Celery processes to mirror dashboard authorization.
+Bootstrap the OpenFGA store first, then backfill existing data with `python manage.py sync_openfga ORGANIZATION_UUID`, replacing `ORGANIZATION_UUID` with your organization's ID.
+You can set `OPENFGA_STORE_ID` and `OPENFGA_AUTHORIZATION_MODEL_ID` to pin the target store and model.
+Without these values, the client uses the named store and its latest model.
+
+AccessControl, dashboard, project, organization, organization-membership, role, and role-membership saves and deletes enqueue reconciliation after the database transaction commits.
+Dashboard soft deletion and restoration use the same hook.
+Legacy dashboard collaborator privileges also trigger reconciliation.
+Rolled-back transactions enqueue nothing.
+The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
+The mirror covers project rules and dashboard category/object rules; other resource types, including insights, are not mirrored yet.
+
+The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
+It deletes obsolete grants before writing replacements.
+Redis tracks a reconciliation revision: facade checks deny while a revision is pending or missing, and listings return an empty, incomplete result.
+A revision change during a check also invalidates that result.
+If retries run out, bulk writes bypass model signals, or Redis loses the readiness keys, run `sync_openfga` again.
+`QuerySet.update()`, `bulk_create()`, and `bulk_update()` do not emit Django model signals.
+
+This is a development/pilot integration, not a production authorization rollout.
+It reconciles the whole organization and scans the store to compute its tuple diff.
+Use incremental projections before enabling it broadly.
+Django permissions remain authoritative; no endpoint switches to OpenFGA in this change.
+Post-commit task publishing is not a transactional outbox.
+Add durable change capture before using the facade as the sole authorization check.
+
+The `products.authz.backend.facade.api` query methods now call OpenFGA:
+
+- `check` supports a single action or an ordered batch of requests.
+- `permissions` returns the supported actions the user can take.
+- `list_resources` streams authorized dashboard IDs and filters them to the requested project.
+  A supplied limit returns an empty, incomplete result if exceeded.
+- `dangerous_query_relation` checks a modeled relation for debugging.
+
+These methods require an explicit `Subject(user_id=...)`.
+Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.
+The relationship-write, subject-listing, and explanation methods remain unimplemented.
+Use the existing AccessControl write APIs as the database source of truth.
+
+Run the real-server integration tests against the local OpenFGA service:
+
+```bash
+OPENFGA_API_URL=http://127.0.0.1:8080 OPENFGA_API_TOKEN=local-dev-openfga-token \
+    hogli test products/authz/backend/tests/openfga_e2e.py
+```
+
+The tests create and delete their own store and upload the checked-in JSON model.
+They run the post-commit Celery task eagerly and exercise rule CRUD, role membership changes, member-over-role precedence, scoped dashboard listing, soft deletion, restoration, hard deletion, and rollback.
+The file runs explicitly because it requires a real OpenFGA service; ordinary pytest discovery does not collect it.
+The normal authz tests cover pending revisions and service failures without a live server.
 
 The session replay video export worker builds a Docker image on its first start, then reuses the cached image. It runs in development mode to accept Django's default development key. The launcher translates HTTP loopback storage URLs to `host.docker.internal`, preserving optional ports and paths. It maps that hostname to Docker's host gateway so the container can reach host object storage on native Linux too. A worker startup failure returns a nonzero exit code.
 

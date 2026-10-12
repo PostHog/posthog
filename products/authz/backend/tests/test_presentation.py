@@ -21,6 +21,7 @@ API_URL_WITH_CREDENTIALS = "http://fga-user:fga-password@openfga.example.com:808
 API_URL = "http://openfga.example.com:8080"
 STORE_ID = "01HSTORE0000000000000000AA"
 MODEL_ID = "01HMODEL0000000000000000AA"
+PINNED_MODEL_ID = "01HMODEL0000000000000000BB"
 STORE_CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 UNREACHABLE: dict[str, Any] = {
@@ -43,6 +44,9 @@ class TestOpenFgaStatusAPI(APIBaseTest):
         self.openfga.read_latest_authorization_model.return_value = ReadAuthorizationModelResponse(
             authorization_model=AuthorizationModel(id=MODEL_ID, schema_version="1.1", type_definitions=[])
         )
+        self.openfga.read_authorization_model.return_value = ReadAuthorizationModelResponse(
+            authorization_model=AuthorizationModel(id=PINNED_MODEL_ID, schema_version="1.1", type_definitions=[])
+        )
 
     @contextmanager
     def _patched_openfga(self, client_error: Exception | None = None) -> Iterator[MagicMock]:
@@ -64,6 +68,20 @@ class TestOpenFgaStatusAPI(APIBaseTest):
                     "store_name": "posthog-authz",
                     "store_id": STORE_ID,
                     "authorization_model_id": MODEL_ID,
+                    "error": None,
+                },
+                True,
+            ),
+            (
+                "pinned_model",
+                None,
+                None,
+                {
+                    "reachable": True,
+                    "api_url": API_URL,
+                    "store_name": "posthog-authz",
+                    "store_id": STORE_ID,
+                    "authorization_model_id": PINNED_MODEL_ID,
                     "error": None,
                 },
                 True,
@@ -96,7 +114,12 @@ class TestOpenFgaStatusAPI(APIBaseTest):
         self.user.save()
         self.openfga.get_store.side_effect = request_error
 
-        with self._patched_openfga(client_error):
+        with (
+            self._patched_openfga(client_error),
+            patch.dict(
+                os.environ, {"OPENFGA_AUTHORIZATION_MODEL_ID": PINNED_MODEL_ID if _name == "pinned_model" else ""}
+            ),
+        ):
             response = self.client.get(STATUS_URL)
 
         assert response.status_code == status.HTTP_200_OK

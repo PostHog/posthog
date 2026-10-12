@@ -23,6 +23,19 @@ def add_role_member(*, role_id: UUID, user_id: int) -> UUID:
     return RoleMembership.objects.create(role_id=role_id, user_id=user_id).id
 
 
+def remove_role_member(*, role_id: UUID, user_id: int) -> None:
+    RoleMembership.objects.filter(role_id=role_id, user_id=user_id).delete()
+
+
+def set_access_control_level(*, team_id: int, rule_id: UUID, access_level: str | None) -> None:
+    rule = AccessControl.objects.get(team_id=team_id, id=rule_id)
+    if access_level is None:
+        rule.delete()
+    else:
+        rule.access_level = access_level
+        rule.save(update_fields=["access_level"])
+
+
 def create_access_control(
     *,
     team_id: int,
