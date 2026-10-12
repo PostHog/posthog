@@ -1024,6 +1024,22 @@ snapshots:
         hash: v1.k794b7964.8130eafe275f6eb471a60a4eec4f54f07f243c664aba0a64e5431f7728b22fe0.5-iHw88oelBcXyENYl4mnYzsVNsQR7qDfpYyz4GPdWw
     components-hogcharts-barchart--with-value-labels--light:
         hash: v1.k794b7964.6aff50b1c147df21230d149c147deb023f6308cd2e01983b58e65461dd4c7207.vLZ6XqXFhSTA3hr10RUEv9vzOgxKWYtUzWj0OvoCTU0
+    components-hogcharts-barlist--default--dark:
+        hash: v1.k794b7964.83b0ce9bcd74e135e48fcd9ce905cc30c483407c36fb5ae03244b5d6455cb2fb.NQyHxI6NRXl4I1UBUpgRVYEM9MJ2GHHfjFPSLn0kSBI
+    components-hogcharts-barlist--default--light:
+        hash: v1.k794b7964.e32b3e496c727cde81ed777ed179b22318e2aeac3c036587ac87bde505a2eb95.3gu5cEYroHTfrmqu9oZM34D7NuNuPiEctauWH3egCgE
+    components-hogcharts-barlist--labels-on-top--dark:
+        hash: v1.k794b7964.6eb79c46269093eba9c30e0e6de43004365df57f515358d9a5e1088eb873902b.cww3DlSkcd7ZYSeM1eI1lO8YCVxlqxschxlHs2ck-_g
+    components-hogcharts-barlist--labels-on-top--light:
+        hash: v1.k794b7964.da00e2acc37bdf35e07ff747d4f6238cf4e5d27f5ee1dff90b0d35447e0eb4b1.aVeFvv3u6JL9T6ZyGZbR7eZcLj-MSmSZjPdAw1FaY8g
+    components-hogcharts-barlist--narrow-with-long-labels--dark:
+        hash: v1.k794b7964.748379913986c20ad1a16bf0d0e51cdfcd5ca155cfe17e62addd1b4f6b653cc0.XsjnBPkQkTH9RydVpxoE6PUQynIkR-J9shg5qjDnddA
+    components-hogcharts-barlist--narrow-with-long-labels--light:
+        hash: v1.k794b7964.35aecaea08c8579eaa743e0e57ca2f75d94d9973b361c5381986b2c93e951fbe.pCqj_B-rDfQ0OOR74gfs58Ly0nziahD52uhWvdXCv0g
+    components-hogcharts-barlist--share-of-total--dark:
+        hash: v1.k794b7964.16c554b0bd1f8528c6e1d08289c6ec9fa2000f8b9af0dfc374852c88ecb98445.xJ2MACgsrbGtNe1FHLCl5uYcLY9454d1lk6I1lu33wI
+    components-hogcharts-barlist--share-of-total--light:
+        hash: v1.k794b7964.9dc5c7e4c3578e6b4170df55b54bb3028e7dfda478b4e7d7197dc40953139647.7yjEOpNKFJZaLt6XuiGJiSKZOhxemH1lVCDmQndgyEI
     components-hogcharts-boxplot--horizontal--dark:
         hash: v1.k794b7964.30cbeacc1f375b50732dd7c20765bbedfc0dc626d4896c8fa9687aa5f9bfc001.FTUzztXbfM9Du-zf-HPWGeBiY0cPJRqb3Ybj7dYNln8
     components-hogcharts-boxplot--horizontal--light:
