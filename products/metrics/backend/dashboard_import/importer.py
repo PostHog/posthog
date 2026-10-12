@@ -64,6 +64,7 @@ from products.metrics.backend.dashboard_import.spec import (
     ImportSource,
     ImportState,
     ImportSummary,
+    PanelCheck,
     PanelOutcome,
     PanelQuery,
     PanelSpec,
@@ -77,13 +78,20 @@ from products.metrics.backend.facade.contracts import (
     DashboardImportInProgress,
     DashboardImportNotAllowed,
     DashboardImportPanel,
+    DashboardImportPanelProgress,
     DashboardImportRequest,
     DashboardImportStatus,
     DashboardImportSummary,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
 )
-from products.metrics.backend.facade.enums import DashboardImportSource, DashboardImportState, PanelImportOutcome
+from products.metrics.backend.facade.enums import (
+    DashboardImportPhase,
+    DashboardImportSource,
+    DashboardImportState,
+    PanelImportOutcome,
+    PanelProgressState,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO, TaskRunInputFile
 
@@ -138,11 +146,9 @@ STORAGE_TTL_DAYS = "30"
 DEFAULT_SCREENSHOT_LAYOUT = GridLayout(x=0, y=0, w=6, h=4)
 _QUERY_KINDS = frozenset({"timeseries", "stat", "gauge", "bargauge", "table", "heatmap"})
 _AGENT_FAILED_MESSAGE = "The import agent stopped before it finished. Try again."
-_RUNNING_PROGRESS = "Starting the import agent."
 MAX_RUNNING_IMPORTS = 3
 RECENT_IMPORTS_WINDOW = dt.timedelta(days=7)
 MAX_RECENT_IMPORTS = 20
-_FINALIZING_PROGRESS = "Building the dashboard."
 
 
 def promql_available(team: Team, user: User) -> bool:
@@ -331,7 +337,8 @@ class DashboardImporter:
             source=request.source,
             status=DashboardImportState.RUNNING,
             dashboard_name=name,
-            progress=_RUNNING_PROGRESS,
+            phase=DashboardImportPhase.STARTING,
+            panel_progress=_panel_progress(state),
         )
 
     def status(self, import_id: str) -> DashboardImportStatus | None:
@@ -353,15 +360,19 @@ class DashboardImporter:
             )
         if state.result is not None:
             return _status_from_result(import_id=import_id, state=state, result=state.result)
-        progress = run.state.get(tasks_facade.TASK_RUN_SUMMARY_STATE_KEY)
+        if run.is_terminal:
+            phase = DashboardImportPhase.BUILDING
+        elif run.status == tasks_facade.TaskRunStatus.IN_PROGRESS:
+            phase = DashboardImportPhase.MATCHING
+        else:
+            phase = DashboardImportPhase.STARTING
         return DashboardImportStatus(
             id=import_id,
             source=DashboardImportSource(state.source),
             status=DashboardImportState.RUNNING,
             dashboard_name=state.dashboard_name,
-            progress=_FINALIZING_PROGRESS
-            if run.is_terminal
-            else (progress if isinstance(progress, str) and progress else _RUNNING_PROGRESS),
+            phase=phase,
+            panel_progress=_panel_progress(state),
         )
 
     def recent(self) -> list[DashboardImportStatus]:
@@ -472,7 +483,10 @@ class DashboardImporter:
             ]
             tasks_facade.attach_task_run_input_files(team_id=self._team.id, run_id=run_id, files=bound)
             return {
-                "pending_user_message": prompt,
+                # The run id names the import in the agent's check calls, so its progress shows per panel.
+                "pending_user_message": build_prompt(
+                    source=state.source, promql_available=state.promql_available, import_id=str(run_id)
+                ),
                 # The agent server and the dispatch workflow must see the same id for the first message.
                 "pending_user_message_id": str(run_id),
                 "pending_user_artifact_ids": [file.id for file in bound],
@@ -807,8 +821,87 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> None:
         importer.capture_finished(state, result, path="agent", background=background)
 
 
+_PROGRESS_HIDDEN_KINDS = frozenset({"row", "text"})
+_PROGRESS_BY_OUTCOME = {
+    "imported": PanelProgressState.DONE,
+    "approximated": PanelProgressState.DONE,
+    "skipped": PanelProgressState.SKIPPED,
+}
+
+
+def _panel_progress(state: ImportState) -> tuple[DashboardImportPanelProgress, ...]:
+    """Where each panel is. A Grafana import knows its panels at the start; a screenshot import learns them from the checks."""
+
+    def from_check(key: str, title: str) -> DashboardImportPanelProgress | None:
+        check = state.checks.get(key)
+        if check is None:
+            return None
+        state_ = PanelProgressState.DONE if check.ok else PanelProgressState.WORKING
+        return DashboardImportPanelProgress(key=key, title=title or check.title or key, state=state_)
+
+    if state.spec is None:
+        return tuple(
+            item for key, check in state.checks.items() if (item := from_check(key, check.title)) is not None
+        )
+    resolved = {verdict.key: verdict for verdict in state.resolved}
+    items: list[DashboardImportPanelProgress] = []
+    for panel in state.spec.panels:
+        if panel.kind in _PROGRESS_HIDDEN_KINDS:
+            continue
+        title = panel.title or panel.key
+        verdict = resolved.get(panel.key)
+        if verdict is not None and verdict.outcome in _PROGRESS_BY_OUTCOME:
+            items.append(
+                DashboardImportPanelProgress(key=panel.key, title=title, state=_PROGRESS_BY_OUTCOME[verdict.outcome])
+            )
+            continue
+        items.append(
+            from_check(panel.key, title)
+            or DashboardImportPanelProgress(key=panel.key, title=title, state=PanelProgressState.WAITING)
+        )
+    return tuple(items)
+
+
+def _record_checks(
+    *,
+    team: Team,
+    user: User,
+    import_id: str,
+    panels: Sequence[PanelQueryCheckRequest],
+    results: Sequence[PanelQueryCheckResult],
+) -> None:
+    """Keep the agent's check results on its import, so the user sees which panels already pass."""
+    run = tasks_facade.get_task_run(import_id, team_id=team.id)
+    if run is None or run.is_terminal:
+        return
+    latest = tasks_facade.get_owner_origin_latest_run(
+        task_id=run.task_id,
+        team_id=team.id,
+        created_by_id=user.id,
+        origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+    )
+    if latest is None or latest.id != run.id:
+        return
+    titles = {panel.key: panel.title for panel in panels}
+
+    def update(current: Any) -> tuple[Any, None]:
+        state = _parse_state(current)
+        if state is None or state.result is not None:
+            return current, None
+        checks = dict(state.checks)
+        for result in results:
+            previous = checks.get(result.key)
+            checks[result.key] = PanelCheck(
+                title=titles.get(result.key) or (previous.title if previous else ""),
+                ok=result.valid or (previous is not None and previous.ok),
+            )
+        return state.model_copy(update={"checks": checks}).model_dump(mode="json"), None
+
+    tasks_facade.update_task_state_entry(str(run.task_id), team.id, IMPORT_STATE_KEY, update)
+
+
 def check_panel_queries(
-    *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest]
+    *, team: Team, user: User, panels: Sequence[PanelQueryCheckRequest], import_id: str | None = None
 ) -> list[PanelQueryCheckResult]:
     catalog = MetricCatalog.load(team)
     validator = PanelValidator(team=team, catalog=catalog, promql_available=promql_available(team, user))
@@ -830,4 +923,7 @@ def check_panel_queries(
     catalog.look_up(team, _query_metric_names(queries.values()))
     for key, check in validator.check_all(queries, deadline_seconds=FINAL_CHECK_SECONDS).items():
         results[key] = PanelQueryCheckResult(key=key, valid=check.ok, error=check.error, notes=check.notes)
-    return [results[panel.key] for panel in panels if panel.key in results]
+    ordered = [results[panel.key] for panel in panels if panel.key in results]
+    if import_id:
+        _record_checks(team=team, user=user, import_id=import_id, panels=panels, results=ordered)
+    return ordered

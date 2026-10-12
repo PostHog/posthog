@@ -304,6 +304,48 @@ export const DashboardImportStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `starting` - Starting
+ * * `matching` - Matching
+ * * `building` - Building
+ */
+export type DashboardImportPhaseEnumApi = (typeof DashboardImportPhaseEnumApi)[keyof typeof DashboardImportPhaseEnumApi]
+
+export const DashboardImportPhaseEnumApi = {
+    Starting: 'starting',
+    Matching: 'matching',
+    Building: 'building',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `working` - Working
+ * * `done` - Done
+ * * `skipped` - Skipped
+ */
+export type PanelProgressStateEnumApi = (typeof PanelProgressStateEnumApi)[keyof typeof PanelProgressStateEnumApi]
+
+export const PanelProgressStateEnumApi = {
+    Waiting: 'waiting',
+    Working: 'working',
+    Done: 'done',
+    Skipped: 'skipped',
+} as const
+
+export interface DashboardImportPanelProgressApi {
+    /** Panel key in the import. */
+    key: string
+    /** Panel title. */
+    title: string
+    /** 'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.
+     *
+     * * `waiting` - Waiting
+     * * `working` - Working
+     * * `done` - Done
+     * * `skipped` - Skipped */
+    state: PanelProgressStateEnumApi
+}
+
 export interface DashboardImportSummaryApi {
     /** Number of panels in the input. */
     total: number
@@ -367,11 +409,14 @@ export interface DashboardImportApi {
     status: DashboardImportStatusEnumApi
     /** Name of the new dashboard. */
     dashboard_name: string
-    /**
-     * Latest progress message of the import agent, while the import runs.
-     * @nullable
-     */
-    progress: string | null
+    /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard.
+     *
+     * * `starting` - Starting
+     * * `matching` - Matching
+     * * `building` - Building */
+    phase: DashboardImportPhaseEnumApi | null
+    /** Where each panel is, while the import runs. */
+    panel_progress: DashboardImportPanelProgressApi[]
     /**
      * Id of the new dashboard, when it exists.
      * @nullable
@@ -501,6 +546,11 @@ export interface PanelQueryCheckApi {
      * @maxLength 64
      */
     key: string
+    /**
+     * Panel title, shown in the import progress.
+     * @maxLength 200
+     */
+    title?: string
     /** 'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.
      *
      * * `promql` - Promql
@@ -534,6 +584,11 @@ export interface PanelQueryCheckRequestApi {
      * @maxItems 20
      */
     panels: PanelQueryCheckApi[]
+    /**
+     * The import that these panels belong to, from the import instructions. The import progress shows which panels pass.
+     * @nullable
+     */
+    import_id?: string | null
 }
 
 export interface PanelQueryCheckResultApi {

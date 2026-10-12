@@ -93,14 +93,11 @@ colors success, warning or danger.
 - Also set dashboard_name from the title in the screenshot."""
 
 _FINISH = """\
-Progress: call the task_summary_update tool after you read the input and after every few panels, with one \
-short sentence such as "Matched 8 of 20 panels."
-
 Finish: return the structured output, with one entry for each panel. Do not create dashboards or insights \
 yourself. PostHog builds the dashboard from your answer and checks every query again."""
 
 
-def build_prompt(*, source: ImportSource, promql_available: bool) -> str:
+def build_prompt(*, source: ImportSource, promql_available: bool, import_id: str | None = None) -> str:
     task = _GRAFANA_TASK if source == "grafana" else _SCREENSHOT_TASK
     metric_rules = _METRIC_RULES_PROMQL if promql_available else _METRIC_RULES_BUILDER
     return "\n\n".join(
@@ -112,6 +109,14 @@ def build_prompt(*, source: ImportSource, promql_available: bool) -> str:
             metric_rules,
             _COMMON_RULES,
             _FINISH,
+            *(
+                [
+                    f'In every metrics-dashboard-panels-validate call, set import_id to "{import_id}" and give each '
+                    "panel its title. PostHog shows the user which panels pass."
+                ]
+                if import_id
+                else []
+            ),
         ]
     )
 

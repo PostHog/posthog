@@ -12,7 +12,8 @@ const COMPLETED_IMPORT: DashboardImportApi = {
     source: 'grafana',
     status: 'completed',
     dashboard_name: 'Checkout service',
-    progress: null,
+    phase: null,
+    panel_progress: [],
     dashboard_id: 1,
     error: null,
     summary: { total: 6, imported: 3, approximated: 1, failed: 1, skipped: 1 },
@@ -50,6 +51,34 @@ export const ImportSummary: Story = {
         useDelayedOnMountEffect(() => {
             metricsDashboardImportLogic.actions.openImportModal('grafana')
             metricsDashboardImportLogic.actions.startImportSuccess(COMPLETED_IMPORT)
+        })
+
+        return <MetricsDashboardImportModal />
+    },
+}
+
+const RUNNING_IMPORT: DashboardImportApi = {
+    ...COMPLETED_IMPORT,
+    id: '0b5e7c3a-2f1d-4c8e-9a6b-3d2f1e0c9b8a',
+    status: 'running',
+    dashboard_id: null,
+    summary: null,
+    panels: [],
+    phase: 'matching',
+    panel_progress: [
+        { key: 'p1', title: 'Request rate', state: 'done' },
+        { key: 'p2', title: 'Error ratio', state: 'done' },
+        { key: 'p3', title: 'Latency p95', state: 'working' },
+        { key: 'p4', title: 'Pod restarts', state: 'waiting' },
+        { key: 'p5', title: 'Error logs', state: 'done' },
+        { key: 'p6', title: 'Service map', state: 'skipped' },
+    ],
+}
+
+export const ImportProgress: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            metricsDashboardImportLogic.actions.openImport(RUNNING_IMPORT)
         })
 
         return <MetricsDashboardImportModal />

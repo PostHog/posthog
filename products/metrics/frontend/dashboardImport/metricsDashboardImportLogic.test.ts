@@ -30,7 +30,8 @@ const importStatus = (overrides: Partial<DashboardImportApi> = {}): DashboardImp
     source: 'grafana',
     status: 'running',
     dashboard_name: 'Checkout service',
-    progress: null,
+    phase: null,
+    panel_progress: [],
     dashboard_id: null,
     error: null,
     summary: null,
@@ -99,13 +100,13 @@ describe('metricsDashboardImportLogic', () => {
     ])('polls the recent imports while one runs, and tells the user when it %s', async (_, ended, expectMessage) => {
         jest.useFakeTimers()
         mockCreate.mockResolvedValue(importStatus())
-        mockList.mockResolvedValue([importStatus({ progress: 'Matched 1 of 3 panels.' })])
+        mockList.mockResolvedValue([importStatus({ phase: 'matching' })])
         logic.actions.openImportModal('grafana')
         logic.actions.setGrafanaJson('{"panels": []}')
         logic.actions.startImport()
         await jest.advanceTimersByTimeAsync(0)
         logic.actions.closeImportModal()
-        expect(logic.values.runningImports.map((item) => item.progress)).toEqual(['Matched 1 of 3 panels.'])
+        expect(logic.values.runningImports.map((item) => item.phase)).toEqual(['matching'])
 
         mockList.mockResolvedValue([ended])
         await jest.advanceTimersByTimeAsync(5000)

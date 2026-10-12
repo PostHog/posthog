@@ -297,6 +297,30 @@ class TestDashboardImportAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).count() == 3
         self.storage.delete.assert_called()
 
+    def test_agent_checks_show_as_panel_progress(self) -> None:
+        started = self._start(
+            source="grafana", grafana_json=_grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])")
+        )
+        run = TaskRun.objects.get(task_id=started["id"])
+        assert f'set import_id to "{run.id}"' in run.state["pending_user_message"]
+
+        def progress() -> list[tuple[str, str]]:
+            body = self.client.get(f"{self.url}{started['id']}/").json()
+            return [(panel["title"], panel["state"]) for panel in body["panel_progress"]]
+
+        def check(query: str) -> None:
+            panel = {"key": "p3", "title": "Payments", "language": "promql", "promql": query}
+            response = self.client.post(
+                f"{self.url}validate/", {"panels": [panel], "import_id": str(run.id)}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        assert progress() == [("Panel 2", "done"), ("Panel 3", "waiting")]
+        check("rate(payments_total)")
+        assert progress() == [("Panel 2", "done"), ("Panel 3", "working")]
+        check("sum(rate(orders_total))")
+        assert progress() == [("Panel 2", "done"), ("Panel 3", "done")]
+
     def test_validate_reports_what_to_fix_for_each_panel(self) -> None:
         response = self.client.post(
             f"{self.url}validate/",
@@ -342,6 +366,4 @@ class TestDashboardImportAPI(APIBaseTest):
         listed = self.client.get(self.url).json()
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert [(item["id"], item["status"], item["progress"]) for item in listed] == [
-            (own["id"], "running", "Starting the import agent.")
-        ]
+        assert [(item["id"], item["status"], item["phase"]) for item in listed] == [(own["id"], "running", "starting")]

@@ -157,6 +157,8 @@ export const MetricsDashboardImportsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const metricsDashboardImportsValidateCreateBodyPanelsItemKeyMax = 64
 
+export const metricsDashboardImportsValidateCreateBodyPanelsItemTitleMax = 200
+
 export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemNameMax = 64
 
 export const metricsDashboardImportsValidateCreateBodyPanelsItemBuilderOneClausesItemMetricNameMax = 255
@@ -180,6 +182,11 @@ export const MetricsDashboardImportsValidateCreateBody = /* @__PURE__ */ zod.obj
                     .string()
                     .max(metricsDashboardImportsValidateCreateBodyPanelsItemKeyMax)
                     .describe('Panel key. The result for the panel carries the same key.'),
+                title: zod
+                    .string()
+                    .max(metricsDashboardImportsValidateCreateBodyPanelsItemTitleMax)
+                    .optional()
+                    .describe('Panel title, shown in the import progress.'),
                 language: zod
                     .enum(['promql', 'builder', 'histogram', 'hogql'])
                     .describe(
@@ -301,6 +308,12 @@ export const MetricsDashboardImportsValidateCreateBody = /* @__PURE__ */ zod.obj
         .min(1)
         .max(metricsDashboardImportsValidateCreateBodyPanelsMax)
         .describe('Up to 20 panel queries to check.'),
+    import_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'The import that these panels belong to, from the import instructions. The import progress shows which panels pass.'
+        ),
 })
 
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255

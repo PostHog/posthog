@@ -41,9 +41,11 @@ from products.metrics.backend.facade.contracts import (
     PanelQueryCheckRequest,
 )
 from products.metrics.backend.facade.enums import (
+    DashboardImportPhase,
     DashboardImportSource,
     DashboardImportState,
     PanelImportOutcome,
+    PanelProgressState,
     PanelQueryLanguage,
 )
 from products.metrics.backend.presentation.api import Op
@@ -108,6 +110,15 @@ class DashboardImportPanelSerializer(serializers.Serializer):
     reason = serializers.CharField(allow_blank=True, help_text="What changed, or why the panel failed or was skipped.")
 
 
+class DashboardImportPanelProgressSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Panel key in the import.")
+    title = serializers.CharField(help_text="Panel title.")
+    state = serializers.ChoiceField(
+        choices=PanelProgressState.choices,
+        help_text="'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.",
+    )
+
+
 class DashboardImportSerializer(serializers.Serializer):
     id = serializers.CharField(
         allow_null=True,
@@ -118,8 +129,13 @@ class DashboardImportSerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(choices=DashboardImportState.choices, help_text="Where the import is.")
     dashboard_name = serializers.CharField(help_text="Name of the new dashboard.")
-    progress = serializers.CharField(
-        allow_null=True, help_text="Latest progress message of the import agent, while the import runs."
+    phase = serializers.ChoiceField(
+        choices=DashboardImportPhase.choices,
+        allow_null=True,
+        help_text="The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard.",
+    )
+    panel_progress = DashboardImportPanelProgressSerializer(
+        many=True, help_text="Where each panel is, while the import runs."
     )
     dashboard_id = serializers.IntegerField(allow_null=True, help_text="Id of the new dashboard, when it exists.")
     error = serializers.CharField(allow_null=True, help_text="Why the import failed, when it failed.")
@@ -167,6 +183,9 @@ class PanelBuilderQuerySerializer(serializers.Serializer):
 
 class PanelQueryCheckSerializer(serializers.Serializer):
     key = serializers.CharField(max_length=64, help_text="Panel key. The result for the panel carries the same key.")
+    title = serializers.CharField(
+        required=False, allow_blank=True, max_length=200, help_text="Panel title, shown in the import progress."
+    )
     language = serializers.ChoiceField(
         choices=PanelQueryLanguage.choices,
         help_text="'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.",
@@ -193,6 +212,11 @@ class PanelQueryCheckRequestSerializer(serializers.Serializer):
         min_length=1,
         max_length=MAX_CHECKED_PANELS,
         help_text=f"Up to {MAX_CHECKED_PANELS} panel queries to check.",
+    )
+    import_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="The import that these panels belong to, from the import instructions. The import progress shows which panels pass.",
     )
 
 
@@ -311,6 +335,7 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             PanelQueryCheckRequest(
                 key=panel["key"],
                 language=PanelQueryLanguage(panel["language"]),
+                title=panel.get("title") or "",
                 promql=panel.get("promql"),
                 builder=panel.get("builder"),
                 histogram_metric=panel.get("histogram_metric"),
@@ -318,5 +343,11 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             for panel in body.validated_data["panels"]
         ]
-        results = check_dashboard_panel_queries(team=self.team, user=cast(User, request.user), panels=panels)
+        import_id = body.validated_data.get("import_id")
+        results = check_dashboard_panel_queries(
+            team=self.team,
+            user=cast(User, request.user),
+            panels=panels,
+            import_id=str(import_id) if import_id else None,
+        )
         return Response(PanelQueryCheckResponseSerializer({"results": [asdict(item) for item in results]}).data)

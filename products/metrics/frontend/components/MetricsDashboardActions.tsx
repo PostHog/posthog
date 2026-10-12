@@ -19,7 +19,17 @@ const MAX_LISTED_IMPORTS = 5
 
 function importStatusLine(dashboardImport: DashboardImportApi): string {
     if (dashboardImport.status === 'running') {
-        return dashboardImport.progress || 'Running'
+        const panels = dashboardImport.panel_progress
+        const settled = panels.filter((panel) => panel.state === 'done' || panel.state === 'skipped').length
+        if (dashboardImport.phase === 'building') {
+            return 'Building the dashboard'
+        }
+        if (dashboardImport.phase === 'matching' && panels.length) {
+            return dashboardImport.source === 'grafana'
+                ? `Matching panels · ${settled} of ${panels.length}`
+                : `Matching panels · ${settled} matched`
+        }
+        return 'Starting'
     }
     if (dashboardImport.status === 'failed' || !dashboardImport.summary) {
         return 'Failed'

@@ -195,6 +195,13 @@ class ImportResult(_Model):
     panels: list[PanelVerdict]
 
 
+class PanelCheck(_Model):
+    """The latest check of one panel's query by the agent. `ok` stays true once a check passed."""
+
+    title: str = ""
+    ok: bool
+
+
 class ImportState(_Model):
     """The value the import keeps under its key in the task state."""
 
@@ -208,4 +215,5 @@ class ImportState(_Model):
     input_paths: list[str] = Field(default_factory=list)
     started_at: str
     finalizing_since: str | None = None
+    checks: dict[str, PanelCheck] = Field(default_factory=dict)
     result: ImportResult | None = None
