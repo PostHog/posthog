@@ -918,45 +918,29 @@ function repairArgumentNesting(
 }
 
 const MINUTE_PRECISION_DATETIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/
+const MAX_DATETIME_REPAIR_DEPTH = 32
 
 /**
  * RFC 3339 needs seconds, so zod rejects `2026-10-12T10:00Z`. Callers send that form and the
- * API accepts it, so the missing `:00` is added instead of the call being refused.
+ * API accepts it, so the missing `:00` is added. Only the branches that change are copied.
  */
-function addMissingDatetimeSeconds(
-    error: z.ZodError,
-    input: unknown,
-    schema: ZodObjectAny | undefined
-): Record<string, unknown> | undefined {
-    if (!schema || !isRecord(input)) {
-        return undefined
+function withDatetimeSeconds(value: unknown, depth = 0): unknown {
+    if (typeof value === 'string') {
+        const match = MINUTE_PRECISION_DATETIME.exec(value)
+        return match ? `${match[1]}:00${match[2]}` : value
     }
-    const repaired = structuredClone(input)
-    let changed = false
-    for (const issue of error.issues) {
-        if (issue.code !== 'invalid_format' || issue.path.length === 0) {
-            continue
-        }
-        const parent = issue.path
-            .slice(0, -1)
-            .reduce<unknown>(
-                (node, key) =>
-                    isRecord(node) || Array.isArray(node) ? (node as Record<PropertyKey, unknown>)[key] : undefined,
-                repaired
-            )
-        if (!isRecord(parent) && !Array.isArray(parent)) {
-            continue
-        }
-        const container = parent as Record<PropertyKey, unknown>
-        const key = issue.path[issue.path.length - 1]!
-        const value = container[key]
-        const match = typeof value === 'string' ? MINUTE_PRECISION_DATETIME.exec(value) : null
-        if (match) {
-            container[key] = `${match[1]}:00${match[2]}`
-            changed = true
-        }
+    if (depth >= MAX_DATETIME_REPAIR_DEPTH) {
+        return value
     }
-    return changed && schema.safeParse(repaired).success ? repaired : undefined
+    if (Array.isArray(value)) {
+        const items = value.map((item) => withDatetimeSeconds(item, depth + 1))
+        return items.some((item, index) => item !== value[index]) ? items : value
+    }
+    if (isRecord(value)) {
+        const entries = Object.entries(value).map(([key, item]) => [key, withDatetimeSeconds(item, depth + 1)] as const)
+        return entries.some(([key, item]) => item !== value[key]) ? Object.fromEntries(entries) : value
+    }
+    return value
 }
 
 /** Repairs the caller mistakes that have one safe reading, so the call runs instead of failing validation. */
@@ -965,7 +949,12 @@ export function repairToolArguments(
     input: unknown,
     schema: ZodObjectAny | undefined
 ): Record<string, unknown> | undefined {
-    return repairArgumentNesting(error, input, schema) ?? addMissingDatetimeSeconds(error, input, schema)
+    const dated = withDatetimeSeconds(input)
+    if (!schema || dated === input) {
+        return repairArgumentNesting(error, input, schema)
+    }
+    const result = schema.safeParse(dated, { reportInput: true })
+    return result.success ? (dated as Record<string, unknown>) : repairArgumentNesting(result.error, dated, schema)
 }
 
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {

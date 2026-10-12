@@ -2728,6 +2728,27 @@ describe('exec tool', () => {
                     expect(repaired).toMatchObject({ date_marker: '2026-10-12T10:00:00Z' })
                 })
 
+                it('repairs a call that is also nested one level too deep', () => {
+                    const tool = GENERATED_TOOL_MAP['reminder-create']!()
+                    const input = {
+                        query: { organization: 'org-1', title: 'check the rollout', scheduled_at: '2030-10-12T10:00Z' },
+                    }
+
+                    expect(repairFor(tool.schema, input)).toMatchObject({
+                        organization: 'org-1',
+                        scheduled_at: '2030-10-12T10:00:00Z',
+                    })
+                })
+
+                it('rejects a deeply nested input without throwing', () => {
+                    let deep: Record<string, unknown> = { at: '2026-10-12T10:00Z' }
+                    for (let i = 0; i < 3000; i++) {
+                        deep = { inner: deep }
+                    }
+
+                    expect(repairFor(datetimeSchema, { at: 'soon', extra: deep })).toBeUndefined()
+                })
+
                 it.each([
                     ['a date with no time', { at: '2026-10-12' }],
                     ['a time with no offset', { at: '2026-10-12T10:00' }],
