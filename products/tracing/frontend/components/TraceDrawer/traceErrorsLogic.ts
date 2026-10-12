@@ -115,7 +115,7 @@ export const traceErrorsLogic = kea<traceErrorsLogicType>([
     loaders(({ props, values }) => ({
         issues: {
             __default: [] as MaxErrorTrackingIssuePreview[],
-            loadIssues: async (_, breakpoint): Promise<MaxErrorTrackingIssuePreview[]> => {
+            loadIssues: async (_: void, breakpoint): Promise<MaxErrorTrackingIssuePreview[]> => {
                 const scope = values.effectiveScope
                 if (!scope) {
                     return []
