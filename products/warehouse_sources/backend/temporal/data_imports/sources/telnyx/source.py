@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TelnyxSource(ResumableSource[TelnyxSourceConfig, TelnyxResumeConfig]):
-    codebase_detection = detect(npm=("telnyx",), pypi=("telnyx",), env=("^TELNYX_",))
+    codebase_detection = detect(env=("^TELNYX_",), npm=("telnyx",), pypi=("telnyx",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

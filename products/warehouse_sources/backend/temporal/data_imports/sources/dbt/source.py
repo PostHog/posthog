@@ -42,8 +42,8 @@ class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
     # Cloud - the source needs dbt Cloud credentials. Local-only dbt users
     # are a known false positive.
     codebase_detection = detect(
-        pypi=("dbt-core", "dbt-snowflake", "dbt-postgres", "dbt-bigquery", "dbt-redshift", "dbt-databricks"),
         env=("^DBT_",),
+        pypi=("dbt-core", "dbt-snowflake", "dbt-postgres", "dbt-bigquery", "dbt-redshift", "dbt-databricks"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

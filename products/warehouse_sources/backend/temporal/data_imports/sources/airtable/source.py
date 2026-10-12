@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirtableSource(SimpleSource[AirtableSourceConfig]):
-    codebase_detection = detect(npm=("airtable",), pypi=("pyairtable",), env=("^AIRTABLE_",))
+    codebase_detection = detect(env=("^AIRTABLE_",), npm=("airtable",), pypi=("pyairtable",))
 
     supported_versions = ("v0",)
     default_version = "v0"

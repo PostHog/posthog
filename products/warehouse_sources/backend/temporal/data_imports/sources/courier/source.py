@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
     # COURIER_ is a generic shipping word, so we match the exact key.
-    codebase_detection = detect(npm=("@trycourier/courier",), pypi=("trycourier",), env=("^COURIER_AUTH_TOKEN$",))
+    codebase_detection = detect(env=("^COURIER_AUTH_TOKEN$",), npm=("@trycourier/courier",), pypi=("trycourier",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.courier.com/docs/reference/get-started/"

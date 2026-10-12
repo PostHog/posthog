@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ReplicateSource(ResumableSource[ReplicateSourceConfig, ReplicateResumeConfig]):
-    codebase_detection = detect(npm=("replicate",), pypi=("replicate",), env=("^REPLICATE_",))
+    codebase_detection = detect(env=("^REPLICATE_",), npm=("replicate",), pypi=("replicate",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://replicate.com/docs/reference/http"

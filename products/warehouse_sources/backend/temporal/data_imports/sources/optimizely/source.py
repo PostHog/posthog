@@ -31,9 +31,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
     codebase_detection = detect(
+        env=("^OPTIMIZELY_",),
         npm=("@optimizely/optimizely-sdk",),
         pypi=("optimizely-sdk",),
-        env=("^OPTIMIZELY_",),
         competes_with=(ProductKey.EXPERIMENTS,),
     )
 

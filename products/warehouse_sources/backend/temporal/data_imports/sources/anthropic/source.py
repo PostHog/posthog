@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
-    codebase_detection = detect(npm=("@anthropic-ai/sdk",), pypi=("anthropic",), env=("^ANTHROPIC_",))
+    codebase_detection = detect(env=("^ANTHROPIC_",), npm=("@anthropic-ai/sdk",), pypi=("anthropic",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2023-06-01",)

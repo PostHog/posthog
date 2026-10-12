@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConfig]):
-    codebase_detection = detect(setup_requires_ui=True, env=("^AMAZON_ADS_",))
+    codebase_detection = detect(env=("^AMAZON_ADS_",), setup_requires_ui=True)
 
     api_docs_url = "https://advertising.amazon.com/API/docs"
 

@@ -46,7 +46,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     codebase_detection = detect(
-        npm=("klaviyo-api",), pypi=("klaviyo-api",), env=("^KLAVIYO_",), competes_with=(ProductKey.WORKFLOWS,)
+        env=("^KLAVIYO_",), npm=("klaviyo-api",), pypi=("klaviyo-api",), competes_with=(ProductKey.WORKFLOWS,)
     )
 
     supported_versions = (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2026_07_15)

@@ -39,9 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]):
     codebase_detection = detect(
+        env=("^SNOWPLOW_",),
         npm=("@snowplow/node-tracker",),
         pypi=("snowplow-tracker",),
-        env=("^SNOWPLOW_",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

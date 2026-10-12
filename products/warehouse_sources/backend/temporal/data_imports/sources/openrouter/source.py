@@ -48,7 +48,7 @@ _NO_ORGANIZATION = (
 
 @SourceRegistry.register
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
-    codebase_detection = detect(npm=("@openrouter/ai-sdk-provider",), env=("^OPENROUTER_",))
+    codebase_detection = detect(env=("^OPENROUTER_",), npm=("@openrouter/ai-sdk-provider",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

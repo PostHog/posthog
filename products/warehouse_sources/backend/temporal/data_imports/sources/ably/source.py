@@ -45,7 +45,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
-    codebase_detection = detect(npm=("ably",), pypi=("ably",), env=("^ABLY_",))
+    codebase_detection = detect(env=("^ABLY_",), npm=("ably",), pypi=("ably",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://ably.com/docs/api/rest-api"

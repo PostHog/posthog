@@ -47,7 +47,7 @@ KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a fe
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
-    codebase_detection = detect(npm=("@paddle/paddle-node-sdk", "@paddle/paddle-js"), env=("^PADDLE_",))
+    codebase_detection = detect(env=("^PADDLE_",), npm=("@paddle/paddle-node-sdk", "@paddle/paddle-js"))
 
     api_docs_url = "https://developer.paddle.com"
 

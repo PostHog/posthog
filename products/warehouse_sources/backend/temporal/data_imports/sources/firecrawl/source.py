@@ -38,7 +38,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConfig]):
-    codebase_detection = detect(npm=("@mendable/firecrawl-js",), pypi=("firecrawl-py",), env=("^FIRECRAWL_",))
+    codebase_detection = detect(env=("^FIRECRAWL_",), npm=("@mendable/firecrawl-js",), pypi=("firecrawl-py",))
 
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     supported_versions = ("v2",)

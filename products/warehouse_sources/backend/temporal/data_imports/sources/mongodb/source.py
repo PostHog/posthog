@@ -156,10 +156,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
     # Matches both MONGO_* and MONGODB_* prefixes (e.g. MONGO_HOST,
     # MONGODB_URI) in one pattern.
     codebase_detection = detect(
-        npm=("mongodb", "mongoose"),
-        pypi=("pymongo", "motor"),
-        rubygems=("mongo", "mongoid"),
-        env=("^MONGO(DB)?_",),
+        env=("^MONGO(DB)?_",), npm=("mongodb", "mongoose"), pypi=("pymongo", "motor"), rubygems=("mongo", "mongoid")
     )
 
     @property

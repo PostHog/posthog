@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConfig]):
-    codebase_detection = detect(npm=("bitbucket",), env=("^BITBUCKET_",))
+    codebase_detection = detect(env=("^BITBUCKET_",), npm=("bitbucket",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -109,10 +109,10 @@ class StripeSource(
     OAuthMixin,
 ):
     codebase_detection = detect(
+        env=("^STRIPE_(SECRET|API)_KEY$",),
         npm=("stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"),
         pypi=("stripe",),
         rubygems=("stripe",),
-        env=("^STRIPE_(SECRET|API)_KEY$",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

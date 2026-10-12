@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LoopsSource(ResumableSource[LoopsSourceConfig, LoopsResumeConfig]):
-    codebase_detection = detect(npm=("loops",), env=("^LOOPS_",))
+    codebase_detection = detect(env=("^LOOPS_",), npm=("loops",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

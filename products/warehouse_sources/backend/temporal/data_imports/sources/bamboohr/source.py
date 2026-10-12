@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]):
-    codebase_detection = detect(pypi=("pybamboohr",), env=("^BAMBOOHR_", "^BAMBOO_HR_"))
+    codebase_detection = detect(env=("^BAMBOOHR_", "^BAMBOO_HR_"), pypi=("pybamboohr",))
 
     supported_versions = ("v1",)
     default_version = "v1"

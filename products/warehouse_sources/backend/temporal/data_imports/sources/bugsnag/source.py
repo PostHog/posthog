@@ -37,10 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
     codebase_detection = detect(
+        env=("^BUGSNAG_",),
         npm=("@bugsnag/js",),
         pypi=("bugsnag",),
         rubygems=("bugsnag",),
-        env=("^BUGSNAG_",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

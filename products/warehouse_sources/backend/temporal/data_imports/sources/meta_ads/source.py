@@ -86,9 +86,7 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 @SourceRegistry.register
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        npm=("facebook-nodejs-business-sdk",),
-        pypi=("facebook-business",),
-        env=("^META_ADS_", "^FACEBOOK_ADS_"),
+        env=("^META_ADS_", "^FACEBOOK_ADS_"), npm=("facebook-nodejs-business-sdk",), pypi=("facebook-business",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

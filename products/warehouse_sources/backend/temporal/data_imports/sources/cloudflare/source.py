@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
-    codebase_detection = detect(npm=("cloudflare",), pypi=("cloudflare",), env=("^CLOUDFLARE_", "^CF_API_TOKEN$"))
+    codebase_detection = detect(env=("^CLOUDFLARE_", "^CF_API_TOKEN$"), npm=("cloudflare",), pypi=("cloudflare",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

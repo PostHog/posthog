@@ -54,9 +54,9 @@ _PARENT_PROBE_PATHS = {
 @SourceRegistry.register
 class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
+        env=("^FLAGSMITH_",),
         npm=("flagsmith-nodejs", "flagsmith"),
         pypi=("flagsmith",),
-        env=("^FLAGSMITH_",),
         competes_with=(ProductKey.FEATURE_FLAGS,),
     )
 

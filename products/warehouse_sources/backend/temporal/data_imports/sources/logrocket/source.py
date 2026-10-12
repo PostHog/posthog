@@ -33,8 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConfig]):
     codebase_detection = detect(
-        npm=("logrocket", "logrocket-react", "@logrocket/react-native"),
         env=("^LOGROCKET_",),
+        npm=("logrocket", "logrocket-react", "@logrocket/react-native"),
         competes_with=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
     )
 

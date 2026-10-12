@@ -43,9 +43,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
     codebase_detection = detect(
+        env=("^SEGMENT_",),
         npm=("@segment/analytics-node", "analytics-node"),
         pypi=("segment-analytics-python", "analytics-python"),
-        env=("^SEGMENT_",),
         competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 

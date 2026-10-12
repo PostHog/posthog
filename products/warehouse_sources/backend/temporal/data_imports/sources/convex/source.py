@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 @SourceRegistry.register
 class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig], CursorSource[ConvexDataSyncCursor]):
-    codebase_detection = detect(npm=("convex",), pypi=("convex",), env=("^CONVEX_", "^NEXT_PUBLIC_CONVEX_URL$"))
+    codebase_detection = detect(env=("^CONVEX_", "^NEXT_PUBLIC_CONVEX_URL$"), npm=("convex",), pypi=("convex",))
 
     api_docs_url = "https://docs.convex.dev/"
 

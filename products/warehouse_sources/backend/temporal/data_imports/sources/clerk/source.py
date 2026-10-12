@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     codebase_detection = detect(
+        env=("^CLERK_SECRET_KEY$", "^NEXT_PUBLIC_CLERK_"),
         npm=(
             "@clerk/nextjs",
             "@clerk/clerk-react",
@@ -39,7 +40,6 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
             "@clerk/fastify",
             "@clerk/remix",
         ),
-        env=("^CLERK_SECRET_KEY$", "^NEXT_PUBLIC_CLERK_"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

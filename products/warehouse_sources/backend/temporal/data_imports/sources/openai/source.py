@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
-    codebase_detection = detect(npm=("openai",), pypi=("openai",), env=("^OPENAI_",))
+    codebase_detection = detect(env=("^OPENAI_",), npm=("openai",), pypi=("openai",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://platform.openai.com/docs/api-reference"

@@ -54,7 +54,7 @@ class PipedriveSource(
     ResumableSource[PipedriveSourceConfig, PipedriveResumeConfig],
     WebhookSource[PipedriveSourceConfig],
 ):
-    codebase_detection = detect(npm=("pipedrive",), env=("^PIPEDRIVE_",))
+    codebase_detection = detect(env=("^PIPEDRIVE_",), npm=("pipedrive",))
 
     supported_versions = ("v1", "v2")
     default_version = "v2"

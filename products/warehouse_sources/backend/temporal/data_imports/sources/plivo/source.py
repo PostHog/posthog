@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlivoSource(ResumableSource[PlivoSourceConfig, PlivoResumeConfig]):
-    codebase_detection = detect(npm=("plivo",), pypi=("plivo",), env=("^PLIVO_",))
+    codebase_detection = detect(env=("^PLIVO_",), npm=("plivo",), pypi=("plivo",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.plivo.com/docs/"

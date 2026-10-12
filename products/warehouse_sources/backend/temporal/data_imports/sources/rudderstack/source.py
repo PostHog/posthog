@@ -44,9 +44,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResumeConfig]):
     codebase_detection = detect(
+        env=("^RUDDERSTACK_",),
         npm=("@rudderstack/analytics-js", "@rudderstack/rudder-sdk-node", "rudder-sdk-js"),
         pypi=("rudder-sdk-python",),
-        env=("^RUDDERSTACK_",),
         competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 

@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
-    codebase_detection = detect(npm=("asana",), pypi=("asana",), env=("^ASANA_",))
+    codebase_detection = detect(env=("^ASANA_",), npm=("asana",), pypi=("asana",))
 
     supported_versions = ("1.0",)
     default_version = "1.0"

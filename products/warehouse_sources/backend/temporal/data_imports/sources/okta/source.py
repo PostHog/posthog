@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OktaSource(ResumableSource[OktaSourceConfig, OktaResumeConfig]):
     codebase_detection = detect(
-        npm=("@okta/okta-sdk-nodejs", "@okta/okta-auth-js", "@okta/okta-react"), pypi=("okta",), env=("^OKTA_",)
+        env=("^OKTA_",), npm=("@okta/okta-sdk-nodejs", "@okta/okta-auth-js", "@okta/okta-react"), pypi=("okta",)
     )
 
     supported_versions = ("v1",)

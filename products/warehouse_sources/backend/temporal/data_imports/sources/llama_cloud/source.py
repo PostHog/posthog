@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeConfig]):
-    codebase_detection = detect(npm=("llama-cloud-services",), pypi=("llama-cloud-services",), env=("^LLAMA_CLOUD_",))
+    codebase_detection = detect(env=("^LLAMA_CLOUD_",), npm=("llama-cloud-services",), pypi=("llama-cloud-services",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.llamaindex.ai/python/cloud/"

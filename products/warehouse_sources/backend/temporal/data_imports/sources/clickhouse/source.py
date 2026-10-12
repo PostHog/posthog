@@ -158,7 +158,7 @@ ClickHouseErrors: dict[str, str] = {
 @SourceRegistry.register
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        npm=("@clickhouse/client",), pypi=("clickhouse-connect", "clickhouse-driver"), env=("^CLICKHOUSE_",)
+        env=("^CLICKHOUSE_",), npm=("@clickhouse/client",), pypi=("clickhouse-connect", "clickhouse-driver")
     )
 
     # Lets users pick which columns to sync (and, in the wizard, surfaces the

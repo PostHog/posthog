@@ -43,8 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResumeConfig]):
     # Logtail is Better Stack's log product - same account, same source.
     codebase_detection = detect(
-        npm=("@logtail/node", "@logtail/js"),
         env=("^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_"),
+        npm=("@logtail/node", "@logtail/js"),
         competes_with=(ProductKey.LOGS,),
     )
 

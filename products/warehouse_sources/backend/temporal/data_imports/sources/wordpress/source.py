@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConfig]):
     # NOTE: recall is low here. Most WordPress projects are PHP, and
     # `composer.json` is not one of the manifests we read.
-    codebase_detection = detect(npm=("wpapi",), env=("^WORDPRESS_",))
+    codebase_detection = detect(env=("^WORDPRESS_",), npm=("wpapi",))
 
     supported_versions = ("v2",)
     default_version = "v2"

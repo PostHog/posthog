@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GrafanaSource(ResumableSource[GrafanaSourceConfig, GrafanaResumeConfig]):
-    codebase_detection = detect(pypi=("grafana-client",), env=("^GRAFANA_",))
+    codebase_detection = detect(env=("^GRAFANA_",), pypi=("grafana-client",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

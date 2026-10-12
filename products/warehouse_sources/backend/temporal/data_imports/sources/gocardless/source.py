@@ -39,10 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeConfig]):
     codebase_detection = detect(
-        npm=("gocardless-nodejs",),
-        pypi=("gocardless-pro",),
-        rubygems=("gocardless_pro",),
-        env=("^GOCARDLESS_",),
+        env=("^GOCARDLESS_",), npm=("gocardless-nodejs",), pypi=("gocardless-pro",), rubygems=("gocardless_pro",)
     )
 
     supported_versions = ("2015-07-06",)

@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitBookSource(ResumableSource[GitBookSourceConfig, GitBookResumeConfig]):
-    codebase_detection = detect(npm=("@gitbook/api",), env=("^GITBOOK_",))
+    codebase_detection = detect(env=("^GITBOOK_",), npm=("@gitbook/api",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://gitbook.com/docs/developers/gitbook-api/api-reference"

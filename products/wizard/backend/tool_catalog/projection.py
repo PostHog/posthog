@@ -44,9 +44,9 @@ def catalog_json() -> str:
             "competes_with": [product.value for product in tool.detection.competes_with],
             "superseded_by": list(tool.detection.superseded_by),
             "signals": {
-                "packages": {ecosystem.value: list(names) for ecosystem, names in tool.detection.packages.items()},
                 "env_key_patterns": list(tool.detection.env_key_patterns),
                 "script_hosts": list(tool.detection.script_hosts),
+                "packages": {ecosystem.value: list(names) for ecosystem, names in tool.detection.packages.items()},
             },
         }
         for tool in get_tool_catalog()

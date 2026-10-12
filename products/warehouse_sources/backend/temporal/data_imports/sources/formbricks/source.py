@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
-    codebase_detection = detect(npm=("@formbricks/js",), env=("^FORMBRICKS_",))
+    codebase_detection = detect(env=("^FORMBRICKS_",), npm=("@formbricks/js",))
 
     supported_versions = FORMBRICKS_SUPPORTED_VERSIONS
     default_version = FORMBRICKS_DEFAULT_VERSION

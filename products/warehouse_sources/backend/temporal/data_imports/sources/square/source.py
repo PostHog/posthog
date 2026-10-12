@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SquareSource(ResumableSource[SquareSourceConfig, SquareResumeConfig]):
-    codebase_detection = detect(npm=("square",), pypi=("squareup",), rubygems=("square",), env=("^SQUARE_",))
+    codebase_detection = detect(env=("^SQUARE_",), npm=("square",), pypi=("squareup",), rubygems=("square",))
 
     supported_versions = ("v2",)
     default_version = "v2"

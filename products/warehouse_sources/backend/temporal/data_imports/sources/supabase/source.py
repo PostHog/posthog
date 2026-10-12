@@ -98,7 +98,7 @@ _VAULT_SCHEMA = "vault"
 
 @SourceRegistry.register
 class SupabaseSource(PostgresSource):
-    codebase_detection = detect(npm=("@supabase/supabase-js",), pypi=("supabase",), env=("^SUPABASE_",))
+    codebase_detection = detect(env=("^SUPABASE_",), npm=("@supabase/supabase-js",), pypi=("supabase",))
 
     def __init__(self):
         super().__init__(source_name="Supabase")

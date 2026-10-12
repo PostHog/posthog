@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
-    codebase_detection = detect(npm=("drip-nodejs",), env=("^DRIP_",))
+    codebase_detection = detect(env=("^DRIP_",), npm=("drip-nodejs",))
 
     supported_versions = ("v2",)
     default_version = "v2"

@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JotformSource(ResumableSource[JotformSourceConfig, JotformResumeConfig]):
-    codebase_detection = detect(pypi=("jotform",), env=("^JOTFORM_",))
+    codebase_detection = detect(env=("^JOTFORM_",), pypi=("jotform",))
 
     api_docs_url = "https://api.jotform.com/docs/"
 

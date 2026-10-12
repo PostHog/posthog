@@ -36,9 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeConfig]):
     codebase_detection = detect(
-        npm=("@fusionauth/typescript-client",),
-        pypi=("fusionauth-client",),
-        env=("^FUSIONAUTH_", "^FUSION_AUTH_"),
+        env=("^FUSIONAUTH_", "^FUSION_AUTH_"), npm=("@fusionauth/typescript-client",), pypi=("fusionauth-client",)
     )
 
     api_docs_url = "https://fusionauth.io/docs/apis/"

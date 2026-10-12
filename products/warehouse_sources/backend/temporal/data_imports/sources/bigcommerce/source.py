@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResumeConfig]):
-    codebase_detection = detect(npm=("node-bigcommerce",), env=("^BIGCOMMERCE_",))
+    codebase_detection = detect(env=("^BIGCOMMERCE_",), npm=("node-bigcommerce",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

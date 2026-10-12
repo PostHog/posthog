@@ -38,9 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
     codebase_detection = detect(
+        env=("^CONFIGCAT_",),
         npm=("configcat-node", "configcat-js"),
         pypi=("configcat-client",),
-        env=("^CONFIGCAT_",),
         competes_with=(ProductKey.FEATURE_FLAGS,),
     )
 

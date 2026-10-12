@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
-    codebase_detection = detect(npm=("snyk",), pypi=("pysnyk",), env=("^SNYK_",))
+    codebase_detection = detect(env=("^SNYK_",), npm=("snyk",), pypi=("pysnyk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

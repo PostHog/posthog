@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
-    codebase_detection = detect(npm=("svix",), pypi=("svix",), env=("^SVIX_",))
+    codebase_detection = detect(env=("^SVIX_",), npm=("svix",), pypi=("svix",))
 
     supported_versions = ("v1",)
     default_version = "v1"

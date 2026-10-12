@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TypeformSource(SimpleSource[TypeformSourceConfig]):
-    codebase_detection = detect(npm=("@typeform/api-client",), env=("^TYPEFORM_",), competes_with=(ProductKey.SURVEYS,))
+    codebase_detection = detect(env=("^TYPEFORM_",), npm=("@typeform/api-client",), competes_with=(ProductKey.SURVEYS,))
 
     api_docs_url = "https://www.typeform.com/developers/"
 

@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConfig]):
     codebase_detection = detect(
+        env=("^AMPLITUDE_",),
         npm=(
             "@amplitude/analytics-browser",
             "@amplitude/analytics-node",
@@ -45,7 +46,6 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "amplitude-js",
         ),
         pypi=("amplitude-analytics",),
-        env=("^AMPLITUDE_",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

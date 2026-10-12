@@ -60,7 +60,7 @@ class MailgunSource(
     WebhookSource[MailgunSourceConfig],
 ):
     codebase_detection = detect(
-        npm=("mailgun.js", "mailgun-js"), pypi=("mailgun",), rubygems=("mailgun-ruby",), env=("^MAILGUN_",)
+        env=("^MAILGUN_",), npm=("mailgun.js", "mailgun-js"), pypi=("mailgun",), rubygems=("mailgun-ruby",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

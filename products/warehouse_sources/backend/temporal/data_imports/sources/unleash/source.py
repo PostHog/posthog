@@ -37,10 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
     codebase_detection = detect(
-        npm=("unleash-client",),
-        pypi=("unleashclient",),
-        env=("^UNLEASH_",),
-        competes_with=(ProductKey.FEATURE_FLAGS,),
+        env=("^UNLEASH_",), npm=("unleash-client",), pypi=("unleashclient",), competes_with=(ProductKey.FEATURE_FLAGS,)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

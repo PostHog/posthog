@@ -39,9 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
     codebase_detection = detect(
+        env=("^SPLITIO_", "^SPLIT_IO_"),
         npm=("@splitsoftware/splitio",),
         pypi=("splitio-client",),
-        env=("^SPLITIO_", "^SPLIT_IO_"),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

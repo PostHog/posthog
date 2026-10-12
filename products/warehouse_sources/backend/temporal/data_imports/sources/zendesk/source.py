@@ -43,11 +43,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
     codebase_detection = detect(
-        setup_requires_ui=True,
+        env=("^ZENDESK_",),
         npm=("node-zendesk",),
         pypi=("zenpy",),
-        env=("^ZENDESK_",),
         competes_with=(ProductKey.CONVERSATIONS,),
+        setup_requires_ui=True,
     )
 
     supported_versions = ("v2",)

@@ -63,7 +63,7 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class AlgoliaSource(ResumableSource[AlgoliaSourceConfig, AlgoliaResumeConfig]):
     codebase_detection = detect(
-        npm=("algoliasearch",), pypi=("algoliasearch",), rubygems=("algolia",), env=("^ALGOLIA_",)
+        env=("^ALGOLIA_",), npm=("algoliasearch",), pypi=("algoliasearch",), rubygems=("algolia",)
     )
 
     api_docs_url = "https://www.algolia.com/doc/rest-api/search"

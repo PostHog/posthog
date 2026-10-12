@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
-    codebase_detection = detect(npm=("twilio",), pypi=("twilio",), rubygems=("twilio-ruby",), env=("^TWILIO_",))
+    codebase_detection = detect(env=("^TWILIO_",), npm=("twilio",), pypi=("twilio",), rubygems=("twilio-ruby",))
 
     supported_versions = ("2010-04-01",)
     default_version = "2010-04-01"

@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlainSource(SimpleSource[PlainSourceConfig]):
-    codebase_detection = detect(npm=("@team-plain/typescript-sdk",), env=("^PLAIN_",))
+    codebase_detection = detect(env=("^PLAIN_",), npm=("@team-plain/typescript-sdk",))
 
     supported_versions = ("v1",)
     default_version = "v1"

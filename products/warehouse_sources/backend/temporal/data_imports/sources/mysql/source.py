@@ -102,10 +102,10 @@ class MySQLSource(
     ValidateDatabaseHostMixin,
 ):
     codebase_detection = detect(
+        env=("^MYSQL_",),
         npm=("mysql", "mysql2"),
         pypi=("pymysql", "mysqlclient", "mysql-connector-python"),
         rubygems=("mysql2",),
-        env=("^MYSQL_",),
     )
 
     def resume_covers_run(
