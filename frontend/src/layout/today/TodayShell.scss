@@ -27,9 +27,20 @@
 .TodayShell__sidebar--framed {
     height: auto;
     margin-top: var(--today-frame-inset);
-    border: 1px solid var(--border);
-    border-bottom: 0;
     border-top-left-radius: var(--today-frame-radius);
+
+    // An overlay, like the content frame, so the border takes no space. The pane header then starts at the same
+    // point as the scene header, and the sidebar toggle stays under the pointer when the sidebar hides.
+    &::after {
+        position: absolute;
+        inset: 0;
+        z-index: var(--z-layout-navbar-under);
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--border);
+        border-bottom: 0;
+        border-radius: inherit;
+    }
 }
 
 .TodayAppLayout__backdrop {
@@ -80,14 +91,16 @@
 
 .TodayShell__drawer {
     position: fixed;
-    top: 0;
-    bottom: 0;
+    top: var(--today-frame-inset);
+    bottom: var(--today-frame-inset);
     left: var(--today-rail-width);
     z-index: var(--z-layout-navbar);
     max-width: calc(100vw - var(--today-rail-width) - 3rem);
+    height: auto;
+    overflow: hidden;
     visibility: hidden;
     background: var(--today-paper);
-    border-right: 1px solid var(--today-line);
+    border-radius: 0 var(--today-frame-radius) var(--today-frame-radius) 0;
     box-shadow: 24px 0 48px -24px rgb(0 0 0 / 28%);
     opacity: 0;
     transition:
@@ -101,10 +114,22 @@
         opacity: 1;
         transform: none;
     }
+
+    // An overlay border, like the docked frame, so the pane header starts where the scene header does.
+    &::after {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--border);
+        border-radius: inherit;
+    }
 }
 
 .TodayAppLayout--phone {
-    --today-phone-header-height: 52px;
+    // Matches the pane header, so the top bar and the sidebar page share one height.
+    --today-phone-header-height: 42px;
     --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
 
     padding-top: var(--today-phone-header-height);
@@ -125,7 +150,7 @@
     gap: 4px;
     align-items: center;
     height: var(--today-phone-header-height);
-    padding: 0 12px 0 8px;
+    padding: 0 8px;
     color: var(--today-ink);
     background: var(--today-paper);
     border-bottom: 1px solid transparent;
