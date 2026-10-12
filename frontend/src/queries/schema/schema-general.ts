@@ -1433,6 +1433,10 @@ export interface GoalLine {
     displayLabel?: boolean
     displayIfCrossed?: boolean
     position?: 'start' | 'end'
+    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+    calculation?: 'fixed' | 'mean' | 'median' | 'min' | 'max'
+    /** SQL chart calculations use the primary axis, across all series or separately per series. */
+    scope?: 'all' | 'series'
 }
 
 export interface ChartAxis {
@@ -6877,6 +6881,8 @@ export interface DashboardFilter {
     interval?: IntervalType | null
     /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
     filterTestAccounts?: boolean | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilter | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilter[] | null
 }
@@ -6889,6 +6895,7 @@ export interface TileFilters {
     explicitDate?: boolean | undefined
     interval?: IntervalType | null | undefined
     filterTestAccounts?: boolean | null | undefined
+    compareFilter?: CompareFilter | null | undefined
     /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
     ignoreDashboardFilters?: boolean | null | undefined
 }

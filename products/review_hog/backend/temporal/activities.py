@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -33,10 +34,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
+from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
+from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
@@ -44,6 +47,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
+    COORDINATOR_MAX_SUBAGENTS,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -60,7 +64,7 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_design,
     validation_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on
+from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -132,6 +136,11 @@ from products.review_hog.backend.reviewer.status_comment import (
     maybe_refresh_status_comment,
 )
 from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
+from products.review_hog.backend.reviewer.tools.coordinator_review import (
+    CoordinatorReview,
+    CoordinatorUnit,
+    coordinator_prompt,
+)
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -189,6 +198,7 @@ from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.agents import AgentTurnFailed
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:
@@ -264,8 +274,13 @@ class ReviewMeta:
     lens_chunk_count: int = 0
     # True when the PR passed the lens part cap, so the status comment says it ran in larger parts.
     lens_chunks_capped: bool = False
+    # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
+    # so a replay takes the same branch. Older histories decode as separate sessions.
+    coordinator: bool = False
     # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
+    # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
+    skip_agent_review: bool = False
 
 
 @dataclass(frozen=False)
@@ -407,6 +422,17 @@ class LensReviewInput(SandboxStageInput):
     chunk_id: int
 
 
+@dataclass(frozen=False)
+class CoordinatorReviewInput(SandboxStageInput):
+    lens_chunk_count: int
+
+
+@frozen
+class CoordinatorReviewResult:
+    # Lens sub-agents that failed twice or ran out of time. Their findings are missing.
+    lens_failures: int
+
+
 @dataclass
 class ValidateChunkInput(SandboxStageInput):
     chunk_id: int
@@ -519,6 +545,8 @@ class FlashSessionStats:
     lens_timeouts: int
     # The longest session, main or lens, from its start to its result or failure.
     slowest_session_seconds: float
+    # The sessions ran as sub-agents of one coordinator session, and the slowest session is that one.
+    coordinator: bool = False
 
 
 @frozen
@@ -559,6 +587,7 @@ class RecordTurnMarkerInput:
     review_mode: str
     flash_reasoning_effort: str
     review_design: str = REVIEW_DESIGN_PIPELINE
+    coordinator: bool = False
 
 
 @frozen
@@ -574,6 +603,7 @@ class TrackReviewStartedInput:
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
     review_design_reason: str = ""
+    coordinator: bool = False
 
 
 @frozen
@@ -610,6 +640,8 @@ class StatusCommentInput:
     report_id: str
     review_mode: str = REVIEW_MODE_FULL
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # The failed turn, for the failure edit. None in payloads from before the field existed.
+    run_index: int | None = None
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -794,8 +826,16 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         merge_base_sha=fetched.merge_base_sha,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
+    # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
+    # delivery, so the webhook payload can miss the label.
+    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
+        fetched.pr_metadata.labels
+    )
+    if skip_agent_review:
+        observe_dispatch("label_skipped")
     if already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or fetched.pr_metadata.state != "open")
+        input.trigger_source == TRIGGER_AUTOMATIC
+        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
     ):
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
             status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
@@ -822,7 +862,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
+        coordinator=single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number),
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
+        skip_agent_review=skip_agent_review,
     )
 
 
@@ -1020,6 +1062,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             review_mode=input.review_mode,
             flash_reasoning_effort=input.flash_reasoning_effort,
             review_design=input.review_design,
+            coordinator=input.coordinator,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -1331,8 +1374,8 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
 # --- Single-agent review (the main Flash session and its lens sessions) ---------------------------
 
 
-def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool) -> str:
-    """The task prompt of the main session, or of one lens session on lens part `chunk_id`."""
+def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
+    """The prompt of the main session, or of one lens session on lens part `chunk_id`."""
     snapshot = load_pr_snapshot(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
     )
@@ -1352,6 +1395,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
+        guidelines=guidelines,
         scope_files=scope_files,
         for_lens=for_lens,
     ).render()
@@ -1363,7 +1407,7 @@ async def _run_single_agent_session(
     pass_number: int,
     chunk_id: int,
     source: str,
-    system_prompt: str,
+    guidelines: str,
     step_name: str,
     for_lens: bool,
 ) -> None:
@@ -1385,7 +1429,7 @@ async def _run_single_agent_session(
         logger.info("Reusing the persisted %s result for this turn", step_name)
         return
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input, chunk_id, for_lens
+        input, chunk_id, for_lens, guidelines
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         try:
@@ -1395,7 +1439,8 @@ async def _run_single_agent_session(
                 repository=input.repository,
                 branch=input.branch,
                 prompt=prompt,
-                system_prompt=system_prompt,
+                # The guidelines sit inside the prompt, after the part sibling sessions share.
+                system_prompt="",
                 model_to_validate=SingleAgentReview,
                 step_name=step_name,
                 workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
@@ -1429,7 +1474,7 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
         pass_number=SINGLE_AGENT_PASS_NUMBER,
         chunk_id=SINGLE_AGENT_CHUNK_ID,
         source=SINGLE_AGENT_SOURCE,
-        system_prompt=load_core_prompt(),
+        guidelines=load_core_prompt(),
         step_name="single-agent-review",
         for_lens=False,
     )
@@ -1446,10 +1491,114 @@ async def lens_review_activity(input: LensReviewInput) -> None:
         pass_number=lens.pass_number,
         chunk_id=input.chunk_id,
         source=lens.source,
-        system_prompt=load_prompt_file(lens_prompt_path(lens.prompt_file)),
+        guidelines=load_prompt_file(lens_prompt_path(lens.prompt_file)),
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
     )
+
+
+def _coordinator_units(input: CoordinatorReviewInput, done: set[tuple[int, int]]) -> list[CoordinatorUnit]:
+    """The review units of this turn that have no persisted result yet, each with its full session prompt."""
+    units: list[CoordinatorUnit] = []
+    if (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID) not in done:
+        units.append(
+            CoordinatorUnit(
+                task_name=f"main_{SINGLE_AGENT_CHUNK_ID}",
+                pass_number=SINGLE_AGENT_PASS_NUMBER,
+                chunk_id=SINGLE_AGENT_CHUNK_ID,
+                source=SINGLE_AGENT_SOURCE,
+                prompt=_prepare_single_agent_prompt(input, SINGLE_AGENT_CHUNK_ID, False, load_core_prompt()),
+            )
+        )
+    for name, lens in FLASH_LENSES.items():
+        guidelines = load_prompt_file(lens_prompt_path(lens.prompt_file))
+        for chunk_id in range(1, input.lens_chunk_count + 1):
+            if (lens.pass_number, chunk_id) in done:
+                continue
+            units.append(
+                CoordinatorUnit(
+                    task_name=f"{name.replace('-', '_')}_{chunk_id}",
+                    pass_number=lens.pass_number,
+                    chunk_id=chunk_id,
+                    source=lens.source,
+                    prompt=_prepare_single_agent_prompt(input, chunk_id, True, guidelines),
+                )
+            )
+    return units
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def coordinator_review_activity(input: CoordinatorReviewInput) -> CoordinatorReviewResult:
+    """Run the main review and every lens part as sub-agents of one coordinator session (idempotent).
+
+    Each sub-agent's findings persist under the key of its separate session, so dedup reads them the same
+    way. A failed lens sub-agent costs only its own findings. A failed main sub-agent fails the attempt,
+    and the retry runs only the units without a result.
+    """
+    arm = SINGLE_AGENT_FLASH_ARM
+    done = await database_sync_to_async(load_perspective_results, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        review_arm=arm,
+        review_design=REVIEW_DESIGN_SINGLE_AGENT,
+    )
+    units = await database_sync_to_async(_coordinator_units, thread_sensitive=False)(input, set(done))
+    if not units:
+        logger.info("Reusing the persisted sub-agent results for this turn")
+        return CoordinatorReviewResult(lens_failures=0)
+    step_name = "flash-coordinator"
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
+        try:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt="",
+                system_prompt=coordinator_prompt(units, model=arm.model, reasoning_effort=arm.reasoning_effort.value),
+                model_to_validate=CoordinatorReview,
+                step_name=step_name,
+                workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+                runtime_adapter=arm.runtime_adapter,
+                model=arm.model,
+                reasoning_effort=arm.reasoning_effort,
+                initial_permission_mode=arm.initial_permission_mode,
+                files=[SessionFile(name=unit.file_name, content=unit.prompt) for unit in units],
+                codex_max_subagents=COORDINATOR_MAX_SUBAGENTS,
+            )
+        except AgentTurnFailed as exc:
+            _raise_if_non_retryable_unit_failure(exc)
+            raise
+    reviews = review.reviews_by_task()
+    results = {
+        (unit.pass_number, unit.chunk_id): IssuesReview(
+            issues=issues_from_review(
+                reviews[unit.task_name],
+                pass_number=unit.pass_number,
+                chunk_id=unit.chunk_id,
+                source=unit.source,
+            )
+        )
+        for unit in units
+        if unit.task_name in reviews
+    }
+    logger.info("The coordinator returned %s of %s sub-agent result(s)", len(results), len(units))
+    if results:
+        await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            head_sha=input.head_sha,
+            results=results,
+            review_arm=arm,
+        )
+        await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
+    failed = [unit for unit in units if unit.task_name not in reviews]
+    if any(unit.pass_number == SINGLE_AGENT_PASS_NUMBER for unit in failed):
+        raise ApplicationError("The main review sub-agent failed")
+    return CoordinatorReviewResult(lens_failures=len(failed))
 
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
@@ -1604,7 +1753,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
-            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
+            app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments, app_login)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1859,6 +2009,13 @@ def _publish(input: PublishInput) -> PublishResult:
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
+def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
+    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
+    if error.retry_after is None:
+        return error
+    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1868,29 +2025,35 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
-    try:
-        github_api_request(
-            "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/reviewhog",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-            installation_id=installation_id,
-        )
-    except GitHubAPIError as error:
-        if error.status != 404:
-            raise
+    # The run does not know which label started it, and a label added during the run joins it, so the
+    # run removes every review label.
+    for label in sorted(REVIEW_LABELS):
+        try:
+            github_api_request(
+                "DELETE",
+                f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{label}",
+                token=token,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+                installation_id=installation_id,
+            )
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the label that started a label-triggered review, if it is still present."""
+    """Remove the review labels that started a label-triggered review, if they are still present."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
@@ -1966,6 +2129,7 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_lens_failures": sessions.lens_failures,
                 "flash_lens_timeouts": sessions.lens_timeouts,
                 "flash_slowest_session_seconds": sessions.slowest_session_seconds,
+                "flash_coordinator": sessions.coordinator,
             }
         )
     return properties
@@ -1996,6 +2160,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
                 review_design=input.review_design,
             ),
             "review_design_reason": input.review_design_reason or None,
+            "flash_coordinator": input.coordinator,
             **_pr_size_properties(snapshot),
         },
         groups=groups(team=report.team),
@@ -2237,28 +2402,34 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    try:
+        await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
     report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
-    if report is not None:
-        record_run_outcome(
-            team_id,
-            report_id,
-            stage=RUN_STAGE_REVIEW,
-            outcome=RUN_OUTCOME_FAILED,
-            reason=REVIEW_FAILED_REASON,
-            # A run that dies in the publish window already counts its turn in `run_count`.
-            run_index=report.run_count if in_publish_window(report) else report.run_count + 1,
-            review_mode=review_mode,
-            head_sha=report.head_sha,
-        )
-    fail_status_comment(team_id, report_id, review_mode=review_mode)
+    if report is None:
+        return
+    if run_index is None:
+        # A run that dies in the publish window already counts its turn in `run_count`.
+        run_index = report.run_count if in_publish_window(report) else report.run_count + 1
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_FAILED,
+        reason=REVIEW_FAILED_REASON,
+        run_index=run_index,
+        review_mode=review_mode,
+        head_sha=report.head_sha,
+    )
+    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
@@ -2270,7 +2441,9 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(
+        input.team_id, input.report_id, input.review_mode, input.run_index
+    )
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

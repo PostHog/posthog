@@ -597,6 +597,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
+    # The facade logs a version change as `uploaded_version` or `activated_version` at the write
+    # site, so the save that only moves the active version must not add an `updated` row.
+    "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
     # and the failure streak by the runner on every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
@@ -719,6 +722,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
         "pull_requests",
+    ],
+    "StreamlitApp": [
+        # Reverse relations. Version uploads and activations log their own rows, and a version's
+        # str() includes the app name, so a rename would show a false versions change.
+        "versions",
+        "sandbox",
     ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
@@ -1716,8 +1725,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     if not created:
         return

@@ -50,36 +50,24 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.hog_invocation_cancel import (
-    HogInvocationCancelRequestSerializer,
-    HogInvocationCancelResponseSerializer,
-)
-from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
-from posthog.api.hog_invocation_results import (
-    HogInvocationResultDetailSerializer,
-    HogInvocationResultsCountSerializer,
-    HogInvocationResultSerializer,
-    HogInvocationResultsFiltersSerializer,
-    HogInvocationResultsRequestSerializer,
-    fetch_hog_invocation_result,
-    fetch_hog_invocation_results,
-    fetch_hog_invocation_results_count,
-    tag_invocation_results_query,
-)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
-from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    AccessControlPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -96,6 +84,36 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
+)
+from products.cdp.backend.presentation.hog_functions import (
+    DATA_WAREHOUSE_SOURCES,
+    FLAG_GATED_TEMPLATE_IDS,
+    compile_filters_expr,
+    gated_template_enabled,
+)
+from products.cdp.backend.presentation.hog_invocations.cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.rerun import (
+    HogInvocationRerunRequestSerializer,
+    HogInvocationRerunResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.results import (
+    HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
+    HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
+    HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_result,
+    fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
+    tag_invocation_results_query,
+)
+from products.cdp.backend.presentation.serializers import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaSerializer,
+    InputsSerializer,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -223,6 +241,12 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
 )
+from products.workflows.backend.facade.suggestions_scout import (
+    PROPOSAL_WRITE_SCOPE,
+    suggestions_scout_refusal,
+    suggestions_scout_status,
+    sync_suggestions_scout,
+)
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
@@ -277,6 +301,9 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
+)
+from products.workflows.backend.presentation.views.workflow_classifications import (
+    WorkflowClassificationRequestSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -479,6 +506,10 @@ _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 # build panel only hides the node, and the catalog still advertises it to a child-environment
 # workflow built through the API or MCP.
 _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
+
+# The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
+# 400, which fails the step on every run, so a strict save applies the same limits.
+_CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1399,6 +1430,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
+    def _validate_classify_action(self, inputs: dict) -> None:
+        data = {key: (inputs.get(key) or {}).get("value") for key in ("question", "categories", "model")}
+        if data["model"] is None:
+            del data["model"]
+        # Reuses the endpoint's serializer so the save-time and runtime limits cannot drift apart.
+        serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError({"inputs": serializer.errors})
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1665,6 +1705,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if strict and template_id == _CLASSIFY_TEMPLATE_ID:
+                    self._validate_classify_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -3601,8 +3643,34 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
     pass
 
 
+class SuggestionsScoutStatus(models.TextChoices):
+    RUNNING = "running"
+    PAUSED_BY_USER = "paused_by_user"
+    PAUSED_BY_SYSTEM = "paused_by_system"
+    NOT_RUNNING = "not_running"
+
+
 class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
+    scout_status = serializers.ChoiceField(
+        choices=SuggestionsScoutStatus.choices,
+        read_only=True,
+        help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
+        "workflows that have suggestions on.",
+    )
+
+
+# Why turning suggestions on would leave the project without a scout, worded for the person who tried.
+SUGGESTIONS_REFUSAL_MESSAGES: dict[str, str] = {
+    "at_limit": "This project already runs as many scouts as it can. Turn one off in scout settings, then try again.",
+    "no_skill_access": "You need editor access to skills to turn on suggestions. Ask a project admin for access.",
+    "ai_not_approved": "Suggestions use AI, and your organization hasn't approved AI data processing. "
+    "An organization admin can approve it in organization settings.",
+    "not_skill_author": "Suggestions run as the person who wrote this project's workflows scout. "
+    "Ask them or a project admin to turn on suggestions.",
+    "key_cannot_grant": "This API key can't turn on suggestions. Use a key with the hog_flow_proposal:write scope "
+    "and access to the whole project.",
+}
 
 
 class WorkflowProposalSerializer(serializers.Serializer):
@@ -4695,6 +4763,14 @@ class HogFlowViewSet(
         )
         self._emit_resource_edited(serializer.instance)
 
+        # A workflow that kept suggestions on while it was off needs its scout back when it goes live again.
+        if (
+            result.previous.get("status") != HogFlowState.ACTIVE
+            and serializer.instance.status == HogFlowState.ACTIVE
+            and is_optimization_enabled(serializer.instance.id)
+        ):
+            self._sync_suggestions_scout(self.request)
+
         # PostHog capture for hog_flow activated (draft -> active)
         if result.previous.get("status") == HogFlowState.DRAFT and serializer.instance.status == HogFlowState.ACTIVE:
             self._report_workflow_action(
@@ -5486,6 +5562,12 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
+            if enabled and not is_optimization_enabled(instance.id):
+                refusal = suggestions_scout_refusal(
+                    self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
+                )
+                if refusal is not None:
+                    raise exceptions.ValidationError({"enabled": SUGGESTIONS_REFUSAL_MESSAGES[str(refusal)]})
             changed = set_optimization_enabled(hog_flow_id=instance.id, enabled=enabled)
             if changed:
                 self._log_activity(
@@ -5494,10 +5576,35 @@ class HogFlowViewSet(
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
+                self._sync_suggestions_scout(request)
         else:
             enabled = is_optimization_enabled(instance.id)
 
-        return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
+        return Response(
+            HogFlowOptimizationSerializer(
+                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
+            ).data
+        )
+
+    def _may_grant_scout(self, request: Request) -> bool:
+        # Switching the scout on grants a write scope that its runs use as this person, so a scoped API
+        # key has to carry that scope itself, whichever way it toggles.
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        # The scout lives on the project, so a key limited to one of its environments may not grant it.
+        project_id = self.team.parent_team_id or self.team.id
+        return (token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes) and (
+            scoped_team_ids is None or project_id in scoped_team_ids
+        )
+
+    def _sync_suggestions_scout(self, request: Request) -> None:
+        # A failure never fails the toggle.
+        try:
+            sync_suggestions_scout(
+                self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
+            )
+        except Exception as error:
+            capture_exception(error)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
@@ -5515,8 +5622,7 @@ class HogFlowViewSet(
         serializer = HogFlowInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
         if payload.pop("use_draft", False):

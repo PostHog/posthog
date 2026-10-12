@@ -41,6 +41,16 @@ export const LIFECYCLE_PERSONS_MODAL_OPTIONS: TrendsPersonsModalOptions = {
     orderBy: undefined,
 }
 
+/** The tooltip's click hint and {@link handleTrendsChartClick} must agree on this, or the hint
+ *  offers a drill-down the handler then declines: `querySource` is what builds the actors query. */
+export function canHandleTrendsChartClick({
+    context,
+    hasPersonsModal,
+    querySource,
+}: Pick<TrendsChartClickDeps, 'context' | 'querySource'> & { hasPersonsModal?: boolean | null }): boolean {
+    return !!context?.onDataPointClick || (!!hasPersonsModal && !!querySource)
+}
+
 // Adapters key each hog-charts Series by `${r.id}`, so we can resolve back
 // to the source IndexedTrendResult without stashing it on meta.
 export function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {

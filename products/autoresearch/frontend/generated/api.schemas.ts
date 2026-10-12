@@ -91,6 +91,13 @@ export interface AutoresearchRealizedAucPointApi {
     readonly realized_auc: number
 }
 
+export interface AutoresearchTrainingTrendPointApi {
+    /** Iteration number inside the training run. */
+    readonly iteration_number: number
+    /** Best holdout AUC of the run up to and including this iteration. */
+    readonly best_holdout_score: number
+}
+
 export interface AutoresearchPredictionCoverageApi {
     /** People in the inference population at the run's cutoff. */
     readonly population: number
@@ -136,6 +143,11 @@ export interface AutoresearchLiveTrainingRunApi {
     readonly best_holdout_score: number | null
     /** The agent's rationale for its newest experiment. */
     readonly latest_agent_description: string
+    /**
+     * Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.
+     * @nullable
+     */
+    readonly latest_summary: string | null
 }
 
 /**
@@ -266,11 +278,28 @@ export interface AutoresearchPipelineApi {
     readonly champion_is_preliminary: boolean | null
     /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
     readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPointApi[]
+    /** Best-so-far holdout AUC per iteration of the training run that produced the current champion, oldest first. Iterations before the first holdout score are left out. Empty when the pipeline has no champion. */
+    readonly champion_training_trend: readonly AutoresearchTrainingTrendPointApi[]
     /**
      * People scored by the most recent completed inference run. Null before the first scoring run.
      * @nullable
      */
     readonly people_scored: number | null
+    /**
+     * People the newest completed live run of the current champion scored at or above likely_threshold. Null before such a run, and for runs that did not record it.
+     * @nullable
+     */
+    readonly likely_count: number | null
+    /**
+     * The Likely cut point that likely_count used, as it was when that run scored. It is the fixed cut point until enough predictions are checked. Null when likely_count is null.
+     * @nullable
+     */
+    readonly likely_threshold: number | null
+    /**
+     * When online validation can first check the current champion against real outcomes: its earliest prediction date plus the horizon plus the ingestion grace. Null before the champion's first scoring run, and once a validation has checked it.
+     * @nullable
+     */
+    readonly first_check_expected_at: string | null
     /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
     readonly coverage: AutoresearchPredictionCoverageApi | null
     /** Training runs started for this pipeline. */
@@ -867,6 +896,11 @@ export interface IterationTrailApi {
     train_score?: number | null
     /** The agent's one-line rationale for what it tried and why. */
     agent_description?: string
+    /**
+     * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+     * @nullable
+     */
+    readonly summary: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailApiModelSpec
 }
@@ -913,6 +947,16 @@ export interface AutoresearchTrainingRunApi {
     readonly best_holdout_score: number | null
     /** Distilled cross-run learning summary written on completion. Null until the run completes. */
     readonly summary: TrainingRunSummaryApi | null
+    /**
+     * One or two plain sentences on what this run learned, for people. Null if not written.
+     * @nullable
+     */
+    readonly reader_summary: string | null
+    /**
+     * Short plain-language next steps for people, at most 5. Null if not written.
+     * @nullable
+     */
+    readonly next_steps: readonly string[] | null
     /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
     readonly iterations: readonly IterationTrailApi[]
     /** Error message if the run failed. */
@@ -1042,6 +1086,19 @@ export interface CompleteTrainingRunApi {
      * @maxLength 2000
      */
     distillation?: string
+    /**
+     * One or two plain sentences for people on what this run learned. Max 600 characters.
+     * @maxLength 600
+     * @nullable
+     */
+    reader_summary?: string | null
+    /**
+     * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 80
+     */
+    next_steps?: string[] | null
     /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
     report_notebook_short_id?: string
 }
@@ -1134,6 +1191,12 @@ export interface RecordIterationApi {
      */
     agent_description?: string
     /**
+     * One plain sentence for people on what this experiment tried and what happened. Max 300 characters.
+     * @maxLength 300
+     * @nullable
+     */
+    summary?: string | null
+    /**
      * Agent's self-assessed confidence (0-1) that this iteration helps.
      * @minimum 0
      * @maximum 1
@@ -1202,6 +1265,11 @@ export interface AutoresearchIterationApi {
     holdout_score?: number | null
     status: AutoresearchIterationStatusEnumApi
     agent_description?: string
+    /**
+     * Plain-language sentence on what this experiment tried and what happened, for people.
+     * @nullable
+     */
+    summary?: string | null
     /**
      * Agent's self-assessed confidence 0–1
      * @nullable
@@ -1313,6 +1381,11 @@ export interface IterationTrailWithRecipeApi {
     train_score?: number | null
     /** The agent's one-line rationale for what it tried and why. */
     agent_description?: string
+    /**
+     * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+     * @nullable
+     */
+    readonly summary: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailWithRecipeApiModelSpec
     /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -1476,7 +1549,7 @@ export interface ConfusionByCutoffApi {
     top_10: ConfusionCountsApi
     /** Counts when the top 20% of users by score are flagged. */
     top_20: ConfusionCountsApi
-    /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+    /** Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged. */
     likely: ConfusionCountsApi
 }
 
@@ -1558,6 +1631,11 @@ export interface OnlinePerformanceRowApi {
     /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
     confusion: ConfusionByCutoffApi | null
     /**
+     * The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.
+     * @nullable
+     */
+    likely_threshold: number | null
+    /**
      * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
      * @nullable
      */
@@ -1574,9 +1652,39 @@ export interface OnlinePerformanceRowApi {
     validated_at: string | null
 }
 
+export interface PredictionSegmentThresholdsApi {
+    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+    likely_threshold: number
+    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+    possible_threshold: number
+    /** How many times the base rate a score must reach to be in the Likely segment. */
+    likely_lift: number
+    /**
+     * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+     * @nullable
+     */
+    base_rate: number | null
+    /** Number of checked prediction dates the base rate pools. */
+    base_rate_dates: number
+    /**
+     * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
+     * @nullable
+     */
+    champion_mean_p_y: number | null
+    /**
+     * The real rate of the target event over the same dates as champion_mean_p_y.
+     * @nullable
+     */
+    champion_base_rate: number | null
+    /** True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert. */
+    scores_miscalibrated: boolean
+}
+
 export interface OnlinePerformanceApi {
     /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
     rows: OnlinePerformanceRowApi[]
+    /** The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit. */
+    segment_thresholds: PredictionSegmentThresholdsApi
 }
 
 export interface StartTrainingRequestApi {

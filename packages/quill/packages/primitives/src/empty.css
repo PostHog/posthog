@@ -61,4 +61,13 @@
         width: 1rem;
         height: 1rem;
     }
+
+    /* An IconStack in the media slot spreads evenly to both sides, so it stays centered. */
+    .quill-empty .quill-icon-stack {
+        --icon-stack-shift: calc(
+            (var(--icon-stack-count) - 1) * (var(--icon-stack-spread) - var(--icon-stack-step)) / -2
+        );
+
+        margin-bottom: 0.5rem;
+    }
 }

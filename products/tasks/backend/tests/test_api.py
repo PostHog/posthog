@@ -41,7 +41,12 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_US,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+)
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -1534,18 +1539,41 @@ class TestTaskAPI(BaseTaskAPITest):
         assert body["detail"] == "Task usage is temporarily unavailable."
         assert body["code"] == "task_usage_upstream_unavailable"
 
-    def test_desktop_oauth_task_creation_records_trusted_provenance(self):
-        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+    @parameterized.expand(
+        [
+            ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
+            (
+                "web",
+                ARRAY_APP_CLIENT_ID_DEV,
+                TaskClientProvenance.POSTHOG_WEB,
+                TaskClientProvenance.POSTHOG_WEB,
+            ),
+        ]
+    )
+    def test_oauth_task_creation_records_trusted_client_provenance(
+        self,
+        _name: str,
+        client_id: str,
+        header: TaskClientProvenance | None,
+        expected: TaskClientProvenance,
+    ) -> None:
+        client = self._oauth_client(client_id)
+        request_headers: dict[str, Any] = {}
+        if header:
+            request_headers["HTTP_X_POSTHOG_CLIENT_PROVENANCE"] = header
 
         response = client.post(
             "/api/projects/@current/tasks/",
-            {"title": "Desktop task", "description": "Created in Desktop"},
+            {"title": "Client task", "description": "Created in a first-party client"},
             format="json",
+            **request_headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=response.json()["id"])
-        self.assertEqual(task.client_provenance, TaskClientProvenance.POSTHOG_DESKTOP)
+        self.assertEqual(task.client_provenance, expected)
+        self.assertEqual(response.json()["client_provenance"], expected)
 
     @parameterized.expand(
         [
@@ -2698,6 +2726,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.SPACE_SETUP,),
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
+            (Task.OriginProduct.METRICS_IMPORT,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -3905,9 +3934,29 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("merge", {"state": {"run_source": "manual", "pr_base_branch": "other"}}, True),
-            ("remove", {"state_remove_keys": ["run_source", "pr_base_branch"]}, True),
-            ("append", {"state_append": {"run_source": ["manual"], "pr_base_branch": ["other"]}}, True),
+            (
+                "merge",
+                {
+                    "state": {
+                        "run_source": "manual",
+                        "pr_base_branch": "other",
+                        "failure_error_type": "ComputeBillingLimitError",
+                    }
+                },
+                True,
+            ),
+            ("remove", {"state_remove_keys": ["run_source", "pr_base_branch", "failure_error_type"]}, True),
+            (
+                "append",
+                {
+                    "state_append": {
+                        "run_source": ["manual"],
+                        "pr_base_branch": ["other"],
+                        "failure_error_type": ["ComputeBillingLimitError"],
+                    }
+                },
+                True,
+            ),
             ("empty_list", {"state": []}, False),
             ("default_branch", {"branch": "other", "state": {"branch": "other"}}, True),
         ]
@@ -3942,6 +3991,7 @@ class TestTaskAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.state["run_source"], "agent")
         self.assertEqual(run.state["pr_base_branch"], base_branch)
+        self.assertNotIn("failure_error_type", run.state)
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
 
@@ -7895,26 +7945,43 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
 
-    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
-    def test_update_run_status_to_failed_signals_workflow_with_error(self, mock_signal):
+    @parameterized.expand(
+        [
+            ("with_error_type", {"error_type": "agent_declined"}, "agent_declined"),
+            ("without_error_type", {}, None),
+        ]
+    )
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_update_run_status_to_failed_signals_workflow_with_error(
+        self, _name, error_type_payload, expected_failure_error_type, mock_connect
+    ):
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"status": "failed", "error_message": "Something went wrong"},
+            {"status": "failed", "error_message": "Something went wrong", "error_type": "bogus"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "failed", "error_message": "Something went wrong", **error_type_payload},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        mock_signal.assert_called_once()
-        call_args = mock_signal.call_args
-        self.assertEqual(call_args[0][1], "failed")
-        self.assertEqual(call_args[0][2], "Something went wrong")
+        handle.signal.assert_awaited_once()
+        self.assertEqual(handle.signal.call_args.args[0].__name__, "complete_task")
+        self.assertEqual(handle.signal.call_args.kwargs["args"], ["failed", "Something went wrong"])
 
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertEqual(run.error_message, "Something went wrong")
+        self.assertEqual(run.state.get("failure_error_type"), expected_failure_error_type)
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_cancelled_signals_workflow(self, mock_signal):

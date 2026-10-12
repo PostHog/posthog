@@ -80,9 +80,11 @@ def validate_deploy_url(deploy_url: str) -> str:
 
     host = (parsed.hostname or "").lower()
     if not host or not _CONVEX_CLOUD_HOST_RE.match(host):
+        # The deploy key only goes to Convex-hosted deployments, so custom domains and
+        # self-hosted backends are refused here rather than probed.
         raise InvalidDeployUrlError(
-            f"Deployment URL host must match <deployment-name>.convex.cloud or "
-            f"<deployment-name>.<region>.convex.cloud, got: {host!r}."
+            "Enter your deployment's .convex.cloud URL, not a custom domain. "
+            "Copy it from Settings > URL & Deploy Key in your Convex dashboard, then reconnect."
         )
 
     if parsed.query:
@@ -442,12 +444,16 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
                     False,
                     "Convex rejected your deploy key. Copy a new deploy key from your Convex dashboard, then reconnect.",
                 )
+            if e.response.status_code == 404:
+                return (
+                    False,
+                    "PostHog couldn't find this Convex deployment. Copy the deployment URL from your Convex dashboard, then reconnect.",
+                )
         # Any other status falls through to a generic message. Keep the raw error
         # (which embeds the deployment URL) out of what the user sees.
-        detail = f" (HTTP {e.response.status_code})" if e.response is not None else ""
         return (
             False,
-            f"The Convex deployment rejected the request{detail}. Check your deployment URL and deploy key, then try again.",
+            "The Convex deployment rejected the request. Check your deployment URL and deploy key, then try again.",
         )
     except RequestsConnectionError:
         return False, "Could not connect to the Convex deployment. Check your deployment URL and try again."
