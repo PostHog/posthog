@@ -5,6 +5,8 @@ from products.signals.backend.report_generation.research import ResearchReviewer
 
 
 def resolve_research_reviewers(team_id: int, decision: ResearchReviewerDecision) -> list[ReviewerContent]:
+    if not decision.reviewers:
+        return []
     team = Team.objects.get(id=team_id)
     members = {
         member.uuid: member
@@ -16,7 +18,7 @@ def resolve_research_reviewers(team_id: int, decision: ResearchReviewerDecision)
         member = members.get(entry.user_uuid)
         if member is None or entry.user_uuid in seen:
             continue
-        login = member.get_github_login()
+        login = member.get_github_login(include_team_fallback=False)
         if login and login.lower().endswith("[bot]"):
             continue
         seen.add(entry.user_uuid)
@@ -28,6 +30,7 @@ def resolve_research_reviewers(team_id: int, decision: ResearchReviewerDecision)
                 relevant_commits=[],
                 reason=entry.reason,
                 is_skill_owner=False,
+                is_research_selected=True,
                 source_skill=None,
             )
         )

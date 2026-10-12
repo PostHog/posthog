@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 from uuid import UUID
 
 from django.db import transaction
@@ -167,6 +167,7 @@ class ReviewerContent(TypedDict):
     # True when a scout's own reviewer pick matches a current `LLMSkillOwner` (editor-controlled) and
     # was stamped for it. These route the report but are never eligible to select the autostart task identity.
     is_skill_owner: bool
+    is_research_selected: NotRequired[bool]
     # The scout skill whose run wrote this entry (None when no scout did). Carried so the live owner
     # exclusion still knows the writing scout when the run's best-effort edit tally was lost.
     source_skill: str | None
@@ -1143,9 +1144,9 @@ def _resolve_autostart_assignee(
 ) -> User | None:
     """Return the first suggested reviewer whose effective priority threshold allows auto-start.
 
-    Only used for trusted (pipeline / custom-agent / scout) reviewer lists, which are derived from
-    commit authorship rather than user input. User-triggered auto-start does not resolve a named
-    reviewer at all — it runs as the triggering user (see `_resolve_triggering_user`), so a user
+    Only reviewers with trusted identity evidence can select the task user. Research decisions
+    route the report but do not authorize the task. User-triggered auto-start does not resolve a
+    named reviewer — it runs as the triggering user (see `_resolve_triggering_user`), so a user
     can't name a colleague and have the agent run under that colleague's identity.
 
     Owner-provenance entries (``is_skill_owner``) are excluded from identity selection: a scout is
@@ -1171,6 +1172,7 @@ def _resolve_autostart_assignee(
         r
         for r in reviewers_content
         if not r.get("is_skill_owner")
+        and not r.get("is_research_selected")
         and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
     login_to_user = resolve_org_github_login_to_users(
@@ -1623,6 +1625,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     relevant_commits=entry.get("relevant_commits") or [],
                     reason=entry.get("reason"),
                     is_skill_owner=bool(entry.get("is_skill_owner")),
+                    is_research_selected=bool(entry.get("is_research_selected")),
                     source_skill=str(source_skill) if source_skill else None,
                 )
             )

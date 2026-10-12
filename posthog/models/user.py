@@ -568,7 +568,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         return None
 
-    def get_github_login(self) -> str | None:
+    def get_github_login(self, *, include_team_fallback: bool = True) -> str | None:
         """Resolve this user's GitHub login.
 
         Precedence:
@@ -577,12 +577,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
            team's GitHub integration (e.g. captured at install). Still a supported integration path,
            lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+
+        Set `include_team_fallback=False` when a member's personal GitHub identity is required.
         """
-        return (
-            self._get_github_login_from_user_integration()
-            or self._get_github_login_from_social_auth()
-            or self._get_github_login_from_team_integration()
-        )
+        login = self._get_github_login_from_user_integration() or self._get_github_login_from_social_auth()
+        if login or not include_team_fallback:
+            return login
+        return self._get_github_login_from_team_integration()
 
     def join(
         self,

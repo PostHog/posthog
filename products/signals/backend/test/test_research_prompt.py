@@ -472,8 +472,9 @@ class TestBuildReportPresentationPrompt:
         assert ('"reviewer_decision"' in prompt) == enabled
         assert ("scout-members-list" in prompt) == enabled
         assert ("scout-notes-list" in prompt) == enabled
+        assert ("advanced-activity-logs-list" in prompt) == enabled
+        assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
-
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)

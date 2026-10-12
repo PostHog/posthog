@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -18,7 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink, TaskRunArtefact
+from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
     ImplementationReportContent,
@@ -30,6 +30,7 @@ from products.signals.backend.auto_start import (
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
     _has_unimplemented_work,
+    _latest_reviewers_content,
     _live_skill_owner_identities,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
@@ -96,6 +97,7 @@ def _reviewer(
     *,
     user_uuid: str | None = None,
     is_skill_owner: bool = False,
+    is_research_selected: bool = False,
     source_skill: str | None = None,
 ) -> ReviewerContent:
     return ReviewerContent(
@@ -105,6 +107,7 @@ def _reviewer(
         relevant_commits=[],
         reason=None,
         is_skill_owner=is_skill_owner,
+        is_research_selected=is_research_selected,
         source_skill=source_skill,
     )
 
@@ -190,6 +193,51 @@ def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, te
         )
         is None
     )
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_assignee_skips_research_selected_reviewer(organization, team):
+    _create_org_member_with_github("research@example.com", organization, "researcher")
+    author = _create_org_member_with_github("author@example.com", organization, "author")
+
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        reviewers_content=[_reviewer("researcher", is_research_selected=True), _reviewer("author")],
+        team_default_priority=Priority.P4,
+    )
+
+    assert assignee is not None
+    assert assignee.id == author.id
+    assert (
+        _resolve_autostart_assignee(
+            team_id=team.id,
+            report_priority=Priority.P0,
+            reviewers_content=[_reviewer("researcher", is_research_selected=True)],
+            team_default_priority=Priority.P4,
+        )
+        is None
+    )
+
+
+@pytest.mark.django_db
+def test_persisted_research_reviewer_cannot_select_task_user(organization, team):
+    member = _create_org_member_with_github("research@example.com", organization, "researcher")
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=str(report.id),
+        content=SuggestedReviewers.model_validate(
+            [{"github_login": "researcher", "user_uuid": str(member.uuid), "is_research_selected": True}]
+        ),
+        attribution=ArtefactAttribution.system(),
+        reevaluate_autostart=False,
+    )
+
+    reviewers, editor_user_id = async_to_sync(_latest_reviewers_content)(str(report.id))
+
+    assert editor_user_id is None
+    assert _resolve_autostart_assignee(team.id, Priority.P0, reviewers, Priority.P4) is None
 
 
 @pytest.mark.django_db

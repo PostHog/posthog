@@ -191,8 +191,9 @@ Use the `posthog_mcp_scopes` parameter to control access:
 The internal `signals_research` preset also reads the project-member roster through `scout-members-list`.
 It can write to the scratchpad, but it cannot emit signals, edit reports, or start tasks.
 Report research returns reviewer decisions as structured output; the pipeline validates project access before it stores them.
-The `signals-research-reviewer-selection` flag controls this selection path. A missing decision uses the existing ownership and commit resolver.
-An explicit empty decision clears automatic suggestions. Human reviewer edits take precedence.
+The `signals-research-reviewer-selection` flag controls this selection path. Research picks route the report but cannot select the autostart task user.
+A missing decision or a decision with no valid members uses the ownership and commit resolver.
+An explicit empty decision clears automatic suggestions and records its reason in the report log. Human reviewer edits take precedence.
 
 ### Custom scopes
 

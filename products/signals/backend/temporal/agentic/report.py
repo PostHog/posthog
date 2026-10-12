@@ -23,7 +23,13 @@ from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
+from products.signals.backend.artefact_schemas import (
+    ArtefactContent,
+    NoteArtefact,
+    RelatedTo,
+    ReportLink,
+    SuggestedReviewers,
+)
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind, SuggestedSourceProduct
 from products.signals.backend.models import (
@@ -762,17 +768,39 @@ async def _persist_agentic_report_artefacts(
     priority_judgment_id: UUID | None = None,
 ) -> None:
     reviewer_resolution = None
-    if result.reviewer_decision is not None:
-        reviewers_content = await database_sync_to_async(resolve_research_reviewers, thread_sensitive=False)(
-            team_id, result.reviewer_decision
-        )
-    else:
-        reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
-            team_id=team_id,
-            repository=repo_selection.repository or "",
-            findings=result.effective_findings(),
-        )
-        reviewers_content = reviewer_resolution.reviewers
+    reviewers_content: list[ReviewerContent] = []
+    research_outcome: str | None = None
+    decision = result.reviewer_decision
+    if decision is not None:
+        try:
+            reviewers_content = await database_sync_to_async(resolve_research_reviewers, thread_sensitive=False)(
+                team_id, decision
+            )
+        except Exception as error:
+            research_outcome = "research_lookup_failed"
+            logger.warning(
+                "Research reviewer lookup failed", team_id=team_id, report_id=report_id, error_type=type(error).__name__
+            )
+        else:
+            if not decision.reviewers:
+                research_outcome = "research_cleared"
+            elif reviewers_content:
+                research_outcome = "research_selected"
+            else:
+                research_outcome = "research_candidates_rejected"
+    if decision is None or research_outcome == "research_candidates_rejected":
+        try:
+            reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
+                team_id=team_id,
+                repository=repo_selection.repository or "",
+                findings=result.effective_findings(),
+            )
+        except Exception as error:
+            logger.warning(
+                "Legacy reviewer lookup failed", team_id=team_id, report_id=report_id, error_type=type(error).__name__
+            )
+        else:
+            reviewers_content = reviewer_resolution.reviewers
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
     # persisted row. An explicit reviewer decision can change even when the findings do not.
@@ -824,7 +852,18 @@ async def _persist_agentic_report_artefacts(
     ]
     if result.verification_note is not None:
         artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
-    if result.reviewer_decision is not None or (reviewers_content and has_new_finding):
+    if research_outcome == "research_cleared" and decision is not None:
+        artefacts.append(
+            ArtefactDraft(
+                content=NoteArtefact(note=f"Research proposed no reviewers: {decision.reason}"),
+                attribution=research_attribution,
+            )
+        )
+    if research_outcome in {"research_selected", "research_cleared"} or (
+        reviewer_resolution is not None
+        and reviewers_content
+        and (has_new_finding or research_outcome == "research_candidates_rejected")
+    ):
         artefacts.append(
             ArtefactDraft(
                 content=SuggestedReviewers.model_validate(list(reviewers_content)),
@@ -854,6 +893,7 @@ async def _persist_agentic_report_artefacts(
                 if reviewer["user_uuid"] and not reviewer["github_login"]
             ],
             source="pipeline",
+            resolution_outcome=research_outcome,
         )
     elif not reviewers_content and reviewer_resolution is not None:
         # An empty list persists nothing, so without this the report's lack of a reviewer is
@@ -869,6 +909,7 @@ async def _persist_agentic_report_artefacts(
                 "Reviewer resolution came back empty but the report keeps its previous reviewers",
                 report_id=report_id,
                 outcome=reviewer_resolution.diagnostics.outcome,
+                research_outcome=research_outcome,
             )
         else:
             await database_sync_to_async(capture_suggested_reviewers_unresolved, thread_sensitive=False)(
@@ -877,6 +918,7 @@ async def _persist_agentic_report_artefacts(
                 diagnostics=reviewer_resolution.diagnostics,
                 finding_count=len(result.effective_findings()),
                 has_new_finding=has_new_finding,
+                resolution_outcome=research_outcome,
             )
 
     # Backfill the research task's title now that research has produced the report title. At

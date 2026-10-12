@@ -20,6 +20,7 @@ from products.signals.backend.report_generation.ownership_reviewers import (
     suggest_repository_owners,
 )
 from products.signals.backend.report_generation.research import ReportResearchOutput, ResearchReviewerDecision
+from products.signals.backend.report_generation.research_reviewers import resolve_research_reviewers
 from products.signals.backend.report_generation.resolve_reviewers import _ResolvedReviewer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import (
@@ -302,9 +303,59 @@ def test_research_decision_controls_persisted_reviewers(team, selection):
         assert len(reviewers) == 1
         assert reviewers[0].user_uuid == str(member.uuid)
         assert reviewers[0].reason == "Owns the affected component."
+        assert reviewers[0].is_research_selected
         assert capture.call_args.kwargs["user_uuids"] == [str(member.uuid)]
+        assert capture.call_args.kwargs["resolution_outcome"] == "research_selected"
     elif selection == "missing":
         assert [entry.github_login for entry in reviewers] == ["legacy"]
-    else:
+    elif selection == "empty":
         assert reviewers == []
-        assert capture.call_args.kwargs["github_logins"] == []
+        assert capture.call_args.kwargs["resolution_outcome"] == "research_cleared"
+        notes = SignalReportArtefact.objects.filter(report=report, type="note")
+        assert any(decision.reason in note.content for note in notes)
+    else:
+        assert [entry.github_login for entry in reviewers] == ["legacy"]
+        assert capture.call_args.kwargs["resolution_outcome"] == "research_candidates_rejected"
+
+
+@pytest.mark.django_db
+def test_research_reviewer_does_not_inherit_team_integration_login(team):
+    member = User.objects.create(email="candidate@example.com")
+    OrganizationMembership.objects.create(organization=team.organization, user=member)
+    decision = ResearchReviewerDecision.model_validate(
+        {"reviewers": [{"user_uuid": str(member.uuid), "reason": "Owns this area."}], "reason": "Current owner."}
+    )
+
+    with patch.object(User, "_get_github_login_from_team_integration", return_value="integration-owner") as fallback:
+        reviewers = resolve_research_reviewers(team.id, decision)
+
+    assert reviewers[0]["github_login"] is None
+    assert reviewers[0]["is_research_selected"]
+    fallback.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_failed_research_reviewer_lookup_keeps_report_findings(team):
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
+    decision = ResearchReviewerDecision.model_validate({"reviewers": [], "reason": "No member fits this report."})
+    result = ReportResearchOutput(
+        title="Report",
+        summary="Summary",
+        reviewer_decision=decision,
+        new_artefacts=[SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)],
+    )
+    with (
+        patch("products.signals.backend.temporal.agentic.report.resolve_research_reviewers", side_effect=RuntimeError),
+        patch("products.signals.backend.temporal.agentic.report.capture_suggested_reviewers_resolved") as capture,
+        patch(
+            "products.signals.backend.temporal.agentic.report.database_sync_to_async",
+            side_effect=lambda func, **kwargs: sync_to_async(func, thread_sensitive=True),
+        ),
+    ):
+        async_to_sync(_persist_agentic_report_artefacts)(
+            team.id, str(report.id), result, RepoSelectionResult(repository=None, reason="No repository")
+        )
+
+    assert SignalReportArtefact.objects.filter(report=report, type="signal_finding").exists()
+    assert not SignalReportArtefact.objects.filter(report=report, type="suggested_reviewers").exists()
+    capture.assert_not_called()
