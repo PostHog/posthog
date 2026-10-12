@@ -1002,6 +1002,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "order": 0,
                 },
                 "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj",
+                {"secret": True},
             ),
             (
                 "dictionary_without_templating",
@@ -1016,11 +1017,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"Authorization": "Bearer I AM SECRET"},
                 {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
                 None,
+                {"secret": True, "value": {"Authorization": "********"}},
             ),
         ]
     )
     def test_secret_inputs_not_returned(
-        self, _name, schema, secret_value, expected_encrypted_input, expected_ciphertext, *args
+        self, _name, schema, secret_value, expected_encrypted_input, expected_ciphertext, expected_masked, *args
     ):
         payload = {
             "name": "Fetch URL",
@@ -1029,7 +1031,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "inputs": {schema["key"]: {"value": secret_value}},
             "type": "destination",
         }
-        expectation = {schema["key"]: {"secret": True}}
+        expectation = {schema["key"]: expected_masked}
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
         with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
