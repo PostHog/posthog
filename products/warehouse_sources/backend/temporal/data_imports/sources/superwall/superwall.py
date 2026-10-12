@@ -81,7 +81,7 @@ def get_resource(config: SuperwallSourceConfig, name: str, api_version: str) -> 
 
 def probe_credentials(config: SuperwallSourceConfig, schema_name: str | None, api_version: str) -> Response:
     endpoint = cast(Endpoint, get_resource(config, schema_name, api_version)["endpoint"]) if schema_name else None
-    params = dict(endpoint.get("params", {})) if endpoint else {}
+    params = dict(endpoint.get("params") or {}) if endpoint else {}
     if "limit" in params:
         params["limit"] = 1
     with make_tracked_session(redact_values=(config.api_key,)) as session:
