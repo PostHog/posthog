@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, cast
@@ -31,6 +32,9 @@ from .utils import (
 )
 
 SESSION_ID_EXPRESSIONS = {"properties.$session_id", "$session_id"}
+# Only a short property path goes into the LLM context, so a saved expression cannot carry free-form text.
+DISPLAYABLE_EXPRESSION_RE = re.compile(r"[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*")
+DISPLAYABLE_EXPRESSION_MAX_LENGTH = 100
 
 
 @frozen
@@ -169,9 +173,6 @@ class FunnelResultsFormatter:
         hogql = self._query.funnelsFilter.funnelAggregateByHogQL if self._query.funnelsFilter else None
         if isinstance(hogql, Enum):
             hogql = hogql.value
-        if hogql:
-            # The expression goes into a pipe-delimited table, so a newline or pipe must not split rows or cells.
-            hogql = " ".join(hogql.split()).replace("|", "\\|")
         if not hogql or hogql == "person_id":
             return FunnelAggregation(
                 count_label="Total person count", distribution_label="User distribution", unit="users"
@@ -182,10 +183,16 @@ class FunnelResultsFormatter:
                 distribution_label="Session distribution",
                 unit="sessions",
             )
+        if len(hogql) <= DISPLAYABLE_EXPRESSION_MAX_LENGTH and DISPLAYABLE_EXPRESSION_RE.fullmatch(hogql):
+            return FunnelAggregation(
+                count_label=f"Total unique value count (aggregated by {hogql})",
+                distribution_label="Value distribution",
+                unit=f"unique values of {hogql}",
+            )
         return FunnelAggregation(
-            count_label=f"Total unique value count (aggregated by {hogql})",
+            count_label="Total unique value count (aggregated by a custom HogQL expression)",
             distribution_label="Value distribution",
-            unit=f"unique values of {hogql}",
+            unit="unique values of the custom HogQL expression",
         )
 
     def _format_steps_series(self, results: list[dict[str, Any]]) -> str:

@@ -250,11 +250,11 @@ class TestFunnelResultsFormatter(BaseTest):
                 "unique values of properties.account_id",
             ),
             (
-                "custom_expression_with_table_delimiters",
+                "custom_expression_not_a_property_path",
                 "concat(a,\n'x')||b",
                 None,
-                "Total unique value count (aggregated by concat(a, 'x')\\|\\|b)",
-                "unique values of concat(a, 'x')\\|\\|b",
+                "Total unique value count (aggregated by a custom HogQL expression)",
+                "unique values of the custom HogQL expression",
             ),
         ]
     )
