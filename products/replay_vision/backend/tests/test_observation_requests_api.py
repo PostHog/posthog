@@ -383,6 +383,7 @@ class TestCompleteSettledRequests(APIBaseTest):
         [
             ("workflow_woken", "workflow", None, True, 1, True, "skipped"),
             ("workflow_owner_lost_access", "workflow", None, False, 1, True, "failed"),
+            ("workflow_owner_lost_scanner_access", "workflow", None, True, 1, True, "failed"),
             ("workflow_wake_failed", "workflow", RuntimeError("engine down"), True, 1, False, None),
             ("api", "project_secret_api_key", None, True, 0, True, None),
         ]
@@ -404,6 +405,14 @@ class TestCompleteSettledRequests(APIBaseTest):
         resume.side_effect = wake_error
         self.user.is_active = owner_active
         self.user.save()
+        if _name == "workflow_owner_lost_scanner_access":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="replay_scanner", resource_id=str(self.scanner.id), access_level="none"
+            )
         request = self._request(
             {"s1": "skipped_quota"}, source=source, idempotency_key="run:step:1", created_by=self.user
         )

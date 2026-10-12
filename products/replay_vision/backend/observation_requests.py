@@ -510,6 +510,15 @@ def step_result(request: ReplayObservationRequest, progress: RequestProgress) ->
     access = recording_viewer_access(request.created_by, team)
     if access is None or session is None:
         return _step_answer("failed", None, ["The workflow's owner can no longer view session recordings."])
+    scanner = request.scanner
+    if scanner is not None:
+        can_read_scanner = bool(
+            access.check_access_level_for_object(scanner, "viewer")
+        ) and can_read_targeted_experiment(access, team.id, scanner)
+    else:
+        can_read_scanner = access.check_access_level_for_resource("replay_scanner", required_level="viewer")
+    if not can_read_scanner:
+        return _step_answer("failed", None, ["The workflow's owner can no longer read this scanner's answers."])
     observation = session.observation
     if observation is not None and not (
         accessible_observations(
