@@ -11,8 +11,12 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads import (
+    INVALID_REGION_MESSAGE,
+    LWA_REJECTED_MESSAGE,
     LWA_TOKEN_URL,
+    PROFILES_DENIED_MESSAGE,
     REPORT_POLL_MAX_ATTEMPTS,
+    UNAVAILABLE_MESSAGE,
     AmazonAdsReportError,
     AmazonAdsResumeConfig,
     AmazonAdsRetryableError,
@@ -100,34 +104,43 @@ class TestBaseUrl:
             _base_url("evil")
 
 
+def _status_response(status_code: int) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+    return resp
+
+
+def _failed_token_response(status_code: int) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.raise_for_status.side_effect = requests.HTTPError(response=_status_response(status_code))
+    return resp
+
+
 class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "token_response, profiles_response, expected",
+        [
+            (_token_response(), _json_response([{"profileId": 1}]), (True, None)),
+            (_failed_token_response(400), None, (False, LWA_REJECTED_MESSAGE)),
+            (_failed_token_response(503), None, (False, UNAVAILABLE_MESSAGE)),
+            (_token_response(), _status_response(403), (False, PROFILES_DENIED_MESSAGE)),
+            (_token_response(), _status_response(500), (False, UNAVAILABLE_MESSAGE)),
+            (requests.ConnectionError(), None, (False, UNAVAILABLE_MESSAGE)),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_when_token_mints_and_profiles_list(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}])
+    def test_validate_credentials_outcomes(self, mock_session, token_response, profiles_response, expected):
+        if isinstance(token_response, Exception):
+            mock_session.return_value.post.side_effect = token_response
+        else:
+            mock_session.return_value.post.return_value = token_response
+        mock_session.return_value.get.return_value = profiles_response
 
-        assert validate_credentials("na", "cid", "sec", "rt") is True
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_when_token_mint_fails(self, mock_session):
-        resp = mock.MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError("400 Client Error", response=mock.MagicMock())
-        mock_session.return_value.post.return_value = resp
-
-        assert validate_credentials("na", "cid", "sec", "rt") is False
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_when_profiles_forbidden(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        forbidden = mock.MagicMock()
-        forbidden.status_code = 403
-        mock_session.return_value.get.return_value = forbidden
-
-        assert validate_credentials("na", "cid", "sec", "rt") is False
+        assert validate_credentials("na", "cid", "sec", "rt") == expected
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_region_rejected_without_request(self, mock_session):
-        assert validate_credentials("evil", "cid", "sec", "rt") is False
+        assert validate_credentials("evil", "cid", "sec", "rt") == (False, INVALID_REGION_MESSAGE)
         mock_session.return_value.post.assert_not_called()
 
 
