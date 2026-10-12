@@ -1,4 +1,5 @@
 // sort-imports-ignore
+import { SESv2Client, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
@@ -2941,6 +2942,10 @@ describe('Hogflow Executor', () => {
     })
 
     describe('email queue routing', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it('should route email actions to the email queue', async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
@@ -3033,7 +3038,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueParameters?.type).toBe('email')
         })
 
-        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
+        it('returns consecutive emails to their origin queue and priority: hogflow → email queue → emails sent → workflow continues', async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3042,9 +3047,14 @@ describe('Hogflow Executor', () => {
                     name: 'Test User',
                     domain: 'posthog.com',
                     verified: true,
-                    provider: 'maildev',
+                    provider: 'ses',
                 },
             })
+            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+            sesSend
+                .mockResolvedValueOnce({ MessageId: 'first-email' })
+                .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
+                .mockResolvedValue({ MessageId: 'follow-up-email' })
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-email-routing-test',
@@ -3100,6 +3110,30 @@ describe('Hogflow Executor', () => {
                                 },
                             },
                         },
+                        email_2: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email-routing-test',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId, email: 'test@posthog.com' },
+                                            subject: 'Follow-up Email',
+                                            text: 'Follow-up text',
+                                            html: '<p>Follow-up html</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        webhook: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: { name: { value: 'Mr Debug' } },
+                            },
+                        },
                         exit: {
                             type: 'exit',
                             config: {},
@@ -3107,7 +3141,9 @@ describe('Hogflow Executor', () => {
                     },
                     edges: [
                         { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'exit', type: 'continue' },
+                        { from: 'email_1', to: 'email_2', type: 'continue' },
+                        { from: 'email_2', to: 'webhook', type: 'continue' },
+                        { from: 'webhook', to: 'exit', type: 'continue' },
                     ],
                 })
                 .build()
@@ -3133,19 +3169,25 @@ describe('Hogflow Executor', () => {
             expect(hogflowResult.invocation.queuePriority).toBe(1)
             expect(hogflowResult.invocation.queueMetadata?.originPriority).toBe(2)
 
-            // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
+            const results = []
             let emailResult = await executor.execute(hogflowResult.invocation)
-            while (!emailResult.finished) {
+            results.push(emailResult)
+            while (!emailResult.finished && emailResult.invocation.queue === 'email') {
                 emailResult = await executor.execute(emailResult.invocation)
+                results.push(emailResult)
             }
+            expect(emailResult.invocation).toMatchObject({ queue: 'hogflow', queuePriority: 2 })
 
-            // Workflow should complete
-            expect(emailResult.finished).toBe(true)
-            expect(emailResult.error).toBeUndefined()
+            let workflowResult = emailResult
+            while (!workflowResult.finished) {
+                workflowResult = await executor.execute(workflowResult.invocation)
+                results.push(workflowResult)
+            }
+            expect(workflowResult.error).toBeUndefined()
 
-            // Verify email_sent metric was emitted
-            const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
-            expect(emailSentMetrics).toHaveLength(1)
+            const emailSentMetrics = results.flatMap((r) => r.metrics).filter((m) => m.metric_name === 'email_sent')
+            expect(emailSentMetrics).toHaveLength(2)
+            expect(sesSend).toHaveBeenCalledTimes(3)
         })
     })
 })

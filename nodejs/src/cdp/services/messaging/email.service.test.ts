@@ -188,6 +188,7 @@ describe('EmailService', () => {
                 stack: [],
             } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+            invocation.queueMetadata = { originQueue: 'hogflow', originPriority: 2 }
 
             // Mock SES v2 send to avoid actual AWS calls
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
@@ -421,6 +422,7 @@ describe('EmailService', () => {
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
                 expect(scheduledMs).toBeLessThan(before + 2000)
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])
@@ -543,6 +545,7 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward: without queueParameters the
                 // retry has nothing to send and the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 // Bracketed against both ends of the call, so the bounds hold the delay itself
                 // and not the time the call took.
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
@@ -776,6 +779,7 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(false)
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
