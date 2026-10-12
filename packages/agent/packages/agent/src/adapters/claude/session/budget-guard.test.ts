@@ -4,6 +4,7 @@ import { Logger } from "../../../utils/logger";
 import {
   BUDGET_CAP_ENV,
   BUDGET_PRICES_ENV,
+  BUDGET_STEER_MAX_ATTEMPTS,
   DEFAULT_MODEL_PRICES,
   estimateMessageCostUsd,
   RunBudgetGuard,
@@ -199,6 +200,23 @@ describe("RunBudgetGuard", () => {
     guard.markUndelivered("critical");
     guard.markUndelivered("warn");
     expect(guard.takePendingSteer()).toBe("critical");
+  });
+
+  test("retries a declined steer a bounded number of times", () => {
+    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+    guard.recordAssistantMessage(opusCall("m1", 1_000_000));
+    expect(guard.hasRetryableSteer()).toBe(false);
+    for (let attempt = 1; attempt < BUDGET_STEER_MAX_ATTEMPTS; attempt++) {
+      expect(guard.takePendingSteer()).toBe("warn");
+      guard.recordSteer("warn", false);
+      guard.markUndelivered("warn");
+      expect(guard.hasRetryableSteer()).toBe(true);
+    }
+    expect(guard.takePendingSteer()).toBe("warn");
+    guard.recordSteer("warn", false);
+    guard.markUndelivered("warn");
+    expect(guard.hasRetryableSteer()).toBe(false);
+    expect(guard.takePendingSteer()).toBe("warn");
   });
 
   test("a warn steer that fails after the critical steer was delivered is not re-queued", () => {

@@ -8,6 +8,9 @@ export const BUDGET_CRITICAL_RATIO = 0.7;
 // The local estimate trails the gateway's billed spend, so stop before the cap.
 export const BUDGET_STOP_RATIO = 0.9;
 export const FAST_MODE_PRICE_MULTIPLIER = 2;
+// Bounds the redelivery of a declined steer, so a turn that keeps declining it
+// cannot flood the event stream.
+export const BUDGET_STEER_MAX_ATTEMPTS = 3;
 export const ONE_HOUR_CACHE_WRITE_INPUT_MULTIPLIER = 2;
 
 export type BudgetStage = "ok" | "warn" | "critical";
@@ -324,6 +327,16 @@ export class RunBudgetGuard {
     const stage = this.pendingSteer;
     this.pendingSteer = null;
     return stage;
+  }
+
+  /** True when a declined steer can be sent again while the model works. */
+  hasRetryableSteer(): boolean {
+    const stage = this.pendingSteer;
+    if (!stage) return false;
+    const attempts = this.steers.filter(
+      (steer) => steer.stage === stage,
+    ).length;
+    return attempts > 0 && attempts < BUDGET_STEER_MAX_ATTEMPTS;
   }
 
   markUndelivered(stage: BudgetSteerStage): void {
