@@ -27,6 +27,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
         observationLimit,
         isOn,
         estimatedMonthly,
+        estimatedMonthlyObservations,
         creditsPerObservation,
         isBelowEstimate,
         cannotAffordOneScan,
@@ -56,7 +57,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                 <LemonCard hoverEffect={false} className="p-3 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                         <div className="space-y-1">
-                            <LemonLabel>Credit limit</LemonLabel>
+                            <LemonLabel>Scanner limit</LemonLabel>
                             <div className="text-xs text-muted">
                                 Cap what this scanner spends in a billing period, on top of your organization's limit.
                             </div>
@@ -125,20 +126,24 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                             </div>
                             {cannotAffordOneScan ? (
                                 <div className="text-xs text-warning">
-                                    One scan by this scanner costs {creditsPerObservation} credits, so this limit stops
-                                    it before it scans anything. Raise it to at least {creditsPerObservation} credits.
+                                    {observationPrice != null
+                                        ? 'This limit allows 0 observations, so the scanner stops before it scans anything. Raise it to at least 1 observation.'
+                                        : `One scan by this scanner costs ${creditsPerObservation} credits, so this limit stops it before it scans anything. Raise it to at least ${creditsPerObservation} credits.`}
                                 </div>
                             ) : (
                                 isBelowEstimate && (
                                     <div className="text-xs text-warning">
-                                        This is below the estimated {creditsToUsd(estimatedMonthly ?? 0)} a month, so
-                                        the scanner is likely to stop before the period resets.
+                                        This is below the estimated{' '}
+                                        {observationPrice != null && estimatedMonthlyObservations != null
+                                            ? `${estimatedMonthlyObservations.toLocaleString('en-US')} observations`
+                                            : creditsToUsd(estimatedMonthly ?? 0)}{' '}
+                                        a month, so the scanner is likely to stop before the period resets.
                                     </div>
                                 )
                             )}
                             {observationPrice != null && (
                                 <div className="text-xs text-muted">
-                                    If you change the model, the credit limit changes to keep the same number of
+                                    If you change the model, the limit in credits changes to keep the same number of
                                     observations.
                                 </div>
                             )}

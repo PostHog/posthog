@@ -431,6 +431,7 @@ export interface CreditLimitState {
     observationLimit: number | null
     isOn: boolean
     estimatedMonthly: number | null
+    estimatedMonthlyObservations: number | null
     creditsPerObservation: number | null
     isBelowEstimate: boolean
     cannotAffordOneScan: boolean
@@ -1075,13 +1076,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     credit_limit:
                         creditLimitEnabled && scanner.credit_limit == null
                             ? // The toggle is on with an empty field. Block the save rather than silently saving as unlimited.
-                              'Enter a credit limit, or turn the limit off'
+                              'Enter a limit, or turn the limit off'
                             : scanner.credit_limit == null ||
                                 (Number.isInteger(scanner.credit_limit) &&
                                     scanner.credit_limit >= 1 &&
                                     scanner.credit_limit <= MAX_CREDIT_LIMIT)
                               ? undefined
-                              : `Credit limit must be a whole number between 1 and ${MAX_CREDIT_LIMIT.toLocaleString()}`,
+                              : `The limit must be a whole number of credits between 1 and ${MAX_CREDIT_LIMIT.toLocaleString()}`,
                     scanner_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
                 }
             },
@@ -1783,6 +1784,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             : null,
                     isOn: scanner?.credit_limit_enabled ?? limit !== null,
                     estimatedMonthly,
+                    estimatedMonthlyObservations: estimate?.estimated_observations_per_month ?? null,
                     creditsPerObservation,
                     isBelowEstimate: limit !== null && estimatedMonthly !== null && limit < estimatedMonthly,
                     // A cap under one scan's cost never admits a single scan, so the scanner is stopped from

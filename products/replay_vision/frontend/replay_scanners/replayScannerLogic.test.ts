@@ -726,7 +726,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.creditLimitState).toMatchObject({ limit: null, isOn: true })
             expect(logic.values.scannerValidationErrors).toMatchObject({
-                credit_limit: 'Enter a credit limit, or turn the limit off',
+                credit_limit: 'Enter a limit, or turn the limit off',
             })
         })
 
@@ -1168,7 +1168,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(editLogic).toMatchValues({
                 creditLimitState: expect.objectContaining({ limit: null, isOn: true }),
                 scannerValidationErrors: expect.objectContaining({
-                    credit_limit: 'Enter a credit limit, or turn the limit off',
+                    credit_limit: 'Enter a limit, or turn the limit off',
                 }),
             })
         })
