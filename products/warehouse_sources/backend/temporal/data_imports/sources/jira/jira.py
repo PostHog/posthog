@@ -55,7 +55,7 @@ SPRINT_ISSUES_JQL = f'sprint is not EMPTY AND created >= "{JQL_FLOOR_DATETIME}" 
 _VALID_SUBDOMAIN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JiraResumeConfig:
     next_page_token: Optional[str] = None
     start_at: Optional[int] = None

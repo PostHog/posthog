@@ -20,7 +20,7 @@ AGILE_PAGE_SIZE = 50
 WORKLOG_PAGE_SIZE = 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class JiraEndpointConfig:
     name: str
     path: str
