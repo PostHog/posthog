@@ -6,4 +6,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class GcpCloudBillingSourceConfig(config.Config):
-    pass
+    service_account_json: str

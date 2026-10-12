@@ -364,6 +364,7 @@ the row lists both.
 | gainsight_cs                     | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
 | gcore                            | HTTP                        | requests                                                        | ✅                          |
+| gcp_cloud_billing                | HTTP                        | google-auth + `rest_source.RESTClient`                          | ✅                          |
 | genesys_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | getdx                            | HTTP                        | requests                                                        | ✅                          |
@@ -1146,7 +1147,6 @@ doesn't conflict with concurrent PRs.
 - gcp_bigtable
 - gcp_chronicle
 - gcp_cloud_asset_inventory
-- gcp_cloud_billing
 - gcp_cloud_build
 - gcp_cloud_deploy
 - gcp_cloud_dns
