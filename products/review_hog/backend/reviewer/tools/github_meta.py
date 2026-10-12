@@ -258,6 +258,7 @@ class FetchedPR:
     diff: str
     # The commit GitHub computes the diff against. None when it was not asked for or GitHub did not return it.
     merge_base_sha: str | None = None
+    skipped_paths: tuple[str, ...] = ()
 
 
 def _merge_base_sha(comparison: dict[str, Any]) -> str | None:
@@ -338,12 +339,14 @@ def fetch_branch_compare(
     pr_filter = PRFilter(review_tests_and_text=review_tests_and_text)
     pr_parser = PRParser()
     pr_files: list[PRFile] = []
+    skipped_paths: list[str] = []
     diff_sections: list[str] = []
     additions = deletions = 0
     for file in files:
         additions += file["additions"]
         deletions += file["deletions"]
         if pr_filter.skips(file["filename"]):
+            skipped_paths.append(file["filename"])
             continue
         patch = file.get("patch")
         pr_files.append(
@@ -381,6 +384,7 @@ def fetch_branch_compare(
         pr_files=pr_files,
         diff="\n\n".join(diff_sections),
         merge_base_sha=_merge_base_sha(comparison),
+        skipped_paths=tuple(skipped_paths),
     )
 
 
@@ -470,16 +474,17 @@ class PRFetcher:
             logger.warning(f"Could not fetch review comments: {e}")
         return pr_comments
 
-    def fetch_pr_files(self, pr_filter: PRFilter, pr_parser: PRParser) -> tuple[list[PRFile], str]:
+    def fetch_pr_files(self, pr_filter: PRFilter, pr_parser: PRParser) -> tuple[list[PRFile], str, list[str]]:
         """Fetch the PR's reviewable files and the point-in-time unified diff snapshot.
 
-        Returns ``(pr_files, diff)``. The raw per-file patch is captured here — the only place with
+        Returns ``(pr_files, diff, skipped_paths)``, where ``skipped_paths`` are the files the filter left out. The raw per-file patch is captured here — the only place with
         the file's ``patch`` — into the ``diff`` snapshot, kept out of ``PRFile`` so it doesn't bloat
         the prompts that dump ``pr_files``. The snapshot is the source for the durable per-turn
         `commit` artefact (it anchors a finding to the exact reviewed code even after later
         force-pushes).
         """
         pr_files: list[PRFile] = []
+        skipped_paths: list[str] = []
         diff_sections: list[str] = []
         try:
             for file in github_api_get_paginated(
@@ -489,6 +494,7 @@ class PRFetcher:
                 endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
             ):
                 if pr_filter.skips(file["filename"]):
+                    skipped_paths.append(file["filename"])
                     continue
                 patch = file.get("patch")
                 pr_files.append(
@@ -503,7 +509,7 @@ class PRFetcher:
                 diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
         except (GitHubAPIError, GitHubRateLimitError) as e:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
-        return pr_files, "\n\n".join(diff_sections)
+        return pr_files, "\n\n".join(diff_sections), skipped_paths
 
     def fetch_merge_base_sha(self, *, base_branch: str, head_sha: str) -> str | None:
         """The commit GitHub computes the PR's diff against, or None when the compare call fails.
@@ -543,7 +549,7 @@ class PRFetcher:
         pr_parser = PRParser()
         pr_metadata = self.fetch_pr_metadata(pr)
         pr_comments = self.fetch_pr_comments(pr_filter)
-        pr_files, diff = self.fetch_pr_files(pr_filter, pr_parser)
+        pr_files, diff, skipped_paths = self.fetch_pr_files(pr_filter, pr_parser)
         merge_base_sha = (
             self.fetch_merge_base_sha(base_branch=pr_metadata.base_branch, head_sha=pr_metadata.head_sha)
             if with_merge_base and pr_metadata.head_sha
@@ -556,4 +562,5 @@ class PRFetcher:
             pr_files=pr_files,
             diff=diff,
             merge_base_sha=merge_base_sha,
+            skipped_paths=tuple(skipped_paths),
         )

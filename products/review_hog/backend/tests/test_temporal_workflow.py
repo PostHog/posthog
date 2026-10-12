@@ -10,6 +10,7 @@ from datetime import timedelta
 from typing import ClassVar
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 import temporalio.workflow
@@ -100,6 +101,7 @@ from products.review_hog.backend.temporal.activities import (
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    _nudge_stamphog,
 )
 from products.review_hog.backend.temporal.resolution import (
     FailResolutionInput,
@@ -737,6 +739,15 @@ async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
     )
     assert recorded["failed"] is fail_dedup
     assert recorded["nudges"] == [("o/r", 7, "sha1")]
+
+
+def test_nudge_stamphog_raises_a_dispatch_error_so_temporal_retries_it():
+    with patch(
+        "products.review_hog.backend.temporal.activities.request_rereview_after_external_review",
+        side_effect=ConnectionError("broker down"),
+    ):
+        with pytest.raises(ConnectionError):
+            _nudge_stamphog(TurnEndedInput(repository="o/r", pr_number=7, head_sha="sha1"))
 
 
 @pytest.mark.asyncio

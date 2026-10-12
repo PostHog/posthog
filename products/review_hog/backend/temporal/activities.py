@@ -595,6 +595,8 @@ class RecordTurnMarkerInput:
     flash_reasoning_effort: str
     review_design: str = REVIEW_DESIGN_PIPELINE
     coordinator: bool = False
+    # None in payloads from before the field existed.
+    publishes: bool | None = None
 
 
 @frozen
@@ -855,6 +857,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_files=fetched.pr_files,
         review_design=design_choice.design,
         merge_base_sha=fetched.merge_base_sha,
+        skipped_paths=fetched.skipped_paths,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
@@ -1094,6 +1097,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             flash_reasoning_effort=input.flash_reasoning_effort,
             review_design=input.review_design,
             coordinator=input.coordinator,
+            publishes=input.publishes,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -2541,12 +2545,9 @@ async def remove_review_reaction_activity(input: ReviewReactionInput) -> None:
 
 
 def _nudge_stamphog(input: TurnEndedInput) -> None:
-    try:
-        request_rereview_after_external_review(
-            repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
-        )
-    except Exception:
-        logger.exception("Could not ask stamphog to re-review %s#%s", input.repository, input.pr_number)
+    request_rereview_after_external_review(
+        repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
 
 
 @activity.defn
@@ -2556,7 +2557,8 @@ async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
     """Tell stamphog that the turn on this head ended, so a stamphog WAIT for it can run again.
 
     Stamphog waits only a few minutes for a running review, and a Deep review takes longer.
-    Stamphog decides whether to act. Fail-open: never raises.
+    Stamphog decides whether to act. A dispatch error raises, so Temporal retries it. The workflow
+    catches the final failure, because a lost nudge must never fail the review.
     """
     await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
 

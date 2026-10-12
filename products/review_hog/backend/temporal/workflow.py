@@ -711,6 +711,7 @@ class ReviewPRWorkflow:
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
                             coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
+                            publishes=publishes_to_pr,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,

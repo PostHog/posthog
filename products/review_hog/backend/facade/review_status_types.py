@@ -23,3 +23,7 @@ class HeadReviewStatus:
     # True when the turn posted a review on the PR. A clean turn posts nothing, so it stays False.
     published: bool
     head_sha: str
+    # The base branch the completed turn reviewed the head against. Empty when it is not known.
+    base_branch: str = ""
+    # The changed files the completed turn left out of the review, for example lock or test files.
+    skipped_paths: tuple[str, ...] = ()

@@ -449,12 +449,23 @@ class TestFetchPrData:
 
     @parameterized.expand(
         [
-            ("pipeline", False, ["src/module.py"]),
-            ("single_agent", True, ["tests/test_module.py", "requirements.txt", "src/module.py"]),
+            (
+                "pipeline",
+                False,
+                ["src/module.py"],
+                ["tests/test_module.py", "requirements.txt", "yarn.lock"],
+            ),
+            ("single_agent", True, ["tests/test_module.py", "requirements.txt", "src/module.py"], ["yarn.lock"]),
         ]
     )
     def test_filtered_and_test_files_are_excluded(
-        self, mock_request: Mock, mock_paginated: Mock, _name: str, review_tests_and_text: bool, expected: list[str]
+        self,
+        mock_request: Mock,
+        mock_paginated: Mock,
+        _name: str,
+        review_tests_and_text: bool,
+        expected: list[str],
+        expected_skipped: list[str],
     ) -> None:
         # A lock file never reaches the review. Test and `.txt` files reach only the single-agent
         # design, which was measured with them in its diff; the pipeline was tuned without them. A
@@ -477,6 +488,7 @@ class TestFetchPrData:
         comments, files, diff = fetched.pr_comments, fetched.pr_files, fetched.diff
 
         assert [f.filename for f in files] == expected
+        assert list(fetched.skipped_paths) == expected_skipped
         assert [comment.path for comment in comments] == (["tests/test_module.py"] if review_tests_and_text else [])
         assert ("=== tests/test_module.py [added] ===" in diff) is review_tests_and_text
         assert "yarn.lock" not in diff

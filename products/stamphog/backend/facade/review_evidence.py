@@ -3,8 +3,8 @@
 A product that reviews pull requests registers a provider from its ``AppConfig.ready()``. Stamphog
 cannot import such a product when that product already depends on stamphog, so the provider comes
 to stamphog through this registry. Stamphog's review workflow asks every registered provider. A
-pending review keeps stamphog waiting, and a completed review of the current head counts as
-assurance. A provider that raises is skipped, and with no provider stamphog reviews as before.
+pending review keeps stamphog waiting, and a completed review of the current head and base counts
+as assurance for the files it did not skip. A provider that raises is skipped, and with no provider stamphog reviews as before.
 Mirrors ``inbox_hooks.py``.
 
 Keep this module light. ``AppConfig.ready()`` imports it on the django.setup() path, so it must
@@ -39,6 +39,11 @@ class ReviewEvidence:
     # True when the review posted on the PR. A clean review can post nothing, so it stays False.
     published: bool
     head_sha: str
+    # The base branch the review took the diff against. A retarget keeps the head and changes the
+    # diff, so a review with another or an empty base does not count.
+    base_ref: str = ""
+    # The changed files the review left out. It is no assurance for those files.
+    skipped_paths: tuple[str, ...] = ()
 
 
 # (repository "owner/name", pr_number, head_sha) -> the evidence for exactly that head, or None
