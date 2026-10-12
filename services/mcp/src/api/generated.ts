@@ -39052,6 +39052,16 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
     }
 
+    export interface EmailStepImage {
+      /**
+         * ID of the workflow's email step this image renders. Its subject becomes the caption.
+         * @maxLength 200
+         */
+      action_id: string;
+      /** The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded. */
+      image_base64: string;
+    }
+
     /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
@@ -100708,6 +100718,44 @@ export namespace Schemas {
       note?: string | null;
       readonly created_by_email: string;
       readonly is_active: boolean;
+    }
+
+    export interface SharePreviewToSlackRequest {
+      /** ID of the project's Slack integration to post with. */
+      integration_id: number;
+      /** When the workflow the emails were rendered from was saved: the newer of its `updated_at` and `draft_updated_at`. A workflow saved after that is rejected, so images always match the posted text. */
+      workflow_saved_at: string;
+      /**
+         * Slack channel to post in: a channel ID, or the channel picker's `ID|#name` value. Ignored when `thread_link` is set.
+         * @nullable
+         */
+      channel?: string | null;
+      /**
+         * Link to a Slack message. The preview is posted as a reply in that message's thread.
+         * @maxLength 1000
+         * @nullable
+         */
+      thread_link?: string | null;
+      /**
+         * Message to the team.
+         * @maxLength 3000
+         */
+      note?: string;
+      /**
+         * Rendered previews of the workflow's email steps, at most one per step.
+         * @maxItems 10
+         */
+      emails?: EmailStepImage[];
+    }
+
+    export interface SharePreviewToSlackResponse {
+      /** ID of the Slack channel the preview was posted in. */
+      channel: string;
+      /**
+         * Timestamp of the thread the preview was posted in, or null for a new message.
+         * @nullable
+         */
+      thread_ts: string | null;
     }
 
     /**

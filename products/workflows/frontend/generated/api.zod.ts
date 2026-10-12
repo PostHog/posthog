@@ -2739,6 +2739,60 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+/**
+ * Post a preview of this workflow, its steps and rendered emails, to a Slack channel or thread.
+ *
+ * Signed-in people only: it has no API scope, so personal API keys and OAuth apps cannot post.
+ */
+export const hogFlowsSharePreviewToSlackBodyThreadLinkMax = 1000
+
+export const hogFlowsSharePreviewToSlackBodyNoteDefault = ``
+export const hogFlowsSharePreviewToSlackBodyNoteMax = 3000
+
+export const hogFlowsSharePreviewToSlackBodyEmailsItemActionIdMax = 200
+
+export const hogFlowsSharePreviewToSlackBodyEmailsMax = 10
+
+export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("ID of the project's Slack integration to post with."),
+    workflow_saved_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'When the workflow the emails were rendered from was saved: the newer of its `updated_at` and `draft_updated_at`. A workflow saved after that is rejected, so images always match the posted text.'
+        ),
+    channel: zod
+        .string()
+        .nullish()
+        .describe(
+            "Slack channel to post in: a channel ID, or the channel picker's `ID|#name` value. Ignored when `thread_link` is set."
+        ),
+    thread_link: zod
+        .string()
+        .max(hogFlowsSharePreviewToSlackBodyThreadLinkMax)
+        .nullish()
+        .describe("Link to a Slack message. The preview is posted as a reply in that message's thread."),
+    note: zod
+        .string()
+        .max(hogFlowsSharePreviewToSlackBodyNoteMax)
+        .default(hogFlowsSharePreviewToSlackBodyNoteDefault)
+        .describe('Message to the team.'),
+    emails: zod
+        .array(
+            zod.object({
+                action_id: zod
+                    .string()
+                    .max(hogFlowsSharePreviewToSlackBodyEmailsItemActionIdMax)
+                    .describe("ID of the workflow's email step this image renders. Its subject becomes the caption."),
+                image_base64: zod
+                    .string()
+                    .describe('The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded.'),
+            })
+        )
+        .max(hogFlowsSharePreviewToSlackBodyEmailsMax)
+        .optional()
+        .describe("Rendered previews of the workflow's email steps, at most one per step."),
+})
+
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``

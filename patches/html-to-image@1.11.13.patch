@@ -38,7 +38,7 @@ index 114cbf214f65cda237dbba67458c2b68fadf421e..6436f0377161d77ea048e8d451d68f34
      if (isInstanceOfElement(node, HTMLIFrameElement)) {
          return cloneIFrameElement(node, options);
 diff --git a/es/dataurl.js b/es/dataurl.js
-index 174e4b9c1f517448661016e619e0d9cbdc645b08..4850558b2d0a0c133f6c8a4e375e57b5da35ba44 100644
+index 174e4b9c1f517448661016e619e0d9cbdc645b08..e9fa8e4b2ff684b916b6d34bd733c8bf43bd7fdd 100644
 --- a/es/dataurl.js
 +++ b/es/dataurl.js
 @@ -9,8 +9,8 @@ export function makeDataUrl(content, mimeType) {
@@ -52,7 +52,19 @@ index 174e4b9c1f517448661016e619e0d9cbdc645b08..4850558b2d0a0c133f6c8a4e375e57b5
      }
      const blob = await res.blob();
      return new Promise((resolve, reject) => {
-@@ -69,6 +69,7 @@ export async function resourceToDataURL(resourceUrl, contentType, options) {
+@@ -40,7 +40,10 @@ function getCacheKey(url, contentType, includeQueryParams) {
+     return contentType ? `[${contentType}]${key}` : key;
+ }
+ export async function resourceToDataURL(resourceUrl, contentType, options) {
+-    const cacheKey = getCacheKey(resourceUrl, contentType, options.includeQueryParams);
++    var _a;
++    // A fetch that sends cookies can return private bytes, so it never shares an entry with one that omits them.
++    const credentials = ((_a = options.fetchRequestInit) === null || _a === void 0 ? void 0 : _a.credentials) || 'same-origin';
++    const cacheKey = `${credentials}:${getCacheKey(resourceUrl, contentType, options.includeQueryParams)}`;
+     if (cache[cacheKey] != null) {
+         return cache[cacheKey];
+     }
+@@ -69,6 +72,7 @@ export async function resourceToDataURL(resourceUrl, contentType, options) {
          if (msg) {
              console.warn(msg);
          }
@@ -282,7 +294,7 @@ index 214f4d30a50baae7f007d2399eeac298366538c7..a881e63325fbd9d77682164e4919d66d
              if ((0, util_1.isInstanceOfElement)(node, HTMLIFrameElement)) {
                  return [2 /*return*/, cloneIFrameElement(node, options)];
 diff --git a/lib/dataurl.js b/lib/dataurl.js
-index d0b4141324abeb9a47322f03ee8a297d3bc926cb..ff0e779a94af09fd81dc582fffc777d778c7708c 100644
+index d0b4141324abeb9a47322f03ee8a297d3bc926cb..3fcd39e565619f989e255c53a4e54ec21bb56882 100644
 --- a/lib/dataurl.js
 +++ b/lib/dataurl.js
 @@ -56,8 +56,8 @@ function fetchAsDataURL(url, init, process) {
@@ -296,7 +308,17 @@ index d0b4141324abeb9a47322f03ee8a297d3bc926cb..ff0e779a94af09fd81dc582fffc777d7
                      }
                      return [4 /*yield*/, res.blob()];
                  case 2:
-@@ -132,7 +132,7 @@ function resourceToDataURL(resourceUrl, contentType, options) {
+@@ -98,7 +98,8 @@ function resourceToDataURL(resourceUrl, contentType, options) {
+         return __generator(this, function (_a) {
+             switch (_a.label) {
+                 case 0:
+-                    cacheKey = getCacheKey(resourceUrl, contentType, options.includeQueryParams);
++                    // A fetch that sends cookies can return private bytes, so it never shares an entry with one that omits them.
++                    cacheKey = "".concat((options.fetchRequestInit && options.fetchRequestInit.credentials) || 'same-origin', ":").concat(getCacheKey(resourceUrl, contentType, options.includeQueryParams));
+                     if (cache[cacheKey] != null) {
+                         return [2 /*return*/, cache[cacheKey]];
+                     }
+@@ -132,7 +133,7 @@ function resourceToDataURL(resourceUrl, contentType, options) {
                      if (msg) {
                          console.warn(msg);
                      }

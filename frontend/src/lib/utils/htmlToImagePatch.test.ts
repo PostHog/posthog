@@ -202,6 +202,18 @@ describe('html-to-image patch', () => {
         }
     )
 
+    it('never serves a resource fetched with cookies to a capture that omits them', async () => {
+        const url = 'https://app.example.com/api/private.png'
+        jest.spyOn(global, 'fetch')
+            .mockResolvedValueOnce(response(200, 'private'))
+            .mockResolvedValueOnce(response(200, 'public'))
+
+        expect(await resourceToDataURL(url, 'image/png', {})).toBe('data:image/png;base64,cHJpdmF0ZQ==')
+        expect(await resourceToDataURL(url, 'image/png', { fetchRequestInit: { credentials: 'omit' } })).toBe(
+            'data:image/png;base64,cHVibGlj'
+        )
+    })
+
     it('embeds a font from an unreadable stylesheet without writing into the page stylesheets', async () => {
         const pageStyle = document.createElement('style')
         pageStyle.textContent = 'body { margin: 0 }'

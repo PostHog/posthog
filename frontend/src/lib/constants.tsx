@@ -644,6 +644,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
+    WORKFLOWS_SLACK_PREVIEW: 'workflows-slack-preview', // owner: #team-workflows, share a workflow's steps and rendered emails to Slack
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const

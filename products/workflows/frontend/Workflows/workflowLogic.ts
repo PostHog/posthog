@@ -181,6 +181,14 @@ export function sanitizeWorkflow(
     return workflow
 }
 
+/** When the workflow was last saved: draft writes don't bump the live updated_at, so the newer of the two. */
+export function latestSaveStamp(workflow: Pick<HogFlow, 'updated_at' | 'draft_updated_at'> | null): string | undefined {
+    const { updated_at, draft_updated_at } = workflow ?? {}
+    return draft_updated_at && updated_at && dayjs(draft_updated_at).isAfter(dayjs(updated_at))
+        ? draft_updated_at
+        : updated_at
+}
+
 /**
  * The content the editor should show: the staged draft overlaid on the live row. The draft blob is
  * a full snapshot of the content fields, so the merge is a plain spread. The draft bookkeeping
@@ -3087,12 +3095,7 @@ function getSaveQueue(
         getResourceId: () => props.id,
         // Draft writes don't bump the live updated_at, and the event carries the newer of the two
         // stamps, so compare against the newer one we loaded.
-        getLoadedStamp: () => {
-            const { updated_at, draft_updated_at } = values.originalWorkflow ?? {}
-            return draft_updated_at && updated_at && dayjs(draft_updated_at).isAfter(dayjs(updated_at))
-                ? draft_updated_at
-                : updated_at
-        },
+        getLoadedStamp: () => latestSaveStamp(values.originalWorkflow),
         // The loader flag clears when the first of a queued pair lands, so count unfinished saves too.
         isBusy: () =>
             values.originalWorkflowLoading ||
