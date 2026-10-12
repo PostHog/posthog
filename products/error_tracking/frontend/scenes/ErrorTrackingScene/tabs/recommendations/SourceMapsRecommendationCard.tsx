@@ -41,7 +41,7 @@ export function SourceMapsRecommendationCard({
                     of frames were unresolved in the last {lookback_hours} hours
                 </div>
             </div>
-            <div className="flex justify-center gap-2 mt-2">
+            <div className="flex flex-wrap justify-center gap-2 mt-2">
                 <LemonButton
                     type="tertiary"
                     to={SOURCE_MAPS_DOCS_URL}

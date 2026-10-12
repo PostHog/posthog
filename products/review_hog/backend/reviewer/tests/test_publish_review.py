@@ -36,15 +36,12 @@ _SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 def _wire_readbacks(
     mock_paginated: MagicMock,
     reviews: list[dict[str, Any]] | None = None,
-    issue_comments: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Route the two idempotency readbacks: prior reviews (marker scan) and issue comments (promo scan)."""
+    """Route the idempotency readback of prior reviews (marker scan)."""
 
     def paginated(path: str, **kwargs: Any):
         if path.endswith("/reviews"):
             return iter(reviews or [])
-        if "/issues/" in path:
-            return iter(issue_comments or [])
         raise AssertionError(f"Unexpected paginated path: {path}")
 
     mock_paginated.side_effect = paginated
@@ -57,11 +54,6 @@ def _review_posts(mock_request: MagicMock) -> list[dict[str, Any]]:
     ]
 
 
-def _promo_posts(mock_request: MagicMock) -> list[dict[str, Any]]:
-    """The JSON payloads of every `POST .../issues/{n}/comments` the code issued."""
-    return [c.kwargs["json"] for c in mock_request.call_args_list if c.args[0] == "POST" and "/issues/" in c.args[1]]
-
-
 def _commit_probes(mock_request: MagicMock) -> list[str]:
     """The paths of every `GET .../commits/{sha}` pin probe the code issued."""
     return [c.args[1] for c in mock_request.call_args_list if c.args[0] == "GET" and "/commits/" in c.args[1]]
@@ -69,6 +61,7 @@ def _commit_probes(mock_request: MagicMock) -> list[str]:
 
 @patch(_PAGINATED)
 @patch(_REQUEST)
+@pytest.mark.django_db
 class TestPostGithubReview:
     def test_uses_passed_token_and_pins_review_to_head_sha(
         self, mock_request: MagicMock, mock_paginated: MagicMock
@@ -84,9 +77,7 @@ class TestPostGithubReview:
             comments,
             token="install-token",
             head_sha="deadbeef",
-            post_promo=True,
             marker="m",
-            promo_marker="pm",
         )
 
         # The installation token (not an env PAT) authenticates every call.
@@ -113,9 +104,7 @@ class TestPostGithubReview:
             comments,
             token="install-token",
             head_sha="",
-            post_promo=False,
             marker="m",
-            promo_marker="pm",
         )
 
         (payload,) = _review_posts(mock_request)
@@ -125,9 +114,7 @@ class TestPostGithubReview:
     def test_no_head_sha_posts_without_commit_pin(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
         _wire_readbacks(mock_paginated)
 
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="", post_promo=True, marker="m", promo_marker="pm"
-        )
+        _post_github_review("o", "r", 1, "body", [], token="t", head_sha="", marker="m")
 
         assert _commit_probes(mock_request) == []
         (payload,) = _review_posts(mock_request)
@@ -146,28 +133,10 @@ class TestPostGithubReview:
         mock_request.side_effect = request
 
         # Must not raise — a stale/unreachable reviewed commit should still post the review unpinned.
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="deadbeef", post_promo=False, marker="m", promo_marker="pm"
-        )
+        _post_github_review("o", "r", 1, "body", [], token="t", head_sha="deadbeef", marker="m")
 
         (payload,) = _review_posts(mock_request)
         assert "commit_id" not in payload
-
-    def test_promo_comment_only_posted_when_requested(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
-        _wire_readbacks(mock_paginated)
-
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=False, marker="m", promo_marker="pm"
-        )
-        assert _promo_posts(mock_request) == []
-
-        mock_request.reset_mock()
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="m", promo_marker="pm"
-        )
-        (promo,) = _promo_posts(mock_request)
-        # The idempotency marker rides inside the posted comment body.
-        assert "pm" in promo["body"]
 
     @parameterized.expand(
         [
@@ -191,9 +160,7 @@ class TestPostGithubReview:
         mock_request.side_effect = request
 
         with pytest.raises(type(error)):
-            _post_github_review(
-                "o", "r", 1, "body", comments, token="t", head_sha="", post_promo=False, marker="m", promo_marker="pm"
-            )
+            _post_github_review("o", "r", 1, "body", comments, token="t", head_sha="", marker="m")
 
         (payload,) = _review_posts(mock_request)  # exactly one attempt — no body-only fallback post
         assert payload["comments"] == comments
@@ -228,9 +195,7 @@ class TestPostGithubReview:
             comments,
             token="t",
             head_sha="",
-            post_promo=False,
             marker="m",
-            promo_marker="pm",
             inline_body="m",
         )
 
@@ -261,9 +226,7 @@ class TestPostGithubReview:
             comments,
             token="t",
             head_sha="",
-            post_promo=False,
             marker="m",
-            promo_marker="pm",
             inline_body="m",
         )
         _first, second = _review_posts(mock_request)
@@ -300,16 +263,14 @@ class TestPostGithubReview:
         self, mock_request: MagicMock, mock_paginated: MagicMock
     ) -> None:
         # Post-then-crash idempotency: an app-bot review already carrying this run's marker means we
-        # posted but didn't record the watermark, so the retry must post neither a second review nor
-        # the promo. (Only bot reviews count — a pasted marker in a human review must not match.)
+        # posted but didn't record the watermark, so the retry must not post a second review.
+        # (Only bot reviews count — a pasted marker in a human review must not match.)
         _wire_readbacks(
             mock_paginated,
             reviews=[{"body": "an earlier review\n\nmarker-xyz", "user": {"login": "posthog[bot]", "type": "Bot"}}],
         )
 
-        _post_github_review(
-            "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="marker-xyz", promo_marker="pm"
-        )
+        _post_github_review("o", "r", 1, "body", [], token="t", head_sha="s", marker="marker-xyz")
 
         mock_request.assert_not_called()
 
@@ -394,7 +355,6 @@ class TestPublishReviewGate:
             pr_files=pr_files,
             token="t",
             head_sha="sha",
-            post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 
@@ -426,7 +386,6 @@ class TestPublishReviewGate:
             pr_files=[],
             token="t",
             head_sha="sha",
-            post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 
@@ -467,7 +426,6 @@ class TestPublishReviewGate:
             pr_files=[],
             token="t",
             head_sha="sha",
-            post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
         )
 

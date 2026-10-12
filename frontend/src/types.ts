@@ -7949,9 +7949,9 @@ export interface ProductManifest {
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
     /**
-     * Boot-time setup-status probe for this product's empty state. Aggregated across
+     * Setup-status probe for this product's empty state. Aggregated across
      * manifests into `productSetupProbes` and answered by one property-definition
-     * request at app boot (see `productSetupPreloadLogic`).
+     * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }
@@ -8140,7 +8140,6 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
-    AI_REPORTS = 'ai_reports',
 }
 
 // Managed viewset

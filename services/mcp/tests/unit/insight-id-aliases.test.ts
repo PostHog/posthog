@@ -41,17 +41,19 @@ describe('insight id aliases', () => {
         }
     )
 
-    describe('insight-query normalizes aliases to `insightId` and coerces numbers to string', () => {
+    // Numbers must stay numbers: an eight-digit numeric id also matches the short_id syntax.
+    describe('insight-query normalizes aliases to `insightId` and keeps the input type', () => {
         it.each([
             ['insightId (string)', { insightId: 'AaVQ8Ijw' }, 'AaVQ8Ijw'],
-            ['insightId (numeric)', { insightId: 36 }, '36'],
-            ['id (numeric)', { id: 36 }, '36'],
+            ['insightId (numeric)', { insightId: 36 }, 36],
+            ['insightId (eight-digit numeric)', { insightId: 12345678 }, 12345678],
+            ['id (numeric)', { id: 36 }, 36],
             ['id (string)', { id: '36' }, '36'],
-            ['insight_id', { insight_id: 36 }, '36'],
+            ['insight_id', { insight_id: 36 }, 36],
             ['short_id', { short_id: 'AaVQ8Ijw' }, 'AaVQ8Ijw'],
             ['shortId', { shortId: 'AaVQ8Ijw' }, 'AaVQ8Ijw'],
-            ['insightId over aliases on conflict', { insightId: 1, id: 2 }, '1'],
-            ['first-listed alias on alias conflict', { id: 2, short_id: 'AaVQ8Ijw' }, '2'],
+            ['insightId over aliases on conflict', { insightId: 1, id: 2 }, 1],
+            ['first-listed alias on alias conflict', { id: 2, short_id: 'AaVQ8Ijw' }, 2],
         ])('accepts %s', (_label, input, expected) => {
             const result = InsightQueryInputSchema.safeParse(input)
             expect(result.success).toBe(true)
