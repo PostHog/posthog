@@ -93,13 +93,13 @@ registerAsyncFunction('postHogClassify', {
 
         const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
         if (!hogFlow?.id) {
-            throw new Error('Classify with Jev only runs inside a workflow')
+            throw new Error('Classify with AI only runs inside a workflow')
         }
 
         const jwt = getClassifyJwt()
         if (!jwt.enabled) {
             throw new Error(
-                'Classify with Jev is not configured. Set WORKFLOW_CLASSIFY_JWT_SECRET on the worker and Django to matching keys.'
+                'Classify with AI is not configured. Set WORKFLOW_CLASSIFY_JWT_SECRET on the worker and Django to matching keys.'
             )
         }
         await callInternalApi(context, result, {
@@ -118,7 +118,7 @@ registerAsyncFunction('postHogClassify', {
         logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: 'Classify with Jev was mocked. The first category was returned without asking the model.',
+            message: 'Classify with AI was mocked. The first category was returned without asking the model.',
         })
         return {
             status: 200,

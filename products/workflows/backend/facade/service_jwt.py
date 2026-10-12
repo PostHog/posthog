@@ -1,6 +1,6 @@
 """The scoped service JWT purposes that the workflow callback endpoints verify.
 
-The plugin server mints these tokens for the "Create AI task", "Run scout", and "Classify with Jev"
+The plugin server mints these tokens for the "Create AI task", "Run scout", and "Classify with AI"
 workflow steps.
 """
 
