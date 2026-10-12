@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AgentPromptButton, AgentPromptDestination } from 'lib/components/AgentPromptButton/AgentPromptButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { humanList } from 'lib/utils/strings'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -37,7 +38,8 @@ function captureInvestigate(
 }
 
 function missingLabel(missing: MissingLink[]): string {
-    return missing.length > 1 ? `No ${missing.slice(0, -1).join(', ')} or ${missing.at(-1)}` : `No ${missing[0]}`
+    const links = humanList(missing)
+    return `${links.charAt(0).toUpperCase()}${links.slice(1)} ${missing.length > 1 ? 'links' : 'link'} missing. Find out why:`
 }
 
 export function MissingLinkInvestigate({
@@ -71,7 +73,7 @@ export function MissingLinkInvestigate({
                 actions={[
                     {
                         key: 'investigate',
-                        label: 'Investigate why prompt',
+                        label: 'prompt',
                         buildPrompt: () => buildMissingLinkPrompt(log, missing),
                     },
                 ]}
@@ -92,7 +94,7 @@ export function MissingLinkInvestigate({
                     }}
                     data-attr={`logs-${surface}-missing-link-posthog-ai`}
                 >
-                    Investigate with PostHog AI
+                    Ask PostHog AI
                 </LemonButton>
             )}
         </div>
