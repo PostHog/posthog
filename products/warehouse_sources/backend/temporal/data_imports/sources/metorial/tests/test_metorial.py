@@ -193,6 +193,9 @@ class TestSourceResponse:
             ("sessions_default_updated_at", "sessions", None, "desc"),
             ("provider_runs_default_updated_at", "provider_runs", None, "desc"),
             ("provider_deployments_default_updated_at", "provider_deployments", None, "desc"),
+            ("session_providers_default_updated_at", "session_providers", None, "desc"),
+            ("integration_instances_default_updated_at", "integration_instances", None, "desc"),
+            ("provider_versions_default_updated_at", "provider_versions", None, "desc"),
             # A user overriding sessions onto created_at makes per-batch checkpointing safe again.
             ("sessions_user_picks_created_at", "sessions", "created_at", "asc"),
             # created_at tracks id order, so append-only streams checkpoint safely per batch.
