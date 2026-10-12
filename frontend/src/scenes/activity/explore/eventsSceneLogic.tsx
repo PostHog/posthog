@@ -17,7 +17,7 @@ import {
     FEATURE_FLAG_CALLED_EVENT,
     reachesPastFlagEvaluationsRetention,
     readsFlagEvaluationsTable,
-} from 'scenes/feature-flags/featureFlagUsageQueries'
+} from 'scenes/feature-flags/flagEvaluationsTable'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'

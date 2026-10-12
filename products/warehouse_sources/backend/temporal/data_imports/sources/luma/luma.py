@@ -118,7 +118,7 @@ def _get_child_rows_for_event(
             config.path,
             cursor,
             logger,
-            extra_params={config.event_id_param: event_api_id},
+            extra_params={config.event_id_param: event_api_id, **config.static_params},
             paginate=config.paginated,
         )
         rows = [{**_flatten_entry(entry, config.nested_key), config.event_id_param: event_api_id} for entry in entries]
@@ -172,7 +172,9 @@ def _get_top_level_rows(
         logger.debug(f"Luma: resuming {config.name} from cursor {cursor}")
 
     while True:
-        entries, next_cursor = _fetch_page(session, config.path, cursor, logger)
+        entries, next_cursor = _fetch_page(
+            session, config.path, cursor, logger, extra_params=config.static_params, paginate=config.paginated
+        )
         rows = [_flatten_entry(entry, config.nested_key) for entry in entries]
         if rows:
             yield rows

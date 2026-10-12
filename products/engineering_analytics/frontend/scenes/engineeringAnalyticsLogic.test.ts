@@ -489,8 +489,11 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
     })
 
-    const openPullRequestList = async (searchParams: Record<string, string>): Promise<jest.SpyInstance> => {
-        mockSources.mockResolvedValue(SOURCES)
+    const openPullRequestList = async (
+        searchParams: Record<string, string>,
+        sources: GitHubSourceApi[] = SOURCES
+    ): Promise<jest.SpyInstance> => {
+        mockSources.mockResolvedValue(sources)
         router.actions.push(urls.engineeringAnalyticsPullRequestList(), searchParams)
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -499,40 +502,52 @@ describe('engineeringAnalyticsLogic', () => {
     }
     const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
         capture.mock.calls
-            .filter(([event]) => event === 'ci explorer opened from pull request jump')
+            .filter(([event]) => event === 'pull request jump submitted')
             .map(([, properties]) => properties)
     const routedPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
 
-    it.each([
+    const PICKED = { source: 'src-older', repo: 'posthog/posthog', date_from: '-30d' }
+
+    it.each<[string, Record<string, string>, string, string, Record<string, string>, string]>([
         [
-            'a link in the repository it names, not the one in scope',
+            'a link to the repository in scope with no source when none is picked',
+            {},
+            'https://github.com/PostHog/posthog/pull/42',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
+            {},
+            'link',
+        ],
+        [
+            'a link to another repository without the source and repo of this one',
+            PICKED,
             'https://github.com/PostHog/posthog.com/pull/42/files',
-            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog.com', 42),
-            { source: 'src-newer', repo: 'posthog/posthog.com' },
+            urls.engineeringAnalyticsCIExplorer('PostHog', 'posthog.com', 42),
+            { date_from: '-30d' },
             'link',
         ],
         [
             'a bare number in the picked repository',
+            PICKED,
             '#42',
             urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
-            { source: 'src-older', repo: 'posthog/posthog' },
+            PICKED,
             'number',
         ],
-    ])('the pull request jump opens %s once', async (_label, text, pathname, scope, inputKind) => {
-        const capture = await openPullRequestList({ source: 'src-older', repo: 'posthog/posthog', date_from: '-30d' })
+    ])('the pull request jump opens %s once', async (_label, opened, text, pathname, searchParams, inputKind) => {
+        const capture = await openPullRequestList(opened)
 
         logic.actions.setPullRequestJumpText(text)
         logic.actions.submitPullRequestJump()
         logic.actions.submitPullRequestJump()
 
         expect(routedPath()).toBe(pathname)
-        expect(router.values.searchParams).toEqual({ date_from: '-30d', ...scope })
-        expect(jumpEvents(capture)).toEqual([{ input_kind: inputKind }])
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(jumpEvents(capture)).toEqual([{ outcome: 'opened', input_kind: inputKind }])
         expect(logic.values.pullRequestJumpFailure).toBeNull()
     })
 
     it('the pull request jump says why it cannot open, until the cause is fixed', async () => {
-        const capture = await openPullRequestList({})
+        const capture = await openPullRequestList({}, [{ ...SOURCES[0], repo: '' }])
 
         logic.actions.setPullRequestJumpText('not a pr')
         logic.actions.submitPullRequestJump()
@@ -543,12 +558,15 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.submitPullRequestJump()
         expect(logic.values.pullRequestJumpFailure).toBe('needs_repository')
         expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
-        expect(jumpEvents(capture)).toEqual([])
+        expect(jumpEvents(capture)).toEqual([
+            { outcome: 'invalid', input_kind: null },
+            { outcome: 'needs_repository', input_kind: 'number' },
+        ])
 
-        logic.actions.setScope('src-newer', 'posthog/posthog.com')
+        logic.actions.setPullRequestJumpText('PostHog/posthog#42')
         expect(logic.values.pullRequestJumpFailure).toBeNull()
         logic.actions.submitPullRequestJump()
-        expect(routedPath()).toBe(urls.engineeringAnalyticsCIExplorer('posthog', 'posthog.com', 42))
+        expect(routedPath()).toBe(urls.engineeringAnalyticsCIExplorer('PostHog', 'posthog', 42))
     })
 
     it.each([

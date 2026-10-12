@@ -3584,3 +3584,16 @@ class TestSAMLInviteLookup(APIBaseTest):
 
     def test_unknown_identifier_returns_nothing(self):
         assert lookup_invite_for_saml("joiner@example.com", "not-an-identifier") is None
+
+    @parameterized.expand([("expired", INVITE_DAYS_VALIDITY + 5), ("still_valid", 0)])
+    def test_reports_no_invite_for_someone_who_is_already_a_member(self, _name, days_old):
+        identifier = self._saml_identifier_for("member.example.com")
+        member = User.objects.create_and_join(
+            organization=self.organization, email="member@member.example.com", password=None
+        )
+        invite = OrganizationInvite.objects.create(organization=self.organization, target_email=member.email)
+        if days_old:
+            invite.created_at = timezone.now() - timedelta(days=days_old)
+            invite.save(update_fields=["created_at"])
+
+        assert lookup_invite_for_saml(member.email, identifier) is None

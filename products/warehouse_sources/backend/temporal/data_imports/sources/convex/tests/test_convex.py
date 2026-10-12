@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Iterator
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import pytest
 from unittest.mock import Mock, patch
@@ -101,6 +102,7 @@ class TestValidateDeployUrl:
     @parameterized.expand(
         [
             ("bad_url", "http://169.254.169.254", "deploy-key"),
+            ("custom_domain", "https://convex.example.com", "deploy-key"),
             ("unsendable_key", "https://swift-lemur-123.convex.cloud", "prod:swift-lemur-123|ab\u2028cd"),
             ("blank_key", "https://swift-lemur-123.convex.cloud", "   "),
         ]
@@ -110,6 +112,7 @@ class TestValidateDeployUrl:
         ok, err = validate_credentials(url, deploy_key)
         assert not ok
         assert err is not None
+        assert urlparse(url).hostname not in err
         mock_get.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
@@ -136,9 +139,15 @@ class TestValidateDeployUrl:
             "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade."
         )
 
+    @parameterized.expand(
+        [
+            ("unexpected_status", 400, "The Convex deployment rejected the request."),
+            ("unknown_deployment", 404, "PostHog couldn't find this Convex deployment."),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_validate_credentials_does_not_leak_url_on_http_error(self, mock_get):
-        err_response = Mock(status_code=400)
+    def test_validate_credentials_does_not_leak_url_on_http_error(self, _name, status_code, expected, mock_get):
+        err_response = Mock(status_code=status_code)
         err_response.json.return_value = {"code": "SomethingUnexpected"}
         response = Mock()
         response.raise_for_status.side_effect = HTTPError(response=err_response)
@@ -147,9 +156,10 @@ class TestValidateDeployUrl:
         ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
         assert not ok
         assert err is not None
+        assert err.startswith(expected)
         assert "swift-lemur-123" not in err
         assert "convex.cloud" not in err
-        assert "400" in err
+        assert str(status_code) not in err
 
     @parameterized.expand(
         [

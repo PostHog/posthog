@@ -14,7 +14,7 @@ const FAILURE_MESSAGE: Record<PullRequestJumpFailure, string> = {
 
 /** Opens one pull request in the CI explorer from a link or a number, whether or not the list holds it. */
 export function PullRequestJumpInput(): JSX.Element {
-    const { pullRequestJumpText, pullRequestJumpFailure } = useValues(engineeringAnalyticsLogic)
+    const { pullRequestJumpText, pullRequestJumpFailure, githubSourcesLoading } = useValues(engineeringAnalyticsLogic)
     const { setPullRequestJumpText, submitPullRequestJump } = useActions(engineeringAnalyticsLogic)
 
     return (
@@ -35,6 +35,7 @@ export function PullRequestJumpInput(): JSX.Element {
                     type="secondary"
                     size="small"
                     onClick={() => submitPullRequestJump()}
+                    disabledReason={githubSourcesLoading ? 'Loading repositories' : undefined}
                     data-attr="engineering-analytics-pull-request-jump-submit"
                 >
                     View in CI explorer

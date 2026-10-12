@@ -11,7 +11,7 @@ import { BIDrilldownProps, biDrilldownLogic } from './biDrilldownLogic'
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 
 export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldownProps }): JSX.Element {
-    const { selection, queries, showRows } = useValues(biDrilldownLogic(props))
+    const { selection, queries, showRows, hierarchyDrills } = useValues(biDrilldownLogic(props))
     const { close, viewRows } = useActions(biDrilldownLogic(props))
     return (
         <LemonModal title="Explore this result" isOpen={!!selection} onClose={close} width={showRows ? '90vw' : 520}>
@@ -31,6 +31,17 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                         </ul>
                     ) : null}
                     <div className="flex flex-wrap gap-2">
+                        {hierarchyDrills.map(({ hierarchy, next, worksheet }) => (
+                            <LemonButton
+                                key={hierarchy.id}
+                                type="primary"
+                                to={`${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(worksheet))}`}
+                                onClick={close}
+                                tooltip={`${hierarchy.name}: opens a new worksheet filtered to this selection`}
+                            >
+                                Drill to {next.name}
+                            </LemonButton>
+                        ))}
                         <LemonButton
                             type="primary"
                             onClick={() => {

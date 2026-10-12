@@ -2119,14 +2119,18 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("direct", False),
-            ("precomputed", True),
+            ("direct", False, ["entered_experiment"]),
+            ("precomputed", True, ["entered_experiment"]),
+            # The default exposure reads $feature_flag_called with its same-timestamp
+            # $experiment_exposure copy, so the copy must not be a start that the call returns from.
+            ("flag_call_with_copies_direct", False, ["$feature_flag_called", "$experiment_exposure"]),
+            ("flag_call_with_copies_precomputed", True, ["$feature_flag_called", "$experiment_exposure"]),
         ]
     )
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_exposure_start_excludes_exposure_as_its_own_completion(
-        self, name: str, use_precomputation: bool
+        self, name: str, use_precomputation: bool, exposure_events: list[str]
     ) -> None:
         # Guards the exposure_event_uuid exclusion: with a day-0 window and the
         # completion event equal to the exposure event, the exposure occurrence
@@ -2136,14 +2140,14 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
-        exposure_config = ExperimentEventExposureConfig(event="entered_experiment", properties=[])
+        exposure_config = ExperimentEventExposureConfig(event=exposure_events[0], properties=[])
         experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
         experiment.save()
 
         metric = ExperimentRetentionMetric(
             start_event=ExperimentExposureNode(),
             completion_event=EventsNode(
-                event="entered_experiment",
+                event=exposure_events[0],
                 math=ExperimentMetricMathType.TOTAL,
             ),
             retention_window_start=0,
@@ -2165,21 +2169,21 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         def _create_user(variant: str, user_id: str, fires_again: bool) -> None:
             _create_person(distinct_ids=[user_id], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="entered_experiment",
-                distinct_id=user_id,
-                timestamp="2020-01-02T12:00:00Z",
-                properties={feature_flag_property: variant},
-            )
-            if fires_again:
-                _create_event(
-                    team=self.team,
-                    event="entered_experiment",
-                    distinct_id=user_id,
-                    timestamp="2020-01-02T13:00:00Z",
-                    properties={feature_flag_property: variant},
-                )
+            for timestamp in (
+                ["2020-01-02T12:00:00Z", "2020-01-02T13:00:00Z"] if fires_again else ["2020-01-02T12:00:00Z"]
+            ):
+                for event in exposure_events:
+                    _create_event(
+                        team=self.team,
+                        event=event,
+                        distinct_id=user_id,
+                        timestamp=timestamp,
+                        properties={
+                            feature_flag_property: variant,
+                            "$feature_flag_response": variant,
+                            "$feature_flag": feature_flag.key,
+                        },
+                    )
 
         _create_user("control", "user_control_repeat", fires_again=True)
         _create_user("control", "user_control_once", fires_again=False)

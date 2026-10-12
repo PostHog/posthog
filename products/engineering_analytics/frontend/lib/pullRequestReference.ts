@@ -1,5 +1,3 @@
-import type { GitHubSourceApi } from '../generated/api.schemas'
-
 /** A pull request that free text names. A bare number names no repository. */
 export type PullRequestReference =
     | { kind: 'link' | 'repo_number'; owner: string; repo: string; number: number }
@@ -9,8 +7,8 @@ export interface PullRequestTarget {
     owner: string
     repo: string
     number: number
-    /** The connected source that syncs the repository. Null when no connected source does. */
-    sourceId: string | null
+    /** False when the pull request is in another repository than the one the page is scoped to. */
+    inScope: boolean
 }
 
 // The host must start the text or follow a character that a host name or a path cannot contain. Without
@@ -23,6 +21,10 @@ export function parsePullRequestReference(text: string): PullRequestReference | 
     const trimmed = text.trim()
     const link = LINK.exec(trimmed)
     const named = link ?? REPO_NUMBER.exec(trimmed)
+    // GitHub reserves `.` and `..` as repository names, and a URL path treats them as dot segments.
+    if (named && /^\.+$/.test(named[2])) {
+        return null
+    }
     const digits = named?.[3] ?? NUMBER.exec(trimmed)?.[1]
     const number = digits ? Number(digits) : 0
     // Past the safe integer range a number prints in exponent form, which is not a pull request number.
@@ -34,21 +36,20 @@ export function parsePullRequestReference(text: string): PullRequestReference | 
         : { kind: 'number', number }
 }
 
-/** Where a reference opens. A bare number takes the repository of `pickedSource`, else of the only connected
- *  source. The result is null when a bare number has neither. */
+/** Where a reference opens. A bare number opens in `scopedRepo`, the 'owner/name' the page is scoped to. The
+ *  result is null when a bare number has no such repository. */
 export function resolvePullRequestTarget(
     reference: PullRequestReference,
-    sources: GitHubSourceApi[],
-    pickedSource: GitHubSourceApi | null
+    scopedRepo: string | null
 ): PullRequestTarget | null {
+    const [owner, repo] = scopedRepo?.split('/') ?? []
+    const scoped = owner && repo ? { owner, repo, number: reference.number, inScope: true } : null
     if (reference.kind === 'number') {
-        const source = pickedSource ?? (sources.length === 1 ? sources[0] : null)
-        const [owner, repo] = source?.repo.split('/') ?? []
-        return source && owner && repo ? { owner, repo, number: reference.number, sourceId: source.id } : null
+        return scoped
     }
-    // GitHub ignores case in repository names, so match that way and keep the casing the source reports.
-    const fullName = `${reference.owner}/${reference.repo}`.toLowerCase()
-    const source = sources.find(({ repo }) => repo.toLowerCase() === fullName)
-    const [owner, repo] = source ? source.repo.split('/') : [reference.owner, reference.repo]
-    return { owner, repo, number: reference.number, sourceId: source?.id ?? null }
+    // GitHub ignores case in repository names, so match that way and keep the casing the scope reports.
+    const named = `${reference.owner}/${reference.repo}`.toLowerCase() === scopedRepo?.toLowerCase()
+    return named && scoped
+        ? scoped
+        : { owner: reference.owner, repo: reference.repo, number: reference.number, inScope: false }
 }

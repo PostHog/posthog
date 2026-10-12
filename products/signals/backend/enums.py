@@ -32,6 +32,13 @@ class ReportLinkKind(LabeledStrEnum):
     RECURRENCE_OF = "recurrence_of", "Recurrence of"
 
 
+class ToolPreset(LabeledStrEnum):
+    # Named tool selections a scout config can expand into a saved `allowed_mcp_tools` list.
+    # `tool_catalogue.get_scout_tool_catalogue` defines the tools behind each name.
+    READ_ONLY = "read_only", "Read only"
+    SUPPORT_NOTES = "support_notes", "Support notes"
+
+
 class SuggestedSourceProduct(LabeledStrEnum):
     # Products a report can suggest the team turn on because the report would have had better
     # evidence with them. Each value must equal a `ProductKey` whose data freshness spec says

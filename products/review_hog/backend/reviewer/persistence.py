@@ -37,7 +37,6 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -53,7 +52,6 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
-    DEFAULT_REVIEW_ARM,
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
     ReviewArm,
@@ -134,7 +132,7 @@ def upsert_review_report(
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
                 "review_signal_priority": signal_priority.value if signal_priority is not None else None,
-                **_review_tier_fields(team_id, tier),
+                **_review_tier_fields(tier),
             }
             if trigger_source is not None:
                 create_kwargs["trigger_source"] = trigger_source
@@ -177,7 +175,7 @@ def upsert_review_report(
             # Accepted cost of the lift: this turn treats the cheap turn's findings as already
             # covered, the same as any re-turn. Rare enough (a person asking about an agent PR)
             # that quality for the person wins over a clean re-review.
-            updates.update(_review_tier_fields(team_id, ReviewTier.HUMAN))
+            updates.update(_review_tier_fields(ReviewTier.HUMAN))
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
 
@@ -216,18 +214,13 @@ def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_num
     persisted_tier = _parse_persisted_tier(report.review_tier)
     if persisted_tier is None or not is_below_human_tier(persisted_tier):
         return False
-    qs.filter(pk=report.pk).update(**_review_tier_fields(team_id, ReviewTier.HUMAN))
+    qs.filter(pk=report.pk).update(**_review_tier_fields(ReviewTier.HUMAN))
     return True
 
 
-def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
-    """The tier column plus the arm bundle a report placed in `tier` reviews on.
-
-    Tiered arms are rolled out per project through the `review-hog-internal` flag. Other projects
-    keep the single default arm but still record their tier, so the label stays truthful and the
-    tiers can be compared on their traffic before the rollout widens.
-    """
-    arm = REVIEW_ARMS_BY_TIER[tier] if has_internal_features(team_id) else DEFAULT_REVIEW_ARM
+def _review_tier_fields(tier: ReviewTier) -> dict[str, object]:
+    """The tier column plus the arm bundle a report placed in `tier` reviews on."""
+    arm = REVIEW_ARMS_BY_TIER[tier]
     return {
         "review_tier": tier.value,
         "review_runtime_adapter": arm.runtime_adapter.value,
@@ -670,6 +663,32 @@ def replace_dropped_findings(
             )
 
 
+def load_dropped_findings(
+    *, team_id: int, report_id: str, run_index: int, head_sha: str | None
+) -> list[DroppedFindingArtefact]:
+    """The findings a single-agent turn did not keep, in the order the turn recorded them.
+
+    Scoped to `run_index` like `load_turn_findings`. A retry replaces its turn's rows, so no latest-wins step is needed.
+    """
+    rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+    )
+    if head_sha:
+        # The denormalized column narrows the read to the turn's head, so older turns are never parsed.
+        rows = rows.filter(head_sha=head_sha)
+    rows = rows.order_by("created_at", "id")
+    dropped: list[DroppedFindingArtefact] = []
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+            dropped.append(content)
+    return dropped
+
+
 def persist_verdicts(
     *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation], run_index: int
 ) -> int:
@@ -970,10 +989,13 @@ def finalize_review_report(
     outcome (`publish_persisted_review`), and the workflow's failure activity covers a publish that
     dies past retries.
     """
+    now = timezone.now()
     updates: dict[str, object] = {
         "report_markdown": body_markdown,
         "run_count": run_index,
-        "last_run_at": timezone.now(),
+        "last_run_at": now,
+        # `QuerySet.update()` skips `auto_now`; the reviews table sorts by `updated_at`.
+        "updated_at": now,
         "completed_head_sha": head_sha,
         "run_urgency_threshold": urgency_threshold,
     }
