@@ -2247,6 +2247,28 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
 
+    @patch("posthog.models.github_integration_base.get_redis_client", side_effect=ConnectionError("redis down"))
+    def test_list_cached_branches_serves_stale_cache_when_the_refresh_lock_is_unavailable(
+        self, _mock_redis: MagicMock
+    ) -> None:
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        cache.set(
+            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            {
+                "branches": ["main", "develop"],
+                "default_branch": "main",
+                "updated_at": time.time() - (GITHUB_BRANCH_CACHE_TTL_SECONDS + 1),
+            },
+        )
+
+        branches, _, _ = GitHubIntegration(integration).list_cached_branches(repo)
+
+        assert branches == ["main", "develop"]
+
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch", return_value="main")
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     def test_refresh_branch_cache_renews_its_lock_on_every_page(

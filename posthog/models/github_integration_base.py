@@ -2868,9 +2868,19 @@ class GitHubIntegrationBase:
 
     def _schedule_branch_cache_refresh(self, repo: str) -> None:
         lock_token = uuid.uuid4().hex
-        acquired = get_redis_client().set(
-            self._branch_refresh_lock_key(repo), lock_token, nx=True, ex=GITHUB_BRANCH_REFRESH_LOCK_SECONDS
-        )
+        try:
+            acquired = get_redis_client().set(
+                self._branch_refresh_lock_key(repo), lock_token, nx=True, ex=GITHUB_BRANCH_REFRESH_LOCK_SECONDS
+            )
+        except Exception:
+            # The person still gets the cached list; the next picker view tries the refresh again.
+            logger.warning(
+                "GitHubIntegration: failed to take the branch refresh lock",
+                integration_id=self.integration.id,
+                repo=repo,
+                exc_info=True,
+            )
+            return
         if not acquired:
             return
         # The tasks module imports the integration models, so a module-level import is circular.
