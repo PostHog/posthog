@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.enabl
 )
 from products.warehouse_sources.backend.temporal.data_imports.import_attempt import (
     current_import_attempt,
+    failed_import_attempts,
     set_attempts_before_this_execution,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
@@ -369,7 +370,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
-    set_attempts_before_this_execution(inputs.prior_attempts)
+    set_attempts_before_this_execution(inputs.prior_attempts, handoffs=inputs.handoff_count)
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
@@ -655,6 +656,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 activity_attempt=current_import_attempt(),
+                failed_attempts=failed_import_attempts(),
                 source_cursor=source_cursor_manager,
             )
 

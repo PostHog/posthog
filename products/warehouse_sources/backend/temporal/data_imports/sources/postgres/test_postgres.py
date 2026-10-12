@@ -4337,6 +4337,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        failed_attempts: int = 0,
+        text_ids: list[str] | None = None,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4355,7 +4357,7 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         rows: list[tuple[Any, ...]] = list(self._XMIN_ROWS if is_xmin else self._ROWS)
         if column_type == "text":
-            rows = [(str(row[0]),) for row in rows]
+            rows = [(text_id,) for text_id in text_ids] if text_ids else [(str(row[0]),) for row in rows]
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
@@ -4402,6 +4404,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
+                failed_attempts=failed_attempts,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
@@ -4690,6 +4693,42 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
+
+    @parameterized.expand(
+        [
+            ("seek_walk_halves_its_pages", False, 2),
+            # A LIMIT/OFFSET walk starts again from the first row and scans its offset on every page.
+            ("offset_walk_keeps_its_pages", True, 4),
+        ]
+    )
+    def test_page_size_of_an_attempt_after_a_failure(self, _name, should_use_incremental_field, expected_limit):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            failed_attempts=1,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
+        assert max(self.last_scan.limits) == expected_limit
+
+    def test_one_wide_row_does_not_shrink_the_seek_pages(self):
+        text_ids = ["a", "b", "c" + "x" * 200, "d", "e", "f"]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", 300):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                arrow_schema=pa.schema([pa.field("id", pa.string())]),
+                column_type="text",
+                text_ids=text_ids,
+                chunking=_TableChunking(batch_rows=6, fetch_rows=2),
+            )
+
+        assert ids == text_ids
+        assert set(self.last_scan.limits) == {2}
 
     def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
         # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.
