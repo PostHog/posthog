@@ -23,9 +23,10 @@ from products.workflows.backend.facade.templates import (
     create_template,
     delete_template,
     function_template_exists,
-    get_global_template,
+    get_global_template_for_team,
     get_template,
     list_global_templates,
+    list_global_templates_for_team,
     list_templates,
     update_template,
 )
@@ -262,7 +263,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gen
 
         # Load global templates from files
         try:
-            file_templates = list_global_templates()
+            file_templates = list_global_templates_for_team(self.team)
         except Exception as e:
             logger.warning("Failed to load global templates from files", error=str(e))
             file_templates = []
@@ -285,7 +286,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gen
         template_id: str = kwargs["pk"]
 
         # Check if it's a global template from files
-        file_template = get_global_template(template_id)
+        file_template = get_global_template_for_team(template_id, self.team)
         if file_template:
             return Response(file_template)
 

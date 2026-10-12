@@ -1,8 +1,10 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
+
+from posthog.cdp.flag_gated_templates import hidden_gated_template_ids
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.contracts import (
@@ -13,6 +15,9 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.templates import get_global_template_by_id, load_global_templates
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 WRITABLE_TEMPLATE_FIELDS = frozenset(
     {
@@ -114,8 +119,25 @@ def list_global_templates() -> list[dict[str, Any]]:
     return list(load_global_templates())
 
 
-def get_global_template(template_id: str) -> dict[str, Any] | None:
-    return get_global_template_by_id(template_id)
+def _uses_any_function_template(template: Mapping[str, Any], function_template_ids: set[str]) -> bool:
+    return any(
+        isinstance(action.get("config"), dict) and action["config"].get("template_id") in function_template_ids
+        for action in template.get("actions") or []
+    )
+
+
+# A team that cannot use a flag-gated step would get a workflow it cannot save, so the
+# templates built on that step stay hidden until its flag is on.
+def list_global_templates_for_team(team: "Team") -> list[dict[str, Any]]:
+    hidden = set(hidden_gated_template_ids(team))
+    return [template for template in load_global_templates() if not _uses_any_function_template(template, hidden)]
+
+
+def get_global_template_for_team(template_id: str, team: "Team") -> dict[str, Any] | None:
+    template = get_global_template_by_id(template_id)
+    if template is None or _uses_any_function_template(template, set(hidden_gated_template_ids(team))):
+        return None
+    return template
 
 
 def function_template_exists(template_id: str) -> bool:

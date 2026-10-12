@@ -1,7 +1,9 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cdp.templates.fixtures import template_slack
@@ -331,6 +333,30 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         template_ids = [t["id"] for t in response.json()["results"]]
         assert global_template_id in template_ids
 
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_ai_task_global_templates_follow_the_ai_task_flag(self, _name: str, flag_enabled: bool) -> None:
+        clear_template_cache()
+        templates = load_global_templates()
+        ai_ids = {
+            t["id"]
+            for t in templates
+            if any(a.get("config", {}).get("template_id") == "template-posthog-create-task" for a in t["actions"])
+        }
+        assert ai_ids
+        other_ids = {t["id"] for t in templates} - ai_ids
+
+        with patch("posthog.cdp.flag_gated_templates.gated_template_enabled", return_value=flag_enabled):
+            listed = {
+                t["id"] for t in self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates").json()["results"]
+            }
+            retrieve_status = self.client.get(
+                f"/api/projects/{self.team.id}/hog_flow_templates/{next(iter(ai_ids))}"
+            ).status_code
+
+        assert other_ids <= listed
+        assert ai_ids & listed == (ai_ids if flag_enabled else set())
+        assert retrieve_status == (status.HTTP_200_OK if flag_enabled else status.HTTP_404_NOT_FOUND)
+
     def test_cannot_read_other_team_template(self):
         """Test that users cannot read team templates from other teams"""
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -488,7 +514,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         for template in results:
             assert template["scope"] == "global", f"Public endpoint returned non-global template: {template['id']}"
 
-    def test_loads_templates_from_template_files(self):
+    @patch("posthog.cdp.flag_gated_templates.gated_template_enabled", return_value=True)
+    def test_loads_templates_from_template_files(self, _mock_flag):
         """Test that the API loads global templates from products/workflows/backend/templates/*.template.py"""
         # Clear cache to ensure we load fresh
         clear_template_cache()
