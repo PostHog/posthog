@@ -440,10 +440,7 @@ mod tests {
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::with_image_collection(
             &allow,
-            Some(ImageCollection {
-                team_id: "0".repeat(32),
-                content_key: "k".repeat(32),
-            }),
+            Some(ImageCollection::new("0".repeat(32), "k".repeat(32))),
         );
         let b64 = png_base64(8, 8, [10, 200, 10, 255]);
         let scrub_with = |mime: &str| -> serde_json::Value {

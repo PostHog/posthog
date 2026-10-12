@@ -95,10 +95,10 @@ fn svg_data_uri() -> String {
 }
 
 fn collection() -> ImageCollection {
-    ImageCollection {
-        team_id: "a".repeat(32),
-        content_key: "0123456789abcdef0123456789abcdef".to_string(),
-    }
+    ImageCollection::new(
+        "a".repeat(32),
+        "0123456789abcdef0123456789abcdef".to_string(),
+    )
 }
 
 fn snapshot_message(items: serde_json::Value) -> serde_json::Value {

@@ -887,10 +887,7 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
                     byte_walk,
                     image_policy,
                 },
-                Some(ImageCollection {
-                    team_id: team_id.clone(),
-                    content_key: content_key.clone(),
-                }),
+                Some(ImageCollection::new(team_id.clone(), content_key.clone())),
             )
             .expect("anonymizes (walk={byte_walk})");
 
@@ -979,10 +976,10 @@ fn image_collection_svg_stays_on_the_inline_scrub_path() {
         &allow,
         &mut bytes,
         AnonymizeOpts::default(),
-        Some(ImageCollection {
-            team_id: "0123456789abcdef0123456789abcdef".to_string(),
-            content_key: "fedcba9876543210fedcba9876543210".to_string(),
-        }),
+        Some(ImageCollection::new(
+            "0123456789abcdef0123456789abcdef".to_string(),
+            "fedcba9876543210fedcba9876543210".to_string(),
+        )),
     )
     .expect("anonymizes");
     let lines = String::from_utf8(out.lines.clone()).unwrap();

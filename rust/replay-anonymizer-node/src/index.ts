@@ -210,6 +210,9 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * The two lanes are independent: either, both, or neither. Only `contentKey` needs `teamId`.
  *
  * `producedRefDedup` leaves out the collected images and URLs that an earlier message already produced.
+ *
+ * `maxImageBytes` caps the decoded size of a collected image; a bigger one is blurred inline.
+ * Omitted, the crate default applies.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
@@ -218,7 +221,8 @@ export async function anonymizeKafkaPayload(
     contentKey?: string | null,
     urlKey?: string | null,
     referenceNamespace?: string | null,
-    producedRefDedup?: ProducedRefDedup
+    producedRefDedup?: ProducedRefDedup,
+    maxImageBytes?: number | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     const result = await native.anonymizeKafkaPayload(
         payload,
@@ -229,7 +233,8 @@ export async function anonymizeKafkaPayload(
         referenceNamespace ?? undefined,
         producedRefDedup?.images?.nativeHandle,
         producedRefDedup?.urls?.nativeHandle,
-        producedRefDedup?.urlTimeBucket
+        producedRefDedup?.urlTimeBucket,
+        maxImageBytes ?? undefined
     )
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
     let timings: AnonymizeTimings | null = null

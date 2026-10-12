@@ -16,6 +16,7 @@ use crate::assets::PLACEHOLDER_SRC;
 use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
+    MAX_IMAGE_BYTES,
 };
 use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
 use crate::timings::PhaseTimings;
@@ -313,12 +314,20 @@ impl<'a> Ctx<'a> {
         if let Some(Some(hit)) = self.blur_cache.borrow().get(original) {
             return Some(hit.clone());
         }
-        let bytes = collectable_data_uri_bytes(original)?;
+        let bytes = collectable_data_uri_bytes(original, collector.borrow().max_image_bytes())?;
         let collected = collector.borrow_mut().collect(bytes)?;
         self.blur_cache
             .borrow_mut()
             .insert(original.to_string(), Some(collected.clone()));
         Some(collected)
+    }
+
+    pub(crate) fn max_collected_image_bytes(&self) -> usize {
+        self.collector
+            .as_ref()
+            .map_or(MAX_IMAGE_BYTES, |collector| {
+                collector.borrow().max_image_bytes()
+            })
     }
 
     /// Pixelate raw RGBA pixels, memoized on dimensions + bytes.

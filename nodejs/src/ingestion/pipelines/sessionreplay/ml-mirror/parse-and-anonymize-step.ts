@@ -83,6 +83,7 @@ export interface ImageCollectionConfig {
     pseudonymSecret: string | Buffer
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean
+    maxImageBytes: number
     /**
      * Keep a remote image's placeholder, stash its ref, and return its URL for the fetch lane.
      *
@@ -185,7 +186,8 @@ export function createParseAndAnonymizeMessageStep<
                 teamKeys?.contentKey,
                 globalUrlKey,
                 referenceNamespace,
-                producedRefDedup(producedRefs, Date.now())
+                producedRefDedup(producedRefs, Date.now()),
+                imageCollection?.maxImageBytes
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.

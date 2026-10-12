@@ -949,7 +949,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             match self.find_member(start, b"srcset").ok()? {
                 Some(span) if scan::is_string(self.bytes, span) => {
                     let value = scan::unescape(self.bytes, span).ok()?;
-                    has_usable_srcset(&value, self.ctx.keeps_image_refs())
+                    has_usable_srcset(&value, self.ctx)
                 }
                 _ => false,
             }

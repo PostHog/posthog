@@ -69,6 +69,7 @@ export interface MlMirrorCollection {
     /** The root key for image content and URL HMAC keys. */
     pseudonymSecret: string | Buffer
     collectImages: boolean
+    maxImageBytes: number
     collectUrls: boolean
 }
 

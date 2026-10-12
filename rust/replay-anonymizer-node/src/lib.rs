@@ -188,6 +188,21 @@ fn opt_dedup_cache_arg(
     }
 }
 
+fn opt_max_image_bytes_arg(cx: &mut FunctionContext, index: usize) -> NeonResult<Option<usize>> {
+    let value = match cx.argument_opt(index) {
+        Some(v) if v.is_a::<JsUndefined, _>(cx) || v.is_a::<JsNull, _>(cx) => return Ok(None),
+        Some(v) => v.downcast_or_throw::<JsNumber, _>(cx)?.value(cx),
+        None => return Ok(None),
+    };
+    // A wrong cap must fail the call rather than silently fall back to the default.
+    if !(value.is_finite() && value >= 1.0 && value.fract() == 0.0 && value <= usize::MAX as f64) {
+        return cx.throw_range_error(format!(
+            "maxImageBytes must be a positive integer, got {value}"
+        ));
+    }
+    Ok(Some(value as usize))
+}
+
 fn time_bucket_arg(cx: &mut FunctionContext, index: usize) -> NeonResult<u64> {
     let bucket = cx.argument::<JsNumber>(index)?.value(cx);
     if !(bucket.is_finite() && bucket >= 0.0 && bucket.fract() == 0.0) {
@@ -232,14 +247,18 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         Some(cache) => Some((cache, time_bucket_arg(&mut cx, 8)?)),
         None => None,
     };
+    let max_image_bytes = opt_max_image_bytes_arg(&mut cx, 9)?;
     if team_id.is_none() && content_key.is_some() {
         return cx.throw_error("contentKey requires teamId");
     }
     let image_collection = match (team_id.clone(), content_key) {
-        (Some(team_id), Some(content_key)) => Some(ImageCollection {
-            team_id,
-            content_key,
-        }),
+        (Some(team_id), Some(content_key)) => {
+            let mut collection = ImageCollection::new(team_id, content_key);
+            if let Some(max_image_bytes) = max_image_bytes {
+                collection.max_image_bytes = max_image_bytes;
+            }
+            Some(collection)
+        }
         _ => None,
     };
     let produced_ref_filter = ProducedRefFilter {

@@ -434,9 +434,25 @@ describeAddon('native image collection', () => {
         expect(second.lines!.toString()).toContain(urlRefs[0])
     })
 
-    it('collects nothing without the collection keys and blurs inline instead', async () => {
+    it.each([
+        ['without the collection keys', () => rustAddon!.anonymizeKafkaPayload(imagePayload())],
+        [
+            'over maxImageBytes',
+            () =>
+                rustAddon!.anonymizeKafkaPayload(
+                    imagePayload(),
+                    undefined,
+                    PSEUDO_TEAM,
+                    CONTENT_KEY,
+                    null,
+                    null,
+                    undefined,
+                    16
+                ),
+        ],
+    ])('collects nothing %s and blurs inline instead', async (_case, anonymize) => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(imagePayload())
+        const result = await anonymize()
         expect(result.failed).toBe(false)
         expect(result.images).toBeNull()
         expect(result.lines!.toString()).not.toContain(PNG_B64)
@@ -451,6 +467,18 @@ describeAddon('native image collection', () => {
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
         ).resolves.toMatchObject({ failed: false })
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(
+                imagePayload(),
+                undefined,
+                PSEUDO_TEAM,
+                CONTENT_KEY,
+                null,
+                null,
+                undefined,
+                0
+            )
+        ).rejects.toThrow('maxImageBytes')
     })
 
     it('runs either collection lane without the other', async () => {
