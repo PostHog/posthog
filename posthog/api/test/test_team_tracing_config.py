@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.api.team import TRACES_RETENTION_FLAG, TeamTracingConfigSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS, reset_revoked_logs_retention
 
@@ -304,6 +304,21 @@ class TestTeamTracingConfigRetention(APIBaseTest):
             response = self.client.patch(self.url, {"retention_days": 30}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Reload the settings and retry", str(response.json()))
+
+        config = get_or_create_team_extension(self.team, TeamTracingConfig)
+        config.refresh_from_db()
+        self.assertEqual(config.retention_days, DEFAULT_TRACES_RETENTION_DAYS)
+
+    def test_entitlement_revoked_after_validation_is_refused(self) -> None:
+        self._grant_30d_retention()
+
+        def revoke_during_validation(flag: str, *args: object, **kwargs: object) -> bool:
+            Organization.objects.filter(id=self.organization.id).update(available_product_features=[])
+            return flag == TRACES_RETENTION_FLAG
+
+        with patch("posthog.api.team.posthog_feature_flag_enabled", side_effect=revoke_during_validation):
+            response = self.client.patch(self.url, {"retention_days": 30}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
         config = get_or_create_team_extension(self.team, TeamTracingConfig)
         config.refresh_from_db()
