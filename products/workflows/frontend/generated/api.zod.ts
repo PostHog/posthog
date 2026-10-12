@@ -3189,7 +3189,9 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(workflowEmailDraftsCreateBodySourceIdMax)
         .describe('ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.'),
+})
 
+/**
  * @summary Create or update people from rows and add them to a new static cohort
  */
 export const workflowPeopleImportsCreateBodyNameMax = 400

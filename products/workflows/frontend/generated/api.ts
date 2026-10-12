@@ -1335,6 +1335,8 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
 
 export const getWorkflowPeopleImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_people_imports/`
