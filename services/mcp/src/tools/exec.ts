@@ -909,12 +909,63 @@ export function unwrapOverWrappedArguments(
 }
 
 /** Repairs a call whose payload sits one level off from where the schema wants it, in either direction. */
-export function repairArgumentNesting(
+function repairArgumentNesting(
     error: z.ZodError,
     input: unknown,
     schema: ZodObjectAny | undefined
 ): Record<string, unknown> | undefined {
     return rewrapFlattenedArguments(error, input, schema) ?? unwrapOverWrappedArguments(input, schema)
+}
+
+const MINUTE_PRECISION_DATETIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/
+
+/**
+ * RFC 3339 needs seconds, so zod rejects `2026-10-12T10:00Z`. Callers send that form and the
+ * API accepts it, so the missing `:00` is added instead of the call being refused.
+ */
+function addMissingDatetimeSeconds(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    if (!schema || !isRecord(input)) {
+        return undefined
+    }
+    const repaired = structuredClone(input)
+    let changed = false
+    for (const issue of error.issues) {
+        if (issue.code !== 'invalid_format' || issue.path.length === 0) {
+            continue
+        }
+        const parent = issue.path
+            .slice(0, -1)
+            .reduce<unknown>(
+                (node, key) =>
+                    isRecord(node) || Array.isArray(node) ? (node as Record<PropertyKey, unknown>)[key] : undefined,
+                repaired
+            )
+        if (!isRecord(parent) && !Array.isArray(parent)) {
+            continue
+        }
+        const container = parent as Record<PropertyKey, unknown>
+        const key = issue.path[issue.path.length - 1]!
+        const value = container[key]
+        const match = typeof value === 'string' ? MINUTE_PRECISION_DATETIME.exec(value) : null
+        if (match) {
+            container[key] = `${match[1]}:00${match[2]}`
+            changed = true
+        }
+    }
+    return changed && schema.safeParse(repaired).success ? repaired : undefined
+}
+
+/** Repairs the caller mistakes that have one safe reading, so the call runs instead of failing validation. */
+export function repairToolArguments(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    return repairArgumentNesting(error, input, schema) ?? addMissingDatetimeSeconds(error, input, schema)
 }
 
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
@@ -2006,9 +2057,9 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const rewrapped = repairArgumentNesting(validation.error, input, toolSchema)
-                        if (rewrapped) {
-                            input = rewrapped
+                        const repaired = repairToolArguments(validation.error, input, toolSchema)
+                        if (repaired) {
+                            input = repaired
                             validation = toolSchema.safeParse(input, { reportInput: true })
                         }
                     }

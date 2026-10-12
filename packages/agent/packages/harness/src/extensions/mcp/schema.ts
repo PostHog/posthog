@@ -81,15 +81,26 @@ export function convertJsonSchemaToTypebox(
 
   // Nullable types: { "type": ["string", "null"] }
   const rawType = s.type;
-  const type = Array.isArray(rawType)
-    ? (rawType.find((t) => t !== "null") as string | undefined)
-    : typeof rawType === "string"
-      ? rawType
-      : undefined;
-  const isNullable = Array.isArray(rawType) && rawType.includes("null");
+  if (Array.isArray(rawType) && rawType.length > 0) {
+    const members = rawType.map((t) =>
+      convertByType(
+        t as string,
+        s,
+        t === "null" ? {} : opts,
+        depth,
+        resolvedDefs,
+      ),
+    );
+    return members.length === 1 ? (members[0] as TSchema) : Type.Union(members);
+  }
 
-  const base = convertByType(type, s, opts, depth, resolvedDefs);
-  return isNullable ? Type.Union([base, Type.Null()]) : base;
+  return convertByType(
+    typeof rawType === "string" ? rawType : undefined,
+    s,
+    opts,
+    depth,
+    resolvedDefs,
+  );
 }
 
 function convertRef(

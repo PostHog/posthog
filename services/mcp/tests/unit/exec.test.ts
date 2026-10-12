@@ -23,6 +23,7 @@ import {
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
+    repairToolArguments,
     rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
@@ -2694,6 +2695,46 @@ describe('exec tool', () => {
                 expect(formatInputValidationError('logs-patterns-diff', result.error!, input, tool.schema)).toContain(
                     '"baselineDateRange": ...'
                 )
+            })
+
+            describe('adding the seconds a minute-precision datetime lacks', () => {
+                const datetimeSchema = z.object({
+                    at: z.iso.datetime({ offset: true }).optional(),
+                    range: z.object({ from: z.iso.datetime({ offset: true }).nullish() }).optional(),
+                    limit: z.number().optional(),
+                })
+                const repairFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
+                    const result = schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return repairToolArguments(result.error!, input, schema)
+                }
+
+                it.each([
+                    ['a UTC time', { at: '2026-10-12T10:00Z' }, { at: '2026-10-12T10:00:00Z' }],
+                    ['an offset time', { at: '2026-10-12T10:00+02:00' }, { at: '2026-10-12T10:00:00+02:00' }],
+                    [
+                        'a nested nullable field',
+                        { range: { from: '2026-10-12T10:00-05:00' }, limit: 5 },
+                        { range: { from: '2026-10-12T10:00:00-05:00' }, limit: 5 },
+                    ],
+                ])('repairs %s', (_label, input, expected) => {
+                    expect(repairFor(datetimeSchema, input)).toEqual(expected)
+                })
+
+                it('repairs a generated tool field', () => {
+                    const tool = GENERATED_TOOL_MAP['annotation-create']!()
+                    const repaired = repairFor(tool.schema, { content: 'deploy', date_marker: '2026-10-12T10:00Z' })
+
+                    expect(repaired).toMatchObject({ date_marker: '2026-10-12T10:00:00Z' })
+                })
+
+                it.each([
+                    ['a date with no time', { at: '2026-10-12' }],
+                    ['a time with no offset', { at: '2026-10-12T10:00' }],
+                    ['another invalid field beside it', { at: '2026-10-12T10:00Z', limit: 'many' }],
+                ])('leaves %s to its own rejection', (_label, input) => {
+                    expect(repairFor(datetimeSchema, input)).toBeUndefined()
+                })
             })
 
             describe('rewrapping it into the call the caller meant', () => {
