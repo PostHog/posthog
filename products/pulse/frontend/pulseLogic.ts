@@ -4,7 +4,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isFeatureFlagGatedError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -47,6 +47,18 @@ function currentProjectId(): string {
 
 function isAiConsentError(error: unknown): boolean {
     return error instanceof ApiError && error.code === AI_CONSENT_ERROR_CODE
+}
+
+// A self-hosted instance can turn the flag on in the browser while the API still refuses it.
+async function emptyWhenFlagGated<T>(load: () => Promise<T[]>): Promise<T[]> {
+    try {
+        return await load()
+    } catch (error) {
+        if (isFeatureFlagGatedError(error)) {
+            return []
+        }
+        throw error
+    }
 }
 
 function isGeneratingBrief(brief: ProductBriefListApi): boolean {
@@ -319,20 +331,22 @@ export const pulseLogic = kea<pulseLogicType>([
         briefConfigs: [
             [] as BriefConfigApi[],
             {
-                loadBriefConfigs: async (): Promise<BriefConfigApi[]> => {
-                    const response = await pulseBriefConfigsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
-                    return response.results
-                },
+                loadBriefConfigs: async (): Promise<BriefConfigApi[]> =>
+                    emptyWhenFlagGated(async () => {
+                        const response = await pulseBriefConfigsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
+                        return response.results
+                    }),
             },
         ],
         briefs: [
             [] as ProductBriefListApi[],
             {
-                loadBriefs: async (): Promise<ProductBriefListApi[]> => {
-                    const response = await pulseBriefsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
-                    actions.setBriefsHasMore(response.next != null)
-                    return response.results
-                },
+                loadBriefs: async (): Promise<ProductBriefListApi[]> =>
+                    emptyWhenFlagGated(async () => {
+                        const response = await pulseBriefsList(currentProjectId(), { limit: LIST_PAGE_SIZE })
+                        actions.setBriefsHasMore(response.next != null)
+                        return response.results
+                    }),
             },
         ],
         generatedBrief: [

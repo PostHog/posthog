@@ -1,3 +1,4 @@
+import { isFeatureFlagGatedError } from 'lib/api-error'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -18,8 +19,16 @@ export const pulseSetupLogic = createSetupDetectionLogic({
     revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
-        const response = await pulseBriefsList(projectId, { limit: 1 })
-        return response.count > 0 ? 'has-data' : 'needs-setup'
+        try {
+            const response = await pulseBriefsList(projectId, { limit: 1 })
+            return response.count > 0 ? 'has-data' : 'needs-setup'
+        } catch (error) {
+            // The API can refuse the flag that the browser evaluates as on, so it cannot answer.
+            if (isFeatureFlagGatedError(error)) {
+                return null
+            }
+            throw error
+        }
     },
     // The empty state runs the first brief in place, without leaving the scene, so no
     // remount would re-run detection and the gate would keep hiding the new brief.

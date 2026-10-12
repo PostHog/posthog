@@ -77,6 +77,27 @@ describe('pulseLogic', () => {
         logic.unmount()
     })
 
+    it('loads empty lists without a failure when the api refuses the pulse flag', async () => {
+        const flagGated = (): [number, Record<string, unknown>] => [
+            403,
+            { type: 'authentication_error', code: 'feature_flag_required', detail: 'Forbidden', attr: null },
+        ]
+        useMocks({
+            get: {
+                '/api/projects/:team_id/pulse/brief_configs/': flagGated,
+                '/api/projects/:team_id/pulse/briefs/': flagGated,
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBriefConfigs()
+            logic.actions.loadBriefs()
+        })
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['loadBriefConfigsFailure', 'loadBriefsFailure'])
+            .toMatchValues({ briefConfigs: [], briefs: [], briefsLoadFailed: false })
+    })
+
     it('generates a brief, polls it, and stops polling on terminal status', async () => {
         await expectLogic(logic, () => {
             logic.actions.generateBrief({ configId: null })

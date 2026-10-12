@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -57,11 +58,19 @@ describe('pulseSetupLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.PULSE }).values.status).toBe('has-data')
     })
 
-    it('fails open to unknown when the count query fails before any answer', async () => {
-        briefsSpy.mockRejectedValue(new Error('network down'))
+    // The flag-gated 403 must answer instead of failing, so it does not file an error tracking issue.
+    it.each([
+        ['a network failure', new Error('network down'), 'detectStatusFailure'],
+        [
+            'a flag-gated 403',
+            new ApiError('Forbidden', 403, undefined, { code: 'feature_flag_required' }),
+            'detectStatusSuccess',
+        ],
+    ] as const)('fails open to unknown when the count query hits %s before any answer', async (_, error, outcome) => {
+        briefsSpy.mockRejectedValue(error)
         const logic = pulseSetupLogic()
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions([outcome]).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.PULSE }).values.status).toBe('unknown')
     })
 })
