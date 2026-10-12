@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class ElevenLabsEndpointConfig:
     name: str
     # Path appended to ELEVENLABS_BASE_URL, including the API version (v1/v2 differ per endpoint).

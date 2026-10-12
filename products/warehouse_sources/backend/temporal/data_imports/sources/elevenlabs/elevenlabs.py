@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -28,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
 )
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
+REDACTED = "[REDACTED]"
+# Webhook tools can carry literal credentials in their configured request headers, and executions echo
+# the headers that were sent. Warehouse readers must not be able to read them back.
+SECRET_BEARING_ENDPOINTS = frozenset({"tools", "tool_executions"})
 
 
 @dataclasses.dataclass
@@ -59,6 +64,24 @@ def _to_unix_seconds(value: Any) -> int:
     if isinstance(value, date):
         return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
     return int(value)
+
+
+def _redact_header_values(headers: Any) -> Any:
+    if not isinstance(headers, dict):
+        return headers
+    # Non-string values are secret, env var, or dynamic variable references, not the secret itself.
+    return {name: REDACTED if isinstance(value, str) else value for name, value in headers.items()}
+
+
+def _redact_tool_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    tool_config = row.get("tool_config")
+    api_schema = tool_config.get("api_schema") if isinstance(tool_config, dict) else None
+    if isinstance(api_schema, dict) and "request_headers" in api_schema:
+        api_schema["request_headers"] = _redact_header_values(api_schema["request_headers"])
+    details = row.get("tool_call_details")
+    if isinstance(details, dict) and "headers" in details:
+        details["headers"] = _redact_header_values(details["headers"])
+    return row
 
 
 def _build_params(
@@ -236,8 +259,8 @@ def elevenlabs_source(
 
     if config.fanout is not None:
         parent_config = ELEVENLABS_ENDPOINTS[config.fanout.parent_name]
-        resource: Iterable[Any] = cast(
-            Iterable[Any],
+        resource = cast(
+            Resource,
             build_dependent_resource(
                 # Both fan-out configs set page_size; only unpaginated endpoints leave it None.
                 endpoint_configs=cast(Mapping[str, FanoutEndpointLike], ELEVENLABS_ENDPOINTS),
@@ -261,6 +284,8 @@ def elevenlabs_source(
                 page_size_param="page_size",
             ),
         )
+        if endpoint in SECRET_BEARING_ENDPOINTS:
+            resource.add_map(_redact_tool_secrets)
         return SourceResponse(
             name=endpoint,
             items=lambda: resource,
@@ -305,6 +330,8 @@ def elevenlabs_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if endpoint in SECRET_BEARING_ENDPOINTS:
+        resource.add_map(_redact_tool_secrets)
 
     return SourceResponse(
         name=endpoint,

@@ -201,6 +201,66 @@ class TestFanOut:
                 assert "start_time" not in child_params
 
 
+class TestSecretRedaction:
+    @parameterized.expand(
+        [
+            (
+                "tool_config_headers",
+                "tools",
+                [
+                    {
+                        "tools": [
+                            {
+                                "id": "t1",
+                                "tool_config": {
+                                    "api_schema": {
+                                        "request_headers": {
+                                            "Authorization": "Bearer sk_fake",
+                                            "X-Ref": {"secret_id": "s1"},
+                                        }
+                                    }
+                                },
+                            }
+                        ],
+                        "has_more": False,
+                    }
+                ],
+                lambda row: row["tool_config"]["api_schema"]["request_headers"],
+            ),
+            (
+                "execution_sent_headers",
+                "tool_executions",
+                [
+                    {"tools": [{"id": "t1"}], "has_more": False},
+                    {
+                        "executions": [
+                            {
+                                "id": "e1",
+                                "tool_id": "t1",
+                                "tool_call_details": {
+                                    "headers": {"Authorization": "Bearer sk_fake", "X-Ref": {"secret_id": "s1"}}
+                                },
+                            }
+                        ],
+                        "has_more": False,
+                    },
+                ],
+                lambda row: row["tool_call_details"]["headers"],
+            ),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_literal_header_values_never_reach_the_warehouse(
+        self, _name: str, endpoint: str, bodies: list[dict[str, Any]], headers_of: Any, MockSession
+    ) -> None:
+        _wire(MockSession.return_value, [_response(body) for body in bodies])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        # A secret reference is safe to keep and tells the reader which secret the tool uses.
+        assert headers_of(rows[0]) == {"Authorization": "[REDACTED]", "X-Ref": {"secret_id": "s1"}}
+
+
 class TestUnpaginatedEndpoints:
     @parameterized.expand(
         [
