@@ -143,6 +143,8 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.surveys.backend.facade.api import validate_survey_config, wait_period_changed
+from products.surveys.backend.facade.tasks import sync_team_survey_wait_period_flags
 
 logger = structlog.get_logger(__name__)
 
@@ -907,6 +909,13 @@ class ProjectBackwardCompatSerializer(
         # Prioritized for the fields agents most commonly update via the settings endpoint.
         extra_kwargs = {
             "name": {"help_text": "Human-readable project name."},
+            "survey_config": {
+                "help_text": (
+                    "Project-wide survey settings. `appearance` sets the default look of new surveys. "
+                    "`seenSurveyWaitPeriodInDays` (0-365) is the minimum number of days between surveys for one user; "
+                    "a survey's own wait period applies only when it is longer."
+                )
+            },
             "product_description": {
                 "help_text": "Short description of what the project is about. This is helpful to give our AI agents context about your project."
             },
@@ -1143,6 +1152,9 @@ class ProjectBackwardCompatSerializer(
     def validate_path_cleaning_filters(value: object) -> object:
         return TeamSerializer.validate_path_cleaning_filters(value)
 
+    def validate_survey_config(self, value: dict | None) -> dict | None:
+        return validate_survey_config(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -1311,7 +1323,9 @@ class ProjectBackwardCompatSerializer(
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
 
+        survey_wait_period_changed = False
         if "survey_config" in validated_data:
+            previous_survey_config = team.survey_config
             if team.survey_config is not None and validated_data.get("survey_config") is not None:
                 validated_data["survey_config"] = {
                     **team.survey_config,
@@ -1341,6 +1355,10 @@ class ProjectBackwardCompatSerializer(
                         changes=survey_config_changes_between,
                     ),
                 )
+
+            survey_wait_period_changed = wait_period_changed(
+                previous_survey_config, validated_data.get("survey_config")
+            )
 
         if (
             "session_replay_config" in validated_data
@@ -1425,6 +1443,10 @@ class ProjectBackwardCompatSerializer(
             # and re-cache so the team cache reflects the merged row.
             team.refresh_from_db()
             set_team_in_cache(team.api_token, team)
+
+        if survey_wait_period_changed:
+            team_id = team.pk
+            transaction.on_commit(lambda: sync_team_survey_wait_period_flags.delay(team_id))
 
         project_after_update = instance.__dict__.copy()
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)

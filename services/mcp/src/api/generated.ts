@@ -82636,6 +82636,7 @@ export namespace Schemas {
        * * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown;
+      /** Project-wide survey settings. `appearance` sets the default look of new surveys. `seenSurveyWaitPeriodInDays` (0-365) is the minimum number of days between surveys for one user; a survey's own wait period applies only when it is longer. */
       survey_config?: unknown;
       access_control?: boolean;
       /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
@@ -87716,6 +87717,7 @@ export namespace Schemas {
        * * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown;
+      /** Project-wide survey settings. `appearance` sets the default look of new surveys. `seenSurveyWaitPeriodInDays` (0-365) is the minimum number of days between surveys for one user; a survey's own wait period applies only when it is longer. */
       survey_config?: unknown;
       access_control?: boolean;
       /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
