@@ -15,10 +15,8 @@ export function gatherIconProperties(
     recordingProperties: Record<string, any> | undefined,
     recording?: SessionRecordingType
 ): GatheredProperty[] {
-    const iconProperties =
-        recordingProperties && Object.keys(recordingProperties).length > 0
-            ? recordingProperties
-            : recording?.person?.properties || {}
+    const hasRecordingProperties = recordingProperties && Object.keys(recordingProperties).length > 0
+    const iconProperties = hasRecordingProperties ? recordingProperties : recording?.person?.properties || {}
 
     const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
     const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
@@ -30,5 +28,7 @@ export function gatherIconProperties(
 
             return { property, value, label }
         })
-        .filter((property) => !!property.value)
+        .filter(
+            (property) => !!property.value && (property.property !== '$geoip_country_code' || hasRecordingProperties)
+        )
 }
