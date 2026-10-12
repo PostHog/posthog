@@ -3056,7 +3056,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             utm_defaults = load_team_utm_defaults(get_team().id)
             seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
             if instance:
-                release_edited_email_utm_keys(actions, instance.actions or [], instance.draft, utm_defaults)
+                stored_actions = instance.actions if isinstance(instance.actions, list) else []
+                release_edited_email_utm_keys(actions, stored_actions, instance.draft, utm_defaults)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
