@@ -17,7 +17,8 @@
     },
     "updated_at": "2026-03-10T09:32:45.013243Z",
     "trigger": {
-        "type": "schedule"
+        "type": "event",
+        "filters": {}
     },
     "trigger_masking": null,
     "conversion": {
@@ -79,14 +80,15 @@
         {
             "id": "trigger_node",
             "name": "User signs up",
-            "description": "User performs an action to start the workflow.",
+            "description": "Pick your signup event.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
             "filters": null,
             "type": "trigger",
             "config": {
-                "type": "schedule"
+                "type": "event",
+                "filters": {}
             },
             "output_variable": null
         },

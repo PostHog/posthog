@@ -98,7 +98,6 @@
                 "template_id": "template-slack",
                 "inputs": {
                     "slack_workspace": {
-                        "value": 54567,
                         "templating": "hog"
                     },
                     "channel": {
@@ -113,7 +112,28 @@
                         "templating": "hog"
                     },
                     "blocks": {
-                        "value": "[\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"🔥 *High-intent user detected*\\n\\n*{person.name}* just triggered a high-intent action.\"\n    }\n  },\n  {\n    \"type\": \"actions\",\n    \"elements\": [\n      {\n        \"url\": \"{person.url}\",\n        \"text\": {\n          \"type\": \"plain_text\",\n          \"text\": \"View user in PostHog\"\n        },\n        \"type\": \"button\"\n      }\n    ]\n  }\n]",
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "🔥 *High-intent user detected*\n\n*{person.name}* just triggered a high-intent action."
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "url": "{person.url}",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View user in PostHog"
+                                        },
+                                        "type": "button"
+                                    }
+                                ]
+                            }
+                        ],
                         "templating": "hog"
                     },
                     "text": {
