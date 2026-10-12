@@ -27,7 +27,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
             submitFeedbackNote(feedbackNoteDraft, 'today')
         }
     }
-    const askingWhy = isNegative && !feedbackNoteSent && !questionDismissed
+    const askingWhy = !!feedbackSentiment && !feedbackNoteSent && !questionDismissed
 
     return (
         <div className="flex flex-col gap-2" data-attr="today-report-feedback">
@@ -56,6 +56,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         onClick={() => {
                             if (!isPositive) {
                                 rateReport('positive', 'today')
+                                setQuestionDismissed(false)
                                 celebrate()
                             }
                         }}
@@ -89,7 +90,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 >
                     <div className="flex items-center gap-1">
                         <Text size="xs" weight="medium" render={<span />} className="grow">
-                            What was off?
+                            {isPositive ? 'What made it useful?' : 'What was off?'}
                         </Text>
                         <TodayActionButton
                             size="icon-sm"

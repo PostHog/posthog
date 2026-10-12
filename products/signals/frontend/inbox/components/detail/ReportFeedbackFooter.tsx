@@ -18,9 +18,9 @@ const FEEDBACK_NOTE_MAX_LENGTH = 4000
 
 /**
  * Thumbs rating at the end of the report body, where someone has just finished reading. The rating
- * submits on the first click, so there's no text field to mistake for the dismissal reason. Only a
- * thumbs-down asks a follow-up question, the way PostHog AI's answer rating does: that is where
- * readers write notes, and the note can never gate the rating.
+ * submits on the first click, so there's no text field to mistake for the dismissal reason. Only
+ * once it's recorded does a follow-up question appear, matched to the rating, so the note can
+ * never gate the rating and ignoring it leaves the flow exactly as it was.
  */
 export function ReportFeedbackFooter({
     report,
@@ -56,12 +56,12 @@ export function ReportFeedbackFooter({
         }
         rateReport(sentiment)
         setQuestionDismissed(false)
-        setAskedHere(sentiment === 'negative')
+        setAskedHere(true)
         if (sentiment === 'positive') {
             celebrate()
         }
     }
-    const askingWhy = feedbackSentiment === 'negative' && !feedbackNoteSent && !questionDismissed
+    const askingWhy = !!feedbackSentiment && !feedbackNoteSent && !questionDismissed
 
     return (
         <div className={align === 'end' ? 'flex flex-col items-end gap-2 pt-1' : 'flex flex-col gap-2 pt-1'}>
@@ -116,7 +116,9 @@ export function ReportFeedbackFooter({
                     data-attr="inbox-report-feedback-question"
                 >
                     <div className="flex items-center gap-1">
-                        <span className="grow text-xs font-medium text-primary">What was off?</span>
+                        <span className="grow text-xs font-medium text-primary">
+                            {feedbackSentiment === 'positive' ? 'What made it useful?' : 'What was off?'}
+                        </span>
                         <LemonButton
                             size="xsmall"
                             type="tertiary"
