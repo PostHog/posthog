@@ -6184,6 +6184,13 @@
                     },
                     "type": "array"
                 },
+                "hierarchies": {
+                    "description": "Named dimension sequences saved with the worksheet; imports are independent copies.",
+                    "items": {
+                        "$ref": "#/definitions/BIHierarchy"
+                    },
+                    "type": "array"
+                },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
                 },
@@ -6353,6 +6360,26 @@
                 "custom"
             ],
             "type": "string"
+        },
+        "BIHierarchy": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "levels": {
+                    "description": "Ordered from the broadest dimension to the most detailed.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "levels"],
+            "type": "object"
         },
         "BILocalFieldDefinition": {
             "anyOf": [
@@ -29251,6 +29278,11 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "calculation": {
+                    "description": "Recalculate from returned chart marks. An absent calculation uses the fixed value.",
+                    "enum": ["fixed", "mean", "median", "min", "max"],
+                    "type": "string"
+                },
                 "displayIfCrossed": {
                     "type": "boolean"
                 },
@@ -29262,6 +29294,11 @@
                 },
                 "position": {
                     "enum": ["start", "end"],
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "SQL chart calculations use the primary axis, across all series or separately per series.",
+                    "enum": ["all", "series"],
                     "type": "string"
                 },
                 "value": {
