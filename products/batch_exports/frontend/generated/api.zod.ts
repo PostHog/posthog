@@ -700,7 +700,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export.'
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
             ),
         version_key: zod
             .array(zod.string())
@@ -1680,7 +1680,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export.'
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
             ),
         version_key: zod
             .array(zod.string())
@@ -2419,7 +2419,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export.'
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
             ),
         version_key: zod
             .array(zod.string())
