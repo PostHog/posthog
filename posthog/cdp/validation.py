@@ -878,6 +878,26 @@ class InputsItemSerializer(serializers.Serializer):
         return attrs
 
 
+def masked_dictionary_secret(stored: Any) -> dict:
+    """Mask a secret dictionary input entry by entry, so the editor can still list its keys."""
+    entries = stored.get("value") if isinstance(stored, dict) else None
+    if isinstance(entries, dict):
+        return {"secret": True, "value": dict.fromkeys(entries, MASKED_SECRET_VALUE)}
+    return {"secret": True}
+
+
+def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, list[str]]:
+    """Put each stored secret back where the editor sent the mask for an entry it did not retype."""
+    entries = value.get("value") if isinstance(value, dict) else None
+    if not isinstance(entries, dict) or MASKED_SECRET_VALUE not in entries.values():
+        return value, []
+    stored_entries = stored.get("value") if isinstance(stored, dict) else None
+    stored_entries = stored_entries if isinstance(stored_entries, dict) else {}
+    missing = [k for k, v in entries.items() if v == MASKED_SECRET_VALUE and k not in stored_entries]
+    restored = {k: stored_entries.get(k) if v == MASKED_SECRET_VALUE else v for k, v in entries.items()}
+    return {**value, "value": restored}, missing
+
+
 class InputsSerializer(serializers.DictField):
     """
     Provides the same typing as the DictField but with custom validation to only include the inputs that are in the schema
@@ -912,6 +932,12 @@ class InputsSerializer(serializers.DictField):
                     and bool(value.get("secret"))
                     and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
                 )
+                if not is_masked and schema.get("type") == "dictionary":
+                    value, missing = restore_masked_dictionary_entries(value, (existing_secret_inputs or {}).get(key))
+                    if missing:
+                        errors[key] = f"No value is saved for {', '.join(missing)}. Enter the value again."
+                        continue
+
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:

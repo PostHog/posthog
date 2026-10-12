@@ -915,15 +915,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             # Read-back mask flagged as secret, nothing stored to restore.
-            ({"value": "********", "secret": True},),
+            ("string", {"value": "********", "secret": True}, {}),
             # Mask that lost its secret flag - the persistence guard must still refuse it.
-            ({"value": "********"},),
+            ("string", {"value": "********"}, {}),
+            # A hidden header row whose stored entry is gone.
+            (
+                "dictionary",
+                {"value": {"Authorization": "********"}},
+                {"secret_field": {"value": {"X-Api-Key": "STORED"}}},
+            ),
         ]
     )
-    def test_masked_secret_without_stored_value_is_rejected(self, input_value):
+    def test_masked_secret_without_stored_value_is_rejected(self, input_type, input_value, existing_secret_inputs):
         # The mask must never be encrypted as the real credential when there is nothing to restore.
         inputs_schema = [
-            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+            {"key": "secret_field", "type": input_type, "required": True, "secret": True},
         ]
 
         serializer = MappingsSerializer(
@@ -931,10 +937,47 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "inputs_schema": inputs_schema,
                 "inputs": {"secret_field": input_value},
             },
-            context={"function_type": "destination", "encrypted_inputs": {}},
+            context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
         )
         with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
+
+    @parameterized.expand(
+        [
+            (
+                "untouched",
+                {"Authorization": "********", "X-Api-Key": "********"},
+                {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"},
+            ),
+            (
+                "one_replaced",
+                {"Authorization": "Bearer NEW", "X-Api-Key": "********"},
+                {"Authorization": "Bearer NEW", "X-Api-Key": "STORED KEY"},
+            ),
+            (
+                "one_removed_one_added",
+                {"X-Api-Key": "********", "X-Other": "OTHER"},
+                {"X-Api-Key": "STORED KEY", "X-Other": "OTHER"},
+            ),
+        ]
+    )
+    def test_secret_dictionary_restores_masked_entries(self, _name, sent, expected):
+        serializer = MappingsSerializer(
+            data={
+                "inputs_schema": [
+                    {"key": "secret_headers", "type": "dictionary", "required": False, "secret": True},
+                ],
+                "inputs": {"secret_headers": {"value": sent}},
+            },
+            context={
+                "function_type": "destination",
+                "encrypted_inputs": {
+                    "secret_headers": {"value": {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"}}
+                },
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        assert serializer.validated_data["inputs"]["secret_headers"]["value"] == expected
 
     def test_validate_filters_builds_bytecode(self):
         filters = {

@@ -38,6 +38,7 @@ from posthog.cdp.validation import (
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
+    masked_dictionary_secret,
     masked_secret_input_keys,
     reserved_functions_used,
 )
@@ -767,7 +768,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 has_value = encrypted_inputs.get(schema["key"]) or inputs.get(schema["key"])
                 if has_value:
                     # Marker to indicate to the user that a secret is set
-                    inputs[schema["key"]] = {"secret": True}
+                    inputs[schema["key"]] = (
+                        masked_dictionary_secret(has_value) if schema.get("type") == "dictionary" else {"secret": True}
+                    )
 
         data["inputs"] = inputs
         data["draft"] = self._mask_draft_secrets(data.get("draft"), draft_encrypted_inputs, encrypted_inputs)
