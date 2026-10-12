@@ -21,8 +21,10 @@ const TAG_RE =
   /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(?:\/>|>([\s\S]*?)<\/\1\s*>)/;
 const BLOCK_TAIL_RE = /^[ \t]*(?:\n+|$)/;
 const OPEN_TAG_RE = /^<([a-z][\w-]*)(?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*\s*>/;
-const PARTIAL_TAG_RE =
-  /^<([a-z][\w-]*)(?:\s+[a-z][\w-]*(?:\s*=\s*(?:"[^"]*"|"[^"]*$)?)?)*\s*\/?$/;
+const TAG_NAME_RE = /^<([a-z][\w-]*)/;
+// One piece of an opening tag that is still streaming. Each piece consumes at
+// least one character and the pieces cannot overlap, so a scan stays linear.
+const PARTIAL_PART_RE = /\s+|[a-z][\w-]*|=|"[^"]*"|"[^"]*$|\/$/y;
 const TAG_START_RE = /<[a-z]/;
 const MARKUP_RE = /^<\/?([a-z][\w-]*)/;
 
@@ -93,10 +95,21 @@ function inlineToken(tag: MatchedTag): Token {
 
 // A known tag that is still streaming has no end yet. It hides up to the end of
 // the text, so neither its markup nor its half-written label shows.
+// The name of a tag whose opening markup runs to the end of the text.
+function partialTagName(src: string): string | null {
+  const head = TAG_NAME_RE.exec(src);
+  if (!head) return null;
+  PARTIAL_PART_RE.lastIndex = head[0].length;
+  while (PARTIAL_PART_RE.lastIndex < src.length) {
+    if (!PARTIAL_PART_RE.exec(src)) return null;
+  }
+  return head[1];
+}
+
 function isUnfinishedTag(src: string): boolean {
-  const open = OPEN_TAG_RE.exec(src) ?? PARTIAL_TAG_RE.exec(src);
-  if (!open || resolveObjectKindName(open[1]) === null) return false;
-  return !new RegExp(`</${open[1]}\\s*>`).test(src);
+  const name = OPEN_TAG_RE.exec(src)?.[1] ?? partialTagName(src);
+  if (!name || resolveObjectKindName(name) === null) return false;
+  return !new RegExp(`</${name}\\s*>`).test(src);
 }
 
 // A fresh set per document, so the card cap counts one message at a time.
