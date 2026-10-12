@@ -508,6 +508,7 @@ the row lists both.
 | lodgify                          | HTTP                        | requests                                                        | ✅                          |
 | logicmonitor                     | HTTP                        | requests                                                        | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
+| looker                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lovable                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -702,6 +703,7 @@ the row lists both.
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
 | rubygems                         | HTTP                        | requests                                                        | ✅                          |
+| rudderstack                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ruddr                            | HTTP                        | requests                                                        | ✅                          |
 | runpod                           | HTTP                        | requests                                                        | ✅                          |
 | safetyculture                    | HTTP                        | requests                                                        | ✅                          |
@@ -783,6 +785,7 @@ the row lists both.
 | square                           | HTTP                        | requests                                                        | ✅                          |
 | squarespace                      | HTTP                        | requests                                                        | ✅                          |
 | stack_overflow_for_teams         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| statsig                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
 | steam                            | HTTP                        | requests                                                        | ✅                          |
@@ -871,6 +874,7 @@ the row lists both.
 | vimeo                            | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vwo                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wasabi                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | watchmode                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | waydev                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1255,7 +1259,6 @@ doesn't conflict with concurrent PRs.
 - llama_cloud
 - logrocket
 - lokalise
-- looker
 - loom
 - m3ter
 - mailtrap
@@ -1390,7 +1393,6 @@ doesn't conflict with concurrent PRs.
 - rocket_matter
 - rocketlane
 - rss
-- rudderstack
 - safetyculture
 - sage_intacct
 - sailthru
@@ -1450,7 +1452,6 @@ doesn't conflict with concurrent PRs.
 - sqlite
 - stackadapt
 - starburst
-- statsig
 - stockx
 - strato
 - strava
@@ -1510,7 +1511,6 @@ doesn't conflict with concurrent PRs.
 - visma_economic
 - vonage
 - vturb
-- vwo
 - waiteraid
 - walmart_marketplace
 - wasabi

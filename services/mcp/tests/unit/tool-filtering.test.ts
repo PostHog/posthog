@@ -1067,6 +1067,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
