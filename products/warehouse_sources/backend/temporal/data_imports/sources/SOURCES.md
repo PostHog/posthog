@@ -703,6 +703,7 @@ the row lists both.
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
 | rubygems                         | HTTP                        | requests                                                        | ✅                          |
+| rudderstack                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ruddr                            | HTTP                        | requests                                                        | ✅                          |
 | runpod                           | HTTP                        | requests                                                        | ✅                          |
 | safetyculture                    | HTTP                        | requests                                                        | ✅                          |
@@ -1390,7 +1391,6 @@ doesn't conflict with concurrent PRs.
 - rocket_matter
 - rocketlane
 - rss
-- rudderstack
 - safetyculture
 - sage_intacct
 - sailthru
