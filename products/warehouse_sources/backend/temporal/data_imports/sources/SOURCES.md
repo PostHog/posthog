@@ -716,6 +716,7 @@ the row lists both.
 | salesforce                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                       | HTTP                        | requests                                                        | ✅                          |
 | salesloft                        | HTTP                        | requests                                                        | ✅                          |
+| sanity                           | HTTP                        | requests                                                        | ✅                          |
 | savvycal                         | HTTP                        | requests                                                        | ✅                          |
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
 | scaleway                         | HTTP                        | requests                                                        | ✅                          |
@@ -1400,7 +1401,6 @@ doesn't conflict with concurrent PRs.
 - salesforce_marketing_cloud
 - salestrics
 - samcart
-- sanity
 - sap_concur
 - sap_erp
 - sap_fieldglass
