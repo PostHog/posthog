@@ -2,7 +2,9 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
+from collections.abc import AsyncIterator
 
 from django.conf import settings
 from django.db import transaction
@@ -11,6 +13,8 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from redis.asyncio.lock import Lock
+from redis.exceptions import RedisError
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -34,6 +38,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.redis import get_async_client
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -203,6 +208,15 @@ DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
 INCREMENTAL_COMPACT_FILE_THRESHOLD = 200
+
+# A Delta table takes one writer at a time. A manual run and a scheduled run of the same view use
+# different workflow ids, so Temporal lets them overlap, and the second rebuild deletes or commits
+# under the first one. The lock TTL is short and refreshed, so a killed worker frees the table fast.
+# Wait plus retry delays cover a full 20-minute attempt of the other run across the three attempts.
+TABLE_WRITE_LOCK_KEY_PREFIX = "data-modeling:table-write-lock:"
+TABLE_WRITE_LOCK_TTL = dt.timedelta(minutes=2)
+TABLE_WRITE_LOCK_WAIT = dt.timedelta(minutes=5)
+TABLE_WRITE_LOCK_RETRY_DELAY = dt.timedelta(minutes=5)
 
 # how often the producer/consumer wake from a blocking queue op to re-check the
 # stop flag
@@ -947,6 +961,60 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
+async def _keep_table_write_lock(lock: Lock, logger: FilteringBoundLogger) -> None:
+    ttl_seconds = TABLE_WRITE_LOCK_TTL.total_seconds()
+    while True:
+        await asyncio.sleep(ttl_seconds / 3)
+        try:
+            await lock.extend(ttl_seconds, replace_ttl=True)
+        except RedisError as error:
+            await logger.awarning(f"Lost the table write lock, so another run can now write: {error}")
+            capture_exception(error)
+            return
+
+
+@contextlib.asynccontextmanager
+async def _table_write_lock(table_uri: str, logger: FilteringBoundLogger) -> AsyncIterator[None]:
+    """Hold the only write access to one Delta table, so two runs cannot commit to it at once.
+
+    Fails open when Redis is down: an outage must not stop every materialization, and an overlap is
+    rare and only costs a retry.
+    """
+    lock = get_async_client().lock(
+        f"{TABLE_WRITE_LOCK_KEY_PREFIX}{table_uri}",
+        timeout=TABLE_WRITE_LOCK_TTL.total_seconds(),
+        sleep=1.0,
+        blocking_timeout=TABLE_WRITE_LOCK_WAIT.total_seconds(),
+    )
+    try:
+        acquired = await lock.acquire()
+    except RedisError as error:
+        await logger.awarning(f"Could not take the table write lock, writing without it: {error}")
+        capture_exception(error)
+        yield
+        return
+
+    if not acquired:
+        raise ApplicationError(
+            "Another run of this view is still writing its table. This run will try again later.",
+            type="ConcurrentMaterializationError",
+            next_retry_delay=TABLE_WRITE_LOCK_RETRY_DELAY,
+        )
+
+    refresh = asyncio.create_task(_keep_table_write_lock(lock, logger))
+    try:
+        yield
+    finally:
+        refresh.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await refresh
+        try:
+            await lock.release()
+        except RedisError:
+            # The TTL frees the lock if the release does not.
+            pass
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1266,28 +1334,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                async with _table_write_lock(table_uri, logger):
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.

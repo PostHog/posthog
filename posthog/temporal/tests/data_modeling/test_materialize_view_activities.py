@@ -46,6 +46,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
     _describe_columns,
+    _table_write_lock,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
@@ -2442,3 +2443,21 @@ class TestAwsStorageOptions:
         assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
         assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
         assert options["AWS_S3_ALLOW_UNSAFE_RENAME"] == "true"
+
+
+class TestTableWriteLock:
+    async def test_a_second_writer_cannot_take_the_table_until_the_first_releases_it(self) -> None:
+        table_uri = f"s3://test-bucket/team_1_model_{uuid4().hex}/modeling/view"
+        logger = LOGGER.bind()
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.TABLE_WRITE_LOCK_WAIT", dt.timedelta(0)
+        ):
+            async with _table_write_lock(table_uri, logger):
+                with pytest.raises(ApplicationError) as error:
+                    async with _table_write_lock(table_uri, logger):
+                        pytest.fail("a second writer got the table while the first held it")
+                assert error.value.type == "ConcurrentMaterializationError"
+                assert not error.value.non_retryable
+
+            async with _table_write_lock(table_uri, logger):
+                pass
