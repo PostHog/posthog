@@ -809,8 +809,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/my_hours/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/n8n/n8n.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/n8n/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/nebius_ai/nebius_ai.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/nebius_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/netlify.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/new_relic/new_relic.py

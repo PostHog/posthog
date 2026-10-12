@@ -118,42 +118,38 @@ OPERATIONS_URL = f"{NEBIUS_AI_BASE_URL}/operations"
 
 
 class TestOperationsTimeCursor:
-    @parameterized.expand(
-        [
-            (
-                "inclusive_cursor_repeats_boundary_rows",
-                {
-                    f"{OPERATIONS_URL}?limit=2": {
-                        "data": [{"id": "op3", "created_at": 300}, {"id": "op2", "created_at": 200}]
-                    },
-                    f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A03%3A20%2B00%3A00": {
-                        "data": [{"id": "op2", "created_at": 200}, {"id": "op1", "created_at": 100}]
-                    },
-                    f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A01%3A40%2B00%3A00": {
-                        "data": [{"id": "op1", "created_at": 100}]
-                    },
-                },
-                ["op3", "op2", "op1"],
-            ),
-            (
-                "cursor_that_does_not_move_back_stops",
-                {
-                    f"{OPERATIONS_URL}?limit=2": {
-                        "data": [{"id": "op3", "created_at": 300}, {"id": "op2", "created_at": 200}]
-                    },
-                    f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A03%3A20%2B00%3A00": {
-                        "data": [{"id": "op4", "created_at": 400}, {"id": "op5", "created_at": 500}]
-                    },
-                },
-                ["op3", "op2", "op4", "op5"],
-            ),
-        ]
-    )
-    def test_pages_by_created_at_cursor(self, _name: str, pages: dict[str, Any], expected: list[str]) -> None:
+    def test_pages_by_created_at_cursor_and_drops_repeated_boundary_rows(self) -> None:
+        pages = {
+            f"{OPERATIONS_URL}?limit=2": {"data": [{"id": "op3", "created_at": 300}, {"id": "op2", "created_at": 200}]},
+            f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A03%3A20%2B00%3A00": {
+                "data": [{"id": "op2", "created_at": 200}, {"id": "op1", "created_at": 100}]
+            },
+            f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A01%3A40%2B00%3A00": {
+                "data": [{"id": "op1", "created_at": 100}]
+            },
+        }
         with pytest.MonkeyPatch.context() as monkeypatch:
             monkeypatch.setattr(nebius_ai, "PAGE_SIZE", 2)
             rows = _collect(_FakeResumableManager(), monkeypatch, "operations", pages)
-        assert [r["id"] for r in rows] == expected
+        assert [r["id"] for r in rows] == ["op3", "op2", "op1"]
+
+    @parameterized.expand(
+        [
+            ("same_timestamp_page", [{"id": "op2", "created_at": 200}, {"id": "op1", "created_at": 200}]),
+            ("cursor_moves_forward", [{"id": "op4", "created_at": 400}, {"id": "op5", "created_at": 500}]),
+        ]
+    )
+    def test_full_page_whose_cursor_does_not_move_back_fails_the_sync(
+        self, _name: str, second_page: list[dict[str, Any]]
+    ) -> None:
+        pages = {
+            f"{OPERATIONS_URL}?limit=2": {"data": [{"id": "op3", "created_at": 300}, {"id": "op2", "created_at": 200}]},
+            f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A03%3A20%2B00%3A00": {"data": second_page},
+        }
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(nebius_ai, "PAGE_SIZE", 2)
+            with pytest.raises(nebius_ai.NebiusAIPaginationError):
+                _collect(_FakeResumableManager(), monkeypatch, "operations", pages)
 
 
 class TestValidateCredentials:

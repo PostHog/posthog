@@ -28,7 +28,11 @@ class NebiusAIRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class NebiusAIPaginationError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class NebiusAIResumeConfig:
     # OpenAI-style cursor: the id of the last object already yielded, sent as `after` to fetch the
     # next page. None starts the list from the beginning.
@@ -139,15 +143,13 @@ def _get_operation_rows(
         new_items = [item for item in items if item["id"] not in previous_page_ids]
 
         # The API does not document the order or whether `cursor_time` is inclusive. We assume
-        # newest-first with the cursor as an upper bound, and only follow a cursor that moves strictly
-        # back in time, so a different behavior stops the walk instead of looping on one page.
+        # newest-first with the cursor as an upper bound. A full page whose cursor does not move
+        # strictly back in time would loop or leave a gap, so fail instead of syncing a partial table.
+        has_more = len(items) >= PAGE_SIZE
         next_cursor = _epoch_to_iso(items[-1]["created_at"]) if items else None
-        has_more = (
-            len(items) >= PAGE_SIZE and next_cursor is not None and (cursor_time is None or next_cursor < cursor_time)
-        )
-        if len(items) >= PAGE_SIZE and not has_more:
-            logger.warning(
-                f"Nebius AI {config.name}: stopped paging because the cursor did not move back in time, cursor_time={cursor_time}"
+        if has_more and cursor_time is not None and next_cursor is not None and next_cursor >= cursor_time:
+            raise NebiusAIPaginationError(
+                f"Nebius AI {config.name}: cursor_time did not move back in time on a full page, cursor_time={cursor_time}, next_cursor={next_cursor}"
             )
 
         if has_more:

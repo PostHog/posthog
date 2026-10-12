@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 # with `has_more`/`last_id`), which is what makes the source resumable within a run.
 
 
-@dataclass
+@dataclass(frozen=True)
 class NebiusAIEndpointConfig:
     name: str
     path: str
