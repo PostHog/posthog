@@ -9,6 +9,7 @@ from products.batch_exports.backend.destination_tests.base import DestinationTes
 from products.batch_exports.backend.destination_tests.bigquery import (
     BigQueryDatasetTestStep,
     BigQueryDestinationTest,
+    BigQueryTableTestStep,
     ServiceAccountInfo,
 )
 
@@ -236,8 +237,43 @@ def test_bigquery_destination_create_dataset_configuration() -> None:
     assert destination.create_dataset_if_missing is True
     dataset_step = next(step for step in destination.steps if isinstance(step, BigQueryDatasetTestStep))
     assert dataset_step.create_if_missing is True
+    table_step = next(step for step in destination.steps if isinstance(step, BigQueryTableTestStep))
+    assert table_step.skip_if_dataset_missing is True
 
     destination.configure()
     assert destination.create_dataset_if_missing is False
     dataset_step = next(step for step in destination.steps if isinstance(step, BigQueryDatasetTestStep))
     assert dataset_step.create_if_missing is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "skip_if_dataset_missing,dataset_exists,expected_status,create_table_called",
+    [
+        pytest.param(True, False, Status.SKIPPED, False, id="skip-missing-dataset"),
+        pytest.param(True, True, Status.PASSED, True, id="skip-flag-dataset-exists"),
+        pytest.param(False, True, Status.PASSED, True, id="flag-off"),
+    ],
+)
+async def test_bigquery_table_step_with_missing_dataset(
+    skip_if_dataset_missing: bool, dataset_exists: bool, expected_status: Status, create_table_called: bool
+) -> None:
+    client = MagicMock()
+    if dataset_exists:
+        client.sync_client.get_dataset.return_value = MagicMock()
+    else:
+        client.sync_client.get_dataset.side_effect = NotFound("x")
+    client.sync_client.get_table.side_effect = NotFound("x")
+
+    step = BigQueryTableTestStep(
+        project_id="p",
+        dataset_id="d",
+        table_id="t",
+        service_account_info=SERVICE_ACCOUNT_INFO,
+        skip_if_dataset_missing=skip_if_dataset_missing,
+    )
+    with patch("products.batch_exports.backend.destination_tests.bigquery.get_client", return_value=client):
+        result = await step.run()
+
+    assert result.status == expected_status
+    assert client.sync_client.create_table.called is create_table_called

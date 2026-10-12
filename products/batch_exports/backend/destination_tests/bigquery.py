@@ -396,6 +396,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         table_id: str | None = None,
         integration: GoogleCloudServiceAccountIntegration | None = None,
         service_account_info: ServiceAccountInfo | None = None,
+        skip_if_dataset_missing: bool = False,
     ) -> None:
         super().__init__()
         self.dataset_id = dataset_id
@@ -403,6 +404,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         self.table_id = table_id
         self.integration = integration
         self.service_account_info = service_account_info
+        self.skip_if_dataset_missing = skip_if_dataset_missing
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
@@ -423,6 +425,17 @@ class BigQueryTableTestStep(DestinationTestStep):
         # with non-`None` values.
         assert self.table_id is not None
         assert self.dataset_id is not None
+
+        if self.skip_if_dataset_missing:
+            # A missing dataset makes `create_table` fail with NotFound. The dataset step already
+            # checked that the dataset can be created, and the tables are created inside it later.
+            try:
+                client.sync_client.get_dataset(f"{self.project_id}.{self.dataset_id}")
+            except NotFound:
+                return DestinationTestStepResult(
+                    status=Status.SKIPPED,
+                    message=f"Dataset '{self.dataset_id}' does not exist yet. Its tables are created with it.",
+                )
 
         fully_qualified_name = f"{self.project_id}.{self.dataset_id}.{self.table_id}"
         table = bigquery.Table(fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")])
@@ -540,5 +553,6 @@ class BigQueryDestinationTest(DestinationTest):
                 table_id=self.table_id,
                 integration=self.integration,
                 service_account_info=self.service_account_info,
+                skip_if_dataset_missing=self.create_dataset_if_missing,
             ),
         ]
