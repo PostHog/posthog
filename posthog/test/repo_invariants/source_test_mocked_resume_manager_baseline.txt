@@ -1,15 +1,6 @@
 products/warehouse_sources/backend/temporal/data_imports/sources/ably/tests/test_ably.py
 products/warehouse_sources/backend/temporal/data_imports/sources/ably/tests/test_ably_source.py
-products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/tests/test_active_campaign.py
-products/warehouse_sources/backend/temporal/data_imports/sources/algolia/tests/test_algolia.py
-products/warehouse_sources/backend/temporal/data_imports/sources/amplitude/tests/test_amplitude.py
-products/warehouse_sources/backend/temporal/data_imports/sources/amplitude/tests/test_amplitude_source.py
-products/warehouse_sources/backend/temporal/data_imports/sources/appstack/tests/test_appstack.py
-products/warehouse_sources/backend/temporal/data_imports/sources/arcade/tests/test_arcade.py
-products/warehouse_sources/backend/temporal/data_imports/sources/asaas/tests/test_asaas.py
 products/warehouse_sources/backend/temporal/data_imports/sources/asknicely/tests/test_asknicely_source.py
-products/warehouse_sources/backend/temporal/data_imports/sources/astronomer/tests/test_astronomer.py
-products/warehouse_sources/backend/temporal/data_imports/sources/attio/tests/test_attio.py
 products/warehouse_sources/backend/temporal/data_imports/sources/autumn/tests/test_autumn.py
 products/warehouse_sources/backend/temporal/data_imports/sources/aws_batch/tests/test_aws_batch.py
 products/warehouse_sources/backend/temporal/data_imports/sources/aws_cloudtrail/tests/test_aws_cloudtrail.py

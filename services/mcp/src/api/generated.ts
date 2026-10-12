@@ -5313,6 +5313,17 @@ export namespace Schemas {
       formula: string;
     }
 
+    export type Calculation = typeof Calculation[keyof typeof Calculation];
+
+
+    export const Calculation = {
+      Fixed: 'fixed',
+      Mean: 'mean',
+      Median: 'median',
+      Min: 'min',
+      Max: 'max',
+    } as const;
+
     export type Position = typeof Position[keyof typeof Position];
 
 
@@ -5321,12 +5332,24 @@ export namespace Schemas {
       End: 'end',
     } as const;
 
+    export type Scope = typeof Scope[keyof typeof Scope];
+
+
+    export const Scope = {
+      All: 'all',
+      Series: 'series',
+    } as const;
+
     export interface GoalLine {
       borderColor?: string | null;
+      /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+      calculation?: Calculation | null;
       displayIfCrossed?: boolean | null;
       displayLabel?: boolean | null;
       label: string;
       position?: Position | null;
+      /** SQL chart calculations use the primary axis, across all series or separately per series. */
+      scope?: Scope | null;
       value: number;
     }
 
@@ -10736,19 +10759,34 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    export type DatePart = typeof DatePart[keyof typeof DatePart];
+
+
+    export const DatePart = {
+      Month: 'month',
+      Quarter: 'quarter',
+      DayOfWeek: 'day_of_week',
+    } as const;
+
+    export interface BILocalFieldDefinition1 {
+      aggregate: boolean;
+      expression: string;
+      kind?: 'expression';
+    }
+
     export interface BICategoryGroup {
       name: string;
       values: string[];
     }
 
-    export interface BILocalFieldDefinition1 {
+    export interface BILocalFieldDefinition2 {
       expression: string;
       groups: BICategoryGroup[];
       kind?: 'groups';
       other: string;
     }
 
-    export interface BILocalFieldDefinition2 {
+    export interface BILocalFieldDefinition3 {
       expression: string;
       kind?: 'bins';
       origin: number;
@@ -10784,9 +10822,11 @@ export namespace Schemas {
 
     export interface BIField {
       dateBucket?: BIDateBucket | null;
+      datePart?: DatePart | null;
       expression: string;
       id: string;
-      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | null;
+      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | null;
+      localFieldId?: string | null;
       name: string;
       source: BIDataSource;
       type: DatabaseSerializedFieldType;
@@ -10825,6 +10865,13 @@ export namespace Schemas {
       value: string;
       valueTo?: string | null;
       values?: string[] | null;
+    }
+
+    export interface BIHierarchy {
+      id: string;
+      /** Ordered from the broadest dimension to the most detailed. */
+      levels: BIField[];
+      name: string;
     }
 
     export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
@@ -10925,6 +10972,14 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type Shelf = typeof Shelf[keyof typeof Shelf];
+
+
+    export const Shelf = {
+      Rows: 'rows',
+      Columns: 'columns',
+    } as const;
+
     export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
 
 
@@ -10954,11 +11009,14 @@ export namespace Schemas {
       field: BIField;
       formatting?: ChartSettingsFormatting | null;
       label?: string | null;
+      /** Measures in older worksheets belong to rows. */
+      shelf?: Shelf | null;
       tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
       chartType: ChartDisplayType;
+      colorBy?: string | null;
       columns: BIField[];
       compareFilter?: CompareFilter | null;
       /** Explore only the comparison window, using dateRange as its reference window. */
@@ -10967,6 +11025,8 @@ export namespace Schemas {
       dateField?: BIField | null;
       dateRange?: DateRange | null;
       filters: BIFilter[];
+      /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+      hierarchies?: BIHierarchy[] | null;
       limit: BIQueryLimit;
       /** Reusable expressions owned by this worksheet only. */
       localFields?: BIField[] | null;
@@ -90139,6 +90199,22 @@ export namespace Schemas {
       payload?: ProjectProfilePayload;
     }
 
+    export interface ProjectUsageItem {
+      /** The usage counter, as the usage series names it. */
+      usage_key: string;
+      /** The counter's display name. */
+      name: string;
+      /** The project's usage of the counter so far this billing period. */
+      usage: number;
+    }
+
+    export interface ProjectUsageSummary {
+      /** The period the usage covers. Null when the organization has no billing period yet, and the usage then covers the current calendar month in UTC. */
+      billing_period: BillingPeriod | null;
+      /** One entry per usage counter the project reported. */
+      results: ProjectUsageItem[];
+    }
+
     export interface Property {
       /**
        *  You can use a simplified version:
@@ -119332,6 +119408,114 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type BillingProjectSpendExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingProjectSpendTimeseriesRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingProjectUsageExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingProjectUsageTimeseriesRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the project. Pass `["type"]` for a series per product.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
     };
 
     export type BusinessKnowledgeDocumentsWindowListParams = {
