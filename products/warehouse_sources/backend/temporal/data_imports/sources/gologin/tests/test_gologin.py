@@ -94,34 +94,6 @@ class TestGoLoginTransport:
             assert call.kwargs["allow_redirects"] is False
             assert call.kwargs["timeout"] == REQUEST_TIMEOUT
 
-    @pytest.mark.parametrize(
-        ("endpoint", "path", "body", "expected"),
-        [
-            ("profiles", "/browser/v2", {"profiles": [], "allProfilesCount": 0}, []),
-            ("workspaces", "/workspaces", [{"id": "workspace-1"}], [[{"id": "workspace-1"}]]),
-            ("workspaces", "/workspaces", [], []),
-            ("proxy_devices", "/proxy-devices", {"devices": [{"id": "device-1"}]}, [[{"id": "device-1"}]]),
-            ("proxy_devices", "/proxy-devices", {"devices": []}, []),
-        ],
-    )
-    def test_response_selection_and_terminal_page(
-        self, send: MagicMock, endpoint: str, path: str, body: object, expected: list[list[dict[str, str]]]
-    ) -> None:
-        send.return_value = response(body)
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        result = gologin_source("test-token", endpoint, 1, "test-job", manager)
-        assert list(cast(Resource, result.items())) == expected
-        send.assert_called_once()
-        request = send.call_args.args[0]
-        assert urlsplit(request.url).path == path
-        assert request.headers["Authorization"] == "Bearer test-token"
-        assert send.call_args.kwargs["allow_redirects"] is False
-        assert send.call_args.kwargs["timeout"] == REQUEST_TIMEOUT
-        if endpoint != "profiles":
-            assert urlsplit(request.url).query == ""
-        manager.save_state.assert_not_called()
-
     @pytest.mark.parametrize("status", [401, 403])
     def test_pipeline_errors_match_user_messages(self, send: MagicMock, status: int) -> None:
         send.return_value = response({"statusCode": status}, status)

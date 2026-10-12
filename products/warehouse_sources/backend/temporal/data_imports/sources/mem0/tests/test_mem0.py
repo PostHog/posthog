@@ -22,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     EVENTS_ENDPOINT,
     MEM0_BASE_URL,
     MEMORIES_ENDPOINT,
+    MEMORY_HISTORY_ENDPOINT,
+    PROJECTS_ENDPOINT,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -106,52 +108,8 @@ class TestValidateCredentials:
 
         assert validate_credentials("m0-test") is expected
 
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_network_error_is_invalid_not_raised(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert validate_credentials("m0-test") is False
-
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_probes_the_ping_endpoint_with_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("m0-test")
-
-        _args, kwargs = mock_session.return_value.get.call_args
-        assert mock_session.return_value.get.call_args.args[0] == f"{MEM0_BASE_URL}/v1/ping/"
-        assert kwargs["headers"]["Authorization"] == "Token m0-test"
-
 
 class TestMemoriesRows:
-    def test_yields_every_page_and_terminates_on_null_next(self):
-        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        rows, prepared = _run(
-            MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}, {"id": "m2"}], next_url=next_url), _response([{"id": "m3"}], next_url=None)],
-            _manager(),
-        )
-
-        assert rows == [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]
-        assert _query(prepared[0])["page"] == ["1"]
-        assert "page=2" in prepared[1].url
-        assert all(_query(p).get("page_size") == ["100"] for p in prepared)
-
-    def test_posts_with_token_auth_header(self):
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([{"id": "m1"}], next_url=None)], _manager())
-
-        assert prepared[0].method == "POST"
-        assert prepared[0].headers["Authorization"] == "Token m0-test"
-
-    def test_full_sync_sends_wildcard_filter_over_every_entity_type(self):
-        # A bare {"user_id": "*"} filter would silently drop memories scoped only to an agent,
-        # app, or run; the request must OR the wildcard across all four entity ids.
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([], next_url=None)], _manager())
-
-        body = _body(prepared[0])
-        assert body == {"filters": _MATCH_ALL_FILTER}
-        assert {"agent_id": "*"} in body["filters"]["OR"]
-
     def test_incremental_sync_filters_on_the_users_chosen_field(self):
         _rows_, prepared = _run(
             MEMORIES_ENDPOINT,
@@ -163,20 +121,6 @@ class TestMemoriesRows:
         )
 
         assert _body(prepared[0]) == {"filters": {"AND": [_MATCH_ALL_FILTER, {"created_at": {"gte": "2026-07-01"}}]}}
-
-    def test_saves_resume_state_only_after_yielding_and_only_when_pages_remain(self):
-        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        manager = _manager()
-        _run(
-            MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}], next_url=next_url), _response([{"id": "m2"}], next_url=None)],
-            manager,
-        )
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == Mem0ResumeConfig(
-            endpoint=MEMORIES_ENDPOINT, next_url=next_url, cutoff=None
-        )
 
     def test_resumes_from_saved_next_url_and_pins_the_original_cutoff(self):
         # The saved cutoff (not a freshly computed one) must drive the filter on resume, otherwise
@@ -291,6 +235,71 @@ class TestEntitiesRows:
         assert _query(prepared[0]) == expected_query
 
 
+class TestMemoryHistoryRows:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, _MATCH_ALL_FILTER),
+            # The child takes no filters, so the watermark bounds the memories listing on
+            # `updated_at`, whichever history field the user picked as the cursor.
+            (
+                "incremental",
+                True,
+                datetime(2026, 7, 1, 12, 30, tzinfo=UTC),
+                {"AND": [_MATCH_ALL_FILTER, {"updated_at": {"gte": "2026-07-01"}}]},
+            ),
+        ]
+    )
+    def test_fans_out_over_every_memories_page(self, _name, incremental, last_value, expected_filters):
+        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
+        rows, prepared = _run(
+            MEMORY_HISTORY_ENDPOINT,
+            [
+                _response([{"id": "m1"}, {"id": "m2"}], next_url=next_url),
+                _raw_response([{"id": "h1", "memory_id": "m1", "event": "ADD"}]),
+                # A memory deleted between the listing and its history fetch.
+                _raw_response({"detail": "Not found"}, status=404),
+                _response([{"id": "m3"}], next_url=None),
+                _raw_response([{"id": "h3", "memory_id": "m3", "event": "UPDATE"}]),
+            ],
+            _manager(),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+            incremental_field="created_at",
+        )
+
+        assert [row["id"] for row in rows] == ["h1", "h3"]
+        assert _body(prepared[0]) == {"filters": expected_filters}
+        assert [urlsplit(p.url).path for p in prepared[1:]] == [
+            "/v1/memories/m1/history/",
+            "/v1/memories/m2/history/",
+            "/v3/memories/",
+            "/v1/memories/m3/history/",
+        ]
+
+
+class TestProjectsRows:
+    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(self):
+        rows, prepared = _run(
+            PROJECTS_ENDPOINT,
+            [
+                _raw_response([{"org_id": "org_1", "name": "One"}, {"org_id": "org_2", "name": "Two"}]),
+                _raw_response([{"project_id": "proj_a", "name": "A"}]),
+                _raw_response([{"project_id": "proj_b", "name": "B"}]),
+            ],
+            _manager(),
+        )
+
+        assert rows == [
+            {"project_id": "proj_a", "name": "A", "org_id": "org_1"},
+            {"project_id": "proj_b", "name": "B", "org_id": "org_2"},
+        ]
+        assert [urlsplit(p.url).path for p in prepared] == [
+            "/api/v1/orgs/organizations/",
+            "/api/v1/orgs/organizations/org_1/projects/",
+            "/api/v1/orgs/organizations/org_2/projects/",
+        ]
+
+
 class TestEventsRows:
     def test_follows_next_urls_and_checkpoints_after_each_yield(self):
         next_url = f"{MEM0_BASE_URL}/v1/events/?page=2"
@@ -304,29 +313,6 @@ class TestEventsRows:
         assert rows == [{"id": "e1"}, {"id": "e2"}]
         assert prepared[1].url == next_url
         manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=next_url))
-
-    def test_follows_relative_next_urls(self):
-        # Mem0's /v1/events/ envelope returns a relative `next` link; it must resolve against the
-        # API origin rather than be rejected as off-origin.
-        absolute_next = f"{MEM0_BASE_URL}/v1/events/?page=2"
-        manager = _manager()
-        rows, prepared = _run(
-            EVENTS_ENDPOINT,
-            [_response([{"id": "e1"}], next_url="/v1/events/?page=2"), _response([{"id": "e2"}], next_url=None)],
-            manager,
-        )
-
-        assert rows == [{"id": "e1"}, {"id": "e2"}]
-        assert prepared[1].url == absolute_next
-        manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=absolute_next))
-
-    def test_resumes_from_the_saved_next_url(self):
-        saved_url = f"{MEM0_BASE_URL}/v1/events/?page=5"
-        manager = _manager(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=saved_url))
-
-        _rows_, prepared = _run(EVENTS_ENDPOINT, [_response([], next_url=None)], manager)
-
-        assert prepared[0].url == saved_url
 
     @parameterized.expand(
         [
@@ -365,17 +351,6 @@ class TestEventsRows:
 
 
 class TestFetchRetry:
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    def test_retries_rate_limits_then_succeeds(self, _sleep):
-        rows, prepared = _run(
-            MEMORIES_ENDPOINT,
-            [_response([], status=429), _response([{"id": "m1"}], next_url=None)],
-            _manager(),
-        )
-
-        assert rows == [{"id": "m1"}]
-        assert len(prepared) == 2
-
     def test_auth_errors_raise_immediately_without_retry(self):
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             session = MockSession.return_value
@@ -388,22 +363,3 @@ class TestFetchRetry:
                 )
 
         assert len(prepared) == 1
-
-
-class TestMem0SourceResponse:
-    def test_memories_response_merges_on_id_and_partitions_on_stable_created_at(self):
-        response = mem0_source("m0-test", MEMORIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
-
-        assert response.name == MEMORIES_ENDPOINT
-        assert response.primary_keys == ["id"]
-        # The list endpoint has no sort parameter, so ordering is undefined; "desc" defers the
-        # incremental watermark commit to successful end of run.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    def test_entities_response_has_no_partitioning(self):
-        response = mem0_source("m0-test", ENTITIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None

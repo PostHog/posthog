@@ -69,20 +69,21 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
     # --- Zone-scoped security configuration ---
     # Cloudflare deprecated the legacy Firewall Rules API (and the Filters API its rules
     # reference) in favor of the Ruleset Engine; a zone that has moved to WAF custom rules
-    # gets a 400 on both rather than an empty list. Same shape as `rate_limits` below.
+    # gets a 400 on both rather than an empty list, and a zone where the API is retired
+    # gets a 410 Gone. Same shape as `rate_limits` below.
     "firewall_rules": CloudflareEndpointConfig(
         name="firewall_rules",
         path="/zones/{zone_id}/firewall/rules",
         parent=ZONES_PARENT,
         parent_key="_zone_id",
-        extra_skip_status_codes=(400,),
+        extra_skip_status_codes=(400, 410),
     ),
     "filters": CloudflareEndpointConfig(
         name="filters",
         path="/zones/{zone_id}/filters",
         parent=ZONES_PARENT,
         parent_key="_zone_id",
-        extra_skip_status_codes=(400,),
+        extra_skip_status_codes=(400, 410),
     ),
     "rulesets": CloudflareEndpointConfig(
         name="rulesets",

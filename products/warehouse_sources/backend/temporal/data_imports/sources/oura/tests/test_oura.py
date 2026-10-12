@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-import time_machine
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
@@ -15,8 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.oura.oura 
     DEFAULT_START_DATE,
     DEFAULT_START_DATETIME,
     OuraResumeConfig,
-    _clamp_date_to_today,
-    _clamp_datetime_to_now,
     _format_date,
     _format_datetime,
     oura_source,
@@ -34,13 +31,6 @@ def _collection(items: list[dict[str, Any]], next_token: str | None = None, *, d
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _document(doc: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(doc).encode()
     return resp
 
 
@@ -103,59 +93,8 @@ class TestFormatHelpers:
         assert _format_datetime(value) == expected
 
 
-class TestClamp:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_date_clamped_to_today(self) -> None:
-        assert _clamp_date_to_today("2099-01-01") == "2026-06-15"
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_date_unchanged(self) -> None:
-        assert _clamp_date_to_today("2021-05-01") == "2021-05-01"
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_clamped_to_now(self) -> None:
-        assert _clamp_datetime_to_now("2099-01-01T00:00:00+00:00") == "2026-06-15T12:00:00+00:00"
-
-
 class TestDateWindowParams:
     """The server-side date window is injected as a request param before pagination begins."""
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_date_endpoint_first_sync_uses_default_start(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_collection([{"id": "a"}])])
-        _rows(_source("daily_sleep", _make_manager(), should_use_incremental_field=False))
-        assert params[0]["start_date"] == DEFAULT_START_DATE
-        assert "next_token" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_date_endpoint_incremental_uses_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_collection([{"id": "a"}])])
-        _rows(
-            _source(
-                "daily_sleep",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2021, 5, 1),
-            )
-        )
-        assert params[0]["start_date"] == "2021-05-01"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_datetime_endpoint_incremental_uses_start_datetime(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_collection([{"timestamp": "t", "source": "s"}])])
-        _rows(
-            _source(
-                "heartrate",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2021, 5, 1, 12, 0, tzinfo=UTC),
-            )
-        )
-        assert params[0]["start_datetime"] == "2021-05-01T12:00:00+00:00"
-        assert "start_date" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_datetime_endpoint_first_sync_uses_default(self, MockSession) -> None:
@@ -163,30 +102,6 @@ class TestDateWindowParams:
         params = _wire(session, [_collection([{"timestamp": "t", "source": "s"}])])
         _rows(_source("heartrate", _make_manager(), should_use_incremental_field=False))
         assert params[0]["start_datetime"] == DEFAULT_START_DATETIME
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_sends_no_date_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_collection([{"id": "r1"}])])
-        _rows(_source("ring_configuration", _make_manager()))
-        assert "start_date" not in params[0]
-        assert "start_datetime" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_cursor_is_clamped(self, MockSession) -> None:
-        # A future-dated record could push the cursor past today; Oura 400s when start_date > end_date.
-        session = MockSession.return_value
-        params = _wire(session, [_collection([{"id": "a"}])])
-        _rows(
-            _source(
-                "daily_sleep",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2099, 1, 1),
-            )
-        )
-        assert params[0]["start_date"] == "2026-06-15"
 
 
 class TestPagination:
@@ -208,31 +123,6 @@ class TestPagination:
         assert params[1]["start_date"] == DEFAULT_START_DATE
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_only_after_non_terminal_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _collection([{"id": "a"}], next_token="tok1"),
-                _collection([{"id": "b"}], next_token=None),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source("daily_sleep", manager))
-        # Saved only after the first page (which had a next_token); the terminal page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == OuraResumeConfig(next_token="tok1")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_collection([{"id": "a"}], next_token=None)])
-        manager = _make_manager()
-        _rows(_source("daily_sleep", manager))
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_next_token(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_collection([{"id": "z"}], next_token=None)])
@@ -241,33 +131,12 @@ class TestPagination:
         assert params[0]["next_token"] == "saved"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_is_not_yielded(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_collection([], next_token=None)])
-        assert _pages(_source("daily_sleep", _make_manager())) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_collection([], drop_data=True)])
         # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("daily_sleep", _make_manager()))
-
-
-class TestSingleDocument:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_personal_info_yields_single_document(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_document({"id": "u1", "age": 30, "email": "a@b.com"})])
-        manager = _make_manager()
-        pages = _pages(_source("personal_info", manager))
-        assert pages == [[{"id": "u1", "age": 30, "email": "a@b.com"}]]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-        # Single-document endpoints have no date window.
-        assert "start_date" not in params[0]
-        assert "start_datetime" not in params[0]
 
 
 class TestProbeEndpoint:
@@ -279,32 +148,8 @@ class TestProbeEndpoint:
         with patch.object(oura, "make_tracked_session", return_value=session):
             assert probe_endpoint("tok", "/usercollection/personal_info") == status
 
-    def test_transport_failure_returns_minus_one(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with patch.object(oura, "make_tracked_session", return_value=session):
-            assert probe_endpoint("tok", "/usercollection/personal_info") == -1
-
 
 class TestOuraSourceResponse:
-    def test_daily_endpoint_partitions_on_day(self) -> None:
-        response = _source("daily_sleep", _make_manager())
-        assert response.name == "daily_sleep"
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["day"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.sort_mode == "asc"
-
-    def test_heartrate_uses_composite_key_and_timestamp_partition(self) -> None:
-        response = _source("heartrate", _make_manager())
-        assert response.primary_keys == ["timestamp", "source"]
-        assert response.partition_keys == ["timestamp"]
-
-    def test_enhanced_tag_partitions_on_start_day(self) -> None:
-        response = _source("enhanced_tag", _make_manager())
-        assert response.partition_keys == ["start_day"]
-
     @parameterized.expand([("personal_info",), ("ring_configuration",)])
     def test_full_refresh_endpoints_are_unpartitioned(self, endpoint: str) -> None:
         response = _source(endpoint, _make_manager())

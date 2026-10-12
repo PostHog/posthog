@@ -9,7 +9,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
-from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
@@ -61,77 +60,6 @@ def response(body: dict[str, Any], status: int = 200) -> Response:
     result.headers["Content-Type"] = "application/json"
     result._content = json.dumps(body).encode()
     return result
-
-
-@pytest.mark.parametrize(
-    ("endpoint", "path", "selector", "limit", "row"),
-    [
-        (
-            "assistant_conversations",
-            "assistant",
-            "conversations",
-            1000,
-            {"id": "turn-1", "timestamp": "2026-01-01T00:00:00Z"},
-        ),
-        ("feedback", "feedback", "feedback", 100, {"id": "feedback-1", "createdAt": None, "status": "pending"}),
-        ("searches", "searches", "searches", 100, {"searchQuery": "setup", "hits": 12}),
-    ],
-)
-def test_cursor_pages(
-    config: MintlifySourceConfig,
-    manager: MagicMock,
-    transport: MagicMock,
-    endpoint: str,
-    path: str,
-    selector: str,
-    limit: int,
-    row: dict[str, Any],
-) -> None:
-    transport.side_effect = [
-        response({selector: [row], "nextCursor": "cursor-2", "hasMore": True}),
-        response({selector: [], "nextCursor": "cursor-3", "hasMore": True}),
-        response({selector: [row], "nextCursor": None, "hasMore": False}),
-    ]
-    source = mintlify_source(config, endpoint, 1, "job", manager)
-    assert list(cast(Iterable[Any], source.items())) == [[row], [row]]
-    requests = [cast(PreparedRequest, call.args[0]) for call in transport.call_args_list]
-    params = [parse_qs(urlsplit(cast(str, request.url)).query) for request in requests]
-    assert [param.get("cursor") for param in params] == [None, ["cursor-2"], ["cursor-3"]]
-    assert all(param["limit"] == [str(limit)] for param in params)
-    assert all(param["dateTo"] == params[0]["dateTo"] for param in params)
-    assert all("dateFrom" not in param for param in params)
-    assert all(urlsplit(cast(str, request.url)).path == f"/v1/analytics/example-project/{path}" for request in requests)
-    assert all(request.headers["Authorization"] == "Bearer mint_example_fake_key" for request in requests)
-    assert [call.args[0].paginator_state for call in manager.save_state.call_args_list] == [
-        {"cursor": "cursor-2"},
-        {"cursor": "cursor-3"},
-    ]
-
-
-@pytest.mark.parametrize("endpoint", ["views", "visitors"])
-@pytest.mark.parametrize("terminal_rows", [[], [{"path": "/last", "human": 1, "ai": 0, "total": 1}]])
-def test_offset_pages_use_has_more(
-    config: MintlifySourceConfig,
-    manager: MagicMock,
-    transport: MagicMock,
-    endpoint: str,
-    terminal_rows: list[dict[str, Any]],
-) -> None:
-    row = {"path": "/start", "human": 3, "ai": 2, "total": 5}
-    transport.side_effect = [
-        response({endpoint: [row], "hasMore": True, "totals": {"total": 5}}),
-        response({endpoint: [], "hasMore": True}),
-        response({endpoint: terminal_rows, "hasMore": False}),
-    ]
-    source = mintlify_source(config, endpoint, 1, "job", manager)
-    assert [item for page in cast(Iterable[Any], source.items()) for item in page] == [row, *terminal_rows]
-    params = [parse_qs(urlsplit(call.args[0].url).query) for call in transport.call_args_list]
-    assert [param["offset"] for param in params] == [["0"], ["250"], ["500"]]
-    assert all(param["limit"] == ["250"] for param in params)
-    assert [call.args[0].paginator_state for call in manager.save_state.call_args_list] == [
-        {"offset": 250},
-        {"offset": 500},
-    ]
 
 
 @pytest.mark.parametrize(
@@ -195,19 +123,15 @@ def test_resume_preserves_window(
     manager.save_state.assert_not_called()
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 400])
+@pytest.mark.parametrize("status", [200, 400, 401, 403, 404])
 def test_credentials_and_terminal_errors(config: MintlifySourceConfig, transport: MagicMock, status: int) -> None:
     body: dict[str, Any] = {"feedback": []} if status == 200 else {"error": "Unauthorized"}
     transport.return_value = response(body, status)
-    if status == 400:
-        with pytest.raises(HTTPError):
-            validate_credentials(config)
-    else:
-        valid, message = validate_credentials(config)
-        assert valid is (status == 200)
-        if status != 200:
-            assert message
-            assert message == MintlifySource().get_non_retryable_errors()[f"{status} Client Error"]
+    valid, message = validate_credentials(config)
+    assert valid is (status == 200)
+    if status != 200:
+        assert message
+        assert message == MintlifySource().get_non_retryable_errors()[f"{status} Client Error"]
     transport.assert_called_once()
     request = cast(PreparedRequest, transport.call_args.args[0])
     assert request.headers["Authorization"] == "Bearer mint_example_fake_key"

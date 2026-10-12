@@ -1,0 +1,3 @@
+products/warehouse_sources/backend/temporal/data_imports/sources/partnerstack/tests/test_partnerstack.py
+products/warehouse_sources/backend/temporal/data_imports/sources/proofpoint_tap/tests/test_proofpoint_tap.py
+products/warehouse_sources/backend/temporal/data_imports/sources/sevenshifts/tests/test_sevenshifts.py

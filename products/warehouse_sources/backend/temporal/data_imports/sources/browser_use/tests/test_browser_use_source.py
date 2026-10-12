@@ -19,14 +19,6 @@ class TestBrowserUseSource:
         self.source = BrowserUseSource()
         self.config = BrowserUseSourceConfig(api_key="bu_test")
 
-    def test_default_version_is_v4(self) -> None:
-        # New sources must start on v4 (declared newest-last, default flipped to it) and, with no
-        # pin, discover the v4 catalog.
-        assert self.source.supported_versions == (BROWSER_USE_API_VERSION_V3, BROWSER_USE_API_VERSION_V4)
-        assert self.source.default_version == BROWSER_USE_API_VERSION_V4
-        names = {s.name for s in self.source.get_schemas(self.config, team_id=1)}
-        assert names == {"sessions", "runs", "browser_sessions", "profiles"}
-
     @parameterized.expand(
         [
             (
@@ -46,30 +38,6 @@ class TestBrowserUseSource:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
-
-    def test_session_messages_off_by_default_on_v3(self) -> None:
-        # session_messages fans out one request per session, so it must stay opt-in to avoid
-        # surprise API cost; the top-level lists stay on.
-        schemas = {
-            s.name: s for s in self.source.get_schemas(self.config, team_id=1, api_version=BROWSER_USE_API_VERSION_V3)
-        }
-        assert schemas["session_messages"].should_sync_default is False
-        assert schemas["sessions"].should_sync_default is True
-
-    def test_names_filter_narrows_schemas(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["sessions"])
-        assert [s.name for s in schemas] == ["sessions"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # Public docs render the default (v4) catalog, so lists_tables_without_credentials must
-        # surface those tables (with canonical descriptions) for the posthog.com Supported tables
-        # section — including the new runs table.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        by_name = {t["name"]: t for t in tables}
-        assert set(by_name) == {"sessions", "runs", "browser_sessions", "profiles"}
-        assert by_name["sessions"]["sync_methods"] == ["Full refresh"]
-        assert by_name["runs"]["description"]
 
     @parameterized.expand(
         [

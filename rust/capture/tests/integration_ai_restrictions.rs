@@ -11,11 +11,12 @@ use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
-use capture::outputs::{OutputRegistry, PublishEvents};
+use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
+use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
-use capture::v0_request::{AiLanePredicate, DataType, OverflowReason, ProcessedEvent};
+use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
@@ -60,6 +61,13 @@ impl PublishEvents for CapturingSink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for CapturingSink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 
@@ -169,7 +177,6 @@ async fn setup_ai_router_with_restriction(
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        AiLanePredicate::Allowlist,
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -492,7 +499,6 @@ async fn setup_ai_router_with_redirect_to_topic(
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        AiLanePredicate::Allowlist,
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -573,7 +579,6 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes

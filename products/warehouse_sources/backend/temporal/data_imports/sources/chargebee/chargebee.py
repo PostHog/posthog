@@ -39,6 +39,20 @@ def get_resource(
     # rows, so the first unfiltered sync still advances it.
     apply_incremental_filter = should_use_incremental_field and db_incremental_field_last_value is not None
     resources: dict[str, EndpointResource] = {
+        # Credit units and meters have no server-side timestamp filter, so they only support full refresh.
+        "CreditUnits": {
+            "name": "CreditUnits",
+            "table_name": "credit_units",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "list[*].credit_unit",
+                "path": "/v2/credit_units",
+                "params": {
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
         "Customers": {
             "name": "Customers",
             "table_name": "customers",
@@ -140,6 +154,19 @@ def get_resource(
                 "path": "/v2/items",
                 "params": {
                     "updated_at[after]": incremental_param("updated_at") if apply_incremental_filter else None,
+                    "limit": 100,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Meters": {
+            "name": "Meters",
+            "table_name": "meters",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "list[*].meter",
+                "path": "/v2/meters",
+                "params": {
                     "limit": 100,
                 },
             },

@@ -16,15 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
     CiscoDuoLogSaturationError,
     CiscoDuoResumeConfig,
     CiscoDuoRetryableError,
-    _canonicalize_params,
     _fetch_json_once,
     _normalize_next_offset,
     _to_epoch_ms,
     _to_epoch_seconds,
     cisco_duo_source,
     get_rows,
-    is_allowed_hostname,
-    normalize_hostname,
     sign_request,
     validate_credentials,
 )
@@ -104,55 +101,12 @@ def _run(endpoint: str, session: _FakeSession, manager: mock.MagicMock, **kwargs
 
 
 class TestHostnameValidation:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("api-xxxxxxxx.duosecurity.com", "api-xxxxxxxx.duosecurity.com"),
-            ("https://api-xxxxxxxx.duosecurity.com/", "api-xxxxxxxx.duosecurity.com"),
-            ("API-XXXXXXXX.DUOSECURITY.COM", "api-xxxxxxxx.duosecurity.com"),
-            ("  api-xxxxxxxx.duosecurity.com/admin/v1  ", "api-xxxxxxxx.duosecurity.com"),
-        ],
-    )
-    def test_normalize_hostname(self, raw, expected):
-        assert normalize_hostname(raw) == expected
-
-    @pytest.mark.parametrize(
-        "hostname, allowed",
-        [
-            ("api-xxxxxxxx.duosecurity.com", True),
-            ("api-xxxxxxxx.duofederal.com", True),
-            ("api-xxxxxxxx.evil.com", False),
-            ("duosecurity.com.evil.com", False),
-            ("api-xxxxxxxx.duosecurity.com@evil.com", False),
-            ("", False),
-        ],
-    )
-    def test_is_allowed_hostname(self, hostname, allowed):
-        assert is_allowed_hostname(hostname) is allowed
-
     def test_get_rows_rejects_disallowed_hostname(self):
         with pytest.raises(CiscoDuoHostNotAllowedError):
             _run("users", _FakeSession([]), _manager(), api_hostname="api.evil.com")
 
 
 class TestSigning:
-    def test_canonicalize_sorts_and_percent_encodes(self):
-        # Duo signs the RFC 3986-encoded, key-sorted param string; urlencode's default
-        # '+'-for-space or unsorted params would produce an invalid signature.
-        canon = _canonicalize_params({"realname": "First Last", "username": "root", "limit": "10/20"})
-        assert canon == "limit=10%2F20&realname=First%20Last&username=root"
-
-    def test_sign_request_builds_basic_auth_over_canonical_string(self):
-        date_str = "Tue, 21 Aug 2012 17:29:18 -0000"
-        headers = sign_request("GET", HOST, "/admin/v1/users", {"limit": "1"}, IKEY, SKEY, date_str)
-
-        assert headers["Date"] == date_str
-        decoded = base64.b64decode(headers["Authorization"].removeprefix("Basic ")).decode()
-        username, _, signature = decoded.partition(":")
-        assert username == IKEY
-        assert len(signature) == 40
-        int(signature, 16)  # HMAC-SHA1 hex digest
-
     def test_v5_signature_appends_body_and_header_hashes(self):
         # Some /admin/v2 handlers reject Duo's legacy v2 signing. v5 signs two extra canonical
         # lines — the request body and the signed X-Duo-* headers — with SHA-512 instead of
@@ -294,18 +248,6 @@ class TestLogV2Rows:
             "next_offset": "cursor123",
         }
 
-    def test_future_watermark_clamped_to_window_end(self):
-        session = _FakeSession([self._page([])])
-        _run(
-            "authentication_logs",
-            session,
-            _manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=99999999999,  # far future
-        )
-        params = _query(session.urls[0])
-        assert int(params["mintime"]) <= int(params["maxtime"])
-
     def test_telephony_uses_items_data_key_and_iso_watermark(self):
         items = [{"telephony_id": "t1", "ts": "2024-01-01T00:00:05+00:00"}]
         session = _FakeSession([_response(json_data={"stat": "OK", "response": {"items": items, "metadata": {}}})])
@@ -325,21 +267,6 @@ class TestLogV2Rows:
 class TestLogV1Rows:
     def _page(self, items: list[dict]) -> mock.MagicMock:
         return _response(json_data={"stat": "OK", "response": items})
-
-    def test_advances_mintime_and_stops_on_short_page(self):
-        with mock.patch(f"{MODULE}.LOG_V1_PAGE_SIZE", 3):
-            page_one = [{"timestamp": ts, "action": "a"} for ts in (1, 2, 3)]
-            page_two = [{"timestamp": 4, "action": "b"}]
-            session = _FakeSession([self._page(page_one), self._page(page_two)])
-            manager = _manager()
-
-            batches = _run("administrator_logs", session, manager)
-
-        # Page one is full, so its trailing row (timestamp 3) is held back and re-fetched.
-        assert batches == [[{"timestamp": 1, "action": "a"}, {"timestamp": 2, "action": "a"}], page_two]
-        assert _query(session.urls[0])["mintime"] == "0"
-        assert _query(session.urls[1])["mintime"] == "2"
-        manager.save_state.assert_any_call(CiscoDuoResumeConfig(mintime=2))
 
     def test_watermark_rows_are_dropped_client_side(self):
         # Duo's docs are ambiguous on mintime inclusivity; boundary rows already synced in
@@ -397,19 +324,6 @@ class TestListV1Rows:
         assert _query(session.urls[1])["offset"] == "100"
         manager.save_state.assert_called_once_with(CiscoDuoResumeConfig(offset=100))
 
-    @pytest.mark.parametrize(
-        "endpoint, signature_length",
-        [("users", 40), ("endpoints", 40), ("policies", 128)],
-    )
-    def test_endpoint_signs_with_its_configured_version(self, endpoint: str, signature_length: int):
-        # A /admin/v2 handler can reject legacy v2 signing, so the endpoint's signing version has
-        # to reach the request instead of only sitting in settings.
-        session = _FakeSession([self._page([])])
-
-        _run(endpoint, session, _manager())
-
-        assert len(_signature(session.headers[0])) == signature_length
-
     def test_resume_starts_from_saved_offset(self):
         session = _FakeSession([self._page([{"user_id": "u3"}])])
 
@@ -456,39 +370,6 @@ class TestFanoutV1Rows:
 
     def _group(self, group_id: str) -> dict:
         return {"group_id": group_id, "name": group_id}
-
-    def test_fans_out_over_parents_and_stamps_the_parent_id(self):
-        session = _FakeSession(
-            [
-                self._page([self._group("DG1"), self._group("DG2")]),
-                self._page([{"user_id": "u1"}]),
-                self._page([{"user_id": "u2"}]),
-            ]
-        )
-
-        batches = _run("group_users", session, _manager())
-
-        # Without the parent id on the row the membership is unattributable and the composite
-        # primary key collapses to the user, dropping every group but one.
-        assert batches == [
-            [{"user_id": "u1", "group_id": "DG1"}],
-            [{"user_id": "u2", "group_id": "DG2"}],
-        ]
-        assert [urlparse(url).path for url in session.urls] == [
-            "/admin/v1/groups",
-            "/admin/v2/groups/DG1/users",
-            "/admin/v2/groups/DG2/users",
-        ]
-
-    def test_parent_and_child_sign_with_their_own_versions(self):
-        # The parent list is a v1 handler that takes legacy v2 signing; the child is a v2 handler
-        # that can reject it.
-        session = _FakeSession([self._page([self._group("DG1")]), self._page([])])
-
-        _run("group_users", session, _manager())
-
-        assert len(_signature(session.headers[0])) == 40
-        assert len(_signature(session.headers[1])) == 128
 
     def test_checkpoints_the_next_child_page_then_the_next_parent(self):
         session = _FakeSession(

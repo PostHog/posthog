@@ -24,6 +24,7 @@ from products.replay_vision.backend.queries.session_identity import (
     person_display_name,
     person_email,
     person_organization,
+    session_geoip,
 )
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -55,7 +56,7 @@ logger = structlog.get_logger(__name__)
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
 # Eligibility caps active seconds, not event count, so an instrumentation loop or bot can still emit
-# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
+# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the event lookups.
 _MAX_TOTAL_EVENT_ROWS = 50_000
 
 # Noisy SDK-internal events that add no signal for the LLM.
@@ -118,6 +119,7 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
         recording_subject_email=payload.identity.person_email,
         session_started_at=payload.metadata.start_time,
         session_group_keys=payload.group_keys or None,
+        session_geoip=payload.session_geoip or None,
     )
 
 
@@ -138,15 +140,12 @@ def _resolve_group_keys(team: Team, session_id: str, metadata: RecordingMetadata
         return {}
 
 
-def _resolve_identity(
-    team: Team, session_id: str, metadata: RecordingMetadata, group_keys: dict[int, str]
-) -> SessionIdentity:
+def _resolve_identity(team: Team, properties: dict[str, Any], group_keys: dict[int, str]) -> SessionIdentity:
     """The recorded person and the groups their session belongs to, as far as each can be read.
 
     Every lookup is independent and best-effort: a scanner that only needs the video must not fail because
     the person query returned nothing or the groups query errored.
     """
-    properties = _resolve_person_properties(team, session_id, metadata)
     return SessionIdentity(
         person_email=person_email(properties),
         person_name=person_display_name(properties),
@@ -278,6 +277,7 @@ def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | N
 
     group_keys = _resolve_group_keys(team, session_id, metadata)
     distinct_id = metadata.get("distinct_id")
+    subject_properties = _resolve_person_properties(team, session_id, metadata)
 
     return ScannerLlmInputs(
         session_id=session_id,
@@ -292,8 +292,9 @@ def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | N
         navigation_dropped=processed.navigation_dropped,
         events_truncated=events_truncated,
         distinct_id=distinct_id,
-        identity=_resolve_identity(team, session_id, metadata, group_keys),
+        identity=_resolve_identity(team, subject_properties, group_keys),
         group_keys=group_keys,
+        session_geoip=session_geoip(subject_properties),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],

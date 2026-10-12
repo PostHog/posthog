@@ -21,8 +21,9 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 <AlphaRelease />
 
 [JumpCloud](https://jumpcloud.com) is a cloud directory platform for identity, access, and device management.
-Linking it as a source syncs your users, devices, groups, SSO applications, and Directory Insights activity events
-into the PostHog Data warehouse, so you can join identity and security data with your product data — for example,
+Linking it as a source syncs your users, devices, groups, SSO applications, device policies and their results,
+alerts, identity risk events, System Insights device data, and Directory Insights activity events into the PostHog
+Data warehouse, so you can join identity and security data with your product data — for example,
 access analytics, login and authentication monitoring, or compliance reporting.
 
 ## Prerequisites
@@ -34,6 +35,7 @@ To connect JumpCloud, you need:
   top-right corner, then **My API Key**).
 - A Directory Insights subscription if you want to sync the `events` table. How far back events are available
   depends on your Directory Insights retention (up to 90 days).
+- System Insights enabled for your devices if you want to sync the `system_insights_*` tables.
 
 ## Adding a data source
 
@@ -57,6 +59,17 @@ The `events` table (Directory Insights) supports **incremental** sync: each run 
 the last synced event timestamp. The directory tables (`users`, `systems`, `user_groups`, `system_groups`,
 `applications`) have no server-side "updated since" filter in JumpCloud's API, so they sync as a **full
 refresh** — schedule them at a cadence that fits how often your directory changes.
+
+The association tables (`user_group_members`, `system_group_members`, `application_users`,
+`application_user_groups`, and `system_users`) also sync as a full refresh. Each one requests JumpCloud once per
+parent group, application, or system, so a large directory takes longer to sync. Join them to the directory tables
+on the parent ID column (`group_id`, `application_id`, or `system_id`) and on `id`.
+
+The `policies`, `policy_results`, `policy_statuses`, `alerts`, `alert_occurrences`, `identity_risk_events`, and
+`system_insights_*` tables also sync as a full refresh. `policy_statuses` holds the latest result of each policy on
+each device, and `alert_occurrences` holds each time an alert fired. Both request JumpCloud once per policy or alert.
+The `system_insights_*` tables hold device inventory and security posture (installed apps and programs, patches,
+disk encryption, browser extensions, OS versions, and more). Join them to `systems` on `system_id`.
 
 ## Configuration
 

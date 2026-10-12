@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { ComponentProps } from 'react'
+import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
-import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
-import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconSearch } from '@posthog/icons'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
@@ -12,15 +11,14 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { TODAY_RAIL_ITEMS } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
-function RailUtility({
-    label,
-    children,
-    ...props
-}: { label: string; children: JSX.Element } & ComponentProps<typeof Button>): JSX.Element {
+const RailUtility = forwardRef<
+    HTMLButtonElement,
+    { label: string; children: JSX.Element } & ComponentPropsWithoutRef<typeof Button>
+>(function RailUtility({ label, children, ...props }, ref): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger
@@ -32,6 +30,7 @@ function RailUtility({
                         aria-label={label}
                         className="relative size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
                         {...props}
+                        ref={ref}
                     />
                 }
             >
@@ -40,11 +39,11 @@ function RailUtility({
             <TooltipContent side="right">{label}</TooltipContent>
         </Tooltip>
     )
-}
+})
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
-    const { pickPane, toggleSidebar } = useActions(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
@@ -52,25 +51,18 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-3"
+            className="flex shrink-0 flex-col items-center gap-3 pt-2.5 pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {/* h-12 matches QuillSceneHeader, so the line under the logo meets the pane header's bottom border. */}
-            <div className="-mb-1 flex h-12 w-full shrink-0 flex-col items-center" aria-hidden>
-                <div className="flex flex-1 items-center">
-                    <Logomark className="h-auto w-6" />
-                </div>
-                <Separator className="w-11" />
-            </div>
-            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
+            {TODAY_RAIL_PANES.map((pane) => (
                 <TodayRailTile
                     key={pane}
-                    label={label}
-                    icon={icon}
+                    label={TODAY_PANES[pane].label}
+                    icon={TODAY_PANES[pane].icon}
                     active={activePane === pane}
                     to={railPaneHref(pane)}
-                    onClick={() => pickPane(pane)}
+                    onClick={() => clickRailPane(pane)}
                     dataAttr={`today-rail-${pane}`}
                 />
             ))}
@@ -102,13 +94,6 @@ export function TodayRail(): JSX.Element {
                     onClick={() => toggleCommand('nav-search-button')}
                 >
                     <IconSearch />
-                </RailUtility>
-                <RailUtility
-                    label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    data-attr="today-rail-toggle-sidebar"
-                    onClick={toggleSidebar}
-                >
-                    {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </RailUtility>
             </div>
         </nav>

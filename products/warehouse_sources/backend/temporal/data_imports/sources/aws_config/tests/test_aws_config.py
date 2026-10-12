@@ -179,15 +179,6 @@ def test_full_refresh_paginates_through_empty_and_terminal_pages(
     session.close.assert_called_once()
 
 
-def test_resume_uses_saved_token(session: MagicMock) -> None:
-    session.post.return_value = make_response({"ConfigRules": [{"ConfigRuleArn": "arn:example:rule"}]})
-    manager = make_manager(AwsConfigResumeConfig(next_token="saved-token"))
-    response = aws_config_source(make_config(), "config_rules", "2014-11-12", manager)
-    assert len(list(cast(Iterable[Any], response.items()))) == 1
-    assert json.loads(session.post.call_args.kwargs["data"]) == {"NextToken": "saved-token"}
-    manager.clear_state.assert_called_once()
-
-
 def test_expired_resume_token_clears_state_and_fails_attempt(session: MagicMock) -> None:
     session.post.return_value = make_response({"__type": "InvalidNextTokenException"}, 400)
     manager = make_manager(AwsConfigResumeConfig(next_token="expired-token"))

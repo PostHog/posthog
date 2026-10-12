@@ -167,8 +167,8 @@ function spanFilter(key: string, value: string[]): UniversalFiltersGroupValue {
  * omitted field resets to the viewer default so the page shows the query's results exactly, with
  * the same complete-query semantics the tool ran with.
  *
- * rootSpans has no viewer facet to mirror: the span list never sends it, and the backend reads an
- * omitted value as false, so only flatSpans picks the view mode.
+ * rootSpans has no viewer facet to mirror: the span list always sends false, so only flatSpans
+ * picks the view mode.
  */
 export function apmSpansQueryToViewerFilters(input: Record<string, unknown>): Partial<TracingFilters> {
     // All query-apm-spans params are nested inside `query`; fall back to the raw input defensively.

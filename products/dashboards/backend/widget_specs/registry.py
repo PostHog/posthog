@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
+    CANVAS_APP_WIDGET_TYPE,
     CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
@@ -18,6 +19,7 @@ from products.dashboards.backend.widget_specs.configs import (
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
+    CanvasAppWidgetConfig,
     ConversationsRecentTicketsWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
@@ -38,6 +40,7 @@ DashboardWidgetType = Literal[
     "survey_results",
     "logs_list",
     "conversations_recent_tickets",
+    "canvas_app",
 ]
 
 __all__ = [
@@ -115,6 +118,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.activity_events_list import (  # noqa: PLC0415
         run_activity_events_list_widget,
     )
+    from products.dashboards.backend.widgets.canvas_app import run_canvas_app_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.conversations_recent_tickets import (  # noqa: PLC0415
         run_conversations_recent_tickets_widget,
     )
@@ -266,6 +270,22 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
+        ),
+        CANVAS_APP_WIDGET_TYPE: WidgetSpec(
+            widget_type=CANVAS_APP_WIDGET_TYPE,
+            config_model=CanvasAppWidgetConfig,
+            query_fn=run_canvas_app_widget,
+            required_scopes=("canvas:read",),
+            group_id="canvas",
+            group_label="Canvas",
+            label="Canvas app",
+            description="A published canvas app rendered in a tile. It reads data and acts with each viewer's own permissions.",
+            required_product_access=None,
+            product_access_denied_message=None,
+            availability_requirements=(),
+            form_fields=("canvasId",),
+            filter_fields=(),
+            creation_flag="small-software-apps",
         ),
     }
 

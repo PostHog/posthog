@@ -20,13 +20,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.knock import KnockSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.knock import (
+    NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
     knock_source,
+    parse_object_collections,
     validate_credentials as validate_knock_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import (
     ENDPOINTS,
+    ENDPOINTS_CONFIG,
     INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -44,6 +48,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Your Knock API key is invalid or has been revoked. Please generate a new secret key in the Knock dashboard and reconnect.",
             "403 Client Error: Forbidden for url": "Your Knock API key does not have access to this resource. Please check the key belongs to the right environment.",
+            NO_OBJECT_COLLECTIONS_ERROR: None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -62,7 +67,15 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        should_sync_default = {name: endpoint.should_sync_default for name, endpoint in ENDPOINTS_CONFIG.items()}
+        should_sync_default["objects"] = bool(parse_object_collections(config.object_collections))
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=should_sync_default,
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self, config: KnockSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
@@ -85,6 +98,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
+            object_collections=config.object_collections,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
@@ -111,6 +125,15 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
                         required=True,
                         placeholder="sk_...",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="object_collections",
+                        label="Object collections",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="accounts, projects",
+                        secret=False,
+                        caption="Comma-separated object collection keys to sync into the `objects` table. Knock can't list collections, so the `objects` table only syncs the collections you enter here.",
                     ),
                 ],
             ),

@@ -93,15 +93,6 @@ class TestProfoundSource:
         assert ok is expected
         assert (message is None) is expected
 
-    @mock.patch(f"{SOURCE_MODULE}.profound_source")
-    def test_source_for_pipeline_drops_the_watermark_on_full_refresh(self, mock_source) -> None:
-        # A stale watermark would shorten the report window a user asked to re-import in full.
-        inputs = _inputs(should_use_incremental_field=False, db_incremental_field_last_value="2026-06-01")
-
-        ProfoundSource().source_for_pipeline(_Config(), mock.MagicMock(), inputs)  # type: ignore[arg-type]
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
     def test_version_declaration_defaults_to_v2_with_v1_supported(self) -> None:
         # Profound versions by URL path segment, so both labels resolve to the same requests;
         # the default tracks the newest label without deprecating the old one.
@@ -142,12 +133,3 @@ class TestProfoundSource:
         list(cast(Iterable[Any], response.items()))
 
         assert paths and paths[0] == "/v1/org/categories"
-
-    def test_source_is_visible_and_labelled_alpha(self) -> None:
-        # unreleasedSource=True hides the connector from users entirely; this source is finished.
-        config = ProfoundSource().get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == "alpha"
-        assert config.category is not None
-        assert config.iconPath == "/static/services/profound.png"

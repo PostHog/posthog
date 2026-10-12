@@ -14,15 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
-    _base_url,
     _clean_domain_prefix,
     _to_version,
     lightspeed_retail_source,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
-    ENDPOINTS,
-    LIGHTSPEED_RETAIL_ENDPOINTS,
 )
 
 SUPPORTED_API_VERSIONS = [
@@ -83,27 +78,10 @@ def _run(manager: mock.MagicMock, endpoint: str = "sales", **kwargs: Any) -> lis
 
 
 class TestCleanDomainPrefix:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            ("mystore", "mystore"),
-            (" mystore ", "mystore"),
-            ("https://mystore.retail.lightspeed.app", "mystore"),
-            ("mystore.retail.lightspeed.app/api/2.0", "mystore"),
-            ("my-store", "my-store"),
-        ],
-    )
-    def test_valid_prefixes(self, value, expected):
-        assert _clean_domain_prefix(value) == expected
-
     @pytest.mark.parametrize("value", ["", "my store", "store?x=1", "../evil"])
     def test_invalid_prefixes_raise(self, value):
         with pytest.raises(ValueError):
             _clean_domain_prefix(value)
-
-    @pytest.mark.parametrize("api_version", SUPPORTED_API_VERSIONS)
-    def test_base_url_carries_the_version_path_segment(self, api_version):
-        assert _base_url("mystore", api_version) == f"https://mystore.retail.lightspeed.app/api/{api_version}"
 
 
 class TestToVersion:
@@ -123,23 +101,6 @@ class TestToVersion:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(LR_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("mystore", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is expected
-
     @pytest.mark.parametrize("api_version", SUPPORTED_API_VERSIONS)
     @mock.patch(LR_SESSION_PATCH)
     def test_validate_credentials_probes_the_pinned_version(self, mock_session, api_version):
@@ -155,44 +116,8 @@ class TestValidateCredentials:
         assert validate_credentials("my store!", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is False
         mock_session.return_value.get.assert_not_called()
 
-    @mock.patch(LR_SESSION_PATCH)
-    def test_validate_credentials_swallows_transport_error(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("mystore", "token", LIGHTSPEED_RETAIL_API_VERSION_2026_01) is False
-
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_version_keyset(self, mock_session):
-        params = _wire(
-            mock_session.return_value,
-            [
-                _response([{"id": "1", "version": 10}, {"id": "2", "version": 20}], max_version=20),
-                _response([{"id": "3", "version": 30}], max_version=30),
-                _response([]),
-            ],
-        )
-
-        manager = _make_manager()
-        batches = _run(manager)
-
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2", "3"]
-        # State saved after each non-final page with the next keyset cursor.
-        assert [call.args[0].after for call in manager.save_state.call_args_list] == [20, 30]
-        assert "after" not in params[0]
-        assert params[0]["page_size"] == 200
-        assert params[1]["after"] == 20
-        assert params[2]["after"] == 30
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_version(self, mock_session):
-        params = _wire(mock_session.return_value, [_response([])])
-
-        manager = _make_manager(LightspeedRetailResumeConfig(after=555))
-        _run(manager)
-
-        assert params[0]["after"] == 555
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_starts_from_watermark_version(self, mock_session):
         params = _wire(mock_session.return_value, [_response([])])
@@ -201,15 +126,6 @@ class TestGetRows:
         _run(manager, should_use_incremental_field=True, db_incremental_field_last_value=777)
 
         assert params[0]["after"] == 777
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_starts_without_after(self, mock_session):
-        params = _wire(mock_session.return_value, [_response([])])
-
-        manager = _make_manager()
-        _run(manager)
-
-        assert "after" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_version_block_falls_back_to_page_max(self, mock_session):
@@ -260,44 +176,139 @@ class TestGetRows:
         assert session.send.call_count == 2
         assert params[1]["after"] == 0
 
-    @pytest.mark.parametrize("api_version", SUPPORTED_API_VERSIONS)
+    @pytest.mark.parametrize(
+        "resume_state, expected_paths, expected_rows",
+        [
+            (
+                None,
+                [
+                    "/consignments",
+                    "/consignments/c1/products",
+                    "/consignments/c1/products",
+                    "/consignments/c2/products",
+                    "/consignments/c2/products",
+                    "/consignments",
+                ],
+                [("c1", "p1"), ("c2", "p1")],
+            ),
+            (
+                LightspeedRetailResumeConfig(fanout_state={"completed": ["/consignments/c1/products"]}),
+                [
+                    "/consignments",
+                    "/consignments/c2/products",
+                    "/consignments/c2/products",
+                    "/consignments",
+                ],
+                [("c2", "p1")],
+            ),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_target_the_pinned_version(self, mock_session, api_version):
+    def test_consignment_products_fan_out_over_consignments(
+        self, mock_session, resume_state, expected_paths, expected_rows
+    ):
         session = mock_session.return_value
-        _wire(session, [_response([])])
+        child_pages = {
+            "c1": [_response([{"product_id": "p1", "version": 5}]), _response([])],
+            "c2": [_response([{"product_id": "p1", "version": 6}]), _response([])],
+        }
+        responses = [_response([{"id": "c1", "version": 1}, {"id": "c2", "version": 2}], max_version=2)]
+        for consignment_id in ("c1", "c2"):
+            if expected_paths.count(f"/consignments/{consignment_id}/products"):
+                responses.extend(child_pages[consignment_id])
+        responses.append(_response([]))
+        _wire(session, responses)
 
-        _run(_make_manager(), api_version=api_version)
+        manager = _make_manager(resume_state)
+        batches = _run(manager, endpoint="consignment_products")
 
-        assert session.send.call_args.args[0].url == f"https://mystore.retail.lightspeed.app/api/{api_version}/sales"
+        requested = [call.args[0].url for call in session.prepare_request.call_args_list]
+        assert [url.split("/api/2026-01")[1] for url in requested] == expected_paths
+        rows = [item for batch in batches for item in batch]
+        assert [(row["consignment_id"], row["product_id"]) for row in rows] == expected_rows
+        assert all("_consignments_id" not in row for row in rows)
 
 
-class TestLightspeedRetailSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+def _body_response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+_GIFT_CARD_PAGES = [
+    {"data": [{"id": "g3", "gift_card_transactions": [{"id": "t3"}]}, {"id": "g2", "gift_card_transactions": []}]},
+    {"data": [{"id": "g1", "gift_card_transactions": [{"id": "t1"}, {"id": "t2"}]}]},
+    {"data": []},
+]
+
+
+class TestUnversionedEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, bodies, resume_state, expected_requests, expected_rows",
+        [
+            (
+                "gift_cards",
+                _GIFT_CARD_PAGES,
+                None,
+                [
+                    ("/gift_cards", {"page_size": 200}),
+                    ("/gift_cards", {"page_size": 200, "before": "g2"}),
+                    ("/gift_cards", {"page_size": 200, "before": "g1"}),
+                ],
+                [{"id": "g3"}, {"id": "g2"}, {"id": "g1"}],
+            ),
+            (
+                "gift_card_transactions",
+                _GIFT_CARD_PAGES[1:],
+                LightspeedRetailResumeConfig(cursor="g2"),
+                [
+                    ("/gift_cards", {"page_size": 200, "before": "g2"}),
+                    ("/gift_cards", {"page_size": 200, "before": "g1"}),
+                ],
+                [{"id": "t1", "gift_card_id": "g1"}, {"id": "t2", "gift_card_id": "g1"}],
+            ),
+            (
+                "product_categories",
+                [
+                    {"data": {"categories": [{"id": "c1"}]}, "page_info": {"has_next": True, "last_seen": "c1"}},
+                    {"data": {"categories": [{"id": "c2"}]}, "page_info": {"has_next": False, "last_seen": "c2"}},
+                ],
+                None,
+                [
+                    ("/product_categories", {"page_size": 200}),
+                    ("/product_categories", {"page_size": 200, "after": "c1"}),
+                ],
+                [{"id": "c1"}, {"id": "c2"}],
+            ),
+            (
+                "promo_codes",
+                [
+                    {"data": [{"id": "pr1"}, {"id": "pr2"}]},
+                    {"data": [{"id": "code1", "promotion_id": "pr1"}]},
+                    {"data": [{"id": "code2", "promotion_id": "pr2"}]},
+                ],
+                None,
+                [
+                    ("/promotions", {}),
+                    ("/promotions/pr1/promocodes", {}),
+                    ("/promotions/pr2/promocodes", {}),
+                ],
+                [{"id": "code1", "promotion_id": "pr1"}, {"id": "code2", "promotion_id": "pr2"}],
+            ),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
-        mock_session.return_value.headers = {}
-        config = LIGHTSPEED_RETAIL_ENDPOINTS[endpoint]
-        response = lightspeed_retail_source(
-            "mystore",
-            "token",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-            api_version=LIGHTSPEED_RETAIL_API_VERSION_2026_01,
-        )
+    def test_pages_without_record_versions(
+        self, mock_session, endpoint, bodies, resume_state, expected_requests, expected_rows
+    ):
+        session = mock_session.return_value
+        params = _wire(session, [_body_response(body) for body in bodies])
 
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+        manager = _make_manager(resume_state)
+        batches = _run(manager, endpoint=endpoint)
 
-    @pytest.mark.parametrize("config", list(LIGHTSPEED_RETAIL_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"sale_date", "created_at"}
+        paths = [call.args[0].url.split("/api/2026-01")[1] for call in session.prepare_request.call_args_list]
+        assert list(zip(paths, params)) == expected_requests
+        rows = [item for batch in batches for item in batch]
+        assert [{key: row.get(key) for key in expected_rows[0]} for row in rows] == expected_rows

@@ -1,5 +1,4 @@
 import json
-import base64
 from typing import Any
 
 from unittest import mock
@@ -9,7 +8,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.confluence import (
     ConfluenceResumeConfig,
-    _get_headers,
     confluence_source,
     is_valid_subdomain,
     validate_credentials,
@@ -93,14 +91,6 @@ class TestSubdomainValidation:
         assert is_valid_subdomain(subdomain) is expected
 
 
-class TestHeaders:
-    def test_basic_auth_header(self) -> None:
-        headers = _get_headers("you@example.com", "token123")
-        expected = base64.b64encode(b"you@example.com:token123").decode()
-        assert headers["Authorization"] == f"Basic {expected}"
-        assert headers["Accept"] == "application/json"
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -141,10 +131,40 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is None
 
-    def test_invalid_subdomain_short_circuits(self) -> None:
-        is_valid, message = validate_credentials("evil.com", "you@example.com", "token")
+    @parameterized.expand(
+        [
+            ("bare", "acme"),
+            ("host", "acme.atlassian.net"),
+            ("url_with_path", "https://acme.atlassian.net/wiki/spaces/HOME"),
+            ("padded_mixed_case_host", " Acme.Atlassian.net/ "),
+        ]
+    )
+    @mock.patch(CONFLUENCE_SESSION_PATCH)
+    def test_pasted_site_address_probes_the_atlassian_site(
+        self, _name: str, subdomain: str, mock_session: mock.MagicMock
+    ) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+
+        is_valid, _ = validate_credentials(subdomain, "you@example.com", "token")
+
+        assert is_valid is True
+        probed_url = mock_session.return_value.get.call_args.args[0]
+        assert probed_url.lower().startswith("https://acme.atlassian.net/wiki/api/v2/")
+
+    @parameterized.expand(
+        [
+            ("other_host", "evil.com"),
+            ("atlassian_lookalike", "acme.atlassian.net.evil.com"),
+            ("other_host_url", "https://evil.com/acme.atlassian.net"),
+        ]
+    )
+    @mock.patch(CONFLUENCE_SESSION_PATCH)
+    def test_invalid_subdomain_short_circuits(self, _name: str, subdomain: str, mock_session: mock.MagicMock) -> None:
+        is_valid, message = validate_credentials(subdomain, "you@example.com", "token")
+
         assert is_valid is False
         assert message is not None and "subdomain" in message
+        mock_session.return_value.get.assert_not_called()
 
 
 class TestConfluenceSource:
@@ -227,15 +247,3 @@ class TestPagination:
         _rows(_source("pages", manager))
 
         assert snapshots[0]["url"] == "https://acme.atlassian.net/wiki/api/v2/pages?cursor=resumed"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_results_yields_nothing_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], next_path=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("spaces", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()

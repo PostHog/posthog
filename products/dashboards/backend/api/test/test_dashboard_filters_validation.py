@@ -4,6 +4,18 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.models.dashboard import Dashboard
+
+
+class TestDashboardRestrictionLevelValidation(SimpleTestCase):
+    @parameterized.expand([("create", False), ("update", True)])
+    def test_rejects_legacy_collaborator_level(self, _name: str, partial: bool) -> None:
+        serializer = DashboardSerializer(
+            data={"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}, partial=partial
+        )
+
+        assert not serializer.is_valid()
+        assert "restriction_level" in serializer.errors
 
 
 class TestDashboardFiltersValidation(SimpleTestCase):

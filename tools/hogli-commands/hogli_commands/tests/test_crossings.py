@@ -255,6 +255,11 @@ class TestBaselineRatchet:
             crossings.write_baseline([self._use("posthog.api.a", scanned)], path)
         assert refusal.value.added == [f"alerts.AlertConfiguration posthog.api.a instance-many(all) {scanned}"]
 
+    def test_a_moved_consumer_is_written(self, tmp_path: Path) -> None:
+        path = self._recorded(tmp_path, "posthog.api.a")
+        crossings.write_baseline([self._use("posthog.api.b")], path)
+        assert crossings.read_baseline(path) == [self.LINE_B]
+
     def test_a_removal_is_written(self, tmp_path: Path) -> None:
         path = self._recorded(tmp_path, "posthog.api.a", "posthog.api.b")
         crossings.write_baseline([self._use("posthog.api.a")], path)

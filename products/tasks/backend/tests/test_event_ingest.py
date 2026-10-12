@@ -2,6 +2,7 @@ import json
 import asyncio
 import threading
 from collections.abc import Sequence
+from io import BytesIO
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -30,6 +31,7 @@ from products.tasks.backend.logic.stream.event_ingest import (
     STREAM_COMPLETE_CONTROL_TYPE,
     _is_session_update,
     handle_task_run_event_ingest,
+    handle_task_run_event_ingest_wsgi,
 )
 from products.tasks.backend.logic.stream.redis_stream import (
     TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
@@ -667,7 +669,9 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         signal_turn_completed.assert_not_called()
-        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+        signal_workflow_completion.assert_called_once_with(
+            str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error"
+        )
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
@@ -752,6 +756,40 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["duplicate"], 1)
         self.assertEqual(body["last_accepted_seq"], 2)
         self.assertEqual(self._read_notification_methods(), ["first", "second"])
+
+    @parameterized.expand([("authorized", True, 200, ["first", "second"]), ("missing_token", False, 401, [])])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_wsgi_ingest_matches_the_asgi_handler(
+        self, _name: str, authorized: bool, expected_status: int, expected_methods: list[str]
+    ) -> None:
+        lines = [
+            {"seq": 1, "event": {"type": "notification", "notification": {"method": "first"}}},
+            {"seq": 2, "event": {"type": "notification", "notification": {"method": "second"}}},
+        ]
+        environ: dict[str, object] = {
+            "REQUEST_METHOD": "POST",
+            "PATH_INFO": self._ingest_url(),
+            "wsgi.input": BytesIO("".join(json.dumps(line) + "\n" for line in lines).encode()),
+        }
+        if authorized:
+            environ["HTTP_AUTHORIZATION"] = f"Bearer {self._create_token()}"
+        statuses: list[str] = []
+
+        with patch.object(TaskRun, "heartbeat_workflow"):
+            response = handle_task_run_event_ingest_wsgi(environ, lambda status, _headers: statuses.append(status))
+
+        assert response is not None
+        self.assertEqual(int(statuses[0].split()[0]), expected_status)
+        self.assertIn("last_accepted_seq" if authorized else "error", json.loads(b"".join(response)))
+        self.assertEqual(self._read_notification_methods(), expected_methods)
+
+    def test_wsgi_ingest_ignores_other_paths(self) -> None:
+        environ: dict[str, object] = {
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": "/api/projects/1/tasks/",
+            "wsgi.input": BytesIO(),
+        }
+        self.assertIsNone(handle_task_run_event_ingest_wsgi(environ, lambda _status, _headers: None))
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_presence_gated_ingest_accepts_events_without_mirroring_them(self) -> None:
