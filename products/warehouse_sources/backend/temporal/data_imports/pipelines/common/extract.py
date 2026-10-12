@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
+    is_in_free_historical_window,
     will_hit_billing_limit,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
@@ -475,7 +476,11 @@ async def setup_row_tracking_with_billing_check(
     billable: bool | None = True,
 ) -> None:
     if resource.rows_to_sync:
-        await increment_rows(team_id, schema.id, resource.rows_to_sync)
+        # The limit check adds up these rows for every running sync in the organization. Rows that
+        # will not bill (a non-billable job, or a source in its free first week) must stay out of
+        # that sum, because they would refuse the organization's other syncs until this run ends.
+        if billable and not is_in_free_historical_window(source):
+            await increment_rows(team_id, schema.id, resource.rows_to_sync)
         # Check billing limits against incoming rows (skip for non-billable jobs)
         if billable and await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
             raise BillingLimitsWillBeReachedException(

@@ -310,6 +310,10 @@ async def _fetch_billing_data(get_billing_data: Callable[[], Awaitable[T]]) -> T
     return await get_billing_data()
 
 
+def is_in_free_historical_window(source: "ExternalDataSource") -> bool:
+    return source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW
+
+
 async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: FilteringBoundLogger) -> bool:
     if not EE_AVAILABLE:
         return False
@@ -320,7 +324,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         await logger.adebug("Running will_hit_billing_limit")
 
         # Handle free period for newly created data sources
-        if source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW:
+        if is_in_free_historical_window(source):
             await logger.ainfo(
                 f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
             )
