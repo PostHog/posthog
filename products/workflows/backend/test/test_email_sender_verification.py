@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +15,11 @@ from parameterized import param, parameterized
 from posthog.models.integration import Integration
 from posthog.models.team import Team
 
-from products.workflows.backend.facade.tasks import refresh_pending_email_senders
+from products.workflows.backend.facade.tasks import (
+    refresh_email_senders_for_domain,
+    refresh_new_email_senders,
+    refresh_pending_email_senders,
+)
 
 
 class TestEmailSenderVerification(APIBaseTest):
@@ -93,7 +98,6 @@ class TestEmailSenderVerification(APIBaseTest):
             param("tenant_missing", has_tenant=False),
             param("mail_from_changed", mail_from_domain="other.example.com"),
             param("mail_from_differs_in_case", mail_from_domain="Feedback.Example.com.", expected_verified=True),
-            param("stale_sender", age=timedelta(days=8)),
         ]
     )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
@@ -107,11 +111,9 @@ class TestEmailSenderVerification(APIBaseTest):
         has_dmarc: bool = True,
         has_tenant: bool = True,
         mail_from_domain: str | None = None,
-        age: timedelta = timedelta(),
         expected_verified: bool = False,
     ) -> None:
         sender = self._create_sender("example.com")
-        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - age)
         ses = self._mock_ses(
             mock_boto_client,
             mock_resolver,
@@ -121,19 +123,71 @@ class TestEmailSenderVerification(APIBaseTest):
             mail_from_domain=mail_from_domain,
         )
 
-        refresh_pending_email_senders()
+        refresh_new_email_senders()
 
         assert self._verified(sender) == [expected_verified]
         assert self._default_sender_id() == (sender.id if expected_verified else None)
-        expected_reads = [] if age else [["example.com"]]
-        assert [call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list] == (
-            expected_reads
-        )
+        assert [call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list] == [
+            ["example.com"]
+        ]
 
         if expected_verified:
             mock_boto_client.reset_mock()
-            refresh_pending_email_senders()
+            refresh_new_email_senders()
             mock_boto_client.assert_not_called()
+
+    @parameterized.expand(
+        [
+            param("new_sender_every_minute", age=timedelta(minutes=10), sweep=refresh_new_email_senders, checked=True),
+            param(
+                "new_sender_not_in_five_minute_sweep", age=timedelta(minutes=10), sweep=refresh_pending_email_senders
+            ),
+            param(
+                "settled_sender_every_five_minutes",
+                age=timedelta(hours=2),
+                sweep=refresh_pending_email_senders,
+                checked=True,
+            ),
+            param("settled_sender_not_in_minute_sweep", age=timedelta(hours=2), sweep=refresh_new_email_senders),
+            param("stale_sender", age=timedelta(days=8), sweep=refresh_pending_email_senders),
+        ]
+    )
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_sweeps_check_senders_by_age(
+        self,
+        _name: str,
+        mock_boto_client: MagicMock,
+        mock_resolver: MagicMock,
+        age: timedelta,
+        sweep: Callable[[], None],
+        checked: bool = False,
+    ) -> None:
+        sender = self._create_sender("example.com")
+        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - age)
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+
+        sweep()
+
+        assert ses.get_identity_verification_attributes.called is checked
+        assert self._verified(sender) == [checked]
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_domain_check_verifies_pending_senders_on_that_domain_of_any_age(
+        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    ) -> None:
+        sender = self._create_sender("example.com")
+        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=30))
+        other = self._create_sender("other.example.com")
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+
+        refresh_email_senders_for_domain("Example.com")
+
+        assert self._verified(sender, other) == [True, False]
+        assert [call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list] == [
+            ["example.com"]
+        ]
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
@@ -150,7 +204,7 @@ class TestEmailSenderVerification(APIBaseTest):
 
         ses.list_resource_tenants.side_effect = edit_sender
 
-        refresh_pending_email_senders()
+        refresh_new_email_senders()
 
         assert self._verified(sender, sibling) == [False, True]
         assert self._default_sender_id() is None
@@ -166,12 +220,12 @@ class TestEmailSenderVerification(APIBaseTest):
 
         def overlap_sweep(Identities: list[str]) -> dict[str, dict[str, dict[str, str]]]:
             ses.get_identity_verification_attributes.side_effect = read_statuses
-            refresh_pending_email_senders()
+            refresh_new_email_senders()
             return read_statuses(Identities=Identities)
 
         ses.get_identity_verification_attributes.side_effect = overlap_sweep
 
-        refresh_pending_email_senders()
+        refresh_new_email_senders()
 
         assert ses.get_identity_verification_attributes.call_count == 1
         assert self._verified(sender) == [True]
@@ -210,7 +264,7 @@ class TestEmailSenderVerification(APIBaseTest):
         with patch(
             "products.workflows.backend.services.email_sender_verification.monotonic", side_effect=lambda: clock["now"]
         ):
-            refresh_pending_email_senders()
+            refresh_new_email_senders()
             assert self._verified(*senders) == first_sweep
             assert [call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list] == [
                 ["first.example.com", "second.example.com"]
@@ -219,8 +273,8 @@ class TestEmailSenderVerification(APIBaseTest):
             fail_first = False
             arrival = self._create_sender("new.example.com")
             ses.get_identity_verification_attributes.reset_mock()
-            refresh_pending_email_senders()
+            refresh_new_email_senders()
             assert self._verified(*senders, arrival) == [*second_sweep, not slow_checks]
 
-            refresh_pending_email_senders()
+            refresh_new_email_senders()
             assert self._verified(*senders, arrival) == [True, True, True]

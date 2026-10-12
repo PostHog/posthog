@@ -1,12 +1,12 @@
-"""AWS SES tenant reputation events, delivered via EventBridge → SNS HTTPS subscription.
+"""AWS SES tenant reputation and VDM advisor events, delivered via EventBridge → SNS HTTPS subscription.
 
 Events are treated as change signals only — the handler never trusts the payload's state; it
-enqueues a sync that reads the authoritative tenant state from the SES API. That makes duplicate,
+enqueues a sync that reads the authoritative tenant or sender state from the SES API. That makes duplicate,
 reordered, or partially-shaped events harmless.
 
 The SNS message signature and the topic-ARN allowlist are checked by the ingress transport, which
 reads the allowlist from `WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS`. AWS-side wiring: an EventBridge
-rule on `source = aws.ses` for the tenant detail-types, targeting an SNS topic with an HTTPS
+rule on `source = aws.ses` for the tenant detail-types and `Advisor Recommendation Status Resolved`, targeting an SNS topic with an HTTPS
 subscription to this endpoint.
 """
 
@@ -21,11 +21,21 @@ import structlog
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.verify.sns_signature import is_valid_sns_url
 
+from products.workflows.backend.tasks.email_sender_verification import refresh_email_senders_for_domain
 from products.workflows.backend.tasks.ses_tenant_state import sync_ses_tenant_state_task
 
 logger = structlog.get_logger(__name__)
 
 _TENANT_TEAM_RE = re.compile(r"\bteam-(\d+)\b")
+_IDENTITY_ARN_RE = re.compile(r"^arn:aws:ses:[^:]*:[^:]*:identity/([^/]+)$")
+ADVISOR_RECOMMENDATION_RESOLVED = "Advisor Recommendation Status Resolved"
+
+
+def _extract_identities(event: dict[str, Any]) -> list[str]:
+    resources = event.get("resources")
+    if not isinstance(resources, list):
+        return []
+    return [match.group(1) for r in resources if isinstance(r, str) and (match := _IDENTITY_ARN_RE.match(r))]
 
 
 def _extract_team_id(event: dict[str, Any]) -> int | None:
@@ -73,6 +83,10 @@ def _handle_notification(message: Mapping[str, Any]) -> None:
     if not isinstance(event, dict) or event.get("source") != "aws.ses":
         return
 
+    if event.get("detail-type") == ADVISOR_RECOMMENDATION_RESOLVED:
+        _handle_advisor_resolution(event)
+        return
+
     team_id = _extract_team_id(event)
     if team_id is None:
         logger.warning("ses_tenant_events_webhook_no_tenant", detail_type=event.get("detail-type"))
@@ -83,6 +97,13 @@ def _handle_notification(message: Mapping[str, Any]) -> None:
     logger.info("ses_tenant_events_webhook_accepted", team_id=team_id, detail_type=event.get("detail-type"))
     # Ack fast; the sync fetches authoritative state and sends any transition emails.
     sync_ses_tenant_state_task.delay(team_id)
+
+
+def _handle_advisor_resolution(event: dict[str, Any]) -> None:
+    identities = _extract_identities(event)
+    logger.info("ses_advisor_resolution_webhook_accepted", identity_count=len(identities))
+    for identity in identities:
+        refresh_email_senders_for_domain.delay(identity)
 
 
 def handle_ses_tenant_event(delivery: WebhookDelivery) -> None:
