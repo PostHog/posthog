@@ -37,7 +37,7 @@ The default `'always'` floors the static layer too.
 
 `bars.track: 'solid'` draws one neutral track per band, in `theme.gridColor`, behind every bar in the band, on any layout.
 It is the "remainder of the whole" backdrop for horizontal bar lists, as in `BarList`.
-Unlike the hatched track it ignores `trackData` and has no hover highlight.
+It stops at the largest `trackData` ceiling in the band, and unlike the hatched track it has no hover highlight.
 
 ## Interactive extent: `trackData`
 

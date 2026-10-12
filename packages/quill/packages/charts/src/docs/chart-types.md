@@ -77,7 +77,9 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 ## BarList
 
 Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
-It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`.
+It is a preset over `StackedBarList` with one series and a color per bar.
+`StackedBarList` is a stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`, laid out in label, bar and value columns.
+Use `StackedBarList` directly when a row stacks several segments, such as a funnel step split by breakdown: it takes `labels` and `series` like `BarChart`, plus `renderLabel(rowIndex)` and `renderValue(rowIndex)` for the cells, `onPointClick`, and `config.valueDomain`.
 
 - It takes the same `series` as `PieChart` and values a row the same way, as the sum of its data floored at 0. Rows keep the order of `series`, so sort them first.
 - `config.scale: 'max'` (default) fills the track with the largest row. `'total'` makes the track the whole, so a bar shows its share.

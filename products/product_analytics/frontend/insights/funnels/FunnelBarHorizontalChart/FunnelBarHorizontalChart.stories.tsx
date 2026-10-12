@@ -14,6 +14,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { FunnelBarListChart } from '../FunnelBarListChart/FunnelBarListChart'
 import { FunnelBarHorizontalChart } from './FunnelBarHorizontalChart'
 
 type Story = StoryObj<{}>
@@ -36,7 +37,15 @@ function Stage({ children, width }: { children: React.ReactNode; width: number }
     return <div style={{ width }}>{children}</div>
 }
 
-function StoryRender({ insightFixture, width }: { insightFixture: any; width: number }): JSX.Element {
+function StoryRender({
+    insightFixture,
+    width,
+    Chart = FunnelBarHorizontalChart,
+}: {
+    insightFixture: any
+    width: number
+    Chart?: typeof FunnelBarHorizontalChart
+}): JSX.Element {
     const [dashboardItemId] = useState(() => `FunnelBarHorizontalChartStory.${uniqueNode++}` as InsightShortId)
     const source = insightFixture.query.source
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
@@ -53,7 +62,7 @@ function StoryRender({ insightFixture, width }: { insightFixture: any; width: nu
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <Stage width={width}>
-                    <FunnelBarHorizontalChart />
+                    <Chart />
                 </Stage>
             </BindLogic>
         </BindLogic>
@@ -88,4 +97,37 @@ export const DefaultNarrow: Story = {
 
 export const BreakdownNarrow: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={320} />,
+}
+
+// The `funnel-bar-list` layout: one compact row per step, with the step, a bar on the neutral track and
+// the conversion. Funnel.tsx picks it behind the flag; these stories render it directly.
+export const BarList: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} width={720} Chart={FunnelBarListChart} />,
+}
+
+export const BarListBreakdown: Story = {
+    render: () => (
+        <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={720} Chart={FunnelBarListChart} />
+    ),
+}
+
+// Compare mode: a row per period, and the previous period's track stops at its own entry level.
+export const BarListCompare: Story = {
+    render: () => (
+        <StoryRender insightFixture={funnelTopToBottomCompareFixture} width={720} Chart={FunnelBarListChart} />
+    ),
+}
+
+export const BarListBreakdownCompare: Story = {
+    render: () => (
+        <StoryRender
+            insightFixture={funnelTopToBottomBreakdownCompareFixture}
+            width={720}
+            Chart={FunnelBarListChart}
+        />
+    ),
+}
+
+export const BarListNarrow: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} width={320} Chart={FunnelBarListChart} />,
 }
