@@ -1,7 +1,7 @@
 import time
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from django.utils import timezone
@@ -30,6 +30,9 @@ from .harmonic_client import AsyncHarmonicClient
 from .harmonic_company import is_sub_entity
 from .redis_cache import get_accounts_from_redis
 from .salesforce_client import get_salesforce_client
+
+if TYPE_CHECKING:
+    from simple_salesforce import Salesforce
 
 LOGGER = get_logger(__name__)
 
@@ -348,7 +351,7 @@ def prepare_account_update(account_id: str, company: dict[str, Any]) -> dict[str
     return {**update_data, **overwritten_account_fields(company)}
 
 
-def _read_fill_field_values(sf, account_ids: list[str]) -> dict[str, dict[str, Any]]:
+def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[str, dict[str, Any]]:
     """Read the current values of ACCOUNT_FILL_FIELDS from Salesforce, keyed by Account Id.
 
     An Account whose read fails is left out of the result.
@@ -371,7 +374,7 @@ def _read_fill_field_values(sf, account_ids: list[str]) -> dict[str, dict[str, A
 
 
 def add_unoccupied_fill_fields(
-    sf, update_records: list[dict[str, Any]], fill_fields_by_account: dict[str, dict[str, Any]]
+    sf: "Salesforce", update_records: list[dict[str, Any]], fill_fields_by_account: dict[str, dict[str, Any]]
 ) -> None:
     """Add each Account's fill-only fields to its update record, for the fields that hold no value in Salesforce.
 
@@ -867,7 +870,7 @@ async def _enrich_specific_domain_debug(
                 if not rejected_sub_entity:
                     fill_fields = fill_only_account_fields(harmonic_result, queried_domain=domain)
                     fill_fields_by_account = {record["Id"]: fill_fields for record in update_records}
-                    add_unoccupied_fill_fields(sf, update_records, fill_fields_by_account)
+                    await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
                 bulk_update_salesforce_accounts(sf, update_records)
                 salesforce_updated = True
                 records_updated = len(update_records)

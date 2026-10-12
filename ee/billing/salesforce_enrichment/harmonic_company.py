@@ -2,7 +2,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-# ISO 639-1 language codes. A two-letter path segment outside this set, such as a product page, is not a locale.
+# ISO 639-1 language codes.
 _LANGUAGE_CODES = frozenset(
     (
         "aa ab ae af ak am an ar as av ay az ba be bg bi bm bn bo br bs ca ce ch co cr cs cu cv cy da de dv dz ee el "
@@ -14,21 +14,39 @@ _LANGUAGE_CODES = frozenset(
     ).split()
 )
 
-# A language alone, or with a region or script: "en", "de-at", "zh-Hant".
-_LOCALE_SEGMENT = re.compile(r"^([a-z]{2})(?:[-_][a-z]{2,4})?$", re.IGNORECASE)
+# ISO 3166-1 alpha-2 country codes. A site can put the landing page for one country under its code, as in "/us".
+_COUNTRY_CODES = frozenset(
+    (
+        "ad ae af ag ai al am ao aq ar as at au aw ax az ba bb bd be bf bg bh bi bj bl bm bn bo bq br bs bt bv bw by "
+        "bz ca cc cd cf cg ch ci ck cl cm cn co cr cu cv cw cx cy cz de dj dk dm do dz ec ee eg eh er es et fi fj fk "
+        "fm fo fr ga gb gd ge gf gg gh gi gl gm gn gp gq gr gs gt gu gw gy hk hm hn hr ht hu id ie il im in io iq ir "
+        "is it je jm jo jp ke kg kh ki km kn kp kr kw ky kz la lb lc li lk lr ls lt lu lv ly ma mc md me mf mg mh mk "
+        "ml mm mn mo mp mq mr ms mt mu mv mw mx my mz na nc ne nf ng ni nl no np nr nu nz om pa pe pf pg ph pk pl pm "
+        "pn pr ps pt pw py qa re ro rs ru rw sa sb sc sd se sg sh si sj sk sl sm sn so sr ss st sv sx sy sz tc td tf "
+        "tg th tj tk tl tm tn to tr tt tv tw tz ua ug um us uy uz va vc ve vg vi vn vu wf ws ye yt za zm zw"
+    ).split()
+)
+
+# A path segment whose first subtag is in neither set, such as a product page, is not a locale.
+_LOCALE_PREFIXES = _LANGUAGE_CODES | _COUNTRY_CODES
+
+# A language or country code, then an optional language, script or region, then an optional region: "en", "us",
+# "de-at", "us-en", "zh-Hant", "zh-Hant-TW", "es-419".
+_LOCALE_SEGMENT = re.compile(r"^([a-z]{2})(?:[-_][a-z]{2,4})?(?:[-_](?:[a-z]{2}|\d{3}))?$", re.IGNORECASE)
 _INDEX_FILE = re.compile(r"^(index|default|home)\.[a-z]+$", re.IGNORECASE)
 
 
 def _is_locale(segment: str) -> bool:
     match = _LOCALE_SEGMENT.match(segment)
-    return match is not None and match.group(1).lower() in _LANGUAGE_CODES
+    return match is not None and match.group(1).lower() in _LOCALE_PREFIXES
 
 
 def website_path_is_root(url: str) -> bool:
     """Whether a website URL points at the root of its site.
 
-    A lone locale segment or an index file is still the root, because a localized landing page belongs to the
-    company itself. A URL that cannot be parsed counts as the root, so that a record is never rejected on a guess.
+    A lone language or country segment, or an index file, is still the root, because a localized landing page
+    belongs to the company itself. A URL that cannot be parsed counts as the root, so that a record is never rejected
+    on a guess.
     """
     try:
         path = urlparse(url if "://" in url else f"https://{url}").path
