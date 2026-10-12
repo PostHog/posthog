@@ -17,7 +17,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from policy import OwnershipSource, load_policy
+from policy import DenyException, OwnershipSource, load_policy
 
 if TYPE_CHECKING:
     from owners_yaml.resolver import OwnersResolver
@@ -393,6 +393,27 @@ def _compile_patterns(
 
 DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
+
+def _compile_deny_exceptions(
+    defs: dict[str, dict[str, list[str]]],
+    exceptions: dict[str, tuple[DenyException, ...]],
+) -> dict[str, dict[re.Pattern[str], tuple[DenyException, ...]]]:
+    compiled: dict[str, dict[re.Pattern[str], tuple[DenyException, ...]]] = {}
+    for category, rules in exceptions.items():
+        scopes = defs[category]
+        pattern_rules: dict[re.Pattern[str], tuple[DenyException, ...]] = {}
+        for pattern in scopes.get("paths", []) + scopes.get("any", []):
+            matching_rules = tuple(
+                rule for rule in rules if rule.keyword is None or rule.keyword.lower() == pattern.lower()
+            )
+            if matching_rules:
+                pattern_rules[_compile_pattern(pattern, for_paths=True)] = matching_rules
+        compiled[category] = pattern_rules
+    return compiled
+
+
+DENY_EXCEPTIONS = _compile_deny_exceptions(_DENY_PATTERN_DEFS, POLICY.deny_exceptions)
+
 ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
 
 ALLOW_PATH_PATTERNS = list(POLICY.allow_path_patterns)
@@ -513,7 +534,9 @@ def category_fully_exempt(category: str, files: list[str]) -> bool:
     return bool(files) and all(_is_exempt_path(category, f) for f in files)
 
 
-def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:
+def detect_deny_categories(
+    files: list[str], ignored_files: set[str] | None = None, *, apply_exceptions: bool = True
+) -> list[str]:
     """Categories hard-denied by the changed file paths. Titles never deny."""
     hits: set[str] = set()
     ignored_files_lower = {f.lower() for f in ignored_files or set()}
@@ -522,7 +545,16 @@ def detect_deny_categories(files: list[str], ignored_files: set[str] | None = No
     for category, scopes in DENY_PATTERNS.items():
         category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
-        if any(rx.search(p) for rx in path_regexes for p in category_paths):
+        exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
+        if any(
+            rx.search(p)
+            and not any(
+                p.startswith(rule.path_prefixes) and (not rule.extensions or p.endswith(rule.extensions))
+                for rule in exceptions.get(rx, ())
+            )
+            for rx in path_regexes
+            for p in category_paths
+        ):
             hits.add(category)
     return sorted(hits)
 
