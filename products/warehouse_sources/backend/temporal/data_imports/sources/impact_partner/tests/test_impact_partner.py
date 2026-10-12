@@ -97,7 +97,7 @@ class TestGetRowsActions:
         assert result.raised is None
         assert len(result.items) == 2
         starts = result.params("ActionDateStart")
-        assert starts == sorted(starts)
+        assert starts == sorted(starts, key=lambda value: value or "")
         for request in result.requests:
             assert request.path == "/Mediapartners/sid/Actions"
             assert request.param("ActionDateEnd") is not None

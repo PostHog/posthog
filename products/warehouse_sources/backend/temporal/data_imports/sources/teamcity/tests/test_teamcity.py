@@ -395,7 +395,7 @@ class TestTeamcitySourceResponse:
     def test_source_response_merge_and_partition_settings(
         self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_keys: list[str] | None
     ) -> None:
-        empty = {"build": [], "project": [], "change": []}
+        empty: dict[str, list[Any]] = {"build": [], "project": [], "change": []}
         response = _driver().run(endpoint, always(ScriptedResponse(json=empty))).response
         assert response is not None
         assert response.name == endpoint

@@ -95,6 +95,7 @@ class TestEventFanout:
         assert result.params("pageSize")[1:] == [str(PAGE_SIZE), str(PAGE_SIZE)]
         # Orders may omit `eventId`, but it is part of the primary key, so every row must carry it.
         assert result.response is not None
+        assert result.response.primary_keys is not None
         assert [{key: row[key] for key in result.response.primary_keys} for row in result.rows] == [
             {"eventId": "e1", "_id": "c1"},
             {"eventId": "e2", "_id": "c2"},

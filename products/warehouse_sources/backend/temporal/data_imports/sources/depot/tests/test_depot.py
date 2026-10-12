@@ -237,7 +237,7 @@ class TestValidateCredentials:
     def test_maps_probe_status_to_result(
         self, status: int, expected_valid: bool, expected_message_fragment: str | None
     ) -> None:
-        body = {"runs": []} if status == 200 else {"code": "permission_denied", "message": "denied"}
+        body: dict[str, Any] = {"runs": []} if status == 200 else {"code": "permission_denied", "message": "denied"}
         with scripted_network(always(ScriptedResponse(status=status, json=body))) as network:
             valid, message = validate_credentials(API_TOKEN, REPOSITORY)
 

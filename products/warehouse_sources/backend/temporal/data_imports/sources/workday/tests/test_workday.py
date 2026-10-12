@@ -106,6 +106,7 @@ class TestMintAccessToken:
 
         request = network.requests_log[0]
         assert request.url == f"https://{HOSTNAME}{TOKEN_PATH}"
+        assert request.body is not None
         assert parse_qs(request.body.decode()) == {"grant_type": ["refresh_token"], "refresh_token": ["refresh"]}
         assert request.headers["authorization"] == f"Basic {base64.b64encode(b'client:secret').decode()}"
 

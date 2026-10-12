@@ -279,7 +279,7 @@ class TestLegacyResumeStateCompat:
 class TestSourceResponseShape:
     @staticmethod
     def _response(endpoint: str) -> SourceResponse:
-        body = {"data": {"stats": []}} if endpoint == "analytics_by_date" else {"data": []}
+        body: dict[str, Any] = {"data": {"stats": []}} if endpoint == "analytics_by_date" else {"data": []}
         result = _driver().run(endpoint, [ScriptedResponse(json=body)])
         assert result.raised is None
         assert result.response is not None

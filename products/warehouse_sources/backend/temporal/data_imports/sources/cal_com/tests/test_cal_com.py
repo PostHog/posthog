@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, cast
 
@@ -63,7 +63,7 @@ def _page(items: Any, next_cursor: str | None = None, has_more: bool = False) ->
 
 def _run(
     endpoint: str,
-    script: list[ScriptedResponse | BaseException],
+    script: Sequence[ScriptedResponse | BaseException],
     *,
     organization_id: int | None = ORG_ID,
     region: str | None = "us",

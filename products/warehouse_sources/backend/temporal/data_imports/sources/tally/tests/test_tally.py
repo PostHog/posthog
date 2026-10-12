@@ -80,7 +80,7 @@ class TestSourceResponseShape:
         expected_partition_key: str,
         expected_sort_mode: str,
     ) -> None:
-        empty = {key: [] for key in ("items", "webhooks", "submissions", "questions", "folders")}
+        empty: dict[str, list[Any]] = {key: [] for key in ("items", "webhooks", "submissions", "questions", "folders")}
         response = _driver().run(endpoint, always(_resp({**empty, "hasMore": False}))).response
         assert response is not None
         assert response.name == endpoint

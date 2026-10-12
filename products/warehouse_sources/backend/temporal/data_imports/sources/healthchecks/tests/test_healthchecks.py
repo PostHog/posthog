@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
 import pytest
 
@@ -261,7 +262,7 @@ class TestHealthchecksSource:
     def test_source_response_shape(
         self, endpoint: str, expected_keys: list[str], expected_sort: str, has_partition: bool
     ) -> None:
-        body = {"checks": []} if endpoint in ("checks", "flips", "pings") else {"channels": []}
+        body: dict[str, Any] = {"checks": []} if endpoint in ("checks", "flips", "pings") else {"channels": []}
         result = _driver().run(endpoint, [ScriptedResponse(json=body)])
 
         assert result.raised is None

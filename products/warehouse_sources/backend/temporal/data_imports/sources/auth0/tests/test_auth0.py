@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -472,5 +473,7 @@ class TestAuth0Source:
         ) as network:
             response = source.source_for_pipeline(config, manager, inputs)
             assert network.requests_log == []
-            assert list(response.items()) == []
+            items = response.items()
+            assert isinstance(items, Iterable)
+            assert list(items) == []
             assert [request.path for request in network.requests_log] == ["/oauth/token", "/api/v2/roles"]

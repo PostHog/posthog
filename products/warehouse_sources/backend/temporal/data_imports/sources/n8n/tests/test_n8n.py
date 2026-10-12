@@ -214,7 +214,7 @@ class TestInsightsSummary:
         )
 
         assert result.raised is None
-        assert [value[:10] for value in result.params("startDate")] == requested_days
+        assert [str(value)[:10] for value in result.params("startDate")] == requested_days
         synced_days = [day for day in requested_days if day != "2026-10-09"]
         assert [row["date"] for row in result.rows] == synced_days
         assert result.rows[-1]["endDate"] == "2026-10-13T00:00:00.000Z"

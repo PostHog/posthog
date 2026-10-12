@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import time_machine
 
@@ -55,7 +55,7 @@ def _run(
     resume_state: Optional[SimilarwebResumeConfig] = None,
     domains: str = "a.com, b.com",
     country: Optional[str] = None,
-    granularity: str = "monthly",
+    granularity: Literal["monthly", "weekly", "daily"] = "monthly",
     start_date: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,

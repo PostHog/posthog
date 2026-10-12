@@ -75,8 +75,9 @@ def _script(
             return token_queue.pop(0)
         if isinstance(gets, ScriptedResponse):
             return gets
-        if get_queue is None:
+        if not isinstance(gets, Sequence):
             return gets(request)
+        assert get_queue is not None
         if not get_queue:
             raise UnexpectedRequest(f"no answer left for {request.method} {request.url}")
         return get_queue.pop(0)

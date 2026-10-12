@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
 import time_machine
 
@@ -174,7 +175,7 @@ class TestSourceResponse:
         ]
     )
     def test_response_metadata(self, endpoint: str, primary_keys: list[str], partition_key: str) -> None:
-        body = {"response": {"docs": []}} if endpoint == "article_search" else {"results": []}
+        body: dict[str, Any] = {"response": {"docs": []}} if endpoint == "article_search" else {"results": []}
         result = _driver().run(endpoint, [ScriptedResponse(json=body)])
         assert result.raised is None
         response = result.response

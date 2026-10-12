@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -36,7 +37,7 @@ def _redirect(location: str = "https://evil.example.com/") -> ScriptedResponse:
     return ScriptedResponse(status=302, headers={"Location": location})
 
 
-def _run(responses: list[ScriptedResponse | BaseException], api_key: str = "key", **inputs: Any) -> DriveResult:
+def _run(responses: Sequence[ScriptedResponse | BaseException], api_key: str = "key", **inputs: Any) -> DriveResult:
     config = Rapid7InsightvmSourceConfig(api_key=api_key, region="us")
     return SourceDriver(Rapid7InsightvmSource(), config).run("assets", responses, **inputs)
 

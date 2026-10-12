@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -344,4 +344,6 @@ class TestZohoCRMSourceResponse:
             response = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
 
             assert network.requests_log == []
-            assert list(response.items()) == [[{"id": "1"}]]
+            items = response.items()
+            assert isinstance(items, Iterable)
+            assert list(items) == [[{"id": "1"}]]

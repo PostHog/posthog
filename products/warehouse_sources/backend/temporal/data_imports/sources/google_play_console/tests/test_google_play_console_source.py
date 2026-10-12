@@ -225,6 +225,7 @@ def test_source_for_pipeline_plumbs_config_and_inputs() -> None:
     assert result.requests[2].json()["timelineSpec"]["startTime"] == {"year": 2024, "month": 3, "day": 1}
     assertion = dict(parse_qsl((result.requests[0].body or b"").decode()))["assertion"]
     public_key = serialization.load_pem_private_key(_private_key().encode(), password=None).public_key()
+    assert isinstance(public_key, rsa.RSAPublicKey)
     claims = jwt.decode(assertion, public_key, algorithms=["RS256"], audience="https://oauth2.googleapis.com/token")
     assert claims["iss"] == "reporting@example.iam.gserviceaccount.com"
     assert jwt.get_unverified_header(assertion)["kid"] == "private-key-id"

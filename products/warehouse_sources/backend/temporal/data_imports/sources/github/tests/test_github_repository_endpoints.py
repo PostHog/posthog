@@ -115,11 +115,11 @@ def _run(
             )
         )
 
-    rows: list[dict[str, Any]] = []
+    fetched_rows: list[dict[str, Any]] = []
     for table in tables:
         assert isinstance(table, pa.Table)
-        rows.extend(table.to_pylist())
-    return rows, calls
+        fetched_rows.extend(table.to_pylist())
+    return fetched_rows, calls
 
 
 class TestListParams:

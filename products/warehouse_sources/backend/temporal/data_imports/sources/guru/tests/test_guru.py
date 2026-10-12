@@ -231,6 +231,7 @@ class TestFanoutEndpoints:
         assert result.paths[1].endswith(child_path)
         assert result.rows == expected
         assert result.response is not None
+        assert result.response.primary_keys is not None
         assert all(row[key] is not None for row in result.rows for key in result.response.primary_keys)
 
 

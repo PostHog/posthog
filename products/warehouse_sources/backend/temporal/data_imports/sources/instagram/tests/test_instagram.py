@@ -448,9 +448,9 @@ class TestInstagramFanOut:
         )
 
         assert result.raised is None
-        requested = result.requests[1].param("metric")
-        assert requested is not None
-        requested = requested.split(",")
+        metric_param = result.requests[1].param("metric")
+        assert metric_param is not None
+        requested = metric_param.split(",")
         assert requested == list(MEDIA_INSIGHT_METRICS[product_type])
 
     def test_media_insights_are_emitted_one_row_per_metric(self) -> None:

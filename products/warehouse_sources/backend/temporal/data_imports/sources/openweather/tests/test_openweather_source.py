@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -65,6 +67,7 @@ class TestOpenWeatherSource:
     def test_source_for_pipeline_plumbs_resolved_version(
         self, pin: str | None, schema_name: str, expected_version: str, expected_path: str
     ) -> None:
+        body: dict[str, Any]
         if expected_version == API_VERSION_2_5:
             body = {"list": [{"dt": 1}]}
         elif expected_version == API_VERSION_3_0:
