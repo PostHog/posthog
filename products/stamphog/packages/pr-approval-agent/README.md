@@ -212,6 +212,7 @@ An absent or empty `deny_exceptions` mapping leaves matching unchanged.
 
 The matcher skips only matching patterns on matching files.
 Other keywords in the same category, other categories, and non-exempt files in a mixed PR still deny.
+Rename checks keep both real paths, so an exempt destination does not waive a protected source.
 Title scrutiny remains unchanged.
 When these exceptions lift a denial, classification requires `T1-agent` rather than the allow-list or test-only `T0` route.
 All remaining gates and the reviewer still apply.
