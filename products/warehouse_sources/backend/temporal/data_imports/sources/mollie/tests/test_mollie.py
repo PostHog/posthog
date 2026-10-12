@@ -69,12 +69,10 @@ class TestPagination:
 
 
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_mandates_walk_every_customer_and_carry_customer_id(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_mandates_walk_every_customer_and_carry_customer_id(self) -> None:
         child_next = "https://api.mollie.com/v2/customers/cst_1/mandates?from=mdt_2&limit=250"
-        urls, _params = _wire(
-            session,
+        result = _driver().run(
+            "mandates",
             [
                 _response("customers", [{"id": "cst_1"}, {"id": "cst_2"}]),
                 _response("mandates", [{"id": "mdt_1"}], next_url=child_next),
@@ -83,45 +81,38 @@ class TestFanOut:
             ],
         )
 
-        manager = _make_manager()
-        source = _source("mandates", manager)
-        rows = _rows(source)
-
-        assert [(r["customerId"], r["id"]) for r in rows] == [
+        assert result.raised is None
+        assert [(r["customerId"], r["id"]) for r in result.rows] == [
             ("cst_1", "mdt_1"),
             ("cst_1", "mdt_2"),
             ("cst_2", "mdt_3"),
         ]
-        assert all("_customers_id" not in r for r in rows)
-        assert source.primary_keys == ["customerId", "id"]
-        assert urls[1].endswith("/customers/cst_1/mandates")
-        assert urls[2] == child_next
-        assert urls[3].endswith("/customers/cst_2/mandates")
-        last_state = manager.save_state.call_args.args[0]
+        assert all("_customers_id" not in r for r in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["customerId", "id"]
+        assert result.paths[1] == "/v2/customers/cst_1/mandates"
+        assert result.urls[2] == child_next
+        assert result.paths[3] == "/v2/customers/cst_2/mandates"
+        last_state = result.saved_states[-1]
         assert last_state.next_url is None
         assert last_state.fanout_state["completed"] == ["/customers/cst_1/mandates", "/customers/cst_2/mandates"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_balances_already_finished(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, _params = _wire(
-            session,
+    def test_resume_skips_balances_already_finished(self) -> None:
+        result = _driver().run(
+            "balance_transactions",
             [
                 _response("balances", [{"id": "bal_1"}, {"id": "bal_2"}]),
                 _response("balance_transactions", [{"id": "baltr_9"}]),
             ],
-        )
-
-        manager = _make_manager(
-            MollieResumeConfig(
+            resume_state=MollieResumeConfig(
                 fanout_state={"completed": ["/balances/bal_1/transactions"], "current": None, "child_state": None}
-            )
+            ),
         )
-        rows = _rows(_source("balance_transactions", manager))
 
-        assert [(r["balanceId"], r["id"]) for r in rows] == [("bal_2", "baltr_9")]
-        assert len(urls) == 2
-        assert urls[1].endswith("/balances/bal_2/transactions")
+        assert result.raised is None
+        assert [(r["balanceId"], r["id"]) for r in result.rows] == [("bal_2", "baltr_9")]
+        assert len(result.requests) == 2
+        assert result.paths[1] == "/v2/balances/bal_2/transactions"
 
 
 class TestRetries:

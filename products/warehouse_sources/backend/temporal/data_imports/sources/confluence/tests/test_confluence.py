@@ -101,17 +101,16 @@ class TestValidateCredentials:
             ("padded_mixed_case_host", " Acme.Atlassian.net/ "),
         ]
     )
-    @mock.patch(CONFLUENCE_SESSION_PATCH)
-    def test_pasted_site_address_probes_the_atlassian_site(
-        self, _name: str, subdomain: str, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        is_valid, _ = validate_credentials(subdomain, "you@example.com", "token")
+    def test_pasted_site_address_probes_the_atlassian_site(self, _name: str, subdomain: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            is_valid, _ = validate_credentials(subdomain, "you@example.com", "token")
 
         assert is_valid is True
-        probed_url = mock_session.return_value.get.call_args.args[0]
-        assert probed_url.lower().startswith("https://acme.atlassian.net/wiki/api/v2/")
+        assert network.requests_log
+        assert all(
+            request.url.lower().startswith("https://acme.atlassian.net/wiki/api/v2/")
+            for request in network.requests_log
+        )
 
     @parameterized.expand(
         [
@@ -120,13 +119,13 @@ class TestValidateCredentials:
             ("other_host_url", "https://evil.com/acme.atlassian.net"),
         ]
     )
-    @mock.patch(CONFLUENCE_SESSION_PATCH)
-    def test_invalid_subdomain_short_circuits(self, _name: str, subdomain: str, mock_session: mock.MagicMock) -> None:
-        is_valid, message = validate_credentials(subdomain, "you@example.com", "token")
+    def test_invalid_subdomain_short_circuits(self, _name: str, subdomain: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            is_valid, message = validate_credentials(subdomain, "you@example.com", "token")
 
         assert is_valid is False
         assert message is not None and "subdomain" in message
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestConfluenceSource:

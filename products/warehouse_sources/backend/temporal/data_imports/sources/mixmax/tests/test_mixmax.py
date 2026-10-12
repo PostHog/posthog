@@ -97,33 +97,28 @@ class TestPagination:
 
 
 class TestLiveFeedEventsFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fetches_events_per_live_feed_message_and_skips_missing_messages(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+    def test_fetches_events_per_live_feed_message_and_skips_missing_messages(self) -> None:
+        result = _driver().run(
+            "live_feed_events",
             [
-                _resp({"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
-                _resp({"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}),
-                _resp({"results": [{"_id": "m2&limit=1"}], "hasNext": False}),
-                _resp({}, status=404),
+                ScriptedResponse(json={"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
+                ScriptedResponse(json={"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}),
+                ScriptedResponse(json={"results": [{"_id": "m2&limit=1"}], "hasNext": False}),
+                ScriptedResponse(status=404, json={}),
             ],
         )
 
-        rows = _run(session, "live_feed_events", _make_manager())
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"_id": "e1", "type": "opened", "message_id": "m1"},
             {"_id": "e2", "type": "replied", "message_id": "m1"},
         ]
-        assert snaps == [
-            {"url": "https://api.mixmax.com/v1/livefeed", "params": {"limit": 100}},
-            {"url": "https://api.mixmax.com/v1/livefeed/events?messageId=m1", "params": {"wasSentViaMixmax": "true"}},
-            {"url": "https://api.mixmax.com/v1/livefeed?limit=100&next=cur2", "params": {}},
-            {
-                "url": "https://api.mixmax.com/v1/livefeed/events?messageId=m2%26limit%3D1",
-                "params": {"wasSentViaMixmax": "true"},
-            },
+        assert result.paths == ["/v1/livefeed", "/v1/livefeed/events", "/v1/livefeed", "/v1/livefeed/events"]
+        assert [dict(request.query) for request in result.requests] == [
+            {"limit": ("100",)},
+            {"messageId": ("m1",), "wasSentViaMixmax": ("true",)},
+            {"limit": ("100",), "next": ("cur2",)},
+            {"messageId": ("m2&limit=1",), "wasSentViaMixmax": ("true",)},
         ]
 
 

@@ -115,59 +115,54 @@ class TestPagination:
 
 
 class TestAccountingYearEntriesFanout:
-    def _years_page(self) -> Response:
-        return _response(
+    def _years_page(self) -> ScriptedResponse:
+        return _page(
             [
                 {"year": "2022", "entries": f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries"},
                 {"year": "2022/2023", "entries": f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/entries"},
             ]
         )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_each_year_through_its_entries_link(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_walks_each_year_through_its_entries_link(self) -> None:
         second_page = f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries?skippages=1"
-        requests_sent = _wire(
-            session,
+        result = _driver().run(
+            "accounting_year_entries",
             [
                 self._years_page(),
-                _response([{"entryNumber": 1}], next_page=second_page),
-                _response([{"entryNumber": 2}]),
-                _response([{"entryNumber": 1}]),
+                _page([{"entryNumber": 1}], next_page=second_page),
+                _page([{"entryNumber": 2}]),
+                _page([{"entryNumber": 1}]),
             ],
         )
 
-        rows = _rows(_source("accounting_year_entries", _make_manager()))
-
-        assert [(r["accountingYear"], r["entryNumber"]) for r in rows] == [
+        assert result.raised is None
+        assert [(r["accountingYear"], r["entryNumber"]) for r in result.rows] == [
             ("2022", 1),
             ("2022", 2),
             ("2022/2023", 1),
         ]
-        assert [r["url"] for r in requests_sent] == [
+        assert [url.split("?")[0] for url in result.urls] == [
             f"{E_CONOMIC_BASE_URL}/accounting-years",
             f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries",
-            second_page,
+            f"{E_CONOMIC_BASE_URL}/accounting-years/2022/entries",
             f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/entries",
         ]
-        assert requests_sent[1]["params"]["sort"] == "entryNumber"
+        assert result.urls[2] == second_page
+        assert result.params("sort")[1] == "entryNumber"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_years(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        requests_sent = _wire(session, [self._years_page(), _response([{"entryNumber": 5}])])
-        manager = _make_manager(
-            EConomicResumeConfig(
+    def test_resume_skips_completed_years(self) -> None:
+        result = _driver().run(
+            "accounting_year_entries",
+            [self._years_page(), _page([{"entryNumber": 5}])],
+            resume_state=EConomicResumeConfig(
                 fanout_state={"completed": ["/accounting-years/2022/entries"], "current": None, "child_state": None}
-            )
+            ),
         )
 
-        rows = _rows(_source("accounting_year_entries", manager))
-
-        assert [(r["accountingYear"], r["entryNumber"]) for r in rows] == [("2022/2023", 5)]
-        assert requests_sent[-1]["url"] == f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/entries"
-        saved = manager.save_state.call_args.args[0]
-        assert "/accounting-years/2022_6_2023/entries" in saved.fanout_state["completed"]
+        assert result.raised is None
+        assert [(r["accountingYear"], r["entryNumber"]) for r in result.rows] == [("2022/2023", 5)]
+        assert result.paths[-1] == "/accounting-years/2022_6_2023/entries"
+        assert "/accounting-years/2022_6_2023/entries" in result.saved_states[-1].fanout_state["completed"]
 
 
 class TestErrorHandling:

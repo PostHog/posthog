@@ -204,27 +204,29 @@ class TestMemoryHistoryRows:
             ),
         ]
     )
-    def test_fans_out_over_every_memories_page(self, _name, incremental, last_value, expected_filters):
+    def test_fans_out_over_every_memories_page(
+        self, _name: str, incremental: bool, last_value: datetime | None, expected_filters: dict[str, Any]
+    ) -> None:
         next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        rows, prepared = _run(
+        result = _driver().run(
             MEMORY_HISTORY_ENDPOINT,
             [
                 _response([{"id": "m1"}, {"id": "m2"}], next_url=next_url),
-                _raw_response([{"id": "h1", "memory_id": "m1", "event": "ADD"}]),
+                ScriptedResponse(json=[{"id": "h1", "memory_id": "m1", "event": "ADD"}]),
                 # A memory deleted between the listing and its history fetch.
-                _raw_response({"detail": "Not found"}, status=404),
+                ScriptedResponse(status=404, json={"detail": "Not found"}),
                 _response([{"id": "m3"}], next_url=None),
-                _raw_response([{"id": "h3", "memory_id": "m3", "event": "UPDATE"}]),
+                ScriptedResponse(json=[{"id": "h3", "memory_id": "m3", "event": "UPDATE"}]),
             ],
-            _manager(),
             should_use_incremental_field=incremental,
             db_incremental_field_last_value=last_value,
             incremental_field="created_at",
         )
 
-        assert [row["id"] for row in rows] == ["h1", "h3"]
-        assert _body(prepared[0]) == {"filters": expected_filters}
-        assert [urlsplit(p.url).path for p in prepared[1:]] == [
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["h1", "h3"]
+        assert result.requests[0].json() == {"filters": expected_filters}
+        assert result.paths[1:] == [
             "/v1/memories/m1/history/",
             "/v1/memories/m2/history/",
             "/v3/memories/",
@@ -233,22 +235,22 @@ class TestMemoryHistoryRows:
 
 
 class TestProjectsRows:
-    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(self):
-        rows, prepared = _run(
+    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(self) -> None:
+        result = _driver().run(
             PROJECTS_ENDPOINT,
             [
-                _raw_response([{"org_id": "org_1", "name": "One"}, {"org_id": "org_2", "name": "Two"}]),
-                _raw_response([{"project_id": "proj_a", "name": "A"}]),
-                _raw_response([{"project_id": "proj_b", "name": "B"}]),
+                ScriptedResponse(json=[{"org_id": "org_1", "name": "One"}, {"org_id": "org_2", "name": "Two"}]),
+                ScriptedResponse(json=[{"project_id": "proj_a", "name": "A"}]),
+                ScriptedResponse(json=[{"project_id": "proj_b", "name": "B"}]),
             ],
-            _manager(),
         )
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"project_id": "proj_a", "name": "A", "org_id": "org_1"},
             {"project_id": "proj_b", "name": "B", "org_id": "org_2"},
         ]
-        assert [urlsplit(p.url).path for p in prepared] == [
+        assert result.paths == [
             "/api/v1/orgs/organizations/",
             "/api/v1/orgs/organizations/org_1/projects/",
             "/api/v1/orgs/organizations/org_2/projects/",

@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import unquote
 
 import pytest
 from unittest.mock import MagicMock
@@ -161,28 +162,16 @@ class TestGetRows:
     def test_pagination_modes(
         self, _name: str, endpoint: str, pages: list[Any], expected_urls: list[str], expected_rows: int
     ) -> None:
-        captured: list[str] = []
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=page) for page in pages],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
 
-        def _fetch(_session, url, *_args, **_kwargs):
-            captured.append(url)
-            return pages[len(captured) - 1]
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob._fetch_page", side_effect=_fetch
-        ):
-            batches = list(
-                get_rows(
-                    "k",
-                    endpoint,
-                    MagicMock(),
-                    _manager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                )
-            )
-
-        assert captured == expected_urls
-        assert sum(len(batch) for batch in batches) == expected_rows
+        assert result.raised is None
+        assert [unquote(url) for url in result.urls] == expected_urls
+        assert len(result.rows) == expected_rows
 
 
 class TestFetchPage:

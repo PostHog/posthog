@@ -147,33 +147,36 @@ class TestEventsEndpoint:
             _relay_page("getEvents", [{"uuid": "e-1"}], "cursor-1"),
             _relay_page("getEvents", [{"uuid": "e-2"}], None),
         ]
-        rows, executor, manager = _collect(
+        result = _driver().run(
             "events",
-            responses,
+            [_response(data) for data in responses],
             should_use_incremental_field=use_incremental,
             db_incremental_field_last_value=watermark,
         )
 
-        assert [row["uuid"] for row in rows] == ["e-1", "e-2"]
-        for call in executor.calls:
+        assert result.raised is None
+        assert [row["uuid"] for row in result.rows] == ["e-1", "e-2"]
+        calls = [request.json()["variables"] for request in result.requests]
+        for call in calls:
             assert call.get("startTime") == expected_start
             assert call["descOrder"] is False
-        assert executor.calls[1]["after"] == "cursor-1"
-        assert [(state.cursor, state.window_after) for state in manager.saved] == [("cursor-1", expected_start)]
+        assert calls[1]["after"] == "cursor-1"
+        assert [(state.cursor, state.window_after) for state in result.saved_states] == [("cursor-1", expected_start)]
 
     def test_resume_replays_cursor_against_saved_start_time(self) -> None:
-        manager = _FakeResumableManager(MonteCarloResumeConfig(cursor="cursor-3", window_after="2026-05-01T00:00:00Z"))
         responses = [_relay_page("getEvents", [{"uuid": "e-9"}], None)]
-        _, executor, _ = _collect(
+        result = _driver().run(
             "events",
-            responses,
-            manager=manager,
+            [_response(data) for data in responses],
+            resume_state=MonteCarloResumeConfig(cursor="cursor-3", window_after="2026-05-01T00:00:00Z"),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
         )
 
-        assert executor.calls[0]["after"] == "cursor-3"
-        assert executor.calls[0]["startTime"] == "2026-05-01T00:00:00Z"
+        assert result.raised is None
+        variables = result.requests[0].json()["variables"]
+        assert variables["after"] == "cursor-3"
+        assert variables["startTime"] == "2026-05-01T00:00:00Z"
 
 
 class TestOffsetEndpoint:
