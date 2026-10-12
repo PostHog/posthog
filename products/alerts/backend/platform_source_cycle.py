@@ -24,7 +24,6 @@ from django.conf import settings
 
 import structlog
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
@@ -68,6 +67,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
 
