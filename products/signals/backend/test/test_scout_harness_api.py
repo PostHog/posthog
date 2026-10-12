@@ -20,6 +20,8 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.auth import MCP_USER_AGENT_MARKER
+from posthog.constants import AvailableFeature
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.models import OAuthApplication
@@ -2872,6 +2874,40 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         stored = SignalProjectProfile.objects.get(team=self.team).payload["inventory"]["emit_eligibility"]
         assert stored["can_emit"] is True
         assert stored["scout_emit_enabled"] is None
+
+    @parameterized.expand(
+        [
+            ("mcp_emitting_scout", True, True, "organization_mcp_read_only"),
+            ("direct_api_call", False, True, None),
+            ("mcp_dry_run_scout", True, False, "scout_emit_disabled"),
+        ]
+    )
+    def test_scout_read_reports_the_organization_mcp_read_only_block(
+        self, _name: str, via_mcp: bool, scout_emit: bool, expected_reason: str | None
+    ) -> None:
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=scout_emit)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Security settings"}
+        ]
+        self.organization.read_only_mcp_access = True
+        self.organization.save(update_fields=["available_product_features", "read_only_mcp_access"])
+        self._seed_profile()
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+        headers = {"HTTP_USER_AGENT": MCP_USER_AGENT_MARKER} if via_mcp else {}
+
+        response = self.client.get(self._list_url(), **headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        eligibility = body["summary"]["emit_eligibility"]
+        assert body["payload"]["inventory"]["emit_eligibility"] == eligibility
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+        assert eligibility["blocking_reason"] == expected_reason
+        assert eligibility["can_emit"] is (expected_reason is None)
+        assert (eligibility["remediation"] is None) is (expected_reason is None)
 
     def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
         # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.

@@ -75,6 +75,9 @@ class EmitEligibility(_Section):
     approved AI data processing, the `signals_scout` signal source must be enabled, and the calling
     scout's own config must not be in dry-run (`emit=False`). When any is off every write is
     dropped. A dry-run scout continues its investigation without emitting findings or reports.
+    When the organization restricts MCP access to read-only, the profile endpoint reports
+    `organization_mcp_read_only` for an MCP caller, because the permission layer refuses every
+    report and memory write.
     For other blocks, a scout can stop after it checks the reason and remediation.
 
     As stored on a profile row these are the two team-wide gates only, because the row is shared by

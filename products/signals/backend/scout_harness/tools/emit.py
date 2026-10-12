@@ -521,6 +521,10 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     return None
 
 
+# The org-wide MCP read-only policy refuses every scout write at the permission layer, before
+# `_preflight_emit_gates` runs, so only the profile endpoint reports it. See `mcp_access_denial`.
+ORGANIZATION_MCP_READ_ONLY = "organization_mcp_read_only"
+
 # One-line, scout-actionable next step for each preflight skip reason. A gate-skipped emit
 # otherwise hands back a bare reason code with no remediation — the scout can't tell whether the
 # block is fixable (an org-level consent gate) or terminal, so it burns a full run producing a
@@ -540,6 +544,10 @@ EMIT_SKIP_REMEDIATION: dict[str, str | None] = {
     "source_disabled": (
         "The signals_scout source is disabled for this team, so findings are dropped before the "
         "inbox. Re-enable it in the Signals source configuration."
+    ),
+    ORGANIZATION_MCP_READ_ONLY: (
+        "This organization restricts MCP access to read-only, so every report and memory write from "
+        "this scout is refused. An org admin can turn off read-only MCP access in Organization settings."
     ),
 }
 
@@ -605,6 +613,22 @@ def emit_eligibility(*, team: Team, run: SignalScoutRun | None) -> dict[str, Any
         "can_emit": blocking_reason is None,
         "blocking_reason": blocking_reason,
         "remediation": remediation_for_skip(blocking_reason),
+    }
+
+
+def with_mcp_read_only_block(eligibility: dict[str, Any]) -> dict[str, Any]:
+    """`eligibility` with the organization MCP read-only block applied.
+
+    Only a passing gate changes. An existing block keeps its reason, so a dry-run scout still
+    continues its investigation and a team-wide block still names the consent or source gate.
+    """
+    if not eligibility["can_emit"]:
+        return eligibility
+    return {
+        **eligibility,
+        "can_emit": False,
+        "blocking_reason": ORGANIZATION_MCP_READ_ONLY,
+        "remediation": remediation_for_skip(ORGANIZATION_MCP_READ_ONLY),
     }
 
 
