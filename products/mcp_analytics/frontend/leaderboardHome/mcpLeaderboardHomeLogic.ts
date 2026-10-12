@@ -8,7 +8,9 @@ import { normalizeBucket } from 'lib/utils/timeBuckets'
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { bucketExpr, mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
+import { labSqlExpression, modelLab } from '../aiLabs'
+import { summarizeModelBreakdown } from '../dashboard/modelBreakdown'
+import { bucketExpr, mcpDashboardOverviewLogic, type ModelRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
     buildLabShares,
@@ -17,8 +19,6 @@ import {
     buildShareSeries,
     type LabShare,
     type LabUsersRow,
-    labSqlExpression,
-    modelLab,
     type ReliabilityRow,
     type ReliabilitySeries,
     type ScoreboardMetric,
@@ -149,6 +149,7 @@ const toWindowRows = (rows: Row[]): WindowFacetRow[] =>
 export interface mcpLeaderboardHomeLogicValues {
     bucketKeys: string[] // mcpDashboardOverviewLogic
     interval: IntervalType // mcpDashboardOverviewLogic
+    modelRows: ModelRow[] // mcpDashboardOverviewLogic
     queryFilters: HogQLFilters // mcpDashboardOverviewLogic
     facets: LeaderboardFacets
     facetsLoading: boolean
@@ -156,6 +157,7 @@ export interface mcpLeaderboardHomeLogicValues {
     labShares: LabShare[]
     leaderboardLoading: boolean
     modelSeries: ShareSeries[]
+    pageModels: string[]
     protocolVersionSeries: ShareSeries[]
     reliabilityFailed: boolean
     reliabilityRows: ReliabilityRow[]
@@ -217,6 +219,7 @@ export interface mcpLeaderboardHomeLogicMeta {
         ) => LabShare[]
         modelSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         labSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
+        pageModels: (modelRows: ModelRow[], modelSeries: ShareSeries[]) => string[]
         protocolVersionSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         reliabilitySeries: (reliabilityRows: ReliabilityRow[], bucketKeys: string[]) => ReliabilitySeries
     }
@@ -232,7 +235,7 @@ export type mcpLeaderboardHomeLogicType = MakeLogicType<
 export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'leaderboardHome', 'mcpLeaderboardHomeLogic']),
     connect(() => ({
-        values: [mcpDashboardOverviewLogic, ['queryFilters', 'interval', 'bucketKeys']],
+        values: [mcpDashboardOverviewLogic, ['queryFilters', 'interval', 'bucketKeys', 'modelRows']],
         actions: [mcpDashboardOverviewLogic, ['reloadAll']],
     })),
     actions({
@@ -340,6 +343,13 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                     (label) => (label === 'Unknown' ? null : modelLab(label)),
                     MODEL_SERIES_LIMIT
                 ),
+        ],
+        pageModels: [
+            (s) => [s.modelRows, s.modelSeries],
+            (modelRows: ModelRow[], modelSeries: ShareSeries[]): string[] => [
+                ...modelSeries.map((series) => series.label),
+                ...summarizeModelBreakdown(modelRows).rankedModels.map((row) => row.model),
+            ],
         ],
         protocolVersionSeries: [
             (s) => [s.facets, s.bucketKeys],
