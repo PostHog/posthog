@@ -69,6 +69,11 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
+# Part of METRIC_CALC_MAX_EXECUTION_TIME_SECONDS that precompute builds leave for the final metric query. A
+# build that would cut into it is skipped, so the query only reads windows that are already READY and falls
+# back to a direct scan for the rest.
+METRIC_CALC_PRECOMPUTE_SELECT_RESERVE_SECONDS = 120
+
 RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
 
 

@@ -38,6 +38,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
     get_user_friendly_message,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.precompute_policy import QueryTimeBudget
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore, compute_recalc_fingerprint
@@ -53,6 +54,7 @@ from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+    METRIC_CALC_PRECOMPUTE_SELECT_RESERVE_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
@@ -667,6 +669,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     is_final_attempt: bool = True,
     attempt: int = 1,
 ) -> MetricRecalculationResult:
+    attempt_started_at = time.monotonic()
     close_old_connections()
 
     try:
@@ -800,6 +803,12 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_event_context=None,
                 # Must fail typed inside the activity before Temporal's start_to_close kill — see models.py.
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+                # Precompute builds and the metric query share the attempt's time. Without this, each build
+                # INSERT keeps the default ClickHouse limit and can outlive the attempt on its own.
+                time_budget=QueryTimeBudget(
+                    deadline=attempt_started_at + METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+                    select_reserve_seconds=METRIC_CALC_PRECOMPUTE_SELECT_RESERVE_SECONDS,
+                ),
             )
 
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is

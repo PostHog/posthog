@@ -3592,6 +3592,39 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "no_deadline_keeps_default_limit",
+                None,
+                HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                HOGQL_INCREASED_MAX_EXECUTION_TIME,
+            ),
+            ("deadline_caps_limit", 100, 1, 100),
+            # ClickHouse reads max_execution_time=0 as "no limit".
+            ("passed_deadline_floors_at_one_second", -5, 1, 1),
+        ]
+    )
+    def test_insert_deadline_caps_insert_max_execution_time(
+        self, _name, seconds_until_deadline, min_expected, max_expected
+    ):
+        insert_deadline = time_mod.monotonic() + seconds_until_deadline if seconds_until_deadline is not None else None
+        with patch(
+            f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                insert_deadline=insert_deadline,
+            )
+
+        assert result.ready is True
+        insert_calls = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
+        assert len(insert_calls) == 1
+        assert min_expected <= insert_calls[0].kwargs["settings"]["max_execution_time"] <= max_expected
+
+    @parameterized.expand(
+        [
             ("quorum_skipped_waits_for_replication", {"read_after_write": False}, True),
             ("quorum_insert_needs_no_wait", {}, False),
         ]
