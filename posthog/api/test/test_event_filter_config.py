@@ -109,6 +109,18 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(data["mode"], seed["mode"])
         self.assertEqual(data["id"], seed["id"])
 
+    def test_create_keeps_node_comments(self):
+        new_tree = {
+            **_or({**_cond(), "comment": "Noisy page view event"}, _cond(value="$autocapture")),
+            "comment": "Drop events we never use",
+        }
+
+        response = self.client.post(self._url(), data={"filter_tree": new_tree}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["filter_tree"], new_tree)
+        self.assertEqual(EventFilterConfig.objects.get(team=self.team).filter_tree, new_tree)
+
     def test_create_upserts_test_cases(self):
         seed = self._seed_config()
         new_test_cases = [{"event_name": "$pageview", "expected_result": "drop"}]

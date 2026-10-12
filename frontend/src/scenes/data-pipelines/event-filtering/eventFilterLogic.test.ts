@@ -1,4 +1,5 @@
 import {
+    countComments,
     countConditions,
     evaluateFilterTree,
     FilterNode,
@@ -317,6 +318,17 @@ describe('countConditions', () => {
         ['deeply nested', and(or(cond(), not(cond())), and(cond())), 3],
     ])('%s', (_name, tree, expected) => {
         expect(countConditions(tree)).toBe(expected)
+    })
+})
+
+describe('countComments', () => {
+    it.each([
+        ['no comments', or(cond(), cond()), 0],
+        ['blank comment is not counted', or({ ...cond(), comment: '  ' }), 0],
+        ['condition and group comments', { ...or({ ...cond(), comment: 'a' }), comment: 'b' }, 2],
+        ['comment inside not', and(not({ ...cond(), comment: 'a' })), 1],
+    ])('%s', (_name, tree, expected) => {
+        expect(countComments(tree as FilterNode)).toBe(expected)
     })
 })
 
