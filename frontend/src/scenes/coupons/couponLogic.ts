@@ -55,10 +55,10 @@ export interface couponLogicValues {
 export interface couponLogicActions {
     loadBillingSuccess: (
         billing: BillingType | null,
-        payload?: string | undefined
+        payload?: any
     ) => {
         billing: BillingType | null
-        payload?: string
+        payload?: any
     } // billingLogic
     loadCurrentOrganizationSuccess: (
         currentOrganization: OrganizationType | null,

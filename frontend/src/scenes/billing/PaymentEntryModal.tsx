@@ -17,14 +17,13 @@ const STRIPE_UNAVAILABLE_MESSAGE =
     "We couldn't load the payment form. Disable any ad blocker and reload the page. If it keeps failing, contact support."
 
 export const PaymentForm = (): JSX.Element => {
-    const { stripeError, isLoading, stripeReturnUrl, paymentFlowId } = useValues(paymentEntryLogic)
-    const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
-        useActions(paymentEntryLogic)
+    const { stripeError, isLoading } = useValues(paymentEntryLogic)
+    const { setStripeError, clearErrors, hidePaymentEntryModal, confirmPayment } = useActions(paymentEntryLogic)
 
     const stripe = useStripe()
     const elements = useElements()
 
-    const handleSubmit = async (event: React.MouseEvent<HTMLElement>): Promise<void> => {
+    const handleSubmit = (event: React.MouseEvent<HTMLElement>): void => {
         clearErrors()
         event.preventDefault()
         // Stripe.js never became usable: no publishable key, a blocked script, or a load failure.
@@ -39,29 +38,7 @@ export const PaymentForm = (): JSX.Element => {
             })
             return
         }
-        if (!stripeReturnUrl) {
-            setStripeError('Return to billing and start the payment flow again.')
-            return
-        }
-        const submittedFlowId = paymentFlowId
-        setLoading(true)
-
-        const result = await stripe.confirmPayment({
-            elements,
-            confirmParams: { return_url: stripeReturnUrl },
-            redirect: 'if_required',
-        })
-
-        if (paymentEntryLogic.values.paymentFlowId !== submittedFlowId) {
-            return
-        }
-        if (result.error) {
-            setLoading(false)
-            setStripeError(result.error.message || 'Payment failed. Please try again.')
-            posthog.captureException(new Error('payment entry stripe error', { cause: result.error }))
-        } else {
-            pollAuthorizationStatus(result.paymentIntent.id)
-        }
+        confirmPayment(stripe, elements)
     }
 
     return (
@@ -76,7 +53,7 @@ export const PaymentForm = (): JSX.Element => {
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
-                <LemonButton loading={isLoading} type="primary" onClick={(event) => void handleSubmit(event)}>
+                <LemonButton loading={isLoading} type="primary" onClick={handleSubmit}>
                     Submit
                 </LemonButton>
             </div>
@@ -85,7 +62,7 @@ export const PaymentForm = (): JSX.Element => {
 }
 
 export const PaymentEntryModal = (): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen, apiError, paymentFlowId, completedPaymentOrganization } =
+    const { clientSecret, paymentEntryModalOpen, apiError, paymentFlow, completedPaymentOrganization } =
         useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
@@ -114,7 +91,7 @@ export const PaymentEntryModal = (): JSX.Element => {
         if (paymentEntryModalOpen && !completedPaymentOrganization) {
             initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, paymentFlowId, completedPaymentOrganization, initiateAuthorization])
+    }, [paymentEntryModalOpen, paymentFlow, completedPaymentOrganization, initiateAuthorization])
 
     return (
         <LemonModal

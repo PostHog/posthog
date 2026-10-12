@@ -265,6 +265,58 @@ describe('billingProductLogic — confirm purchase modal', () => {
         })
     })
 
+    it('refreshes the paid organization and keeps the page params after an add-on purchase', async () => {
+        const organization = organizationLogic.values.currentOrganization!
+        const billingBefore = billingLogic.values.billing
+        const billingReads: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/billing': ({ request }) => {
+                    billingReads.push(new URL(request.url).searchParams.get('organization_id'))
+                    return [200, { customer_id: 'cus_test', subscription_level: 'paid', has_active_subscription: true }]
+                },
+            },
+            post: { '/api/billing/activate': () => [200, { success: true }] },
+        })
+        router.actions.push('/project/1/replay', { foo: 'bar' })
+        logic = billingProductLogic({ product: scaleAddon })
+        logic.mount()
+        const push = jest.spyOn(router.actions, 'push')
+        try {
+            await expectLogic(logic, () => logic.actions.handleProductUpgrade('scale:scale', '')).toFinishAllListeners()
+            expect(billingReads).toEqual([organization.id])
+            expect(billingLogic.values.billing).not.toBe(billingBefore)
+            expect(billingLogic.values.billing?.has_active_subscription).toBe(true)
+            expect(push).toHaveBeenCalledWith('/project/1/replay', {
+                foo: 'bar',
+                upgraded: 'true',
+                products: 'scale:scale',
+            })
+            expect(toastErrorSpy).not.toHaveBeenCalled()
+        } finally {
+            push.mockRestore()
+        }
+    })
+
+    it('keeps the add-on loading until its activation settles', async () => {
+        let resolveActivation!: (response: [number, unknown]) => void
+        const activate = jest.fn(
+            () =>
+                new Promise<[number, unknown]>((resolve) => {
+                    resolveActivation = resolve
+                })
+        )
+        useMocks({ post: { '/api/billing/activate': activate } })
+        logic = billingProductLogic({ product: scaleAddon })
+        logic.mount()
+        logic.actions.initiateProductUpgrade(scaleAddon, scaleAddon.plans[0], '')
+        await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+        expect(logic.values.billingProductLoading).toBe(scaleAddon.type)
+        resolveActivation([200, { success: false, error: 'Stopped before charging' }])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.billingProductLoading).toBe(null)
+    })
+
     it('keeps another selected organization after the original product activation succeeds', async () => {
         const original = organizationLogic.values.currentOrganization!
         const selected = { ...original, id: '00000000-0000-4000-8000-000000000002', name: 'Selected organization' }

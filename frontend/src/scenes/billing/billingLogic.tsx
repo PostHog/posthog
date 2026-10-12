@@ -33,8 +33,6 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { getBillingListUrl } from 'products/billing/frontend/generated/api'
-
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { OrganizationType, PreflightStatus } from '../../types'
 import {
@@ -110,7 +108,7 @@ export type SwitchPlanPayload = {
 }
 
 // Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
-const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
+export const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
     if (!data) {
         return null
     }
@@ -343,7 +341,7 @@ export interface billingLogicActions {
     determineBillingAlert: () => {
         value: true
     }
-    loadBilling: (organizationId?: string) => string
+    loadBilling: () => any
     loadBillingFailure: (
         error: string,
         errorObject?: any
@@ -353,10 +351,10 @@ export interface billingLogicActions {
     }
     loadBillingSuccess: (
         billing: BillingType | null,
-        payload?: string
+        payload?: any
     ) => {
         billing: BillingType | null
-        payload?: string
+        payload?: any
     }
     loadCreditOverview: () => any
     loadCreditOverviewFailure: (
@@ -866,7 +864,7 @@ export const billingLogic = kea<billingLogicType>([
         billing: [
             null as BillingType | null,
             {
-                loadBilling: async (organizationId?: string) => {
+                loadBilling: async () => {
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
@@ -874,16 +872,10 @@ export const billingLogic = kea<billingLogicType>([
                     // Many scenes read billing, so a failed read keeps the last known state quietly
                     // rather than toasting on every page or reaching error tracking.
                     try {
-                        // nosemgrep: prefer-codegen-api -- The generated overview response still has generic product/period fields; retain the existing parser's BillingType contract while using the generated URL and query schema.
-                        const response = await api.get<BillingType>(
-                            getBillingListUrl({
-                                ...(organizationId ? { organization_id: organizationId } : {}),
-                                ...(skipForecasting ? { include_forecasting: false } : {}),
-                            })
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const response = await api.get(
+                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                         )
-                        if (organizationId && organizationLogic.values.currentOrganization?.id !== organizationId) {
-                            return values.billing
-                        }
                         return parseBillingResponse(response) ?? values.billing
                     } catch {
                         return values.billing

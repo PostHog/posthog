@@ -46,6 +46,7 @@ from ee.api.billing import (
     BillingQueryTooLarge,
     BillingUsageRequestSerializer,
     BillingViewset,
+    HasBillingAccess,
     HasBillingUsageSpendReadAccess,
     _gzip_stream,
     _resolve_team_labels,
@@ -1541,6 +1542,18 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         assert response.json()["billing_managed_by_partner"] == expected
 
 
+def _billing_action_permission_classes() -> dict[str, Sequence[object]]:
+    viewset_default = BillingViewset.permission_classes
+    declared_permissions: dict[str, Sequence[object]] = {
+        action.__name__: getattr(action, "kwargs", {}).get("permission_classes", viewset_default)
+        for action in BillingViewset.get_extra_actions()
+    }
+    for standard_action in ("list", "create", "retrieve", "update", "partial_update", "destroy"):
+        if hasattr(BillingViewset, standard_action):
+            declared_permissions[standard_action] = viewset_default
+    return declared_permissions
+
+
 class TestPartnerBillingLockCoverage(SimpleTestCase):
     READ_ONLY_ACTIONS = {
         "list",
@@ -1565,17 +1578,25 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
     }
 
     def test_every_billing_action_is_partner_locked_or_explicitly_exempt(self) -> None:
-        declared_permissions: dict[str, Sequence[object]] = {
-            action.__name__: getattr(action, "kwargs", {}).get("permission_classes", [])
-            for action in BillingViewset.get_extra_actions()
-        }
-        for standard_action in ("list", "create", "retrieve", "update", "partial_update", "destroy"):
-            if hasattr(BillingViewset, standard_action):
-                declared_permissions[standard_action] = BillingViewset.permission_classes
-
+        declared_permissions = _billing_action_permission_classes()
         unlocked = {name for name, classes in declared_permissions.items() if BillingNotManagedByPartner not in classes}
 
         assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS
+
+
+class TestBillingAccessCoverage(SimpleTestCase):
+    MEMBER_READ_ACTIONS = {"list", "period", "get_invoices", "credits_overview", "coupons_overview"}
+    USAGE_SPEND_READ_ACTIONS = {"usage", "usage_team_options", "spend", "usage_export", "spend_export"}
+    CHECKS_ACCESS_IN_METHOD_ACTIONS = {"apply_startup_program"}
+
+    def test_every_billing_action_requires_billing_access_or_is_explicitly_exempt(self) -> None:
+        without_access = {
+            name for name, classes in _billing_action_permission_classes().items() if HasBillingAccess not in classes
+        }
+        exempt = self.MEMBER_READ_ACTIONS | self.USAGE_SPEND_READ_ACTIONS | self.CHECKS_ACCESS_IN_METHOD_ACTIONS
+
+        assert without_access <= exempt, f"Add HasBillingAccess to {sorted(without_access - exempt)} or list as exempt"
+        assert exempt <= without_access, f"Remove {sorted(exempt - without_access)} from the exempt sets"
 
 
 class TestBillingUsageRequestSerializer(SimpleTestCase):

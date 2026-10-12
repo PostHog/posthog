@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -10,7 +9,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import {
     BillingPlan,
@@ -20,8 +18,6 @@ import {
     BillingType,
     SurveyEventName,
 } from '~/types'
-
-import { billingActivateCreate } from 'products/billing/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductKey } from '../../queries/schema/schema-general'
@@ -98,7 +94,6 @@ export interface billingProductLogicValues {
     unsubscribeError: UnsubscribeError | null // billingLogic
     unusedPlatformAddonAmount: number // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    paymentFlowId: number // paymentEntryLogic
     amountDueBeforeCredits: number
     amountDueToday: number
     appliedCreditBalance: number
@@ -184,13 +179,13 @@ export interface billingProductLogicActions {
         billing: BillingType | null
         payload?: string
     } // billingLogic
-    loadBilling: (organizationId?: string | undefined) => string // billingLogic
+    loadBilling: () => any // billingLogic
     loadBillingSuccess: (
         billing: BillingType | null,
-        payload?: string | undefined
+        payload?: any
     ) => {
         billing: BillingType | null
-        payload?: string
+        payload?: any
     } // billingLogic
     setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => {
         productSpecificAlert: BillingAlertConfig | null
@@ -218,16 +213,12 @@ export interface billingProductLogicActions {
             [key: string]: number | null
         }
     } // billingLogic
-    beginPaymentFlow: (
-        organizationId: string,
-        redirectPath?: string | null | undefined
-    ) => {
-        organizationId: string
-        organizationName: string | null
+    upgradeProducts: (
+        products: string,
         redirectPath: string | null
-    } // paymentEntryLogic
-    showPaymentEntryModal: () => {
-        value: true
+    ) => {
+        products: string
+        redirectPath: string | null
     } // paymentEntryLogic
     activateTrial: () => {
         value: true
@@ -524,8 +515,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
     path(['scenes', 'billing', 'billingProductLogic']),
     connect(() => ({
         values: [
-            paymentEntryLogic,
-            ['paymentFlowId'],
             billingLogic,
             [
                 'billing',
@@ -543,7 +532,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         actions: [
             paymentEntryLogic,
-            ['beginPaymentFlow', 'showPaymentEntryModal'],
+            ['upgradeProducts'],
             billingLogic,
             [
                 'updateBillingLimits',
@@ -1206,54 +1195,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.handleProductUpgrade(products, redirectPath)
         },
         handleProductUpgrade: async ({ products, redirectPath }) => {
-            const organizationId = organizationLogic.values.currentOrganization?.id
-            if (!organizationId) {
-                lemonToast.error('Reload the page before updating payment details.')
-                actions.setBillingProductLoading(null)
-                return
-            }
-            actions.beginPaymentFlow(organizationId, redirectPath || null)
-            const flowId = values.paymentFlowId
             try {
-                const response = await billingActivateCreate({ organization_id: organizationId, products })
-                if (flowId !== values.paymentFlowId) {
-                    return
-                }
-
-                if (response.success) {
-                    try {
-                        await paymentEntryLogic.asyncActions.refreshPaymentOrganization(organizationId)
-                    } catch {
-                        // The upgrade succeeded even if its billing or entitlement refresh fails.
-                    }
-                    if (flowId !== values.paymentFlowId) {
-                        return
-                    }
-                    if (organizationLogic.values.currentOrganization?.id !== organizationId) {
-                        await paymentEntryLogic.asyncActions.completePaymentFlow(
-                            organizationId,
-                            'upgraded',
-                            redirectPath || null
-                        )
-                        return
-                    }
-                    if (redirectPath) {
-                        window.location.pathname = redirectPath
-                    } else {
-                        router.actions.push(router.values.location.pathname, {
-                            ...router.values.searchParams,
-                            upgraded: 'true',
-                            products,
-                        })
-                    }
-                } else if (response.must_setup_payment) {
-                    actions.showPaymentEntryModal()
-                } else {
-                    lemonToast.error(response.error || 'Failed to activate subscription')
-                }
-            } catch (error) {
-                posthog.captureException(new Error('payment entry api error - product upgrade error', { cause: error }))
-                lemonToast.error('Failed to activate subscription. Please try again.')
+                await paymentEntryLogic.asyncActions.upgradeProducts(products, redirectPath || null)
             } finally {
                 actions.setBillingProductLoading(null)
             }
