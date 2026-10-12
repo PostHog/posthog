@@ -293,6 +293,14 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
         panic!("not exercised by this test")
     }
 
+    async fn resolve_person_ids(
+        &self,
+        _keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
+        panic!("not exercised by this test")
+    }
+
     async fn get_distinct_ids_for_persons(
         &self,
         _team_id: i64,
@@ -370,6 +378,14 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
             .unwrap()
             .extend(keys.iter().cloned());
         self.inner.resolve_distinct_ids(keys).await
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
+        self.inner.resolve_person_ids(keys).await
     }
 
     async fn get_distinct_ids_for_persons(

@@ -337,6 +337,7 @@ async fn resolve_returns_existing_persons_and_absence_without_creating() {
                     distinct_id: "never-seen".to_string(),
                 },
             ],
+            ids_only: false,
         }))
         .await
         .expect("resolve must succeed")
@@ -361,11 +362,40 @@ async fn resolve_returns_existing_persons_and_absence_without_creating() {
                 team_id: t.ctx.team_id,
                 distinct_id: "never-seen".to_string(),
             }],
+            ids_only: false,
         }))
         .await
         .expect("resolve must succeed")
         .into_inner();
     assert!(again.results[0].person.is_none());
+
+    let ids_only = t
+        .service
+        .get_persons_by_distinct_ids(Request::new(GetPersonsByDistinctIdsRequest {
+            keys: vec![
+                PersonKey {
+                    team_id: t.ctx.team_id,
+                    distinct_id: "known-id".to_string(),
+                },
+                PersonKey {
+                    team_id: t.ctx.team_id,
+                    distinct_id: "never-seen".to_string(),
+                },
+            ],
+            ids_only: true,
+        }))
+        .await
+        .expect("ids-only resolve must succeed")
+        .into_inner();
+    let known_ids_only = ids_only.results[0]
+        .person
+        .as_ref()
+        .expect("known id resolves");
+    assert_eq!(
+        (known_ids_only.id, known_ids_only.team_id),
+        (person.id, person.team_id)
+    );
+    assert!(ids_only.results[1].person.is_none());
 }
 
 /// The identity-side expansion mirrors the replica RPC's contract:
@@ -418,6 +448,7 @@ async fn duplicate_resolve_keys_each_resolve() {
         .service
         .get_persons_by_distinct_ids(Request::new(GetPersonsByDistinctIdsRequest {
             keys: vec![key(), key(), key()],
+            ids_only: false,
         }))
         .await
         .expect("resolve must succeed")
@@ -442,6 +473,7 @@ async fn new_rpcs_reject_wrapping_team_ids() {
                 team_id: bad_team,
                 distinct_id: "x".to_string(),
             }],
+            ids_only: false,
         }))
         .await;
     assert_eq!(resolve.unwrap_err().code(), Code::InvalidArgument);
