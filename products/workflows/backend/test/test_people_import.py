@@ -14,8 +14,9 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cohorts.backend.models.cohort import Cohort
+from products.workflows.backend.facade.contracts import PeopleImportInvalid
 from products.workflows.backend.services import people_import
-from products.workflows.backend.services.people_import import PeopleImportInvalid, start_people_import
+from products.workflows.backend.services.people_import import start_people_import
 from products.workflows.backend.tasks import people_import as people_import_tasks
 from products.workflows.backend.tasks.people_import import capture_people_import, fill_people_import_cohort
 
