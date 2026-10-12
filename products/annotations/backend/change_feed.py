@@ -1,65 +1,21 @@
-from datetime import datetime
 from uuid import UUID
 
-from django.db import models
 from django.db.models import Q
 
-from posthog.dataclasses import frozen
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import activity_visibility_manager
 
+from products.annotations.backend.facade.change_feed import Change, ChangeFeed, ChangeKind, ChangeWindow, KindVisibility
 from products.annotations.backend.models.annotation import Annotation
 from products.error_tracking.backend.facade import api as error_tracking_api
 
 MAX_NAME_LENGTH = 280
 
-
-class ChangeKind(models.TextChoices):
-    FEATURE_FLAG = "feature_flag", "Feature flag"
-    EXPERIMENT = "experiment", "Experiment"
-    RELEASE = "release", "Release"
-    ANNOTATION = "annotation", "Annotation"
-
-
 ACTIVITY_SCOPES: dict[ChangeKind, str] = {
     ChangeKind.FEATURE_FLAG: "FeatureFlag",
     ChangeKind.EXPERIMENT: "Experiment",
 }
-
-
-@frozen
-class ChangeWindow:
-    start: datetime
-    end: datetime
-
-    def __post_init__(self) -> None:
-        if self.start > self.end:
-            raise ValueError("start must not be after end")
-
-
-@frozen
-class KindVisibility:
-    # When set, the user may see only these object ids. Otherwise they may see all except blocked_ids.
-    allowed_ids: frozenset[str] | None = None
-    blocked_ids: frozenset[str] = frozenset()
-
-
-@frozen
-class Change:
-    kind: ChangeKind
-    timestamp: datetime
-    item_id: str
-    name: str | None
-    activity: str
-    changed_fields: list[str]
-    service: str | None
-    actor_name: str | None
-
-
-@frozen
-class ChangeFeed:
-    results: list[Change]
-    has_more: bool
 
 
 def _actor_name(user: User | None) -> str | None:
@@ -84,7 +40,7 @@ def _changed_fields(detail: dict | None) -> list[str]:
 
 
 def _activity_changes(
-    *, team_id: int, user: User, kind: ChangeKind, window: ChangeWindow, visibility: KindVisibility, limit: int
+    *, team_id: int, user_is_staff: bool, kind: ChangeKind, window: ChangeWindow, visibility: KindVisibility, limit: int
 ) -> list[Change]:
     queryset = ActivityLog.objects.select_related("user").filter(
         team_id=team_id,
@@ -96,7 +52,7 @@ def _activity_changes(
         # Holdout and shared metric changes also log under this scope, with their own ids as `item_id`.
         # A plain `exclude` also drops rows with no `type` key, because the SQL comparison is NULL there.
         queryset = queryset.filter(Q(detail__type__isnull=True) | ~Q(detail__type__in=["holdout", "shared_metric"]))
-    queryset = apply_activity_visibility_restrictions(queryset, user)
+    queryset = activity_visibility_manager.apply_to_queryset(queryset, user_is_staff)
     if visibility.allowed_ids is not None:
         queryset = queryset.filter(item_id__in=visibility.allowed_ids)
     elif visibility.blocked_ids:
@@ -172,7 +128,7 @@ def list_changes(
     *,
     team_id: int,
     organization_id: UUID,
-    user: User,
+    user_is_staff: bool,
     window: ChangeWindow,
     visibility: dict[ChangeKind, KindVisibility],
     limit: int,
@@ -186,7 +142,12 @@ def list_changes(
     for kind, kind_visibility in visibility.items():
         if kind in ACTIVITY_SCOPES:
             changes += _activity_changes(
-                team_id=team_id, user=user, kind=kind, window=window, visibility=kind_visibility, limit=limit + 1
+                team_id=team_id,
+                user_is_staff=user_is_staff,
+                kind=kind,
+                window=window,
+                visibility=kind_visibility,
+                limit=limit + 1,
             )
         elif kind == ChangeKind.RELEASE:
             changes += _release_changes(team_id=team_id, window=window, limit=limit + 1)
