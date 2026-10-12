@@ -33,7 +33,6 @@ class ElasticEmailEndpointConfig:
     # events force ascending order so the watermark advances correctly).
     extra_params: dict[str, list[str] | str] = field(default_factory=dict)
     should_sync_default: bool = True
-    # Child endpoints fan out over a parent listing (e.g. contacts per list).
     fanout: Optional[DependentEndpointConfig] = None
     # `/statistics` is a single aggregate per date range; it's fetched one UTC day per request and each
     # row is stamped with that day.
@@ -118,7 +117,6 @@ ELASTICEMAIL_ENDPOINTS: dict[str, ElasticEmailEndpointConfig] = {
     "campaign_statistics": ElasticEmailEndpointConfig(
         name="campaign_statistics",
         path="/statistics/campaigns",
-        # Each row is one campaign's lifetime totals; ChannelName holds the campaign name.
         primary_keys=["ChannelName"],
     ),
     "statistics": ElasticEmailEndpointConfig(

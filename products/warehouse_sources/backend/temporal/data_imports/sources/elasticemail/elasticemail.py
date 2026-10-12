@@ -57,9 +57,7 @@ class ElasticEmailResumeConfig:
     # Next offset to request. Elastic Email paginates with limit/offset, so the offset alone is enough
     # to resume mid-endpoint; the incremental `from` window is re-derived from the stored cursor each run.
     offset: int = 0
-    # Fan-out endpoints checkpoint which parents finished and where the current one stopped.
     fanout_state: Optional[dict[str, Any]] = None
-    # Next day (ISO date) to request for the day-by-day `/statistics` walk.
     next_day: Optional[str] = None
 
 
@@ -79,7 +77,6 @@ class DailyWindowPaginator(BasePaginator):
         self._apply(request)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        # The rollup carries no date of its own, so stamp it with the day it was requested for.
         for row in data or []:
             row["Date"] = self._day.isoformat()
         self._day += timedelta(days=1)
@@ -262,7 +259,6 @@ def elasticemail_source(
             parent_endpoint_extra={"data_selector_required": True, "response_actions": _auth_response_actions()},
             child_endpoint_extra={
                 "data_selector_required": True,
-                # A list deleted between the parent listing and this fetch has no members to sync.
                 "response_actions": [{"status_code": 404, "action": "ignore"}, *_auth_response_actions()],
             },
             path_format_values={},
