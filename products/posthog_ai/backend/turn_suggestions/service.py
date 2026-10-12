@@ -51,6 +51,9 @@ MAX_TRANSCRIPT_LOG_BYTES = 16 * 1024 * 1024
 # The offers whose text a language model writes after the judgment picks them.
 _DRAFTED_OFFERS = frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK, OfferKind.WORKFLOW})
 
+# A turn that just created or edited a workflow already did what a workflow offer would suggest.
+_WORKFLOW_WRITE_TOOLS = frozenset({"workflows-create", "workflows-update", "workflows-patch-graph"})
+
 OutcomeStatus = Literal["emitted", "skipped", "failed"]
 
 
@@ -115,14 +118,18 @@ def _turn_has_substance(transcript: TurnTranscript) -> bool:
     return bool(transcript.tool_calls) and bool(transcript.assistant_text)
 
 
+def _turn_built_a_workflow(transcript: TurnTranscript) -> bool:
+    return any(call.name in _WORKFLOW_WRITE_TOOLS for call in transcript.tool_calls)
+
+
 def available_offers(
-    transcript: TurnTranscript, *, scouts_available: bool, workflows_available: bool = False
+    transcript: TurnTranscript, *, scouts_available: bool, workflows_available: bool
 ) -> frozenset[OfferKind]:
     """The offers this turn and project can act on. The classifier picks one of these, or shows nothing."""
     offers = set()
     if _turn_has_substance(transcript):
         offers.add(OfferKind.NOTEBOOK)
-        if workflows_available:
+        if workflows_available and not _turn_built_a_workflow(transcript):
             offers.add(OfferKind.WORKFLOW)
     if transcript.saved_insights:
         offers.add(OfferKind.SUBSCRIPTION)

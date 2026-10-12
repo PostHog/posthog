@@ -250,7 +250,7 @@ def load_cases(path: Path = CASES_PATH) -> list[BenchmarkCase]:
         available = available_offers(
             transcript,
             scouts_available=raw.get("scouts_available", True),
-            workflows_available=raw.get("workflows_available", True),
+            workflows_available=raw.get("workflows_available", False),
         )
         # Production never asks the judge about a turn with nothing to offer.
         if not available:
