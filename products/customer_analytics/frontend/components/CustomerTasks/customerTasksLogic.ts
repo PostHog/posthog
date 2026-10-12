@@ -18,7 +18,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast, type PaginationManual, type Sorting } from '@posthog/lemon-ui'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isFeatureFlagGatedError } from 'lib/api-error'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -101,6 +101,7 @@ export interface customerTasksLogicValues {
     taskPageLoading: boolean
     taskSorting: Sorting
     tasks: CustomerTaskApi[]
+    tasksUnavailable: boolean
     timezone: string
     draftName: string
     draftDescription: string
@@ -132,6 +133,7 @@ export interface customerTasksLogicActions {
     setTaskOrdering: (ordering: CustomerTaskOrdering) => { ordering: CustomerTaskOrdering }
     setTaskSorting: (sorting: Sorting | null) => { sorting: Sorting | null }
     setPage: (page: number) => { page: number }
+    setTasksUnavailable: (unavailable: boolean) => { unavailable: boolean }
     setSearch: (search: string) => { search: string }
     setDraftAccount: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => { assignedTo: CustomerTaskUserApi | null }
@@ -210,6 +212,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setAccountFilter: (account: CustomerTaskAccountFilter | null) => ({ account }),
         setAccountFilterOpen: (open: boolean) => ({ open }),
         setPage: (page: number) => ({ page }),
+        setTasksUnavailable: (unavailable: boolean) => ({ unavailable }),
         resetFilters: () => ({}),
         openCreateModal: () => ({}),
         openEditModal: (task: CustomerTaskApi) => ({ task }),
@@ -227,7 +230,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         mutationStarted: (key: string) => ({ key }),
         mutationFinished: (key: string) => ({ key }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         taskPage: [
             null as CustomerTaskPageApi | null,
             {
@@ -251,10 +254,16 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                             )
                         )
                         breakpoint()
+                        actions.setTasksUnavailable(false)
                         return result
                     } catch (error) {
                         // A superseded request must not reach loadTaskPageFailure, which would act on newer filters.
                         breakpoint()
+                        // The browser can evaluate the tasks flag as on while the server evaluates it as off.
+                        if (isFeatureFlagGatedError(error)) {
+                            actions.setTasksUnavailable(true)
+                            return null
+                        }
                         throw error
                     }
                 },
@@ -322,6 +331,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 },
             ],
             accountFilterOpen: [false, { setAccountFilterOpen: (_, { open }) => open }],
+            tasksUnavailable: [false, { setTasksUnavailable: (_, { unavailable }) => unavailable }],
             mutationKeys: [
                 {} as Record<string, boolean>,
                 {

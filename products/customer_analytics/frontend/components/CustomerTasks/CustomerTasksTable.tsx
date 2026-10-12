@@ -34,11 +34,23 @@ export function CustomerTasksTable({
     canViewAll = false,
     embedded = true,
 }: CustomerTasksTableProps): JSX.Element {
-    const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, taskSorting, timezone } =
-        useValues(logic)
+    const {
+        taskPage,
+        taskPageError,
+        taskPageLoading,
+        tasks,
+        tasksUnavailable,
+        pagination,
+        hasActiveFilters,
+        taskSorting,
+        timezone,
+    } = useValues(logic)
     const { loadTaskPage, openCreateModal, openEditModal, setTaskSorting } = useActions(logic)
     if (taskPage === null && taskPageLoading) {
         return <LemonSkeleton className="h-64 w-full" />
+    }
+    if (tasksUnavailable) {
+        return <LemonBanner type="info">Tasks aren't available for this project yet.</LemonBanner>
     }
     if (taskPageError && taskPage === null) {
         return (
