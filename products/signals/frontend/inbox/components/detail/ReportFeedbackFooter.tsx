@@ -135,7 +135,7 @@ export function ReportFeedbackFooter({
                             value={feedbackNoteDraft}
                             onChange={setFeedbackNoteDraft}
                             onPressEnter={sendNote}
-                            placeholder="Your note goes to the scout that wrote this"
+                            placeholder="Your note improves future reports"
                             aria-label="Add a note about this report"
                             maxLength={FEEDBACK_NOTE_MAX_LENGTH}
                             autoFocus={askedHere}

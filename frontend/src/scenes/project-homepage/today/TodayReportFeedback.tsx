@@ -113,7 +113,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                                     sendNote()
                                 }
                             }}
-                            placeholder="Your note goes to the scout that wrote this"
+                            placeholder="Your note improves future reports"
                             aria-label="Add a note about this report"
                             maxLength={NOTE_MAX_LENGTH}
                             autoFocus
