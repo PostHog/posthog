@@ -23,7 +23,7 @@
     },
     "trigger_masking": {
         "hash": "{person.id}",
-        "ttl": 86400,
+        "ttl": 259200,
         "threshold": null
     },
     "conversion": {

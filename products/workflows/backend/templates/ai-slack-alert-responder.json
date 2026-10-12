@@ -102,7 +102,7 @@
                 "template_id": "template-posthog-create-task",
                 "inputs": {
                     "prompt": {
-                        "value": "An alert was just posted in Slack. Read it from the `text` property of the triggering event.\n\nInvestigate it in PostHog: check errors, logs, and recent changes around the time of the alert, and work out what is affected and how many users.\n\nReply with:\n1. What is happening, in one or two sentences.\n2. The most likely cause, with links to the evidence.\n3. Whether a person needs to act now.\n\nDo not change anything. Keep the reply short."
+                        "value": "An alert was just posted in Slack. Read it from the `text` property of the triggering event. Many alerting tools leave the text empty and put the details in blocks or attachments, so also read `slack_event.blocks` and `slack_event.attachments` on the triggering event when the text is empty or incomplete.\n\nInvestigate it in PostHog: check errors, logs, and recent changes around the time of the alert, and work out what is affected and how many users.\n\nReply with:\n1. What is happening, in one or two sentences.\n2. The most likely cause, with links to the evidence.\n3. Whether a person needs to act now.\n\nDo not change anything. Keep the reply short."
                     },
                     "title": {
                         "value": "Slack alert investigation"

@@ -173,7 +173,7 @@
         {
             "id": "action_conditional_branch_a5208ea8-7821-4f1b-b281-313ef899b1b9",
             "name": "Low rating?",
-            "description": "Matches a rating of 2 or lower on the survey's first question. Change the property and value to fit your question and scale.",
+            "description": "Matches a rating of 2 or lower on the survey's first question. Change the number to fit your rating scale.",
             "on_error": null,
             "created_at": 1772805521677,
             "updated_at": 1772805521677,
@@ -187,10 +187,9 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "$survey_response",
-                                    "type": "event",
-                                    "value": "3",
-                                    "operator": "lt"
+                                    "key": "toFloat(coalesce(properties.$survey_response, properties.$survey_questions[1].response)) <= 2",
+                                    "type": "hogql",
+                                    "value": null
                                 }
                             ]
                         }

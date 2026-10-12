@@ -51,7 +51,7 @@
             "id": "action_function_dd0cc808-3f0f-40e3-83d0-843afb9c9cd6",
             "name": "Write the report",
             "description": "An AI agent reviews your data and writes the report. Edit the instructions to match what your team wants to see.",
-            "on_error": null,
+            "on_error": "abort",
             "created_at": 1791763200000,
             "updated_at": 1791763200000,
             "filters": null,
@@ -113,11 +113,8 @@
                     "blocks": {
                         "value": [
                             {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": "{variables.task_final_message}"
-                                }
+                                "type": "markdown",
+                                "text": "{variables.task_final_message}"
                             }
                         ],
                         "templating": "hog"

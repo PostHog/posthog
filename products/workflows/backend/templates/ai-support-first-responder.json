@@ -79,7 +79,7 @@
             "id": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
             "name": "Triage the ticket",
             "description": "An AI agent investigates the ticket and drafts a reply.",
-            "on_error": null,
+            "on_error": "abort",
             "created_at": 1791763200000,
             "updated_at": 1791763200000,
             "filters": null,
@@ -144,8 +144,12 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":ticket: *New ticket triaged by AI*\n\n{variables.task_final_message}"
+                                    "text": ":ticket: *New ticket triaged by AI*"
                                 }
+                            },
+                            {
+                                "type": "markdown",
+                                "text": "{variables.task_final_message}"
                             }
                         ],
                         "templating": "hog"

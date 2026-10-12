@@ -27,7 +27,7 @@
         "threshold": null
     },
     "conversion": {
-        "window": "3d",
+        "window": "7d",
         "filters": [],
         "events": [
             {
@@ -292,7 +292,8 @@
                             "preheader": ""
                         }
                     }
-                }
+                },
+                "message_category_type": "transactional"
             }
         },
         {
@@ -560,7 +561,8 @@
                             "preheader": ""
                         }
                     }
-                }
+                },
+                "message_category_type": "transactional"
             }
         },
         {
