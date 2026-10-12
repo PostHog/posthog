@@ -395,6 +395,22 @@ class TestSurveyCreatorTool(BaseTest):
                 None,
             ),
             ("unset", {}, "once", None, None, None),
+            (
+                "iteration_values_without_schedule",
+                {"iteration_count": 4, "iteration_frequency_days": 30},
+                "recurring",
+                4,
+                30,
+                None,
+            ),
+            (
+                "always_with_wait_period",
+                {"schedule": "always", "wait_period_days": 7},
+                "always",
+                None,
+                None,
+                "shows again every 7 days",
+            ),
         ]
     )
     @pytest.mark.django_db
@@ -416,6 +432,8 @@ class TestSurveyCreatorTool(BaseTest):
             assert expected_warning in content
         else:
             assert "display conditions" not in content
+        if kwargs.get("wait_period_days"):
+            assert "Add a wait period" not in content
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1033,13 +1051,16 @@ class TestEditSurveyTool(BaseTest):
             ("recurring_to_always", {"schedule": "always"}, "always", None, None),
             ("recurring_to_once", {"schedule": "once"}, "once", None, None),
             ("change_count_only", {"iteration_count": 5}, "recurring", 5, 30),
+            ("count_below_current_iteration", {"iteration_count": 1}, "recurring", 3, 30),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_edit_survey_schedule(self, _name, kwargs, expected_schedule, expected_count, expected_frequency):
         tool = self._setup_tool()
-        survey = await self._create_test_survey(schedule="recurring", iteration_count=3, iteration_frequency_days=30)
+        survey = await self._create_test_survey(
+            schedule="recurring", iteration_count=3, iteration_frequency_days=30, current_iteration=2
+        )
 
         await tool._arun_impl(survey_id=str(survey.id), **kwargs)
 

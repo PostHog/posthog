@@ -136,7 +136,7 @@ class SurveyContext:
     def format_schedule(self, survey: Survey) -> str:
         if survey.schedule == Survey.Schedule.ALWAYS:
             return "always (every time the display conditions are met)"
-        if survey.schedule == Survey.Schedule.RECURRING or (survey.iteration_count and survey.iteration_frequency_days):
+        if survey.schedule == Survey.Schedule.RECURRING:
             return f"recurring (up to {survey.iteration_count} times, every {survey.iteration_frequency_days} days)"
         return "once"
 

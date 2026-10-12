@@ -265,14 +265,23 @@ def _build_schedule_fields(
     schedule: str | None,
     iteration_count: int | None,
     iteration_frequency_days: int | None,
+    current_iteration_count: int | None = None,
+    current_iteration_frequency_days: int | None = None,
 ) -> dict[str, Any]:
+    # Iteration values alone configure repeats, the same as in the survey API serializer
+    if schedule is None and (iteration_count is not None or iteration_frequency_days is not None):
+        schedule = Survey.Schedule.RECURRING
     if schedule is None:
         return {}
     if schedule == Survey.Schedule.RECURRING:
+        iteration_count = iteration_count or current_iteration_count or DEFAULT_ITERATION_COUNT
+        iteration_frequency_days = (
+            iteration_frequency_days or current_iteration_frequency_days or DEFAULT_ITERATION_FREQUENCY_DAYS
+        )
         return {
             "schedule": schedule,
-            "iteration_count": min(iteration_count or DEFAULT_ITERATION_COUNT, MAX_ITERATION_COUNT),
-            "iteration_frequency_days": iteration_frequency_days or DEFAULT_ITERATION_FREQUENCY_DAYS,
+            "iteration_count": min(iteration_count, MAX_ITERATION_COUNT),
+            "iteration_frequency_days": iteration_frequency_days,
         }
     # The iteration columns drive repeats on their own, so clear them for non-recurring schedules
     return {"schedule": schedule, "iteration_count": None, "iteration_frequency_days": None}
@@ -282,12 +291,17 @@ def _always_schedule_warning(survey_type: str, schedule: str | None, conditions:
     if schedule != Survey.Schedule.ALWAYS or survey_type != Survey.SurveyType.POPOVER:
         return ""
     conditions = conditions or {}
+    wait_period_days = conditions.get("seenSurveyWaitPeriodInDays") or 0
+    if wait_period_days > 0:
+        return (
+            f" Note: this popover shows again every {wait_period_days} days, "
+            "as long as its other display conditions are met."
+        )
     has_display_conditions = bool(
         conditions.get("url")
         or conditions.get("selector")
         or (conditions.get("events") or {}).get("values")
         or conditions.get("deviceTypes")
-        or conditions.get("seenSurveyWaitPeriodInDays")
     )
     if has_display_conditions:
         return (
@@ -361,10 +375,12 @@ class CreateSurveyToolArgs(BaseModel):
     schedule: SCHEDULE_OPTION | None = Field(default=None, description=SCHEDULE_DESCRIPTION)
     iteration_count: int | None = Field(
         default=None,
+        ge=1,
+        le=MAX_ITERATION_COUNT,
         description="With schedule='recurring': how many times in total to show the survey (default 2, max 500)",
     )
     iteration_frequency_days: int | None = Field(
-        default=None, description="With schedule='recurring': days between repeats (default 90)"
+        default=None, ge=1, description="With schedule='recurring': days between repeats (default 90)"
     )
 
 
@@ -579,10 +595,12 @@ class EditSurveyToolArgs(BaseModel):
     schedule: SCHEDULE_OPTION | None = Field(default=None, description=SCHEDULE_DESCRIPTION)
     iteration_count: int | None = Field(
         default=None,
+        ge=1,
+        le=MAX_ITERATION_COUNT,
         description="With schedule='recurring': how many times in total to show the survey (max 500)",
     )
     iteration_frequency_days: int | None = Field(
-        default=None, description="With schedule='recurring': days between repeats"
+        default=None, ge=1, description="With schedule='recurring': days between repeats"
     )
     launch: bool | None = Field(default=None, description="Set to true to launch the survey")
     stop: bool | None = Field(default=None, description="Set to true to stop the survey")
@@ -730,12 +748,19 @@ class EditSurveyTool(MaxTool):
             if updated_conditions != existing_conditions:
                 update_data["conditions"] = updated_conditions
 
-            if schedule is None and (iteration_count is not None or iteration_frequency_days is not None):
-                schedule = Survey.Schedule.RECURRING
-            if schedule == Survey.Schedule.RECURRING:
-                iteration_count = iteration_count or survey.iteration_count
-                iteration_frequency_days = iteration_frequency_days or survey.iteration_frequency_days
-            update_data.update(_build_schedule_fields(schedule, iteration_count, iteration_frequency_days))
+            schedule_fields = _build_schedule_fields(
+                schedule,
+                iteration_count,
+                iteration_frequency_days,
+                current_iteration_count=survey.iteration_count,
+                current_iteration_frequency_days=survey.iteration_frequency_days,
+            )
+            new_iteration_count = schedule_fields.get("iteration_count")
+            if survey.current_iteration and new_iteration_count and survey.current_iteration > new_iteration_count:
+                raise serializers.ValidationError(
+                    f"Cannot change survey recurrence to {new_iteration_count}, should be at least {survey.current_iteration}"
+                )
+            update_data.update(schedule_fields)
 
             # Lifecycle bools
             lifecycle_actions = []
