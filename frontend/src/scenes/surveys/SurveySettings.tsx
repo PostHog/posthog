@@ -14,6 +14,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SurveyAppearance } from '~/types'
 
+import { SurveyGlobalWaitPeriod } from 'products/surveys/frontend/components/SurveyGlobalWaitPeriod'
+
 import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
 import { Customization } from './survey-appearance/SurveyCustomization'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
@@ -85,12 +87,8 @@ export function SurveyDefaultAppearance(): JSX.Element {
             return
         }
 
-        updateCurrentTeam({
-            survey_config: {
-                ...currentTeam?.survey_config,
-                appearance: sanitizedAppearance,
-            },
-        })
+        // The server merges survey_config, so send only this key and keep other admins' edits.
+        updateCurrentTeam({ survey_config: { appearance: sanitizedAppearance } })
     }
 
     return (
@@ -146,6 +144,14 @@ export function SurveySettings({ isModal = false }: { isModal?: boolean }): JSX.
         <div className="flex flex-col gap-4">
             <SurveyEnableToggle />
             <SurveyDefaultAppearance />
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Wait period between surveys</h3>
+                <p className="mb-0 text-secondary">
+                    Limit how often one user sees surveys in this project. If a survey has its own wait period, the
+                    longer one applies.
+                </p>
+                <SurveyGlobalWaitPeriod />
+            </div>
         </div>
     )
 }

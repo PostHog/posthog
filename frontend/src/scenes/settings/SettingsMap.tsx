@@ -75,6 +75,7 @@ import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/front
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { SurveyGlobalWaitPeriod } from 'products/surveys/frontend/components/SurveyGlobalWaitPeriod'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -1687,6 +1688,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/surveys/creating-surveys#customizing-the-look-and-feel',
                 component: <SurveyDefaultAppearance />,
                 keywords: ['appearance', 'style', 'theme', 'customization', 'popup'],
+            },
+            {
+                id: 'surveys-global-wait-period',
+                title: 'Wait period between surveys',
+                description:
+                    'Limit how often one user sees surveys in this project. If a survey has its own wait period, the longer one applies.',
+                docsUrl: 'https://posthog.com/docs/surveys/creating-surveys',
+                component: <SurveyGlobalWaitPeriod />,
+                keywords: ['cooldown', 'wait period', 'frequency', 'fatigue', 'popup'],
             },
         ],
     },
