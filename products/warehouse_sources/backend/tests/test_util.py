@@ -145,6 +145,18 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("global_console", "https://console.aws.amazon.com/s3/buckets/acme-exports?prefix=warehouse/"),
+            ("regional_console", "https://us-east-1.console.aws.amazon.com/s3/object/acme-exports?prefix=x.parquet"),
+        ]
+    )
+    def test_rejects_an_aws_console_link(self, _name: str, url_pattern: str) -> None:
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert "AWS console" in error_message
+
+    @parameterized.expand(
+        [
             ("customer_virtual_hosted", "https://acme-exports.s3.us-east-1.amazonaws.com/warehouse/*.parquet"),
             ("customer_path_style", "https://s3.us-east-1.amazonaws.com/acme-exports/warehouse/*.parquet"),
             # A PostHog bucket name used as a key prefix in someone else's bucket is theirs, not ours.

@@ -88,6 +88,11 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
     DatabaseSerializedFieldType.JSON: "Map",
 }
 
+AWS_CONSOLE_URL_MESSAGE = (
+    "PostHog couldn't find a bucket name in the files URL. If you copied a link from the AWS console, "
+    "enter the S3 URL of your files instead, for example https://<bucket>.s3.<region>.amazonaws.com/<path>/*.parquet."
+)
+
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
@@ -101,6 +106,8 @@ ExtractErrors = {
     "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
+    # Raised when the URL host has no bucket ClickHouse can parse, most often an AWS console page link.
+    "Bucket name length is out of bounds in virtual hosted style S3 URI": AWS_CONSOLE_URL_MESSAGE,
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
