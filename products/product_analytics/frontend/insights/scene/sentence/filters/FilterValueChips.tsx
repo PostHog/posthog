@@ -27,7 +27,15 @@ export function FilterValueChips({ row, inputId }: { row: EditableFilterRowView;
             autoHighlight
             items={row.valueOptions}
             value={row.values}
-            onValueChange={(values: string[]) => changeFilterValue(row.id, values)}
+            onValueChange={(values: string[], details) => {
+                // By default Escape clears every value here and does not reach the popover that holds this field.
+                if (details.reason === 'escape-key') {
+                    details.cancel()
+                    details.allowPropagation()
+                    return
+                }
+                changeFilterValue(row.id, values)
+            }}
             inputValue={row.search}
             onInputValueChange={(search: string) => searchFilterValues(row.id, search)}
             onOpenChange={(open: boolean) => {
