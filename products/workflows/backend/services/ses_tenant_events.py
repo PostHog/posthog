@@ -1,7 +1,8 @@
 """AWS SES tenant reputation and VDM advisor events, delivered via EventBridge → SNS HTTPS subscription.
 
 Events are treated as change signals only — the handler never trusts the payload's state; it
-enqueues a sync that reads the authoritative tenant or sender state from the SES API. That makes duplicate,
+enqueues a tenant sync, or queues the identity's domain for the next new-sender sweep, and both
+read the authoritative state from the SES API. That makes duplicate,
 reordered, or partially-shaped events harmless.
 
 The SNS message signature and the topic-ARN allowlist are checked by the ingress transport, which
@@ -21,7 +22,7 @@ import structlog
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.verify.sns_signature import is_valid_sns_url
 
-from products.workflows.backend.tasks.email_sender_verification import refresh_email_senders_for_domain
+from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
 from products.workflows.backend.tasks.ses_tenant_state import sync_ses_tenant_state_task
 
 logger = structlog.get_logger(__name__)
@@ -71,7 +72,7 @@ def _confirm_subscription(message: Mapping[str, Any]) -> None:
 
 
 def _handle_notification(message: Mapping[str, Any]) -> None:
-    """Enqueue a tenant-state sync for the team the EventBridge event names.
+    """Queue a sender check for a resolved advisor finding, else enqueue a tenant-state sync for the team the event names.
 
     Every unusable payload is dropped rather than raised, because a redelivery would carry the
     same unusable payload.
@@ -103,11 +104,11 @@ def _handle_advisor_resolution(event: dict[str, Any]) -> None:
     identities = _extract_identities(event)
     logger.info("ses_advisor_resolution_webhook_accepted", identity_count=len(identities))
     for identity in identities:
-        refresh_email_senders_for_domain.delay(identity)
+        EmailSenderVerification.queue_domain_check(identity)
 
 
 def handle_ses_tenant_event(delivery: WebhookDelivery) -> None:
-    """One SNS delivery: the subscription handshake, or a tenant reputation event."""
+    """One SNS delivery: the subscription handshake, a tenant reputation event, or a resolved advisor finding."""
     if delivery.event_type == "SubscriptionConfirmation":
         _confirm_subscription(delivery.payload)
     elif delivery.event_type == "Notification":

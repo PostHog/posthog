@@ -5,6 +5,8 @@ from itertools import batched
 from time import monotonic
 
 from django.db.models import QuerySet
+from django.db.models.fields.json import KT
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 import structlog
@@ -18,6 +20,7 @@ from products.workflows.backend.providers.ses import (
     BACKGROUND_CALL_WORST_CASE_SECONDS,
     BACKGROUND_CLIENT_CONFIG,
     IDENTITY_ATTRIBUTES_BATCH_SIZE,
+    READ_MIN_INTERVAL_SECONDS,
     SESIdentityStatus,
     SESProvider,
 )
@@ -32,13 +35,19 @@ class SenderAgeTier:
     max_age: timedelta
     work_budget_seconds: int
     lock_timeout_seconds: int
+    drains_advisor_domains: bool = False
 
     def redis_key(self, purpose: str) -> str:
         return f"workflows:email_sender_verification:{self.name}:{purpose}"
 
 
 NEW_SENDERS = SenderAgeTier(
-    name="new", min_age=timedelta(), max_age=timedelta(hours=1), work_budget_seconds=50, lock_timeout_seconds=60
+    name="new",
+    min_age=timedelta(),
+    max_age=timedelta(hours=1),
+    work_budget_seconds=90,
+    lock_timeout_seconds=120,
+    drains_advisor_domains=True,
 )
 SETTLED_SENDERS = SenderAgeTier(
     name="settled",
@@ -47,12 +56,12 @@ SETTLED_SENDERS = SenderAgeTier(
     work_budget_seconds=240,
     lock_timeout_seconds=300,
 )
-DOMAIN_CHECK_BUDGET_SECONDS = 60
+ADVISOR_DOMAINS_KEY = "workflows:email_sender_verification:advisor_domains"
 
 
 class EmailSenderVerification:
     SES_CALLS_PER_STEP = 3
-    STEP_WORST_CASE_SECONDS = SES_CALLS_PER_STEP * BACKGROUND_CALL_WORST_CASE_SECONDS
+    STEP_WORST_CASE_SECONDS = SES_CALLS_PER_STEP * BACKGROUND_CALL_WORST_CASE_SECONDS + READ_MIN_INTERVAL_SECONDS
 
     def __init__(self, work_budget_seconds: int) -> None:
         self.deadline = monotonic() + work_budget_seconds
@@ -67,14 +76,16 @@ class EmailSenderVerification:
         if not lock.acquire(blocking=False):
             return
         try:
-            _TierSweep(tier).run()
+            verification = EmailSenderVerification(tier.work_budget_seconds)
+            if tier.drains_advisor_domains and not _AdvisorDomains().check(verification):
+                return
+            _TierSweep(tier).run(verification)
         finally:
             lock.release()
 
     @staticmethod
-    def refresh_domain(domain: str) -> None:
-        senders = _pending_ses_senders().filter(config__domain__iexact=domain).order_by("id")
-        EmailSenderVerification(DOMAIN_CHECK_BUDGET_SECONDS).verify_ready_senders(senders.iterator())
+    def queue_domain_check(domain: str) -> None:
+        _AdvisorDomains().add(domain)
 
     def verify_ready_senders(
         self, senders: Iterable[Integration], on_sender: Callable[[Integration], None] = lambda _: None
@@ -117,8 +128,7 @@ class _TierSweep:
         self.tier = tier
         self.redis = get_client()
 
-    def run(self) -> None:
-        verification = EmailSenderVerification(self.tier.work_budget_seconds)
+    def run(self, verification: EmailSenderVerification) -> None:
         if verification.verify_ready_senders(self._senders().iterator(chunk_size=500), on_sender=self._advance):
             self.redis.delete(self.tier.redis_key("cursor"), self.tier.redis_key("scan_end"))
 
@@ -136,6 +146,29 @@ class _TierSweep:
             scan_end = pending.order_by("-id").values_list("id", flat=True).first() or 0
             self.redis.set(self.tier.redis_key("scan_end"), scan_end)
         return pending.filter(id__gt=cursor, id__lte=scan_end).order_by("id")
+
+
+class _AdvisorDomains:
+    def __init__(self) -> None:
+        self.redis = get_client()
+
+    def add(self, domain: str) -> None:
+        self.redis.sadd(ADVISOR_DOMAINS_KEY, domain.lower())
+
+    def check(self, verification: EmailSenderVerification) -> bool:
+        domains = [d.decode() if isinstance(d, bytes) else d for d in self.redis.smembers(ADVISOR_DOMAINS_KEY)]
+        if not domains:
+            return True
+        senders = (
+            _pending_ses_senders()
+            .annotate(domain_lower=Lower(KT("config__domain")))
+            .filter(domain_lower__in=domains)
+            .order_by("id")
+        )
+        if not verification.verify_ready_senders(senders.iterator()):
+            return False
+        self.redis.srem(ADVISOR_DOMAINS_KEY, *domains)
+        return True
 
 
 def _pending_ses_senders() -> QuerySet[Integration]:

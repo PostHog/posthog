@@ -157,7 +157,7 @@ from products.workflows.backend.facade.tasks import (
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     refresh_new_email_senders,
-    refresh_pending_email_senders,
+    refresh_settled_email_senders,
     sweep_workflow_email_deliverability,
 )
 
@@ -346,8 +346,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),
-        refresh_pending_email_senders.s(),
-        name="refresh pending workflow email senders",
+        refresh_settled_email_senders.s(),
+        name="refresh settled workflow email senders",
         expires_seconds=300,
     )
 

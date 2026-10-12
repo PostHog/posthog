@@ -78,18 +78,19 @@ RECOMMENDATIONS_PAGE_SIZE = 100
 RECOMMENDATIONS_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 8})
 
 IDENTITY_ATTRIBUTES_BATCH_SIZE = 100
-IDENTITY_ATTRIBUTES_MIN_INTERVAL_SECONDS = 2
+READ_MIN_INTERVAL_SECONDS = 2
 
 BACKGROUND_CONNECT_TIMEOUT_SECONDS = 2
 BACKGROUND_READ_TIMEOUT_SECONDS = 5
-BACKGROUND_MAX_ATTEMPTS = 2
+BACKGROUND_TOTAL_ATTEMPTS = 2
+BACKGROUND_FIRST_RETRY_MAX_BACKOFF_SECONDS = 1
 BACKGROUND_CALL_WORST_CASE_SECONDS = (
     BACKGROUND_CONNECT_TIMEOUT_SECONDS + BACKGROUND_READ_TIMEOUT_SECONDS
-) * BACKGROUND_MAX_ATTEMPTS
+) * BACKGROUND_TOTAL_ATTEMPTS + BACKGROUND_FIRST_RETRY_MAX_BACKOFF_SECONDS
 BACKGROUND_CLIENT_CONFIG = Config(
     connect_timeout=BACKGROUND_CONNECT_TIMEOUT_SECONDS,
     read_timeout=BACKGROUND_READ_TIMEOUT_SECONDS,
-    retries={"mode": "adaptive", "max_attempts": BACKGROUND_MAX_ATTEMPTS},
+    retries={"mode": "standard", "total_max_attempts": BACKGROUND_TOTAL_ATTEMPTS},
 )
 
 
@@ -319,7 +320,7 @@ class SESProvider:
     ses_v2_recommendations_client: "SESV2Client"
 
     def __init__(self, client_config: Config | None = None):
-        self._next_identity_attributes_read_at = 0.0
+        self._next_read_at: dict[str, float] = {}
         self.sts_client = boto3.client(
             "sts",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
@@ -495,6 +496,7 @@ class SESProvider:
                 raise
 
     def _list_identity_tenants(self, domain: str) -> set[str]:
+        self._pace_read("resource_tenants")
         try:
             resp = self.ses_v2_client.list_resource_tenants(ResourceArn=self._identity_arn(domain))
         except ClientError as e:
@@ -761,15 +763,15 @@ class SESProvider:
     def get_identity_statuses(self, domains: Sequence[str]) -> dict[str, SESIdentityStatus]:
         statuses = dict.fromkeys(domains, SESIdentityStatus())
         for batch in batched(dict.fromkeys(domains), IDENTITY_ATTRIBUTES_BATCH_SIZE, strict=False):
-            self._wait_for_identity_attributes_slot()
+            self._pace_read("identity_attributes")
             statuses.update(self._read_identity_statuses(list(batch)))
         return statuses
 
-    def _wait_for_identity_attributes_slot(self) -> None:
-        wait_seconds = self._next_identity_attributes_read_at - monotonic()
+    def _pace_read(self, operation: str) -> None:
+        wait_seconds = self._next_read_at.get(operation, 0.0) - monotonic()
         if wait_seconds > 0:
             sleep(wait_seconds)
-        self._next_identity_attributes_read_at = monotonic() + IDENTITY_ATTRIBUTES_MIN_INTERVAL_SECONDS
+        self._next_read_at[operation] = monotonic() + READ_MIN_INTERVAL_SECONDS
 
     def _read_identity_statuses(self, domains: list[str]) -> dict[str, SESIdentityStatus]:
         verification: dict[str, str] = {}

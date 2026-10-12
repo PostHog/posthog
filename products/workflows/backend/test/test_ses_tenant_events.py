@@ -106,7 +106,7 @@ class TestAcceptSesEvent(SimpleTestCase):
         sync = patch("products.workflows.backend.services.ses_tenant_events.sync_ses_tenant_state_task")
         self.sync_mock = sync.start()
         self.addCleanup(sync.stop)
-        sender_check = patch("products.workflows.backend.services.ses_tenant_events.refresh_email_senders_for_domain")
+        sender_check = patch("products.workflows.backend.services.ses_tenant_events.EmailSenderVerification")
         self.sender_check_mock = sender_check.start()
         self.addCleanup(sender_check.stop)
 
@@ -136,7 +136,7 @@ class TestAcceptSesEvent(SimpleTestCase):
 
         accept_ses_event(_delivery(_notification(event)))
 
-        self.sender_check_mock.delay.assert_called_once_with("team-5.example.com")
+        self.sender_check_mock.queue_domain_check.assert_called_once_with("team-5.example.com")
         assert not self.sync_mock.delay.called
 
     def test_confirms_subscriptions_by_fetching_the_subscribe_url(self) -> None:

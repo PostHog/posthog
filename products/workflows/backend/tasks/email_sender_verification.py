@@ -10,7 +10,7 @@ from products.workflows.backend.services.email_sender_verification import (
 )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, time_limit=58)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, time_limit=110)
 @skip_team_scope_audit
 def refresh_new_email_senders() -> None:
     EmailSenderVerification.refresh_pending(NEW_SENDERS)
@@ -18,11 +18,5 @@ def refresh_new_email_senders() -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, time_limit=270)
 @skip_team_scope_audit
-def refresh_pending_email_senders() -> None:
+def refresh_settled_email_senders() -> None:
     EmailSenderVerification.refresh_pending(SETTLED_SENDERS)
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value, time_limit=90)
-@skip_team_scope_audit
-def refresh_email_senders_for_domain(domain: str) -> None:
-    EmailSenderVerification.refresh_domain(domain)
