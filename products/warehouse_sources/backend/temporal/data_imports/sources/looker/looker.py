@@ -76,7 +76,7 @@ def create_auth(config: LookerSourceConfig, team_id: int, api_version: str) -> L
 
 def get_resource(endpoint: str, page_size: int = PAGE_SIZE) -> EndpointResource:
     settings = schema_for_resource(ENDPOINTS, endpoint)
-    params: dict[str, str] = {}
+    params: dict[str, Any] = {}
     if settings.sorts:
         params["sorts"] = settings.sorts
     if settings.fields:
