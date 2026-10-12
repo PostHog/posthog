@@ -9,9 +9,10 @@ import json
 import hashlib
 import tomllib
 import argparse
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from functools import cached_property
 from pathlib import Path
+from typing import TypedDict
 
 import yaml
 
@@ -83,6 +84,14 @@ class Assertion:
     type: str
     permission: str
     expected: bool
+
+
+@frozen
+class ModelTests:
+    """What model.fga.yaml covers: the permission results it checks and the relations its tuples write."""
+
+    assertions: frozenset[Assertion]
+    written: frozenset[RelationKey]
 
 
 def parse_types(dsl: str) -> tuple[TypeDefinition, ...]:
@@ -245,12 +254,12 @@ class ModelRules:
         model: str,
         builder: ModelBuilder,
         json_relations: Mapping[str, frozenset[str]],
-        assertions: Iterable[Assertion],
+        tests: ModelTests,
     ) -> None:
         self.model = model
         self.builder = builder
         self.json_relations = json_relations
-        self.assertions = frozenset(assertions)
+        self.tests = tests
         self.types = {definition.name: definition for definition in parse_types(model)}
 
     @cached_property
@@ -271,7 +280,7 @@ class ModelRules:
             model=MODEL_PATH.read_text(),
             builder=ModelBuilder(),
             json_relations=relations_from_json(json.loads(JSON_MODEL_PATH.read_text())),
-            assertions=assertions_from_tests(yaml.safe_load(MODEL_TESTS_PATH.read_text())),
+            tests=read_model_tests(yaml.safe_load(MODEL_TESTS_PATH.read_text())),
         )
 
     def problems(self) -> list[str]:
@@ -289,7 +298,8 @@ class ModelRules:
             *self._complex_relations_match_limits(),
             *self._permissions_map_to_actions(),
             *self._relations_reach_a_permission(),
-            *self._changed_permissions_are_tested(),
+            *self._permissions_are_tested(),
+            *self._stored_relations_are_tested(),
         ]
 
     def _json_matches_model(self) -> list[str]:
@@ -390,18 +400,23 @@ class ModelRules:
         )
         return references
 
-    def _changed_permissions_are_tested(self) -> list[str]:
-        problems = []
-        for spec in self.resources:
-            for relation in spec.relations:
-                if not relation.name.startswith(PERMISSION_PREFIX):
-                    continue
-                for expected in (True, False):
-                    if Assertion(type=spec.type, permission=relation.name, expected=expected) not in self.assertions:
-                        problems.append(
-                            f"{spec.type}.{relation.name}: model.fga.yaml needs a check that asserts it is {str(expected).lower()}."
-                        )
-        return problems
+    def _permissions_are_tested(self) -> list[str]:
+        return [
+            f"{name}.{relation.name}: model.fga.yaml has no check that expects {str(expected).lower()}. Add one."
+            for name, definition in self.types.items()
+            for relation in definition.relations
+            if relation.name.startswith(PERMISSION_PREFIX)
+            for expected in (True, False)
+            if Assertion(type=name, permission=relation.name, expected=expected) not in self.tests.assertions
+        ]
+
+    def _stored_relations_are_tested(self) -> list[str]:
+        return [
+            f"{name}.{relation.name}: no tuple in model.fga.yaml writes this relation. Add a test that uses it."
+            for name, definition in self.types.items()
+            for relation in definition.relations
+            if "[" in relation.definition and RelationKey(type=name, relation=relation.name) not in self.tests.written
+        ]
 
 
 def relations_from_json(json_model: dict[str, list[dict[str, dict[str, object]]]]) -> dict[str, frozenset[str]]:
@@ -411,19 +426,42 @@ def relations_from_json(json_model: dict[str, list[dict[str, dict[str, object]]]
     }
 
 
-def assertions_from_tests(tests: dict[str, list[dict[str, list[dict[str, object]]]]]) -> set[Assertion]:
-    """Collect the (type, permission, expected result) triples that model.fga.yaml checks."""
+class _TestTuple(TypedDict):
+    user: str
+    relation: str
+    object: str
+
+
+class _TestCheck(TypedDict, total=False):
+    user: str
+    object: str
+    objects: list[str]
+    assertions: dict[str, bool]
+
+
+class _TestCase(TypedDict, total=False):
+    name: str
+    tuples: list[_TestTuple]
+    check: list[_TestCheck]
+
+
+class _TestFile(TypedDict, total=False):
+    tuples: list[_TestTuple]
+    tests: list[_TestCase]
+
+
+def read_model_tests(tests: _TestFile) -> ModelTests:
     assertions = set()
+    tuples = list(tests.get("tuples", []))
     for test in tests.get("tests", []):
+        tuples.extend(test.get("tuples", []))
         for check in test.get("check", []):
-            targets = check.get("objects") or [check.get("object")]
-            results = check.get("assertions")
-            if not isinstance(targets, list) or not isinstance(results, dict):
-                continue
+            targets = check.get("objects") or [check.get("object", "")]
             for target in targets:
-                for permission, expected in results.items():
-                    assertions.add(Assertion(type=str(target).split(":")[0], permission=permission, expected=expected))
-    return assertions
+                for permission, expected in check.get("assertions", {}).items():
+                    assertions.add(Assertion(type=target.split(":")[0], permission=permission, expected=expected))
+    written = {RelationKey(type=item["object"].split(":")[0], relation=item["relation"]) for item in tuples}
+    return ModelTests(assertions=frozenset(assertions), written=frozenset(written))
 
 
 def _compare(table: str, actual: Mapping[str, object], allowed: Mapping[str, object], meaning: str) -> list[str]:

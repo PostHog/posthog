@@ -13,8 +13,8 @@ from products.authz.backend.logic.model_builder import (
     ModelBuilder,
     ModelRules,
     ModelSourceError,
-    assertions_from_tests,
     parse_types,
+    read_model_tests,
 )
 
 NOTEBOOK_WITH = '\n[notebook]\n\n[notebook.relations.{name}]\ndefinition = "{definition}"\nwhy = "A test relation."\n'
@@ -70,6 +70,20 @@ class TestModelRules(SimpleTestCase):
             ),
             ("unknown_resource_type", "resources.toml", "", "\n[spline_reticulator]\n", "not a ResourceType value"),
             (
+                "untested_permission",
+                "resources.toml",
+                "",
+                "\n[notebook]\n",
+                "notebook.can_view: model.fga.yaml has no check",
+            ),
+            (
+                "untested_stored_relation",
+                "resources.toml",
+                "",
+                "\n[notebook]\n",
+                "notebook.creator: no tuple in model.fga.yaml",
+            ),
+            (
                 "hand_edited_model",
                 "model.fga",
                 "define can_view: viewer",
@@ -99,7 +113,7 @@ class TestModelRules(SimpleTestCase):
                 model=model,
                 builder=builder,
                 json_relations={definition.name: definition.relation_names() for definition in parse_types(model)},
-                assertions=assertions_from_tests(yaml.safe_load(MODEL_TESTS_PATH.read_text())),
+                tests=read_model_tests(yaml.safe_load(MODEL_TESTS_PATH.read_text())),
             )
 
             problems = rules.problems()

@@ -472,3 +472,83 @@ tests:
           - user: user:free
             object: organization_member:free_peer
             assertions: { can_view: true, can_edit: false }
+
+    - name: Each permission denies users outside its level
+      check:
+          - user: user:outsider
+            object: organization:org
+            assertions: { can_view: false, can_list_members: false }
+          - user: user:member
+            object: organization:org
+            assertions: { can_list_members: true, can_manage_access: false }
+          - user: user:admin
+            object: organization:org
+            assertions: { can_manage_access: true, can_manage_owners: false }
+          - user: user:member
+            object: role:reader
+            assertions: { can_delete: false }
+          - user: user:outsider
+            object: project:project
+            assertions: { can_view: false, can_edit: false, can_delete: false }
+          - user: user:member
+            objects: [resource_category:dashboards, resource_category:insights]
+            assertions: { can_view: true }
+          - user: user:outsider
+            objects: [resource_category:dashboards, resource_category:insights]
+            assertions: { can_view: false, can_list: false }
+          - user: user:member
+            objects: [dashboard:dashboard, insight:insight]
+            assertions: { can_share: true }
+
+    - name: A project creator manages access without project admin
+      tuples:
+          - { user: 'organization_member:creator#user', relation: creator, object: 'project:project' }
+      check:
+          - user: user:creator
+            object: project:project
+            assertions: { can_manage_access: true, can_edit: false }
+          - user: user:member
+            object: project:project
+            assertions: { can_manage_access: false }
+
+    - name: A member rule opens a private project at member level
+      tuples:
+          - { user: 'organization_member:member#user', relation: member_member, object: 'project:private' }
+      check:
+          - user: user:member
+            object: project:private
+            assertions: { can_view: true, can_edit: false }
+          - user: user:creator
+            object: project:private
+            assertions: { can_view: false }
+
+    - name: A role member rule opens a private project at member level
+      tuples:
+          - { user: 'role:reader#member', relation: role_member, object: 'project:private' }
+      check:
+          - user: user:member
+            object: project:private
+            assertions: { can_view: true, can_edit: false }
+          - user: user:creator
+            object: project:private
+            assertions: { can_view: false }
+
+    - name: A role owner rule makes role members project owners
+      tuples:
+          - { user: 'role:reader#member', relation: role_owner, object: 'project:private' }
+      check:
+          - user: user:member
+            object: project:private
+            assertions: { owner: true, can_edit: true }
+
+    - name: A default owner rule makes every organization member a project owner
+      tuples:
+          - { user: 'organization:org', relation: organization, object: 'project:default_owner' }
+          - { user: 'user:*', relation: default_owner, object: 'project:default_owner' }
+      check:
+          - user: user:member
+            object: project:default_owner
+            assertions: { owner: true, can_delete: true }
+          - user: user:outsider
+            object: project:default_owner
+            assertions: { can_view: false }

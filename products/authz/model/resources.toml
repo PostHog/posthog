@@ -5,7 +5,7 @@
 #   shareable  Adds "can_share: can_edit" for resources that share links can expose.
 #   relations  Relations to add, or a template permission (can_*) to replace. Each one needs a definition and a why.
 #
-# Most resources need only a table name. Read products/authz/AGENTS.md before you add relations.
+# Most resources need only a table name and tests. Read products/authz/AGENTS.md before you add a resource.
 
 [dashboard]
 shareable = true
