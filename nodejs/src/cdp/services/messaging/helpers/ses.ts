@@ -594,6 +594,9 @@ export class SesWebhookHandler {
         // arriving after a newer bounce.
         deliveredRecipients?: {
             teamId?: string
+            functionId?: string
+            workflowVersion?: number
+            confirmedRecipients?: string[]
             emailAddresses: string[]
             timestamp?: string
         }[]
@@ -693,6 +696,9 @@ export class SesWebhookHandler {
         }[] = []
         const deliveredRecipients: {
             teamId?: string
+            functionId?: string
+            workflowVersion?: number
+            confirmedRecipients?: string[]
             emailAddresses: string[]
             timestamp?: string
         }[] = []
@@ -894,7 +900,14 @@ export class SesWebhookHandler {
             if (suppressionAllowed && rec.eventType === 'Delivery') {
                 const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
                 if (emails.length > 0) {
-                    deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
+                    deliveredRecipients.push({
+                        teamId,
+                        functionId,
+                        workflowVersion,
+                        confirmedRecipients: rec.delivery.recipients,
+                        emailAddresses: emails,
+                        timestamp: rec.delivery.timestamp,
+                    })
                 }
             }
         }

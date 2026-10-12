@@ -546,7 +546,13 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.deliveredRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], timestamp: '2025-10-03T12:04:00Z' },
+            {
+                teamId: '1',
+                functionId: 'abc123',
+                confirmedRecipients: ['to@example.com'],
+                emailAddresses: ['to@example.com'],
+                timestamp: '2025-10-03T12:04:00Z',
+            },
         ])
         expect(result.transientBounceRecipients).toEqual([])
     })

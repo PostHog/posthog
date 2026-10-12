@@ -219,6 +219,9 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
+        private workflowsExternalDeliveryReporter: {
+            report(teamId: number, workflowId: string, emailAddresses: string[]): Promise<void>
+        },
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService
     ) {
@@ -515,6 +518,38 @@ export class EmailTrackingService {
             } catch (error) {
                 logger.error('[EmailTrackingService] Failed to update suppression list', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
+            }
+
+            let reportingTimeout: NodeJS.Timeout | undefined
+            try {
+                await Promise.race([
+                    (async () => {
+                        for (const delivery of deliveredRecipients || []) {
+                            const teamId = Number(delivery.teamId)
+                            if (!Number.isSafeInteger(teamId) || teamId <= 0 || !delivery.functionId) {
+                                continue
+                            }
+                            const flow = await this.hogFlowManager.getHogFlow(delivery.functionId).catch(() => null)
+                            if (flow?.team_id === teamId || (!flow && delivery.workflowVersion !== undefined)) {
+                                await this.workflowsExternalDeliveryReporter.report(
+                                    teamId,
+                                    delivery.functionId,
+                                    delivery.confirmedRecipients || []
+                                )
+                            }
+                        }
+                    })(),
+                    new Promise<never>((_resolve, reject) => {
+                        reportingTimeout = setTimeout(
+                            () => reject(new Error('Workflows external delivery reporting timed out')),
+                            1000
+                        )
+                    }),
+                ])
+            } catch (error) {
+                logger.warn('Failed to report workflows external delivery', { error })
+            } finally {
+                clearTimeout(reportingTimeout)
             }
 
             return { status, message: body as string }
