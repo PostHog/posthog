@@ -5770,6 +5770,20 @@ class HogFlowViewSet(
         except Exception as error:
             capture_exception(error)
 
+    def _require_recording_access_for_live_vision_test(
+        self, payload: dict[str, Any], hog_flow: Optional[WorkflowEditState]
+    ) -> None:
+        # A live test runs the Replay Vision step as the workflow's owner, so the tester needs recording
+        # access of their own, as saving the step does.
+        configuration = payload.get("configuration") or {}
+        actions = configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+        runs_vision = any(
+            isinstance(action, dict) and (action.get("config") or {}).get("template_id") == _REPLAY_VISION_TEMPLATE_ID
+            for action in (actions if isinstance(actions, list) else [])
+        )
+        if runs_vision and not self.user_access_control.check_access_level_for_resource("session_recording", "viewer"):
+            raise exceptions.PermissionDenied("You need access to session recordings to test the Replay Vision step.")
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -5812,6 +5826,9 @@ class HogFlowViewSet(
             if isinstance(draft.get("actions"), list):
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
+
+        if not payload.get("mock_async_functions", True):
+            self._require_recording_access_for_live_vision_test(payload, hog_flow)
 
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,

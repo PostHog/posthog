@@ -7412,6 +7412,47 @@ class TestReplayVisionActionValidation(APIBaseTest):
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert error_attr in str(response.json()), response.json()
 
+    @parameterized.expand([("live", False, status.HTTP_403_FORBIDDEN), ("mocked", True, status.HTTP_200_OK)])
+    def test_a_live_test_run_needs_the_testers_recording_access(
+        self, _name: str, mock_async_functions: bool, expected: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Scan flow",
+            created_by=self.user,
+            trigger={"type": "event", "filters": {}},
+            actions=[
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+                }
+            ],
+        )
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d1"}},
+                    "mock_async_functions": mock_async_functions,
+                    "current_action_id": "action_1",
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        assert mock_invoke.call_count == (1 if mock_async_functions else 0)
+
 
 class TestRunScoutActionValidation(APIBaseTest):
     """Save-time check specific to the "Run scout" step: it used to fail only on the first run,
