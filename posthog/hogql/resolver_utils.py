@@ -310,7 +310,11 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
                     attributes["source"] = attributes.pop("children")[0]
                 new_attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
                 return klass(**new_attributes)
-        raise SyntaxError(f"Unknown tag <{expr.kind} />.")
+        raise QueryError(
+            f"Unknown tag <{expr.kind} />. HogQL does not support HTML tags. Remove <{expr.kind} /> from the query.",
+            start=expr.start,
+            end=expr.end,
+        )
     else:
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
@@ -329,6 +333,8 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
         query = clone_expr(runner.to_query(), clear_locations=True)
         return query
+    except QueryError:
+        raise
     except Exception as e:
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
 
