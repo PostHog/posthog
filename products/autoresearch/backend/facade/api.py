@@ -13,7 +13,7 @@ import json
 import base64
 import asyncio
 import hashlib
-from datetime import date, timedelta
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -40,7 +40,15 @@ from ..dataset.validation import (
     validate_pipeline_definition as _validate_pipeline_definition,
 )
 from ..evaluation.history import latest_validation_runs, realized_auc_trends
-from ..evaluation.online_validation import LIKELY_THRESHOLD as LIKELY_THRESHOLD
+from ..evaluation.maturity import matures_at
+from ..evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    FIXED_LIKELY_THRESHOLD,
+    LIKELY_LIFT,
+    champion_score_calibration,
+    segment_thresholds,
+)
+from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -82,6 +90,7 @@ from .contracts import (
     PipelineValidation,
     PipelineWrite,
     PredictionCoverage,
+    PredictionSegmentThresholds,
     RealizedAucPoint,
     ResolvedTemplate,
     Run,
@@ -93,6 +102,7 @@ from .contracts import (
     TrainingRunHistory,
     TrainingRunHistoryEntry,
     TrainingRunNotFound,
+    TrainingTrendPoint,
     ValidationWarning,
 )
 
@@ -159,7 +169,11 @@ def _coverage_contract(coverage: Any) -> PredictionCoverage | None:
 @frozen
 class _PipelineActivity:
     champion_realized_auc_trend: list[RealizedAucPoint]
+    champion_training_trend: list[TrainingTrendPoint]
     people_scored: int | None
+    likely_count: int | None
+    likely_threshold: float | None
+    first_check_expected_at: datetime | None
     coverage: PredictionCoverage | None
     training_run_count: int
     experiment_count: int
@@ -175,6 +189,7 @@ def _live_training_run(run: AutoresearchTrainingRun, iterations: list[Autoresear
         experiment_count=len(iterations),
         best_holdout_score=max(scores) if scores else None,
         latest_agent_description=iterations[-1].agent_description if iterations else "",
+        latest_summary=iterations[-1].summary if iterations else None,
     )
 
 
@@ -192,6 +207,74 @@ def _newest_completed_inference(team_id: int, pipeline_ids: list[UUID], field: s
         .distinct("pipeline_id")
         .values_list("pipeline_id", field)
     )
+
+
+def _champion_training_trends(
+    team_id: int, champions: dict[UUID, AutoresearchModel]
+) -> dict[UUID, list[TrainingTrendPoint]]:
+    """Best-so-far holdout score per iteration of the run that trained each champion, oldest first."""
+    pipeline_by_run = {c.source_training_run_id: p for p, c in champions.items() if c.source_training_run_id}
+    trends: dict[UUID, list[TrainingTrendPoint]] = {}
+    best: dict[UUID, float] = {}
+    for training_run_id, iteration_number, holdout_score in (
+        AutoresearchIteration.objects.for_team(team_id)
+        .filter(training_run_id__in=list(pipeline_by_run))
+        .order_by("training_run_id", "iteration_number")
+        .values_list("training_run_id", "iteration_number", "holdout_score")
+    ):
+        if holdout_score is not None and holdout_score > best.get(training_run_id, -1.0):
+            best[training_run_id] = holdout_score
+        if training_run_id in best:
+            trends.setdefault(pipeline_by_run[training_run_id], []).append(
+                TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best[training_run_id])
+            )
+    return trends
+
+
+def _champion_likely_counts(team_id: int, champions: dict[UUID, AutoresearchModel]) -> dict[UUID, tuple[int, float]]:
+    """Likely count and cut point of each champion's newest completed live run that recorded them."""
+    return {
+        pipeline_id: (count, threshold)
+        for pipeline_id, count, threshold in AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            model_id__in=[c.id for c in champions.values()],
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.COMPLETED,
+            metrics__has_key="likely_count",
+        )
+        .order_by("pipeline_id", F("completed_at").desc(nulls_last=True), "-created_at")
+        .distinct("pipeline_id")
+        .values_list("pipeline_id", "metrics__likely_count", "metrics__likely_threshold")
+    }
+
+
+def _first_checks_expected(team_id: int, champions: dict[UUID, AutoresearchModel]) -> dict[UUID, datetime]:
+    """
+    When online validation can first check each champion that no validation has checked yet.
+
+    Validation checks every completed run a model emitted, shadow runs and backfills included,
+    so the earliest of them sets the date.
+    """
+    pipeline_by_model = {c.id: p for p, c in champions.items() if not (c.metrics or {}).get("realized")}
+    first_checks: dict[UUID, datetime] = {}
+    for model_id, prediction_date, horizon_days in (
+        AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            model_id__in=list(pipeline_by_model),
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.COMPLETED,
+            rows_scored__gt=0,
+            metrics__has_key="prediction_date",
+        )
+        .values_list("model_id", "metrics__prediction_date", "metrics__horizon_days")
+    ):
+        if not isinstance(horizon_days, int):
+            continue
+        check_at = matures_at(date.fromisoformat(prediction_date), horizon_days)
+        pipeline_id = pipeline_by_model[model_id]
+        if pipeline_id not in first_checks or check_at < first_checks[pipeline_id]:
+            first_checks[pipeline_id] = check_at
+    return first_checks
 
 
 def _pipeline_activity(
@@ -230,7 +313,7 @@ def _pipeline_activity(
     for iteration in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=[run.id for run in live_runs.values()])
-        .only("training_run_id", "holdout_score", "agent_description")
+        .only("training_run_id", "holdout_score", "agent_description", "summary")
         .order_by("training_run_id", "iteration_number")
     ):
         live_iterations.setdefault(iteration.training_run_id, []).append(iteration)
@@ -239,12 +322,19 @@ def _pipeline_activity(
         {pipeline_id: champion.id for pipeline_id, champion in champions.items()},
         dates=REALIZED_AUC_TREND_DATES,
     )
+    training_trends = _champion_training_trends(team_id, champions)
+    likely_counts = _champion_likely_counts(team_id, champions)
+    first_checks = _first_checks_expected(team_id, champions)
     return {
         pipeline_id: _PipelineActivity(
             champion_realized_auc_trend=[
                 RealizedAucPoint(prediction_date=d, realized_auc=auc) for d, auc in trends.get(pipeline_id, [])
             ],
+            champion_training_trend=training_trends.get(pipeline_id, []),
             people_scored=people_scored.get(pipeline_id),
+            likely_count=likely_counts[pipeline_id][0] if pipeline_id in likely_counts else None,
+            likely_threshold=likely_counts[pipeline_id][1] if pipeline_id in likely_counts else None,
+            first_check_expected_at=first_checks.get(pipeline_id),
             coverage=_coverage_contract(coverage.get(pipeline_id)),
             training_run_count=training_run_counts.get(pipeline_id, 0),
             experiment_count=experiment_counts.get(pipeline_id, 0),
@@ -294,7 +384,11 @@ def _pipeline_to_contract(
         champion_lift_at_10=_champion_lift_at_10(champion),
         champion_is_preliminary=champion.is_preliminary if champion else None,
         champion_realized_auc_trend=activity.champion_realized_auc_trend,
+        champion_training_trend=activity.champion_training_trend,
         people_scored=activity.people_scored,
+        likely_count=activity.likely_count,
+        likely_threshold=activity.likely_threshold,
+        first_check_expected_at=activity.first_check_expected_at,
         coverage=activity.coverage,
         training_run_count=activity.training_run_count,
         experiment_count=activity.experiment_count,
@@ -340,6 +434,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         holdout_score=row.holdout_score,
         train_score=row.train_score,
         agent_description=row.agent_description,
+        summary=row.summary,
         model_spec=row.model_spec or {},
         recipe_snapshot=row.recipe_snapshot or {},
     )
@@ -357,6 +452,8 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         iteration_count=row.iteration_count,
         best_holdout_score=row.best_holdout_score,
         summary=row.summary or None,
+        reader_summary=row.reader_summary,
+        next_steps=row.next_steps,
         iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
         error=row.error,
         started_at=row.started_at,
@@ -378,6 +475,7 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         holdout_score=row.holdout_score,
         status=row.status,
         agent_description=row.agent_description,
+        summary=row.summary,
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
@@ -879,11 +977,6 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
         raise AutoresearchConflict("The pipeline's target action no longer exists or has no steps.")
 
 
-# A run still marked running after the inference workflow's own timeout lost its worker, so it
-# must not block a new run forever.
-_INFERENCE_RUN_STALE_AFTER = timedelta(hours=5)
-
-
 class _InferenceAlreadyStarted(Exception):
     pass
 
@@ -895,7 +988,8 @@ def _running_inference_run(team_id: int, pipeline: AutoresearchPipeline) -> Auto
             pipeline=pipeline,
             run_type=AutoresearchRun.RunType.INFERENCE,
             status=AutoresearchRun.Status.RUNNING,
-            started_at__gte=django_timezone.now() - _INFERENCE_RUN_STALE_AFTER,
+            # A run older than the workflow timeout lost its worker, so it must not block a new run.
+            started_at__gte=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
         )
         # A shadow model's run belongs to the champion's cadence, not to a scoring the caller can poll.
         .exclude(metrics__has_key="shadow")
@@ -976,7 +1070,6 @@ def _start_inference_workflow(
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
 
     from ..temporal.workflows import (  # noqa: PLC0415
-        _INFERENCE_WORKFLOW_TIMEOUT,
         AutoresearchInferenceWorkflow,
         InferenceWorkflowInput,
         inference_workflow_id,
@@ -997,7 +1090,7 @@ def _start_inference_workflow(
                 id=inference_workflow_id(pipeline_id, prediction_date),
                 task_queue=settings.AUTORESEARCH_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=_INFERENCE_WORKFLOW_TIMEOUT,
+                execution_timeout=INFERENCE_WORKFLOW_TIMEOUT,
             )
         )
     except WorkflowAlreadyStartedError as exc:
@@ -1079,12 +1172,39 @@ def online_performance(
                     )
                     if confusion is not None
                     else None,
+                    # Dates checked before the cut point was stored used the fixed one.
+                    likely_threshold=m.get("likely_threshold", FIXED_LIKELY_THRESHOLD)
+                    if confusion is not None
+                    else None,
                     calibration_bins=[CalibrationBin(**b) for b in bins] if bins is not None else None,
                     warning=m.get("warning"),
                     validated_at=run.completed_at,
                 )
             )
-    return OnlinePerformance(rows=rows)
+    return OnlinePerformance(rows=rows, segment_thresholds=_segment_thresholds(team_id, pipeline))
+
+
+def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> PredictionSegmentThresholds:
+    """The current cut points, from a fixed window of checked dates so the request's ``limit`` cannot move them."""
+    runs = latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES)
+    thresholds = segment_thresholds(runs)
+    champion_id = (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        .values_list("id", flat=True)
+        .first()
+    )
+    calibration = champion_score_calibration(runs, str(champion_id)) if champion_id is not None else None
+    return PredictionSegmentThresholds(
+        likely_threshold=thresholds.likely,
+        possible_threshold=thresholds.possible,
+        likely_lift=LIKELY_LIFT,
+        base_rate=thresholds.base_rate,
+        base_rate_dates=thresholds.dates,
+        champion_mean_p_y=calibration.mean_p_y if calibration else None,
+        champion_base_rate=calibration.base_rate if calibration else None,
+        scores_miscalibrated=calibration.miscalibrated if calibration else False,
+    )
 
 
 # ── Training runs ──────────────────────────────────────────────────────────
@@ -1235,6 +1355,7 @@ def record_iteration(
             "holdout_score": fields.get("holdout_score"),
             "status": fields["status"],
             "agent_description": fields.get("agent_description", ""),
+            "summary": fields.get("summary") or None,
             "agent_confidence": fields.get("agent_confidence"),
         }
         # A re-send that omits parent_suggestion keeps the attribution it recorded the first
@@ -1294,6 +1415,8 @@ def complete_run(
     recommended_next: str = "",
     distillation: str = "",
     report_notebook_short_id: str = "",
+    reader_summary: str | None = None,
+    next_steps: list[str] | None = None,
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
     # Promotion imports the inference sandbox, and with it pandas and pyarrow; the router imports
@@ -1314,6 +1437,8 @@ def complete_run(
             recommended_next=recommended_next or "",
             distillation=distillation or "",
             report_notebook_short_id=report_notebook_short_id or "",
+            reader_summary=reader_summary or None,
+            next_steps=next_steps or None,
         )
     except PromotionError as exc:
         raise AutoresearchConflict(str(exc)) from exc

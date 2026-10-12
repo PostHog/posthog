@@ -1484,6 +1484,8 @@ class TestNonRetryableErrors:
             # would resume with the same saved cursor and fail identically every time.
             f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"(#2642) Invalid cursors values","type":"OAuthException","code":2642}})',
+            # Schema set to incremental/append with no incremental field stored in its config.
+            "incremental_field and incremental_field_type can't be None",
         ],
     )
     def test_errors_match_pattern(self, error_message: str) -> None:

@@ -15,7 +15,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     IconBalance,
@@ -202,13 +202,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setAdvancedExpanded,
         resetEncryptedPayload,
         setAlsoCreateInProjects,
+        startNewFlagDisabled,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { allCohorts } = useValues(cohortsModel)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const requiresApprovalToEnable = isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
     const implementationRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (requiresApprovalToEnable && featureFlag.active) {
+            startNewFlagDisabled()
+        }
+    }, [requiresApprovalToEnable, featureFlag.active, startNewFlagDisabled])
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -504,14 +512,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                 <LemonField name="active">
                                     {({ value, onChange }) => {
-                                        const requiresApprovalToEnable =
-                                            isNewFeatureFlag &&
-                                            isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
-
-                                        if (requiresApprovalToEnable && value) {
-                                            queueMicrotask(() => onChange(false))
-                                        }
-
                                         return (
                                             <LemonSwitch
                                                 checked={value}

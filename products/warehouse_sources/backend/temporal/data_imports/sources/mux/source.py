@@ -54,7 +54,7 @@ Create an access token under [Settings → Access Tokens](https://dashboard.mux.
 
 Grant the following read permissions:
 - **Mux Video** (read) — required for assets, live streams, uploads, playback restrictions and transcription vocabularies
-- **Mux Data** (read) — required for video views, errors and aggregate metrics (watch time, plays, viewer experience)
+- **Mux Data** (read) — required for video views, errors, aggregate metrics (watch time, plays, viewer experience), metric timeseries and breakdowns, and dimensions
 - **Mux System** (read) — required for signing keys
 """,
             iconPath="/static/services/mux.png",

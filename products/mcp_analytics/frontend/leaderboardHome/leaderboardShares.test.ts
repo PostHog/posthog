@@ -1,6 +1,7 @@
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
+    type LabShare,
     buildLabShares,
     buildLabUserShares,
     buildReliabilitySeries,
@@ -8,6 +9,7 @@ import {
     labSqlExpression,
     buildShareSeries,
     hasKnownLabels,
+    leadingLabs,
     modelLab,
     toReliabilityRows,
     topFacetRows,
@@ -16,6 +18,7 @@ import {
 } from './leaderboardShares'
 
 const row = (bucket: string, label: string, calls: number): BucketedFacetRow => ({ bucket, label, calls })
+const labShare = (lab: LabShare['lab'], share: number): LabShare => ({ lab, share })
 const windowRow = (label: string, calls: number): WindowFacetRow => ({ label, calls, users: 1, errors: 0 })
 
 describe('leaderboardShares', () => {
@@ -140,5 +143,18 @@ describe('leaderboardShares', () => {
     ])('toReliabilityRows keeps %s as gaps not zeros', (_name, p50, p95, expected) => {
         const [result] = toReliabilityRows([['2026-01-01 00:00:00', 4, 1, p50, p95]])
         expect([result.p50, result.p95]).toEqual(expected)
+    })
+
+    test.each([
+        ['one lab ahead', [labShare('Anthropic', 60), labShare('OpenAI', 30), labShare('xAI', 10)], ['Anthropic']],
+        [
+            'a tie at the top',
+            [labShare('OpenAI', 40), labShare('Anthropic', 40), labShare('xAI', 20)],
+            ['OpenAI', 'Anthropic'],
+        ],
+        ['every share is zero', [labShare('Anthropic', 0), labShare('OpenAI', 0)], []],
+        ['no labs', [], []],
+    ])('leadingLabs: %s', (_name, shares, expected) => {
+        expect(leadingLabs(shares)).toEqual(expected)
     })
 })
