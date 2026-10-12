@@ -1263,6 +1263,71 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("flag_off", {"return_value": None}),
+            ("control", {"return_value": "control"}),
+            ("unknown_variant", {"return_value": "test-2"}),
+            ("flag_error", {"side_effect": RuntimeError("flags down")}),
+        ]
+    )
+    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_test(self, _name, flag_result):
+        p2 = self._create_report(title="P2")
+        p0 = self._create_report(title="P0")
+        no_priority = self._create_report(title="No priority")
+        self._priority_artefact(p2, priority="P2")
+        self._priority_artefact(p0, priority="P0")
+        self._ranking_score_artefact(p2, scores={"fixed": 0.9})
+
+        with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result):
+            response = self.client.get(self._list_url(status="ready", sort="recommended"))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["ranker"] == "priority"
+        assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
+            (str(p0.id), 60),
+            (str(p2.id), 62),
+            (str(no_priority.id), 65),
+        ]
+
+    def test_recommended_sort_test_variant_ranks_by_fixed_head_without_showing_scores_to_non_staff(self):
+        self.user.is_staff = False
+        self.user.save()
+        low_p0 = self._create_report(title="Low P0")
+        high_p3 = self._create_report(title="High P3")
+        unscored_p1 = self._create_report(title="Unscored P1")
+        stale_p0 = self._create_report(title="Stale P0")
+        for report, priority in ((low_p0, "P0"), (high_p3, "P3"), (unscored_p1, "P1"), (stale_p0, "P0")):
+            self._priority_artefact(report, priority=priority)
+        self._ranking_score_artefact(low_p0, scores={"fixed": 0.1234})
+        self._ranking_score_artefact(high_p3, scores={"fixed": 0.8765})
+        self._ranking_score_artefact(stale_p0, scores={"fixed": 0.9876})
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=stale_p0,
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "Old", "new_title": "Stale P0"}),
+        )
+
+        with patch(
+            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value="test"
+        ):
+            response = self.client.get(self._list_url(status="ready", sort="recommended"))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["ranker"] == "fixed"
+        assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
+            (str(high_p3.id), 9),
+            (str(low_p0.id), 48),
+            (str(stale_p0.id), 60),
+            (str(unscored_p1.id), 61),
+        ]
+        assert all(r["ranking"] is None for r in body["results"])
+        for raw_score in ("0.1234", "0.8765", "0.9876"):
+            assert raw_score not in response.content.decode()
+
+    @parameterized.expand(
+        [
             ("ordering", {"ordering": "-ranking_open,status"}, "ordering"),
             ("created_after", {"created_after": "last week"}, "created_after"),
         ]

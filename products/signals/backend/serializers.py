@@ -78,6 +78,7 @@ from .models import (
     SignalUserAutonomyConfig,
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
+from .ranking.inbox_sort import inbox_merge_key
 from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
@@ -1792,6 +1793,24 @@ class SignalReportListSerializer(SignalReportSerializer):
             "comparisons are available from the report detail endpoint."
         ),
     )
+    inbox_merge_key = serializers.SerializerMethodField(
+        help_text=(
+            "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
+            "only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. "
+            "Reports without a usable score sort after scored ones. Null for every other sort."
+        ),
+    )
+
+    class Meta(SignalReportSerializer.Meta):
+        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
+        read_only_fields = fields
+
+    def get_inbox_merge_key(self, obj: SignalReport) -> int | None:
+        ranker = self.context.get("inbox_ranker")
+        if ranker is None:
+            return None
+        score = getattr(obj, "ranking_fixed_score", None) if ranker == "fixed" else None
+        return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportListQuerySerializer(serializers.Serializer):

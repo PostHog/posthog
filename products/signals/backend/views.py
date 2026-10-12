@@ -4,7 +4,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, timedelta
-from functools import partial
+from functools import cached_property, partial
 from typing import Any, cast
 
 from django.conf import settings
@@ -44,6 +44,7 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -137,6 +138,12 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.ranking.inbox_sort import (
+    PRIORITY_ORDERING,
+    RANKER_ORDERINGS,
+    InboxRanker,
+    resolve_recommended_ranker,
+)
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
@@ -1082,6 +1089,21 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
     report_id = serializers.UUIDField(help_text="Report being re-ingested.")
 
 
+class SignalReportListPagination(LimitOffsetPagination):
+    def get_paginated_response_schema(self, schema):
+        paginated = super().get_paginated_response_schema(schema)
+        paginated["properties"]["ranker"] = {
+            "type": "string",
+            "nullable": True,
+            "description": (
+                "The ranker that ordered the page when sort=recommended: priority, or fixed for the served "
+                "ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs "
+                "to this ranker."
+            ),
+        }
+        return paginated
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
@@ -1105,11 +1127,14 @@ class SignalReportViewSet(
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReport.objects.all()
+    pagination_class = SignalReportListPagination
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
     _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _INBOX_SORT_ORDERINGS = {
-        "priority": "priority,status,-updated_at",
+        "priority": PRIORITY_ORDERING,
+        # A feature flag resolves this preset per team. See `_inbox_ranker`.
+        "recommended": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
         "oldest": "created_at,status,-updated_at",
@@ -1952,7 +1977,7 @@ class SignalReportViewSet(
             return queryset
         return self._apply_signal_report_ordering(queryset)
 
-    def _parse_ordering_string(self, raw: str) -> list[str]:
+    def _parse_ordering_string(self, raw: str, *, allow_ranking: bool = False) -> list[str]:
         parts = [p.strip() for p in raw.split(",") if p.strip()]
         clauses: list[str] = []
         for part in parts:
@@ -1961,7 +1986,7 @@ class SignalReportViewSet(
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
                 continue
-            if name in self._RANKING_ORDERING_HEADS and not self.request.user.is_staff:
+            if name in self._RANKING_ORDERING_HEADS and not allow_ranking and not self.request.user.is_staff:
                 # The serializer hides ranking scores from non-staff users, and the order would leak them.
                 raise serializers.ValidationError({"ordering": f"Ordering by {name} is only available to staff."})
             clause = f"-{db_field}" if descending else db_field
@@ -1972,7 +1997,19 @@ class SignalReportViewSet(
     def _default_signal_report_ordering_clauses(self) -> list[str]:
         return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
 
+    @cached_property
+    def _inbox_ranker(self) -> InboxRanker | None:
+        if self.request.query_params.get("ordering") is not None:
+            return None
+        if self.request.query_params.get("sort") != "recommended":
+            return None
+        return resolve_recommended_ranker(self.team)
+
     def _parse_signal_report_ordering(self) -> list[str]:
+        ranker = self._inbox_ranker
+        if ranker is not None:
+            # The preset exposes only the score decile, through `inbox_merge_key`, so non-staff users may use it.
+            return self._parse_ordering_string(RANKER_ORDERINGS[ranker], allow_ranking=True)
         raw = self.request.query_params.get("ordering")
         if raw is None:
             inbox_sort = self.request.query_params.get("sort")
@@ -2375,7 +2412,10 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied."
+                    "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
+                    "ordering is supplied. recommended resolves per project to a ranker: the priority order, or "
+                    "the served ranking model's fixed head with unscored and stale reports in priority order "
+                    "after the scored ones. The response's ranker field names the one used."
                 ),
             ),
             OpenApiParameter(
@@ -2490,7 +2530,9 @@ class SignalReportViewSet(
         data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
 
         if page is not None:
-            return self.get_paginated_response(data)
+            response = self.get_paginated_response(data)
+            response.data["ranker"] = self._inbox_ranker
+            return response
         return Response(data)
 
     def _render_report_rows(
@@ -2544,6 +2586,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "inbox_ranker": self._inbox_ranker,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

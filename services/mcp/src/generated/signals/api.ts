@@ -104,7 +104,9 @@ export const SignalsReportsListQueryParams = () => zod.object({
     sort: zod
         .string()
         .optional()
-        .describe('Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.'),
+        .describe(
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
+        ),
     source_id: zod
         .string()
         .optional()

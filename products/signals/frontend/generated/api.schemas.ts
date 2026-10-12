@@ -766,6 +766,11 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
+    /**
+     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. Reports without a usable score sort after scored ones. Null for every other sort.
+     * @nullable
+     */
+    readonly inbox_merge_key: number | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -775,6 +780,11 @@ export interface PaginatedSignalReportListListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportListApi[]
+    /**
+     * The ranker that ordered the page when sort=recommended: priority, or fixed for the served ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * @nullable
+     */
+    ranker?: string | null
 }
 
 /**
@@ -7770,7 +7780,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string
     /**

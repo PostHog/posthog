@@ -1,0 +1,56 @@
+"""Resolve the `recommended` inbox sort to a ranker, and give each row a coarse merge key.
+
+A multivariate flag keyed by team picks the ranker. `control`, an unknown variant, or a flag that is
+off or fails to evaluate gives the priority order. `test` orders by the served `fixed` head first.
+
+The merge key lets a client merge rows from the two rankers without the raw score. It is the score
+decile then the priority rank, so it never says more about the score than one decimal place.
+"""
+
+from typing import Literal
+
+import structlog
+import posthoganalytics
+
+from posthog.models.team import Team
+
+from products.signals.backend.models import AutonomyPriority
+
+logger = structlog.get_logger(__name__)
+
+RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-recommended-sort"
+
+InboxRanker = Literal["priority", "fixed"]
+
+PRIORITY_ORDERING = "priority,status,-updated_at"
+FIXED_ORDERING = "-ranking_fixed,priority,status,-updated_at"
+RANKER_ORDERINGS: dict[InboxRanker, str] = {"priority": PRIORITY_ORDERING, "fixed": FIXED_ORDERING}
+
+_DECILES = 10
+_UNSCORED_DECILE_RANK = _DECILES
+_PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
+
+
+def resolve_recommended_ranker(team: Team) -> InboxRanker:
+    try:
+        variant = posthoganalytics.get_feature_flag(
+            RECOMMENDED_INBOX_SORT_FLAG,
+            str(team.uuid),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+        )
+    except Exception:
+        logger.exception("signals.inbox_sort.flag_failed", team_id=team.id)
+        return "priority"
+    return "fixed" if variant == "test" else "priority"
+
+
+def inbox_merge_key(score: float | None, priority_rank: int | None) -> int:
+    """Lower keys rank first. A report without a score sorts after every scored report."""
+    if score is None:
+        decile_rank = _UNSCORED_DECILE_RANK
+    else:
+        decile = min(max(int(score * _DECILES), 0), _DECILES - 1)
+        decile_rank = _DECILES - 1 - decile
+    priority = _PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1)
+    return decile_rank * _PRIORITY_SLOTS + priority
