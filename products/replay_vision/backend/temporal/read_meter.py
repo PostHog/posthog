@@ -57,8 +57,7 @@ async def create_replay_vision_read_meter_schedule(client: "Client") -> None:
         workflow_id=READ_METER_WORKFLOW_ID,
         inputs=MeterScannerReadsInputs(),
         interval=READ_METER_INTERVAL,
-        # Runs at :25 to keep it away from the API query surge at the top of the hour.
-        offset=dt.timedelta(minutes=25),
-        jitter=dt.timedelta(minutes=5),
+        offset=dt.timedelta(minutes=2),
+        jitter=dt.timedelta(minutes=10),
         execution_timeout=READ_METER_EXECUTION_TIMEOUT,
     )
