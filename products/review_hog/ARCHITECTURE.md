@@ -871,7 +871,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 - **One feature flag.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger,
   resolution, manual Flash, Inbox reviews, the Stamphog Inbox switch, and the tiered review arms are available
   wherever it is on. DECISIONS.md records why the separate `review-hog-internal` gate went away.
-- **`REVIEWHOG_GITHUB_BOT_LOGIN`** (`posthog/settings/access.py`) names the app's `<slug>[bot]` login per region.
+- **`GITHUB_APP_SLUG`** (instance setting) names the app, and `posthog_app_login()` in
+  `products/review_hog/backend/app_identity.py` derives its `<slug>[bot]` login.
   `is_app_bot_author` trusts only that login; unset, it trusts no author in production (local development and tests
   fall back to any `Bot`-typed author).
 
