@@ -30,7 +30,6 @@ from products.replay_vision.backend.max_tools import (
     RetryReplayVisionObservationTool,
     ScanReplayVisionSessionsTool,
     SearchReplayVisionObservationsTool,
-    SummarizeReplayVisionSummariesTool,
     UpdateReplayVisionScannerTool,
 )
 from products.replay_vision.backend.models.replay_observation import (
@@ -47,7 +46,6 @@ from products.replay_vision.backend.tests.helpers import seed_scanner_spend
 
 from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
-_SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_reading_observations"
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.search.generate_embedding"
@@ -452,22 +450,6 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         assert artifact["error"] == "embedding_unavailable"
         assert "AI data processing" in content
-
-
-class TestSummarizeReplayVisionSummariesTool(BaseTest):
-    def _tool(self) -> SummarizeReplayVisionSummariesTool:
-        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
-        return SummarizeReplayVisionSummariesTool(team=self.team, user=self.user, config=config)
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_internal_error_details_stay_out_of_content_and_artifact(self):
-        # The raw exception may carry connection strings; it belongs in error tracking, not the conversation.
-        with patch(_SCANNER_LOOKUP_PATH, side_effect=RuntimeError("postgres://user:hunter2@db/prod")):
-            content, artifact = await self._tool()._arun_impl(scanner_id=str(uuid.uuid4()))
-
-        assert artifact == {"error": "fetch_failed"}
-        assert "hunter2" not in content
 
 
 class TestReplayVisionChargeConfirmation(BaseTest):
@@ -898,6 +880,54 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
         scanner = await sync_to_async(ReplayScanner.objects.get)(id=created["scanner_id"])
         assert scanner.enabled is True
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_max_stamps_its_surface_on_the_lifecycle_events(self):
+        with patch(_REFRESH_ESTIMATE_PATH), patch("posthoganalytics.capture") as capture:
+            _, created = await self._tool(CreateReplayVisionScannerTool)._arun_impl(
+                name="from-max", prompt="Did checkout fail?"
+            )
+            await self._tool()._arun_impl(scanner_id=created["scanner_id"], enabled=True, prompt="Did it succeed?")
+
+        source_by_event = {
+            call.kwargs["event"]: call.kwargs["properties"].get("source") for call in capture.call_args_list
+        }
+        for event in (
+            "replay_vision_scanner_created",
+            "replay_vision_scanner_enabled",
+            "replay_vision_scanner_edited",
+        ):
+            assert source_by_event[event] == EventSource.POSTHOG_AI, event
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_denied_experiment_refuses_config_edits_through_max(self):
+        # Without an access control in the serializer context the experiment-scope write guard
+        # treats the caller as unrestricted, so Max would bypass the refusal the API enforces.
+        from products.experiments.backend.models.experiment import Experiment
+        from products.replay_vision.backend.tests.helpers import create_experiment
+
+        experiment = await sync_to_async(create_experiment)(self.team, "restricted-flag")
+        scanner = await sync_to_async(self._scanner)(
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": experiment.id},
+        )
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            _, result = await self._tool()._arun_impl(scanner_id=str(scanner.id), prompt="rewritten")
+
+        assert result == {"error": "invalid_config"}
+        await sync_to_async(scanner.refresh_from_db)()
+        assert scanner.scanner_config["prompt"] == "p"
+
+        # The same edit from a caller the experiment allows still lands.
+        with patch(_REFRESH_ESTIMATE_PATH):
+            _, allowed = await self._tool()._arun_impl(scanner_id=str(scanner.id), prompt="rewritten")
+        assert "error" not in allowed, allowed
+
     @parameterized.expand(
         [
             # Only starting a schedule or widening a running one commits the project to spend.
@@ -999,7 +1029,6 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "estimate_replay_vision_scanner": False,
         "get_replay_vision_quota": False,
         "search_replay_vision_observations": False,
-        "summarize_replay_vision_summaries": False,
         "draft_replay_vision_scanner_prompt": False,
         "label_replay_vision_observation": False,
         "analyze_replay_vision_impact": None,  # only when it creates a cohort

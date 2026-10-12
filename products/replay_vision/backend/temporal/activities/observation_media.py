@@ -22,15 +22,12 @@ from products.replay_vision.backend.temporal.media_types import (
     FALLBACK_THUMBNAIL_FRACTION,
     LEGACY_ANALYSIS_FOOTER_HEIGHT_PX,
     THUMBNAIL_WIDTH_PX,
-    ExtractThumbnailActivityInput,
     ExtractThumbnailsActivityInput,
     ExtractThumbnailsFrame,
     FinalizeObservationMediaInputs,
-    FinalizeObservationThumbnailInputs,
     ObservationMediaInputs,
     PreparedFrame,
     PrepareObservationMediaOutput,
-    PrepareObservationThumbnailOutput,
 )
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
@@ -238,30 +235,6 @@ async def prepare_observation_media_activity(inputs: ObservationMediaInputs) -> 
     )
 
 
-@activity.defn
-@track_activity()
-async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
-    """Legacy single-frame prepare, kept for media workflows started before the batch path. Delete once they drain."""
-    source = await _load_render_source(inputs)
-    video_time_s = _pick_video_time_s(inputs, source.model_output, source.clock, source.duration_s)
-    media_asset = await _media_asset(inputs, ReplayObservationMedia.Kind.THUMBNAIL, 0)
-
-    return PrepareObservationThumbnailOutput(
-        media_asset_id=media_asset.id,
-        activity_input=ExtractThumbnailActivityInput(
-            source_s3_uri=source.source_s3_uri,
-            video_time_s=video_time_s,
-            footer_crop_px=_footer_crop_px(source.context),
-            width=THUMBNAIL_WIDTH_PX,
-            s3_bucket=settings.OBJECT_STORAGE_BUCKET,
-            s3_key_prefix=_media_key_prefix(inputs.team_id, inputs.observation_id),
-            id=str(uuid4()),
-        ),
-        video_start_ms=int(video_time_s * 1000),
-        rec_start_ms=source.clock.video_s_to_session_ms(video_time_s) if source.clock else None,
-    )
-
-
 @frozen
 class _MediaLink:
     kind: ReplayObservationMedia.Kind
@@ -347,18 +320,3 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
             missing=len(missing),
             file_size_bytes=sum(frame.file_size_bytes for frame in inputs.result.frames),
         )
-
-
-@activity.defn
-@track_activity()
-async def finalize_observation_thumbnail_activity(inputs: FinalizeObservationThumbnailInputs) -> None:
-    """Legacy single-frame finalize, kept for media workflows started before the batch path. Delete once they drain."""
-    link = _MediaLink(
-        kind=ReplayObservationMedia.Kind.THUMBNAIL,
-        position=0,
-        asset_id=inputs.media_asset_id,
-        video_start_ms=inputs.video_start_ms,
-        rec_start_ms=inputs.rec_start_ms,
-        content_location=_content_location(inputs.result.s3_uri),
-    )
-    await _link_or_expire(inputs.team_id, inputs.observation_id, [link])

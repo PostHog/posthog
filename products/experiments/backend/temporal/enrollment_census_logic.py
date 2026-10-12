@@ -28,14 +28,14 @@ CENSUS_WINDOW_DAYS = 14
 # A team must have this many direct-scan reads in the window for precomputation to have
 # enough repeat traffic to amortize its builds. Nightly recalculation counts, deliberately:
 # recalc is where precompute saves the most.
-MIN_DIRECT_READS = 50
+MIN_DIRECT_READS = 30
 
 # Pain thresholds. Any one qualifies a team (given MIN_DIRECT_READS).
-SLOW_READ_MS = 15_000
+SLOW_READ_MS = 8_000
 SLOW_READ_FRACTION = 0.10
-TOTAL_READ_BYTES_THRESHOLD = 5 * 10**12  # 5 TB rescanned per window
+TOTAL_READ_BYTES_THRESHOLD = 2 * 10**12  # 2 TB rescanned per window
 HARD_FAILURE_CODES = (159, 241)  # TIMEOUT_EXCEEDED, MEMORY_LIMIT_EXCEEDED
-HARD_FAILURES_THRESHOLD = 5
+HARD_FAILURES_THRESHOLD = 3
 
 # A single read this large means the team's full-window scans approach the per-query byte
 # cap, so precompute build INSERTs over the same events likely would too. Enrolling such a

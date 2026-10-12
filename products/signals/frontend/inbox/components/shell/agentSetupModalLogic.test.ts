@@ -15,6 +15,14 @@ describe('agentSetupModalLogic', () => {
         logic?.unmount()
     })
 
+    it('does not open inbox setup from the standalone trials page', () => {
+        router.actions.push('/inbox/scout-trials', { setup: 'github' })
+        logic = agentSetupModalLogic()
+        logic.mount()
+
+        expect(logic.values.openModal).toBeNull()
+    })
+
     it('restores the GitHub modal from the callback URL and only removes GitHub parameters when closed', () => {
         router.actions.push('/inbox/config', {
             setup: 'github',

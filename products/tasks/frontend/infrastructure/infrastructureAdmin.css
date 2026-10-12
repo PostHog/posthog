@@ -158,7 +158,8 @@ body {
 }
 
 .pipeline-panel,
-.inventory {
+.inventory,
+.sources-panel {
     gap: 0;
     padding: 0;
     overflow: hidden;
@@ -405,14 +406,10 @@ body {
     white-space: normal;
 }
 
-.source-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 0;
-    border-top: 1px solid var(--border);
+.sources-panel td,
+.sources-panel th {
+    padding: 12px 20px;
+    white-space: normal;
 }
 
 .page-footer {

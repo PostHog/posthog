@@ -8,6 +8,7 @@ from posthog.api import (
     metalytics,
     my_notifications,
     project,
+    terminal_netplay,
     user_integration,
     user_push_token,
 )
@@ -47,6 +48,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    internal_feedback,
     materialized_column_slot,
     object_media_preview,
     organization,
@@ -123,6 +125,12 @@ projects_router.register(
     r"my_notifications",
     my_notifications.MyNotificationsViewSet,
     "project_my_notifications",
+    ["project_id"],
+)
+projects_router.register(
+    r"terminal_netplay",
+    terminal_netplay.TerminalNetplayViewSet,
+    "project_terminal_netplay",
     ["project_id"],
 )
 
@@ -413,6 +421,7 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"internal_feedback", internal_feedback.InternalFeedbackViewSet, "internal_feedback")
 # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")

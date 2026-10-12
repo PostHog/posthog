@@ -15,6 +15,9 @@ import {
 
 import { cn } from 'lib/utils/css-classes'
 
+import { FlowRows } from './FlowRows'
+import { VirtualizedThreadRowContext, type VirtualizedThreadRowContextValue } from './VirtualizedThreadRowContext'
+
 /**
  * Slack the virtualizer core is allowed to treat as "at the end" while the thread is pinned, so its own
  * growth compensation still smooths streaming that lands between our follow writes. Deliberately *not*
@@ -110,12 +113,7 @@ interface RootContextValue {
     virtualized: boolean
 }
 
-interface RowContextValue {
-    index: number
-}
-
 const RootContext = createContext<RootContextValue | null>(null)
-const RowContext = createContext<RowContextValue | null>(null)
 
 /**
  * Virtualized row shell: publishes the row index via context and defers content to `renderRow`. Row
@@ -129,8 +127,8 @@ const InternalRow = memo(function InternalRow({
     index: number
     renderRow: (index: number) => ReactNode
 }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
+    const value = useMemo<VirtualizedThreadRowContextValue>(() => ({ index }), [index])
+    return <VirtualizedThreadRowContext.Provider value={value}>{renderRow(index)}</VirtualizedThreadRowContext.Provider>
 })
 
 export interface VirtualizedThreadRootProps<T> {
@@ -896,17 +894,18 @@ function Root<T>({
         }
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
+    const lastIndex = virtualized ? rowCount - 1 : -1
     const rootValue = useMemo<RootContextValue>(
         () => ({
             measureElement: virtualizer.measureElement,
             gap,
-            lastIndex: rowCount - 1,
+            lastIndex,
             maxWidthClassName,
             virtualized,
             isFollowing: stickToBottom && (!virtualized || pinned),
             pauseFollowing: () => setPinned(false),
         }),
-        [virtualizer, gap, rowCount, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
+        [virtualizer, gap, lastIndex, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -915,21 +914,14 @@ function Root<T>({
     if (!virtualized) {
         return (
             <RootContext.Provider value={rootValue}>
-                {hasHeader && (
-                    <RowContext.Provider key="header" value={{ index: 0 }}>
-                        {header}
-                    </RowContext.Provider>
-                )}
-                {items.map((item, index) => (
-                    <RowContext.Provider key={getItemKey(item, index)} value={{ index }}>
-                        {children(item, index)}
-                    </RowContext.Provider>
-                ))}
-                {hasFooter && (
-                    <RowContext.Provider key="footer" value={{ index: rowCount - 1 }}>
-                        {footer}
-                    </RowContext.Provider>
-                )}
+                <FlowRows
+                    items={items}
+                    getItemKey={getItemKey}
+                    header={hasHeader ? header : null}
+                    footer={hasFooter ? footer : null}
+                    footerIndex={rowCount - 1}
+                    render={children}
+                />
             </RootContext.Provider>
         )
     }
@@ -970,7 +962,7 @@ function Root<T>({
  */
 function Row({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
     const root = useContext(RootContext)
-    const row = useContext(RowContext)
+    const row = useContext(VirtualizedThreadRowContext)
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }
@@ -1004,8 +996,9 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     // child. Border-box measurement is transform-safe, so the imperative positioning does not distort it.
     return (
         <div ref={measureRef} style={ROW_BASE_STYLE}>
+            {/* A row whose content renders nothing (such as the trailing row between turns) takes no space, so the thread does not jump. */}
             <div
-                className={cn('w-full mx-auto @container/thread', maxWidthClassName, className)}
+                className={cn('w-full mx-auto @container/thread empty:hidden', maxWidthClassName, className)}
                 style={{ paddingBottom: index === lastIndex ? 0 : gap }}
             >
                 {children}

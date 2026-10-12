@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -28,6 +29,7 @@ describe('modelsLineageLogic', () => {
             },
         })
         initKeaTests()
+        jest.mocked(posthog.capture).mockClear()
         logic = modelsLineageLogic()
         logic.mount()
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
@@ -185,5 +187,25 @@ describe('modelsLineageLogic', () => {
                 selectedSearchResult: NODES[3],
                 searchFocusRequest: { nodeId: '4', requestId: 1 },
             })
+    })
+
+    it('keeps manual node positions through filtering until the layout is reset', async () => {
+        const position = { x: 120, y: 80 }
+
+        logic.actions.nodeDragStopped('1', position)
+        logic.actions.setTypeFilter(['view'])
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ nodePositions: { '1': position } })
+
+        expect(posthog.capture).toHaveBeenCalledWith('models lineage node moved', {
+            node_type: 'table',
+            is_filtered: false,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.resetNodePositions()
+        }).toMatchValues({ nodePositions: {} })
     })
 })

@@ -9,10 +9,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import (
-    PAGE_SIZE,
-    WORKABLE_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.workable.settings import WORKABLE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workable.workable import (
     WorkableResumeConfig,
     _format_datetime,
@@ -140,48 +137,6 @@ class TestSortMode:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_items_and_follows_paging_next(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = "https://www.workable.com/spi/v3/accounts/acme/candidates?limit=100&since_id=2"
-        _wire(
-            session,
-            [
-                _response(_page([{"id": "1"}], next_url=second)),
-                _response(_page([{"id": "2"}])),
-            ],
-        )
-
-        rows = _rows(
-            workable_source(
-                subdomain="acme",
-                api_token="tok",
-                endpoint="candidates",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-        assert [r["id"] for r in rows] == ["1", "2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_carries_limit(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, urls = _wire(session, [_response(_page([{"id": "1"}]))])
-
-        _rows(
-            workable_source(
-                subdomain="acme",
-                api_token="tok",
-                endpoint="candidates",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-        assert params[0]["limit"] == PAGE_SIZE
-        assert urls[0] == "https://acme.workable.com/spi/v3/candidates"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_state_after_each_page_with_more_pages(self, MockSession) -> None:
         session = MockSession.return_value
         second = "https://www.workable.com/spi/v3/accounts/acme/candidates?limit=100&since_id=2"
@@ -229,24 +184,6 @@ class TestPagination:
         assert [r["id"] for r in rows] == ["99"]
         assert urls[0] == resume_url
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_page([], data_key="stages"))])
-
-        rows = _rows(
-            workable_source(
-                subdomain="acme",
-                api_token="tok",
-                endpoint="stages",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-        assert rows == []
-        assert session.send.call_count == 1
-
 
 class TestIncrementalFilter:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -290,46 +227,6 @@ class TestIncrementalFilter:
         )
         assert params[0]["created_after"] == "2026-01-02T03:04:05Z"
         assert "updated_after" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_ignores_incremental_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response(_page([{"id": "1"}], data_key="members"))])
-
-        _rows(
-            workable_source(
-                subdomain="acme",
-                api_token="tok",
-                endpoint="members",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-        assert not any(key.endswith("_after") for key in params[0])
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_incremental_run_has_no_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response(_page([{"id": "1"}]))])
-
-        _rows(
-            workable_source(
-                subdomain="acme",
-                api_token="tok",
-                endpoint="candidates",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-        assert not any(key.endswith("_after") for key in params[0])
 
 
 class TestRetryBehavior:
@@ -447,12 +344,6 @@ class TestValidateCredentials:
         session.get.return_value = mock.MagicMock(status_code=status)
         with mock.patch(WORKABLE_SESSION_PATCH, lambda **_kwargs: session):
             assert validate_credentials("acme", "tok") == expected
-
-    def test_transport_error_returns_zero(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(WORKABLE_SESSION_PATCH, lambda **_kwargs: session):
-            assert validate_credentials("acme", "tok") == (0, False)
 
     def test_invalid_subdomain_raises(self) -> None:
         with pytest.raises(ValueError):

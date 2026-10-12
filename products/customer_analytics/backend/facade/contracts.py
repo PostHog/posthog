@@ -227,6 +227,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    is_recurring: bool
     gong_url: str | None
     start_time: datetime
     end_time: datetime | None
@@ -1235,6 +1236,7 @@ class CreateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -1252,11 +1254,13 @@ class UpdateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
     churned_at_provided: bool = False
+    ignored_at_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -1369,6 +1373,8 @@ class AnnouncementView:
     short_id: str = ""
     message: str = ""
     status: str = ""
+    send_as: str = "bot"
+    sender_display_name: str = ""
     total_channels: int = 0
     sent_count: int = 0
     failed_count: int = 0
@@ -1388,6 +1394,10 @@ class CustomerTaskAssigneeInvalid(Exception):
 
 
 class CustomerTaskAssigneeCannotViewAccount(Exception):
+    pass
+
+
+class CustomerTaskRoleNotFound(Exception):
     pass
 
 
@@ -1460,6 +1470,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None

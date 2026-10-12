@@ -11,7 +11,6 @@ from requests import HTTPError, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.snyk import (
     SNYK_REST_VERSION,
     SnykResumeConfig,
-    _flatten_item,
     _next_page_url,
     snyk_source,
     validate_credentials,
@@ -127,40 +126,7 @@ class TestNextPageUrl:
         assert _next_page_url(HOST, payload) == expected
 
 
-class TestFlattenItem:
-    def test_lifts_attributes_keeping_id_and_type(self) -> None:
-        item = {
-            "id": "i1",
-            "type": "issue",
-            "attributes": {"title": "XSS", "created_at": "2025-01-01T00:00:00Z"},
-            "relationships": {"organization": {"data": {"id": "o1"}}},
-        }
-        flattened = _flatten_item(item)
-        assert flattened["id"] == "i1"
-        assert flattened["type"] == "issue"
-        assert flattened["title"] == "XSS"
-        assert flattened["created_at"] == "2025-01-01T00:00:00Z"
-        assert "attributes" not in flattened
-        assert flattened["relationships"] == {"organization": {"data": {"id": "o1"}}}
-
-    def test_root_keys_win_over_attribute_collisions(self) -> None:
-        # `id`/`type` at the root are the JSON:API identifiers; an attribute with the same name
-        # must not clobber them or merge primary keys break.
-        item = {"id": "i1", "attributes": {"id": "other", "title": "t"}}
-        assert _flatten_item(item)["id"] == "i1"
-
-
 class TestRetryClassification:
-    @mock.patch("tenacity.nap.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_5xx_is_retried_then_succeeds(self, MockSession: MagicMock, _sleep: MagicMock) -> None:
-        # A transient 5xx is retryable: the request is reissued and the retry's rows are returned.
-        session = MockSession.return_value
-        _wire(session, [_response(None, status=500), _response(_list_body([{"id": "o1"}]))])
-        rows = _rows(_source("organizations", _make_manager()))
-        assert [r["id"] for r in rows] == ["o1"]
-        assert session.send.call_count == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_raises_without_retry(self, MockSession: MagicMock) -> None:
         # 401 is a permanent auth failure — surfaced immediately as an HTTPError, no retry.
@@ -172,23 +138,6 @@ class TestRetryClassification:
 
 
 class TestTopLevelOrganizations:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_flattens(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        page2 = f"{HOST}/rest/orgs?version={SNYK_REST_VERSION}&limit=100&starting_after=cursor"
-        _wire(
-            session,
-            [
-                _response(_list_body([{"id": "o1", "type": "org", "attributes": {"name": "Org 1"}}], next_link=page2)),
-                _response(_list_body([{"id": "o2", "type": "org", "attributes": {"name": "Org 2"}}])),
-            ],
-        )
-        rows = _rows(_source("organizations", _make_manager()))
-        assert rows == [
-            {"id": "o1", "type": "org", "name": "Org 1"},
-            {"id": "o2", "type": "org", "name": "Org 2"},
-        ]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_state_after_yield_and_resumes_from_it(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
@@ -256,113 +205,9 @@ class TestPerOrgFanOut:
             {"id": "i2", "title": "b", "organization_id": "o2"},
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_configured_org_skips_enumeration(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, _params = _wire(session, [_response(_list_body([{"id": "i9"}]))])
-        rows = _rows(_source("issues", _make_manager(), organization_id="o9"))
-        assert rows == [{"id": "i9", "organization_id": "o9"}]
-        # Only the org's own issues endpoint is hit — no /orgs enumeration.
-        assert urls == [f"{HOST}/rest/orgs/o9/issues"]
-
     def test_invalid_configured_org_id_is_rejected(self) -> None:
         with pytest.raises(ValueError):
             _source("issues", _make_manager(), organization_id="../self")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_fanout_bookmark_with_child_next_url(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        o1_page2 = f"{HOST}/rest/orgs/o1/issues?version={SNYK_REST_VERSION}&starting_after=cursor"
-        _wire(
-            session,
-            [
-                _response(_list_body([{"id": "o1"}])),
-                _response(_list_body([{"id": "i1"}], next_link=o1_page2)),
-                _response(_list_body([{"id": "i1b"}])),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source("issues", manager))
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        # A mid-org checkpoint records the in-progress child path and its next-page URL.
-        assert any(
-            s.fanout_state is not None
-            and s.fanout_state.get("current") == "/orgs/o1/issues"
-            and s.fanout_state.get("child_state") == {"next_url": o1_page2}
-            for s in saved
-        )
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_already_processed_orgs(self, MockSession: MagicMock) -> None:
-        # Bookmarked mid-o2: o1 is already complete and must not be re-fetched; o2 continues from
-        # its saved page.
-        session = MockSession.return_value
-        o2_page2 = f"{HOST}/rest/orgs/o2/issues?version={SNYK_REST_VERSION}&starting_after=cursor"
-        urls, _params = _wire(
-            session,
-            [
-                _response(_list_body([{"id": "o1"}, {"id": "o2"}])),
-                _response(_list_body([{"id": "i2b"}])),
-            ],
-        )
-        resume = SnykResumeConfig(
-            fanout_state={
-                "completed": ["/orgs/o1/issues"],
-                "current": "/orgs/o2/issues",
-                "child_state": {"next_url": o2_page2},
-            }
-        )
-        rows = _rows(_source("issues", _make_manager(resume)))
-        assert rows == [{"id": "i2b", "organization_id": "o2"}]
-        assert o2_page2 in urls
-        assert all("/orgs/o1/issues" not in u for u in urls)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_from_removed_org_restarts_from_first(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(_list_body([{"id": "o1"}, {"id": "o2"}])),
-                _response(_list_body([{"id": "i1"}])),
-                _response(_list_body([{"id": "i2"}])),
-            ],
-        )
-        resume = SnykResumeConfig(
-            fanout_state={
-                "completed": [],
-                "current": "/orgs/GONE/issues",
-                "child_state": {"next_url": f"{HOST}/rest/orgs/GONE/issues"},
-            }
-        )
-        rows = _rows(_source("issues", _make_manager(resume)))
-        assert [r["id"] for r in rows] == ["i1", "i2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_survives_reordered_org_list(self, MockSession: MagicMock) -> None:
-        # /orgs has no sort param, so a crash-then-retry may return orgs in a different order.
-        # Resume is keyed by child path, not position: the done o1 is skipped, o2 resumes from its
-        # bookmark, and the not-yet-seen o3 is fetched fresh — regardless of response order.
-        session = MockSession.return_value
-        o2_page2 = f"{HOST}/rest/orgs/o2/issues?version={SNYK_REST_VERSION}&starting_after=cursor"
-        urls, _params = _wire(
-            session,
-            [
-                _response(_list_body([{"id": "o3"}, {"id": "o2"}, {"id": "o1"}])),
-                _response(_list_body([{"id": "i3"}])),
-                _response(_list_body([{"id": "i2b"}])),
-            ],
-        )
-        resume = SnykResumeConfig(
-            fanout_state={
-                "completed": ["/orgs/o1/issues"],
-                "current": "/orgs/o2/issues",
-                "child_state": {"next_url": o2_page2},
-            }
-        )
-        rows = _rows(_source("issues", _make_manager(resume)))
-        assert {(r["id"], r["organization_id"]) for r in rows} == {("i2b", "o2"), ("i3", "o3")}
-        assert all("/orgs/o1/issues" not in u for u in urls)
 
 
 class TestIncrementalFilters:

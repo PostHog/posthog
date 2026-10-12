@@ -2,13 +2,14 @@
 
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import requests
 
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 
 class GitLabIntegrationError(Exception):
@@ -89,23 +90,51 @@ class GitLabIntegration:
     def hostname(self) -> str:
         return common.dot_get(self.integration.config, "hostname")
 
+    def list_assignees(self, search: str = "") -> list[Assignee]:
+        """Active members of the connected project, including inherited ones, matching ``search``."""
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        params: dict[str, str | int] = {"state": "active", "per_page": MAX_ASSIGNEES}
+        if search.strip():
+            params["query"] = search.strip()
+        query = urlencode(params)
+        # This endpoint answers with a JSON array, unlike the objects `get` is typed for.
+        members: object = GitLabIntegration.get(hostname, f"projects/{project_id}/members/all?{query}", access_token)
+        if not isinstance(members, list):
+            # GitLab reports failures as an object such as {"message": "403 Forbidden"}.
+            error = members.get("message") or members.get("error") if isinstance(members, dict) else None
+            raise AssigneeLookupFailed(f"Failed to list the GitLab project's members: {error or 'unexpected response'}")
+        # The state query filter only applies on paid GitLab tiers, so filter here as well.
+        return [
+            Assignee(id=str(member["id"]), name=member.get("name") or member["username"])
+            for member in members
+            if member.get("state", "active") == "active"
+        ]
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         description: str = config.pop("body")
+        assignee = config.pop("assignee", None)
 
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
         access_token = self.integration.sensitive_config.get("access_token")
 
+        payload: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "labels": "posthog",
+        }
+        if assignee:
+            payload["assignee_ids"] = [int(assignee)]
+
         issue = GitLabIntegration.post(
             hostname,
             f"projects/{project_id}/issues",
             access_token,
-            {
-                "title": title,
-                "description": description,
-                "labels": "posthog",
-            },
+            payload,
         )
 
         return {"issue_id": issue["iid"]}

@@ -2,7 +2,7 @@ import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { TimelineRowData } from '../types'
+import type { TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { formatLatencyMs } from './formatStats'
 import { NODE_KIND_COLORS } from './nodeKindColors'
 import { NodeKindGlyph } from './NodeKindGlyph'
@@ -14,7 +14,7 @@ export const TIMELINE_COLUMNS = 'grid-cols-[minmax(8rem,14rem)_1fr]'
 const ERROR_BAR_COLORS = { barBg: 'bg-danger-highlight', barBorder: 'border-danger' }
 
 export interface TimelineRowProps {
-    row: TimelineRowData
+    row: TraceTimelineRowApi
     totalMs: number
     ticks: TimelineTick[]
     isSelected: boolean

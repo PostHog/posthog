@@ -22,7 +22,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
-from posthog.models.filters.filter import Filter
+from posthog.models.property.parse import parse_property_group_data
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
@@ -31,7 +31,7 @@ from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
 )
-from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.transactions import gated_atomic
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -41,7 +41,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.facade.api import create_flag, serialize_flags, update_flag
-from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -287,7 +287,7 @@ class OrganizationFeatureFlagView(
             self._redact_encrypted_payloads(request, flag)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
-            cast(str, feature_flag_key), [flag.team_id for flag in flags]
+            cast(str, feature_flag_key), [flag.team_id for flag in flags], self.organization.id
         )
 
         flags_data = [
@@ -1144,6 +1144,7 @@ class OrganizationFeatureFlagView(
     def _get_feature_flag_copy_source_context(
         self, source_flag: FeatureFlag, copy_schedule: bool, user: User
     ) -> FeatureFlagCopySourceContext:
+        require_v1_config(source_flag.get_filters())
         source_dependency_keys, disabled_source_dependency_keys = self._get_source_dependency_context(
             source_flag, user=user
         )
@@ -1256,9 +1257,7 @@ class OrganizationFeatureFlagView(
 
                 # create new cohort in the destination project
                 if not destination_cohort:
-                    prop_group = Filter(
-                        data={"properties": original_cohort.properties.to_dict(), "is_simplified": True}
-                    ).property_groups
+                    prop_group = parse_property_group_data(original_cohort.properties.to_dict())
 
                     for prop in prop_group.flat:
                         if prop.type == "cohort" and not isinstance(prop.value, list):
@@ -1678,10 +1677,11 @@ class OrganizationFeatureFlagView(
                         created_by=user,
                         change_request=change_request,
                     )
-            except (PolicyConflict, ApprovalRequired):
+            except (PolicyConflict, ApprovalRequired, ApprovalDetectionFailed):
                 # The copied change can't be gated with a fresh single CR on the target — it either
-                # matches multiple policies (PolicyConflict) or would bind an already-approved
-                # duplicate (ApprovalRequired). Skip it (fail closed) rather than copy it ungated or
+                # matches multiple policies (PolicyConflict), would bind an already-approved
+                # duplicate (ApprovalRequired), or could not be classified at all
+                # (ApprovalDetectionFailed). Skip it (fail closed) rather than copy it ungated or
                 # riding on an unrelated approval — mirroring the permission skip above, we don't
                 # fail the whole copy over one schedule.
                 logger.warning(

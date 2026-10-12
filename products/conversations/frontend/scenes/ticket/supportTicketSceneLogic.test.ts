@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -58,6 +59,7 @@ jest.mock('~/lib/api', () => {
 })
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
@@ -66,11 +68,14 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsPartialUpdate: jest.fn(),
 }))
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
 import api from '~/lib/api'
 
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
@@ -1188,5 +1193,45 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic deleteTicket', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const destroyMock = conversationsTicketsDestroy as jest.Mock
+
+    beforeEach(async () => {
+        initKeaTests()
+        destroyMock.mockReset().mockResolvedValue(undefined)
+        ;(api.conversationsTickets.get as jest.Mock).mockResolvedValue(makeTicket())
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    it('deletes only after confirmation and leaves the ticket list', async () => {
+        const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+
+        logic.actions.deleteTicket()
+
+        expect(destroyMock).not.toHaveBeenCalled()
+        expect(open).toHaveBeenCalled()
+        const dialog = open.mock.calls[0][0] as {
+            title: string
+            primaryButton: { onClick: () => Promise<void> }
+        }
+        expect(dialog.title).toBe('Delete ticket #42?')
+
+        await dialog.primaryButton.onClick()
+
+        expect(destroyMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1')
+        expect(push).toHaveBeenCalled()
+        open.mockRestore()
+        push.mockRestore()
     })
 })

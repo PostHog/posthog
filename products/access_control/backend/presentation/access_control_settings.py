@@ -29,6 +29,7 @@ from posthog.api.documentation import OpenApiParameter, extend_schema
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes import APIScopeObject
 
@@ -300,7 +301,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
             "project_access_level": project_access_level,
             "resource_access_levels": resource_access_levels,
             # The resources the settings UI can search and rule on; every entry works with
@@ -366,7 +368,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
             "results": results,
         }
         return Response(AccessControlRolesResponseSerializer(payload).data)
@@ -402,7 +405,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if request.query_params.get("member_id"):
             memberships = memberships.filter(id=self._get_membership(request, team).id)
 
-        can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
+        can_edit = user_access_control.check_can_modify_access_levels_for_object(
+            team
+        ) and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id)
         hide_non_project_members = (
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )
@@ -521,6 +526,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         results = []
         for ac in rows:
             resolved = names_by_resource.get(ac.resource, {}).get(str(ac.resource_id))
+            # A rule on a soft-deleted object stays in the database: it still gates the restore of
+            # the object and the subscriptions that point at it. It is hidden here because the
+            # object is not reachable, so the rule has nothing to configure
+            if resolved is not None and resolved.deleted:
+                continue
             results.append(
                 {
                     "resource": ac.resource,
@@ -738,6 +748,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         data = {**request.data, "resource": resource, "resource_id": resource_id}
         return upsert_access_control(
             team=team,
+            user=cast(User, request.user),
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, data),
         )
@@ -754,8 +765,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         display = display_model(resource)
         if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
-        # _base_manager, not the default one: a rule left on a soft-deleted object still shows in
-        # the rules list, and this is the only way to clear it
+        # _base_manager, not the default one: a rule on a soft-deleted object is hidden from the
+        # rules list, and the write with access_level None is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
             display.model._base_manager.filter(team_id=team.id),
             include_all_if_admin=True,
@@ -845,6 +856,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             body["role"] = str(role.id)
         rule = apply_access_control_rule(
             team=team,
+            user=cast(User, request.user),
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, body),
         )

@@ -134,9 +134,10 @@ SELECT
 
 Each daily window becomes a separate job. Already-computed windows are skipped.
 
-### Read path: `_build_funnel_query_legacy()`
+### Read path: `build_funnel_query_legacy()`
 
-When `metric_events_preaggregation_job_ids` is set, the metric_events CTE reads from the precomputed table instead of scanning events:
+When the funnel builder gets metric-events job ids, the metric_events CTE of the three-CTE path reads from the precomputed table instead of scanning events.
+The single-scan path ignores them and scans events. The funnel takes that path when its exposure select does not read precomputed exposures (`ExposureQueryBuilder.reads_precomputed()`).
 
 ```sql
 metric_events AS (
@@ -158,21 +159,29 @@ metric_events AS (
 
 ### Wiring: `_get_experiment_query()`
 
-The runner orchestrates both precomputations:
+The runner orchestrates both precomputations, then hands the job ids to `build_query()`:
 
 ```python
-if should_precompute and not is_data_warehouse_query:
-    # 1. Precompute exposures (already existed)
+if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
     result = self._ensure_exposures_precomputed(builder)
     if result.ready:
-        builder.preaggregation_job_ids = result.job_ids
+        exposure_job_ids = [str(job_id) for job_id in result.job_ids]
 
-    # 2. Precompute metric events (new — ordered funnels only)
-    if is_ordered_funnel:
-        result = self._ensure_metric_events_precomputed(builder)
-        if result.ready:
-            builder.metric_events_preaggregation_job_ids = result.job_ids
+    if self._metric_events_precompute_applicable():
+        metric_result = self._ensure_metric_events_precomputed(builder)
+        if metric_result.ready:
+            metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
+
+return builder.build_query(
+    precomputation_context=ExperimentPrecomputationContext(
+        exposure_job_ids=exposure_job_ids,
+        metric_events_job_ids=metric_events_job_ids,
+    )
+)
 ```
+
+`build_query()` does not store the job ids on the builder.
+It builds one exposure builder with the exposure job ids and passes it, with the metric-events job ids, to the metric builder of that build.
 
 Both use the same lazy computation system (daily windows, job management, TTL).
 
@@ -206,10 +215,10 @@ Retention stores one row per event matching the start or completion predicate, w
 
 ## Key files
 
-| File                                        | Purpose                                                                                                                 |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `experiment_query_builder.py`               | `get_funnel_metric_events_query_for_precomputation()` (write), precomputed CTE in `_build_funnel_query_legacy()` (read) |
-| `experiment_query_runner.py`                | `_ensure_metric_events_precomputed()`, wiring in `_get_experiment_query()`                                              |
-| `lazy_computation_executor.py`              | Core lazy computation: `ensure_precomputed()`, job management                                                           |
-| `experiment_metric_events_sql.py`           | ClickHouse table definition                                                                                             |
-| `experiment_metric_events_preaggregated.py` | HogQL schema for the table                                                                                              |
+| File                                        | Purpose                                                                                                                |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `experiment_funnel_query_builder.py`        | `get_funnel_metric_events_query_for_precomputation()` (write), precomputed CTE in `build_funnel_query_legacy()` (read) |
+| `experiment_query_runner.py`                | `_ensure_metric_events_precomputed()`, wiring in `_get_experiment_query()`                                             |
+| `lazy_computation_executor.py`              | Core lazy computation: `ensure_precomputed()`, job management                                                          |
+| `experiment_metric_events_sql.py`           | ClickHouse table definition                                                                                            |
+| `experiment_metric_events_preaggregated.py` | HogQL schema for the table                                                                                             |

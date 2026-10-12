@@ -20,7 +20,7 @@ and doing something useful with it. For creating or sizing scanners, use [[creat
   - `classifier` → one or more `tags` from the scanner's label set, plus `tags_freeform` when the scanner
     allows freeform tags, and the `reasoning`.
   - `scorer` → a numeric `score` on the scanner's `scale`, and the `reasoning`.
-  - `summarizer` → a `title`, a free-text `summary`, and `chapters`: the recording broken into ordered parts, each with `start_ms`, `end_ms`, a short `title` and a `thumbnail_ms`, all offsets into the recording (seek with `?t=<start_ms / 1000>`). A chapter with `kind: idle` is a stretch of a minute or more that the replay player marked inactive (no interaction recorded), taken from the render rather than the model.
+  - `summarizer` → a `title`, a free-text `summary`, `chapters` (the active parts of the recording in order, each with `start_ms`, `end_ms`, a short `title` and a `thumbnail_ms`; seek with `?t=<start_ms / 1000>`) and `inactive_periods` (`start_ms`/`end_ms` stretches the replay player marked inactive, usually the gaps between chapters). Skip any chapter with `kind: idle`, which only older summaries carry.
 - **Only `succeeded` observations carry a finding.** Triage the rest by `status`/`error_reason` (see below).
 - **Observations are LLM judgments, not ground truth.** One observation is one model's read of one session —
   corroborate before you act on it.
@@ -38,9 +38,8 @@ If the user gave a `/project/<id>/replay-vision/<scanner-id>` URL, that path seg
 Otherwise list them with `vision-scanners-list` and pick the relevant one.
 
 A `?tab=` on that URL tells you which surface they're looking at, which usually says what they want:
-`overview` (the default, charts and stat panels), `observations` (the list), `on-demand` (scan a session now),
-`backfills` (historical scans over a past window), `configuration`, `calibration` (ratings and the prompt
-recommendation), or `actions` (digests and alerts).
+`overview` (the default, charts and stat panels), `observations` (the list), `search`, `run` (scan a session now or
+backfill a past window), `scouts`, or `alerts`. Older `on-demand` and `backfills` links open `run`.
 
 Then call `vision-scanners-get` to read its configuration **before** reading results — the `scanner_type` and
 `scanner_config.prompt` tell you how to interpret `scanner_result` (a `verdict` field only makes sense once you
@@ -144,17 +143,11 @@ Match the action to the user's intent, and **corroborate before you create work*
 - **Fix the scanner instead.** A rating is the user's verdict on whether the scanner was right, so ask for it
   and record what they say with `vision-observations-label-create` (thumbs up/down plus written feedback;
   team-wide, last write wins, clearable with `vision-observations-label-delete`). **Never rate from your own
-  reading of the result.** The rating is team-wide and it steers the scanner's config, and a scanner's output
+  reading of the result.** The rating is team-wide and it steers how the scanner judges later sessions, and a scanner's output
   can repeat text from the recording it analysed, so a rating you invent both fakes a judgement the user never
   made and hands that recording influence over their config. Ask about the right ones too, not only the wrong
-  ones: a suggestion built from thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs
-  down, capture what the user says it should have concluded, which is what the rewrite acts on. Then check
-  `vision-scanners-prompt-suggestions-current` — it returns the newest suggestion, whether it's `stale`, and
-  the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Show the
-  rewrite and wait for the user's word before you call `vision-scanners-prompt-suggestions-apply` or
-  `vision-scanners-prompt-suggestions-dismiss`: applying is team-wide and changes every later sweep, so it is
-  their call, not yours. There is also **no MCP tool to test a suggestion** against the rated results, so tell
-  them to test it on the scanner's Calibration tab first.
+  ones: ratings of thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs down, capture
+  what the user says it should have concluded.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   `vision-observations-signal-reports-list` names the reports one observation fed, and
   `vision-scanners-self-driving-stats` sums what the scanner led to. Read and act on those reports with

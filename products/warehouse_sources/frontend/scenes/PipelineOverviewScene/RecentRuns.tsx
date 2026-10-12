@@ -45,8 +45,8 @@ export function RecentRuns(): JSX.Element {
             dataSource={recentRunRows}
             rowKey="id"
             size="small"
-            loading={recentRunsLoading && recentRuns !== null}
             nouns={['run', 'runs']}
+            pagination={{ pageSize: 15 }}
             columns={[
                 {
                     title: 'Table',

@@ -2,14 +2,15 @@ import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { ProjectTreeRef, UserBasicType } from '~/types'
 
 import { getCustomIcon } from './customIconRegistry'
-import { ProductIconWrapper, getSidebarProduct, iconForType } from './defaultTree'
+import { ProductIconWrapper, getFileSystemIconType, getSidebarProduct, iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
@@ -59,6 +60,59 @@ export interface ConvertProps {
 export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
     const root = protocol.replace(/\/+/, '').replace(':', '')
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
+}
+
+type ProjectTreeDrop =
+    | { type: 'reorder'; activeId: string; overId: string }
+    | { type: 'star'; item: FileSystemEntry }
+    | { type: 'move'; item: FileSystemEntry; folder: string }
+    | { type: 'move-shortcut'; item: FileSystemEntry; folder: string }
+
+export function resolveProjectTreeDrop(
+    activeId: string,
+    overId: string | null,
+    items: FileSystemEntry[],
+    shortcuts: FileSystemEntry[],
+    position: 'onto' | 'before' | 'after' = 'onto'
+): ProjectTreeDrop | null {
+    if (overId === null || activeId === overId) {
+        return null
+    }
+    const activeShortcut = shortcuts.find((item) => getItemId(item, 'shortcuts://') === activeId)
+    const overShortcut = shortcuts.find((item) => getItemId(item, 'shortcuts://') === overId)
+    const item = activeShortcut ?? items.find((entry) => getItemId(entry) === activeId)
+    if (!item) {
+        return null
+    }
+    if (overShortcut?.type === 'folder' && position === 'onto') {
+        // A shortcut's path is its label; ref points to the real folder, including unloaded home folders.
+        return overShortcut.ref && (!activeShortcut || activeShortcut.ref)
+            ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder: overShortcut.ref }
+            : null
+    }
+    const folder =
+        overId === '' || overId === 'project://'
+            ? ''
+            : items.find((entry) => entry.type === 'folder' && getItemId(entry) === overId)?.path
+    if (folder !== undefined) {
+        return !activeShortcut || activeShortcut.ref
+            ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder }
+            : null
+    }
+    if (activeShortcut) {
+        return overShortcut ? { type: 'reorder', activeId, overId } : null
+    }
+    if (overShortcut || overId === 'shortcuts://') {
+        const shortcut = shortcutFromEntry(item)
+        return shortcuts.some(
+            (entry) =>
+                entry.type === shortcut.type &&
+                (shortcut.ref ? entry.ref === shortcut.ref : entry.href === shortcut.href)
+        )
+            ? null
+            : { type: 'star', item }
+    }
+    return null
 }
 
 export function protocolTitle(str: string): string {
@@ -145,9 +199,7 @@ export function convertFileSystemEntryToTreeDataItem({
         // A link to a sidebar product, such as a starred one, shows that product's icon and color.
         // Shortcuts store only a type, which can predate the product's current icon.
         const iconType =
-            sidebarProduct?.iconType ||
-            ('iconType' in item ? item.iconType : undefined) ||
-            (item.type as FileSystemIconType)
+            sidebarProduct?.iconType || ('iconType' in item ? item.iconType : undefined) || getFileSystemIconType(item)
         const iconColor = sidebarProduct?.iconColor ?? ('iconColor' in item ? item.iconColor : undefined)
         // Check for custom icon component first (e.g., badges), then fall back to static icon
         const CustomIcon = getCustomIcon(item.type, item.href)
@@ -163,9 +215,15 @@ export function convertFileSystemEntryToTreeDataItem({
             name: itemName,
             displayName,
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
-            record: { ...item, user },
+            record: {
+                ...item,
+                href:
+                    getFileSystemIconType(item) === 'insight/hog' && item.ref
+                        ? urls.sqlEditor({ insightShortId: item.ref })
+                        : item.href,
+                user,
+            },
             checked: checkedItems[nodeId],
-            tags: starredProduct ? starredProduct.tags : item.tags,
             visualOrder: item.visualOrder,
         }
         if (item && disabledReason?.(item)) {
@@ -471,6 +529,44 @@ export function parentPath(path: string | null | undefined): string {
  */
 export function matchesRefType(rowType: string | undefined, type: string): boolean {
     return type.endsWith('/') ? !!rowType?.startsWith(type) : rowType === type
+}
+
+export function isProjectTreeItemActive(
+    item: TreeDataItem,
+    currentPath: string,
+    projectTreeRef: ProjectTreeRef | null
+): boolean {
+    if (
+        projectTreeRef?.ref &&
+        item.record?.ref === projectTreeRef.ref &&
+        matchesRefType(item.record?.type, projectTreeRef.type)
+    ) {
+        return true
+    }
+
+    if (!item.record?.href) {
+        return false
+    }
+
+    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+    if (currentPath === itemHref) {
+        return true
+    }
+
+    // Current path is a sub-path of item (e.g., /insights/new under /insights)
+    if (currentPath.startsWith(itemHref + '/')) {
+        return true
+    }
+
+    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+        return true
+    }
+    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
+        return true
+    }
+
+    return false
 }
 
 export function refTypeParams(type: string): { type?: string; type__startswith?: string } {

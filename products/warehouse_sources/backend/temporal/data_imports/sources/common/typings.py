@@ -167,12 +167,6 @@ class SourceInputs:
     # True when this schema is a fan-out child whose parents are all readable from the
     # warehouse. Evaluated once by the run-time gate in `import_data_activity_sync`.
     fanout_warehouse_reuse: bool = False
-    # True when extraction batches should be bounded by accumulated bytes rather than by the
-    # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
-    byte_bounded_extraction: bool = False
-    # True when a full load may page with keyset seeks by default, rather than only as the
-    # read-replica retry fallback. Evaluated once per run alongside `byte_bounded_extraction`.
-    keyset_full_load: bool = False
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1

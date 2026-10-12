@@ -49,11 +49,17 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         # either grants terminal access, so keep them out of captured HTTP samples too.
         "jupyter_token",
         "jupyter_url",
+        # Microsoft Graph drive-item responses can contain preauthenticated URLs that grant
+        # temporary access to document contents without any further authorization.
+        "@microsoft.graph.downloadurl",
+        "content.downloadurl",
         # Smartlead's email-accounts endpoint returns mailbox SMTP/IMAP credentials under this
         # key; `password` above already covers the SMTP field, but the IMAP one has a distinct
         # name and would otherwise reach captured samples raw (the source's own `redact_fields`
         # strips it from synced rows, but that runs after, not before, sample capture).
         "imap_password",
+        # Synthesia's webhooks endpoint returns each webhook signing secret under this key.
+        "secret",
     }
 )
 

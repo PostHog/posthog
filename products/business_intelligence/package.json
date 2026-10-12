@@ -1,0 +1,21 @@
+{
+    "name": "@posthog/products-business-intelligence",
+    "private": true,
+    "dependencies": {
+        "fast-equals": "catalog:",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}

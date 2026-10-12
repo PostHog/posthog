@@ -1,0 +1,81 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "brands": {
+        "description": "Brands available to the Scrunch API key.",
+        "docs_url": "https://developers.scrunch.com/api-reference/list-brands",
+        "columns": {
+            "id": "The unique identifier of the brand.",
+            "name": "The name of the brand.",
+            "website": "The website of the brand.",
+        },
+    },
+    "prompts": {
+        "description": "Tracked prompts, including active, paused, and archived prompts.",
+        "docs_url": "https://developers.scrunch.com/api-reference/list-prompts",
+        "columns": {
+            "id": "The unique identifier of the prompt.",
+            "brand_id": "The identifier of the brand that owns the prompt.",
+            "text": "The prompt text that Scrunch tracks.",
+            "stage": "The name of the customer journey stage configured for the brand.",
+            "persona_id": "The identifier of the associated persona, if present.",
+            "platforms": "The AI platforms on which Scrunch tracks the prompt.",
+            "tags": "Custom tags assigned to the prompt.",
+            "topics": "Topics assigned to the prompt or detected automatically.",
+            "status": "The prompt status: active, paused, or archived.",
+            "created_at": "The time when the prompt was created.",
+        },
+    },
+    "competitors": {
+        "description": "Competitors configured for each accessible brand.",
+        "docs_url": "https://developers.scrunch.com/api-reference/list-competitors",
+        "columns": {
+            "id": "The identifier of the competitor.",
+            "brand_id": "The identifier of the brand that tracks the competitor.",
+            "name": "The name of the competitor.",
+            "alternative_names": "Other names used to identify the competitor.",
+            "websites": "Websites associated with the competitor.",
+            "case_sensitive": "Whether name matching uses case sensitivity.",
+        },
+    },
+    "personas": {
+        "description": "Personas configured for each accessible brand.",
+        "docs_url": "https://developers.scrunch.com/api-reference/list-personas",
+        "columns": {
+            "id": "The identifier of the persona.",
+            "brand_id": "The identifier of the brand that owns the persona.",
+            "name": "The name of the persona.",
+            "description": "The description of the persona.",
+        },
+    },
+    "responses": {
+        "description": "AI answers to tracked prompts, with brand evaluations, citations, and competitor evaluations.",
+        "docs_url": "https://developers.scrunch.com/api-reference/responses/overview",
+        "columns": {
+            "id": "The globally unique identifier of the response.",
+            "brand_id": "The identifier of the brand whose responses were requested.",
+            "created_at": "The UTC time when Scrunch collected the response.",
+            "prompt_id": "The identifier of the prompt that generated the response.",
+            "prompt": "The prompt text sent to the AI platform.",
+            "platform": "The AI platform that generated the response.",
+            "persona_id": "The identifier of the persona used for the response, if present.",
+            "persona_name": "The display name of the persona, if present.",
+            "country": "The country code for the geographic context of the response.",
+            "stage": "The name of the customer journey stage configured for the brand.",
+            "branded": "Whether the prompt explicitly mentions the brand.",
+            "brand_present": "Whether the AI answer mentions the brand.",
+            "brand_sentiment": "The sentiment of the brand mention. A value of none means a mention without discernible sentiment.",
+            "brand_position": "The third of the answer containing the brand mention: top, middle, or bottom.",
+            "response_text": "The complete text of the AI answer.",
+            "tags": "Custom tags associated with the prompt.",
+            "key_topics": "Topics associated with the prompt.",
+            "citations": "Cited URLs with their source classifications.",
+            "competitors": "Evaluations of competitors mentioned in the answer.",
+            "competitors_present": "Names of competitors mentioned in the answer.",
+            "query_fanout": "Search queries generated internally by the AI platform, if available.",
+            "shopping_results": "Product listings included in the response, if present.",
+        },
+    },
+}

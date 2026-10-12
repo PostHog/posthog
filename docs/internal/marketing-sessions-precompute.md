@@ -1,23 +1,31 @@
 # Marketing session precompute writer
 
+Marketing attribution tables and paths no longer read this cache or queue its refreshes.
+Their shared live session resolution does not require the writer to run; see [Attribution session resolution](marketing-attribution-session-precompute.md).
+The writer, Dagster job and schedule definitions, and physical table remain available for independent consumers.
+
 The writer partitions sessions by the UTC hour of their start in `web_sessions_dimensional_preaggregated`.
 Window membership uses the exact start timestamp; hourly buckets are rounded explicitly in UTC, including for projects with half-hour or quarter-hour timezone offsets.
 It writes `session_id_v7` as the numeric UUID representation from `events.$session_id_uuid` and stores the first and last pageview timestamps.
 Each insert covers at most one day of session starts and scans events through three days after that window ends.
 Before writing or accepting cached jobs, it checks the corresponding daily windows for sessions longer than three days.
-If it finds one, it returns `ready=False` so the reader can use live attribution without truncating that session.
+If it finds one, it returns `ready=False` so callers cannot accept a truncated session snapshot.
 A failed coverage query also returns `ready=False`; an empty result accompanied by an error does not prove coverage.
 Sessions lasting more than one day, including 49-hour sessions, remain supported by the cache.
 
 Results are snapshots subject to the configured freshness schedule.
+Freshness bands use UTC dates to match the daily job windows, independently of the project timezone.
+The current UTC day has a two-hour TTL, the previous two UTC days have a one-day TTL, and older windows have a 90-day TTL subject to the settling boundary.
+Freshness checks also apply these bands to existing jobs, including jobs stored with a longer expiry.
+These TTLs determine when a job needs renewal; the writer schedule determines when that renewal completes.
 A start-day window settles three days after it ends, matching the maximum supported session duration.
 Snapshots computed before that point expire at the settling boundary even when their stored TTL is longer, so a later first pageview cannot leave the window empty for 90 days.
 Before settlement, the normal freshness schedule still applies; session dimensions are not updated on every event.
-The writer respects the team's session table version: v3 when configured, otherwise v2; v1 requests fall back to live attribution.
+The writer respects the team's session table version: v3 when configured, otherwise v2; v1 requests return `ready=False`.
 Resolved query modifiers are part of the cache identity, so different source versions and channel rules cannot reuse the same jobs.
 
 Stored person IDs are snapshots too: a merge after materialization can leave a touchpoint under its previous person ID until refresh.
-The reader must resolve current identity before enabling this path for merged-person attribution.
+Any consumer that attributes events to people must resolve current identity before using these snapshots.
 
 ## Deployment configuration
 

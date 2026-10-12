@@ -20,7 +20,7 @@ import type {
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, saveExperimentUpdate } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
@@ -69,6 +69,7 @@ export interface runningTimeLogicValues {
     }[] // experimentLogic
     primaryMetricsResultsLoading: boolean // experimentLogic
     unmodifiedExperiment: Experiment | null // experimentLogic
+    isRecalculating: boolean // experimentMetricsLogic
     recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
     recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
@@ -82,6 +83,7 @@ export interface runningTimeLogicValues {
     currentExposures: number | null
     dailyExposureRate: number | null
     initialConfig: RunningTimeConfig
+    isCalculating: boolean
     isComplete: boolean
     isManualMode: boolean
     isSaving: boolean
@@ -249,6 +251,13 @@ export interface runningTimeLogicMeta {
             experiment: Experiment
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
+        isCalculating: (
+            isManualMode: boolean,
+            featureFlags: FeatureFlagsSet,
+            primaryMetricsResultsLoading: boolean,
+            isRecalculating: boolean,
+            automaticCalculationLoading: boolean
+        ) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -285,6 +294,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 [
                     'primaryMetricsResults as recalcPrimaryMetricsResults',
                     'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
+                    'isRecalculating',
                 ],
                 modalsLogic,
                 ['isRunningTimeConfigModalOpen'],
@@ -571,6 +581,36 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (current: number | null, target: number | null): boolean =>
                 current !== null && target !== null && current >= target,
         ],
+        // True while the estimate is still resolving: metric results loading or the automatic calculation
+        // request in flight. Lets the UI distinguish "still loading" from "settled but can't estimate"
+        // instead of flashing a pending state during the gap between the two. Manual mode has no async
+        // estimate to wait on, so it never counts as calculating.
+        isCalculating: [
+            (s) => [
+                s.isManualMode,
+                s.featureFlags,
+                s.primaryMetricsResultsLoading,
+                s.isRecalculating,
+                s.automaticCalculationLoading,
+            ],
+            (
+                isManualMode: boolean,
+                featureFlags: FeatureFlagsSet,
+                primaryMetricsResultsLoading: boolean,
+                isRecalculating: boolean,
+                automaticCalculationLoading: boolean
+            ): boolean => {
+                if (isManualMode) {
+                    return false
+                }
+                // The recalculation flow sources results from experimentMetricsLogic, the legacy flow from
+                // experimentLogic. Watch whichever is active so neither path flashes a pending state on load.
+                const metricsLoading = featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                    ? isRecalculating
+                    : primaryMetricsResultsLoading
+                return metricsLoading || automaticCalculationLoading
+            },
+        ],
         manualFormPreview: [
             (s) => [s.manualPreviewInput, s.manualPreview],
             (input: RunningTimeCalculationInputApi | null, preview: ManualPreview): ManualPreview =>
@@ -678,6 +718,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             const { config, numberOfVariants, experiment, currentProjectId } = values
 
             actions.setSaving(true)
+            let saved = false
             try {
                 let update: Partial<Experiment> & { update_feature_flag_params?: boolean }
                 if (config.mode === 'manual') {
@@ -733,13 +774,17 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // Await so the experiment reflects the saved config before resetConfig below. Otherwise the
                 // transient (overrides cleared, experiment not yet updated) would re-trigger the automatic
                 // auto-persist with stale values and revert the save.
-                await experimentLogic({ experimentId: props.experiment.id }).asyncActions.updateExperiment(update)
+                saved = await saveExperimentUpdate(props.experiment.id, update)
             } catch {
                 // Keep the modal open (don't close/reset below) so the user can retry.
                 lemonToast.error('Failed to save running time settings. Please try again.')
                 return
             } finally {
                 actions.setSaving(false)
+            }
+            // A failed experiment save has already shown its error. Keep the modal open so the user can retry.
+            if (!saved) {
+                return
             }
             actions.closeRunningTimeConfigModal()
             actions.resetConfig()

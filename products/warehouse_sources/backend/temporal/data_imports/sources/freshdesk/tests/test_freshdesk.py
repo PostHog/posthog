@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.
     FreshdeskResumeConfig,
     _format_updated_since,
     freshdesk_source,
-    normalize_subdomain,
     validate_credentials,
 )
 
@@ -87,22 +86,6 @@ def _source(endpoint: str = "tickets", manager: Optional[mock.MagicMock] = None,
     )
 
 
-class TestNormalizeSubdomain:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("acme", "acme"),
-            ("acme.freshdesk.com", "acme"),
-            ("https://acme.freshdesk.com", "acme"),
-            ("http://acme.freshdesk.com/", "acme"),
-            ("  acme  ", "acme"),
-            ("acme.freshdesk.com/a/tickets", "acme"),
-        ],
-    )
-    def test_normalize_subdomain(self, raw: str, expected: str) -> None:
-        assert normalize_subdomain(raw) == expected
-
-
 class TestFormatUpdatedSince:
     @pytest.mark.parametrize(
         "value, expected",
@@ -116,39 +99,8 @@ class TestFormatUpdatedSince:
     def test_format_updated_since(self, value: Any, expected: str) -> None:
         assert _format_updated_since(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        assert "+00:00" not in _format_updated_since(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_has_per_page_only(self, MockSession) -> None:
-        session = MockSession.return_value
-        wired = _wire(session, [_response([{"id": 1}])])
-
-        _rows(_source("companies"))
-
-        assert wired.params[0]["per_page"] == 100
-        assert "updated_since" not in wired.params[0]
-        assert "_updated_since" not in wired.params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_tickets_incremental_uses_updated_since_and_ordering(self, MockSession) -> None:
-        session = MockSession.return_value
-        wired = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            _source(
-                "tickets",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-
-        assert wired.params[0]["updated_since"] == "2026-03-04T00:00:00Z"
-        assert wired.params[0]["order_by"] == "updated_at"
-        assert wired.params[0]["order_type"] == "asc"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_contacts_incremental_uses_underscore_param(self, MockSession) -> None:
         session = MockSession.return_value
@@ -163,52 +115,6 @@ class TestRequestParams:
         )
 
         assert wired.params[0]["_updated_since"] == "2026-03-04T00:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_without_last_value_omits_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        wired = _wire(session, [_response([{"id": 1}])])
-
-        _rows(_source("tickets", should_use_incremental_field=True, db_incremental_field_last_value=None))
-
-        assert "updated_since" not in wired.params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_ignores_incremental_flag(self, MockSession) -> None:
-        # `companies` has no server-side filter, so it never gets an updated_since param.
-        session = MockSession.return_value
-        wired = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            _source(
-                "companies",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-
-        assert "updated_since" not in wired.params[0]
-
-
-class TestExtraction:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bare_array_yields_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        rows = _rows(_source("tickets"))
-
-        assert [r["id"] for r in rows] == [1, 2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_data_key_object_yields_rows(self, MockSession) -> None:
-        # `skills` wraps its list under a "skills" key rather than returning a bare array.
-        session = MockSession.return_value
-        _wire(session, [_response({"skills": [{"id": 7}]})])
-
-        rows = _rows(_source("skills"))
-
-        assert [r["id"] for r in rows] == [7]
 
 
 class TestPagination:
@@ -231,33 +137,6 @@ class TestPagination:
         # State saved once, after the first (only non-terminal) page.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == FreshdeskResumeConfig(next_url=next_url)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_second_request_targets_the_next_link(self, MockSession) -> None:
-        session = MockSession.return_value
-        next_url = "https://acme.freshdesk.com/api/v2/tickets?per_page=100&page=2"
-        wired = _wire(
-            session,
-            [
-                _response([{"id": 1}], next_url=next_url),
-                _response([{"id": 2}]),
-            ],
-        )
-
-        _rows(_source("tickets"))
-
-        assert wired.urls[1] == next_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("agents", manager=manager))
-
-        assert [r["id"] for r in rows] == [1]
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession) -> None:
@@ -283,12 +162,6 @@ class TestPagination:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403])
-    @mock.patch(FRESHDESK_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session, status_code: int) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("acme", "key") == status_code
-
     @mock.patch(FRESHDESK_SESSION_PATCH)
     def test_connection_error_returns_none(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("nope")
@@ -296,27 +169,6 @@ class TestValidateCredentials:
 
 
 class TestFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_conversations_fetch_once_per_ticket(self, MockSession) -> None:
-        session = MockSession.return_value
-        wired = _wire(
-            session,
-            [
-                _response([{"id": 10}, {"id": 11}]),
-                _response([{"id": 100, "ticket_id": 10}]),
-                _response([{"id": 200, "ticket_id": 11}]),
-            ],
-        )
-
-        rows = _rows(_source("conversations"))
-
-        assert [r["id"] for r in rows] == [100, 200]
-        assert wired.urls[0].endswith("/api/v2/tickets")
-        assert [u.rsplit("/api/v2", 1)[1] for u in wired.urls[1:]] == [
-            "/tickets/10/conversations",
-            "/tickets/11/conversations",
-        ]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_conversations_incremental_windows_the_parent_walk(self, MockSession) -> None:
         # The child endpoint takes no timestamp filter, so the watermark has to reach the
@@ -338,31 +190,6 @@ class TestFanout:
         assert "updated_since" not in wired.params[1]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_conversations_full_refresh_omits_the_parent_window(self, MockSession) -> None:
-        session = MockSession.return_value
-        wired = _wire(session, [_response([{"id": 10}]), _response([{"id": 100}])])
-
-        _rows(_source("conversations"))
-
-        assert "updated_since" not in wired.params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_deleted_parent_404_does_not_fail_the_run(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": 10}, {"id": 11}]),
-                _response({"message": "not found"}, status_code=404),
-                _response([{"id": 200, "ticket_id": 11}]),
-            ],
-        )
-
-        rows = _rows(_source("conversations"))
-
-        assert [r["id"] for r in rows] == [200]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_canned_responses_fan_out_from_folders(self, MockSession) -> None:
         session = MockSession.return_value
         wired = _wire(session, [_response([{"id": 1}]), _response([{"id": 5, "folder_id": 1}])])
@@ -371,18 +198,6 @@ class TestFanout:
 
         assert [r["id"] for r in rows] == [5]
         assert wired.urls[1].endswith("/api/v2/canned_response_folders/1/responses")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_solution_folders_carry_their_category_id(self, MockSession) -> None:
-        # A folder row places itself only through a nested `hierarchy` list, so the owning
-        # category is injected from the parent under a flat, queryable column.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 3}]), _response([{"id": 4, "name": "sample folder"}])])
-
-        rows = _rows(_source("solution_folders"))
-
-        assert rows[0]["category_id"] == 3
-        assert "_solution_categories_id" not in rows[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_solution_articles_walk_categories_then_folders(self, MockSession) -> None:

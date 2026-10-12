@@ -54,13 +54,13 @@ MAX_PAGES = 100_000
 # abort (non-retryably) once the budget is spent. Generous for any legitimate sync (fast pages
 # drain millions of rows well inside it).
 MAX_PAGINATION_SECONDS = 6 * 60 * 60
-# The project fan-out makes one request per project, so a customer-controlled host that returns
-# a huge project list (still under the byte cap) could turn one sync into millions of requests
-# and hold an import worker for the activity's lifetime. Bound the fan-out; far above any
-# legitimate org's project count.
-MAX_FAN_OUT_PROJECTS = 10_000
-# The project-count cap alone doesn't bound worker occupancy: a hostile host can return
-# MAX_FAN_OUT_PROJECTS in-org projects and then drain each membership response's full
+# The project/group fan-out makes at least one request per parent, so a customer-controlled host
+# that returns a huge parent list (still under the byte cap) could turn one sync into millions of
+# requests and hold an import worker for the activity's lifetime. Bound the fan-out; far above
+# any legitimate org's project or group count.
+MAX_FAN_OUT_PARENTS = 10_000
+# The parent-count cap alone doesn't bound worker occupancy: a hostile host can return
+# MAX_FAN_OUT_PARENTS in-org parents and then drain each child response's full
 # MAX_RESPONSE_SECONDS deadline, so 10,000 * 300s is ~34 days of work — far past this
 # resumable activity's week-long start_to_close_timeout. Bound the whole fan-out by wall-clock
 # too and abort once the budget is spent, keeping occupancy well under the activity timeout no
@@ -453,9 +453,14 @@ def validate_credentials(
     if config is None:
         return False, f"Unknown Infisical table: {schema_name}"
 
-    # The fan-out endpoint's per-project scopes can't be probed cheaply, so probe the
-    # project list it iterates instead.
-    path = "/api/v1/projects" if config.fan_out_over_projects else _format_path(config.path, organization_id.strip())
+    # Fan-out endpoints' per-parent scopes can't be probed cheaply, so probe the parent list
+    # they iterate instead.
+    if config.fan_out_over == "groups":
+        path = "/api/v1/groups"
+    elif config.fan_out_over in ("projects", "environments"):
+        path = "/api/v1/projects"
+    else:
+        path = _format_path(config.path, organization_id.strip())
     params: dict[str, Any] = {"limit": 1, "offset": 0} if config.paginated else {}
     try:
         client.get(path, params)
@@ -527,6 +532,8 @@ def _get_audit_log_rows(
 
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         _check_pagination_budget(pagination_deadline, config.name)
 
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, "endDate": window_end}
@@ -576,6 +583,8 @@ def _get_offset_paginated_rows(
 
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         _check_pagination_budget(pagination_deadline, config.name)
 
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, **config.extra_params}
@@ -607,54 +616,141 @@ def _list_org_projects(client: InfisicalClient, organization_id: str) -> list[di
     return [p for p in projects if p.get("orgId") == organization_id]
 
 
-def _get_project_fan_out_rows(
+def _extract_rows(body: Any, data_key: str | None, single_object: bool = False) -> list[dict[str, Any]]:
+    rows = body if data_key is None else (body.get(data_key) if isinstance(body, dict) else None)
+    if single_object and isinstance(rows, dict):
+        return [rows]
+    return rows if isinstance(rows, list) else []
+
+
+def _list_org_groups(client: InfisicalClient, organization_id: str) -> list[dict[str, Any]]:
+    """List the configured org's groups.
+
+    ``/api/v1/groups`` is scoped by the access token's org, not a path parameter, so filter on
+    ``orgId`` for the same reason as ``_list_org_projects``.
+    """
+    groups = _extract_rows(client.get("/api/v1/groups").json(), None)
+    return [g for g in groups if g.get("orgId") == organization_id]
+
+
+def _check_fan_out_budget(deadline: float, config_name: str) -> None:
+    if time.monotonic() > deadline:
+        raise InfisicalFanOutBudgetExceededError(
+            f"Infisical fan-out for {config_name} exceeded its {MAX_FAN_OUT_SECONDS}s "
+            f"budget before finishing all parents; aborting the sync"
+        )
+
+
+def _get_fan_out_child_pages(
+    client: InfisicalClient,
+    config: InfisicalEndpointConfig,
+    path: str,
+    params: dict[str, Any],
+    fan_out_deadline: float,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    if not config.paginated:
+        _check_fan_out_budget(fan_out_deadline, config.name)
+        rows = _extract_rows(client.get(path, params).json(), config.data_key, config.single_object)
+        if rows:
+            yield rows
+        return
+
+    offset = 0
+    for page in range(MAX_PAGES):
+        _check_fan_out_budget(fan_out_deadline, config.name)
+        page_params = {**params, "limit": config.page_limit, "offset": offset, **config.extra_params}
+        rows = _extract_rows(client.get(path, page_params).json(), config.data_key)
+        if not rows:
+            break
+
+        yield rows
+
+        offset += len(rows)
+        if len(rows) < config.page_limit:
+            break
+
+        if page == MAX_PAGES - 1:
+            logger.warning(f"Infisical: hit MAX_PAGES={MAX_PAGES} for {config.name} at {path}, stopping pagination")
+
+
+def _get_fan_out_rows(
     client: InfisicalClient,
     config: InfisicalEndpointConfig,
     organization_id: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    projects = _list_org_projects(client, organization_id)
-    if len(projects) > MAX_FAN_OUT_PROJECTS:
-        # base_url is customer-controlled, so a hostile host could return far more projects than
+    if config.fan_out_over == "groups":
+        parents = _list_org_groups(client, organization_id)
+        placeholder = "{group_id}"
+    elif config.fan_out_over == "environments":
+        parents = [
+            {**env, "projectId": project["id"]}
+            for project in _list_org_projects(client, organization_id)
+            if project.get("id")
+            for env in project.get("environments") or []
+            if isinstance(env, dict)
+        ]
+        placeholder = "{environment_id}"
+    else:
+        parents = _list_org_projects(client, organization_id)
+        if config.fan_out_project_type:
+            parents = [p for p in parents if p.get("type") == config.fan_out_project_type]
+        placeholder = "{project_id}"
+
+    if len(parents) > MAX_FAN_OUT_PARENTS:
+        # base_url is customer-controlled, so a hostile host could return far more parents than
         # any real org has to fan the sync out into unbounded requests. Cap it.
         logger.warning(
-            f"Infisical: {len(projects)} projects for {config.name} exceeds "
-            f"MAX_FAN_OUT_PROJECTS={MAX_FAN_OUT_PROJECTS}; capping fan-out"
+            f"Infisical: {len(parents)} {config.fan_out_over} for {config.name} exceeds "
+            f"MAX_FAN_OUT_PARENTS={MAX_FAN_OUT_PARENTS}; capping fan-out"
         )
-        projects = projects[:MAX_FAN_OUT_PROJECTS]
+        parents = parents[:MAX_FAN_OUT_PARENTS]
 
-    # The count cap bounds how many projects we fan out over, but not how long each one takes:
-    # a hostile host can drain every membership response's full deadline. Bound total wall-clock
+    # The count cap bounds how many parents we fan out over, but not how long each one takes:
+    # a hostile host can drain every child response's full deadline. Bound total wall-clock
     # across the loop (retries included) and abort rather than truncate, so a slow host can't
     # hold the worker for the activity's lifetime. Checked before each request; the in-flight
     # request may overrun by at most one response deadline, which is already bounded elsewhere.
     fan_out_deadline = time.monotonic() + MAX_FAN_OUT_SECONDS
 
-    for project in projects:
-        if time.monotonic() > fan_out_deadline:
-            raise InfisicalFanOutBudgetExceededError(
-                f"Infisical project fan-out for {config.name} exceeded its {MAX_FAN_OUT_SECONDS}s "
-                f"budget before finishing all {len(projects)} projects; aborting the sync"
-            )
+    any_parent_read = False
+    last_forbidden: requests.HTTPError | None = None
+    for parent in parents:
+        _check_fan_out_budget(fan_out_deadline, config.name)
 
-        project_id = project.get("id")
-        if not project_id:
+        parent_id = parent.get("id")
+        if not parent_id:
             continue
 
-        path = config.path.replace("{project_id}", quote(str(project_id), safe=""))
+        path = config.path.replace(placeholder, quote(str(parent_id), safe=""))
+        if config.fan_out_over == "environments":
+            path = path.replace("{project_id}", quote(str(parent["projectId"]), safe=""))
+        params: dict[str, Any] = {config.parent_id_param: parent_id} if config.parent_id_param else {}
+        yielded = False
         try:
-            rows = client.get(path).json().get(config.data_key) or []
+            for rows in _get_fan_out_child_pages(client, config, path, params, fan_out_deadline, logger):
+                if config.parent_id_field:
+                    rows = [{**row, config.parent_id_field: parent_id} for row in rows]
+                yielded = True
+                yield rows
+            any_parent_read = True
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
-            # The machine identity's project grants are per-project, and a project can be
-            # deleted between enumeration and this fetch. Skip rather than failing the sync.
-            if status in (403, 404):
-                logger.warning(f"Infisical: skipping project {project_id} {config.name} (status={status})")
+            # The machine identity's grants are per-project, and a parent can be deleted
+            # between enumeration and this fetch. Skip rather than failing the sync, unless
+            # pages were already yielded: skipping then would leave a partial parent behind.
+            if status in (403, 404) and not yielded:
+                if status == 403:
+                    last_forbidden = exc
+                logger.warning(f"Infisical: skipping {parent_id} for {config.name} (status={status})")
                 continue
             raise
 
-        if rows:
-            yield rows
+    # Every parent forbidden means the identity lacks the permission outright. Fail rather than
+    # report an empty full refresh as a success.
+    if last_forbidden is not None and not any_parent_read:
+        raise last_forbidden
 
 
 def get_rows(
@@ -681,8 +777,8 @@ def get_rows(
     client = InfisicalClient(normalized, client_id, client_secret, logger)
     organization_id = organization_id.strip()
 
-    if config.fan_out_over_projects:
-        yield from _get_project_fan_out_rows(client, config, organization_id, logger)
+    if config.fan_out_over:
+        yield from _get_fan_out_rows(client, config, organization_id, logger)
         return
 
     if endpoint == "projects":
@@ -709,7 +805,15 @@ def get_rows(
         yield from _get_offset_paginated_rows(client, config, organization_id, resumable_source_manager, logger)
         return
 
-    rows = client.get(_format_path(config.path, organization_id)).json().get(config.data_key) or []
+    rows = _extract_rows(client.get(_format_path(config.path, organization_id)).json(), config.data_key)
+    if config.filter_by_org_id:
+        scoped = [row for row in rows if row.get("orgId") == organization_id]
+        if len(scoped) != len(rows):
+            logger.warning(
+                f"Infisical: dropped {len(rows) - len(scoped)} {config.name} rows from another org "
+                f"(configured org={organization_id})"
+            )
+        rows = scoped
     if rows:
         yield rows
 
@@ -742,7 +846,7 @@ def infisical_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=endpoint_config.primary_keys,
         # The audit log has no sort param and returns newest-first (verified against the
         # open-source server, which orders by createdAt DESC), so desc — the pipeline then
         # persists the incremental watermark only at successful job end. Every incremental

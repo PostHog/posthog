@@ -148,7 +148,7 @@ def _run_passthrough_aliases() -> str:
 
 def build_query(
     *,
-    jobs_table: str,
+    jobs_table: workflow_jobs.JobsTable,
     runs_table: str,
     include_run_columns: bool = False,
     created_floor: bool = False,

@@ -11,6 +11,7 @@ import { SpaceFeedControls } from './SpaceFeedControls'
 import { SPACE_FEED_TYPES, SpaceFeedType } from './spaceFeedEntries'
 import { SpaceFeedListRow } from './SpaceFeedListRow'
 import { SpaceFeedPullRequestRow } from './SpaceFeedPullRequestRow'
+import { SpaceFeedSelectionBar } from './SpaceFeedSelectionBar'
 import { SpaceFeedSkeleton } from './SpaceFeedSkeleton'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { SpaceFeedWelcome } from './SpaceFeedWelcome'
@@ -52,6 +53,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         // No gap: the cards' own margins and the separators' padding space the feed, like PostHog Desktop.
         <div className="flex flex-col">
             <SpaceFeedControls sourceOptions={feedSourceOptions} />
+            <SpaceFeedSelectionBar spaceId={id} />
             {feedStatus.sessions === 'failed' && (
                 <div className="flex flex-col items-start gap-2 px-2 pt-4">
                     <Text size="sm" variant="muted">
@@ -174,6 +176,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             return listRows ? (
                                 <div key={entry.key} className={rowClassName}>
                                     <SpaceFeedListRow
+                                        spaceId={id}
                                         task={task}
                                         pinned={pinnedIds.has(task.id)}
                                         unread={unreadSessionIds.has(task.id)}
@@ -182,6 +185,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             ) : (
                                 <SpaceFeedCard
                                     key={entry.key}
+                                    spaceId={id}
                                     task={task}
                                     pinned={pinnedIds.has(task.id)}
                                     unread={unreadSessionIds.has(task.id)}

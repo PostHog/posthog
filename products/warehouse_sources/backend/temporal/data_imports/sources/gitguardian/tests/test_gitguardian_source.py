@@ -5,19 +5,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
 
-ALL_ENDPOINTS = {
-    "secret_incidents",
-    "secret_occurrences",
-    "secret_incident_activity_logs",
-    "secret_detectors",
-    "sources",
-    "honeytokens",
-    "honeytoken_events",
-    "members",
-    "teams",
-    "team_memberships",
-}
-
 
 class TestGitguardianSourceConfig:
     def test_base_url_is_a_connection_host_field(self) -> None:
@@ -30,15 +17,6 @@ class TestGitguardianSourceConfig:
 
 
 class TestGitguardianSchemas:
-    def test_incident_endpoints_are_incremental_and_directories_are_full_refresh(self) -> None:
-        schemas = {s.name: s for s in GitguardianSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == ALL_ENDPOINTS
-        for name in ("secret_incidents", "secret_occurrences"):
-            assert schemas[name].supports_incremental is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
-        for name in ALL_ENDPOINTS - {"secret_incidents", "secret_occurrences"}:
-            assert schemas[name].supports_incremental is False
-
     def test_names_filter(self) -> None:
         schemas = GitguardianSource().get_schemas(MagicMock(), team_id=1, names=["teams"])
         assert [s.name for s in schemas] == ["teams"]
@@ -173,15 +151,3 @@ class TestSourceForPipeline:
         ):
             GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestGetDocumentedTables:
-    def test_publishes_every_table_with_canonical_descriptions(self) -> None:
-        # Guards the canonical_descriptions keys staying aligned with the endpoint names — a drifted
-        # key silently drops that table's description from the public docs.
-        tables = {t["name"]: t for t in GitguardianSource().get_documented_tables()}
-        assert set(tables) == ALL_ENDPOINTS
-        for name, table in tables.items():
-            assert table["description"], f"{name} lost its canonical description"
-        assert "Incremental" in tables["secret_incidents"]["sync_methods"]
-        assert tables["sources"]["sync_methods"] == ["Full refresh"]

@@ -7,6 +7,8 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
@@ -52,7 +54,7 @@ function ReviewRow({
                     {error}
                 </LemonButton>
             ))}
-            <div>{children}</div>
+            <div className="flex flex-col gap-2">{children}</div>
         </div>
     )
 }
@@ -68,7 +70,11 @@ export function BroadcastReviewStep(): JSX.Element {
         emailRateLimit,
         rateLimitedSendDuration,
         stepValidationErrors,
+        emailSettings,
+        missingRecipientEmail,
     } = useValues(broadcastWizardLogic)
+    const { categories } = useValues(optOutCategoriesLogic())
+    const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
@@ -118,6 +124,14 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <div className="text-muted text-xs">No filters. This broadcast goes to everyone.</div>
                     )}
+                    {category && (
+                        <div className="text-xs text-secondary">
+                            Message category: {category.name}
+                            {category.category_type === 'transactional'
+                                ? '. Sent even to people who unsubscribed.'
+                                : '. People who unsubscribed from it are skipped.'}
+                        </div>
+                    )}
                 </ReviewRow>
 
                 <ReviewRow label="Goal" step="goal">
@@ -133,6 +147,11 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Email" step="content">
+                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
+                    {!emailSettings.trackingEnabled && (
+                        <div className="text-xs text-secondary">Open and click tracking is off.</div>
+                    )}
+                    {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
                     <BroadcastEmailPreview />
                 </ReviewRow>
 

@@ -72,7 +72,7 @@ deny:
                 - 'k8s'
                 - 'dockerfile'
                 - 'docker-compose'
-                - '\.github/workflows'
+                - '\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)'
                 - '\.github/pr-deploy'
                 - 'iam'
                 - 'cloudflare'
@@ -80,6 +80,15 @@ deny:
                 - 'waf'
                 - '(?:^|/)bin/deploy'
                 - 'deploy\.sh'
+    ci_workflows:
+        description: 'GitHub Actions and Depot CI workflows.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that CODEOWNERS assigns to team-security, and it exempts nobody, so those stay denied for every author.'
+        match:
+            paths:
+                - '\.github/workflows'
+                - '\.depot/workflows'
+        exempt_author_teams:
+            - 'team-devex'
     billing:
         description: 'Payments and billing.'
         rationale: 'subscription is excluded on purpose: in this repo it means scheduled insight/report deliveries, not payments. Real billing surfaces still match via the other words.'
@@ -158,7 +167,21 @@ deny:
                 - '^docs/published/handbook/engineering/type-system\.md$'
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
-                - '^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|reverse_accessors)\.py$'
+                - '^tools/hogli-commands/hogli_commands/product/'
+    workflows_delivery:
+        description: 'CDP, Workflows and Messaging code that decides which customer configurations exist and what gets delivered.'
+        rationale: "Owner-only: stamphog approves team-workflows' own changes here and refuses everyone else's. Another team's change here breaks a customer silently: the API and models decide which of a tenant's rows get listed and updated, and the plugin-server worker decides what gets delivered. Teams usually edit these paths to carve out an exception for their own rows, their tests still pass, and existing customer configurations stop appearing or stop being delivered. Product frontends stay out, because a mistake there is visible. As in CODEOWNERS, only the API test directories and `*.test.ts` files stay out. Nothing else under the worker does: the template, legacy-plugin, legacy-webhook and segment directories hold live delivery code and mutable registries."
+        match:
+            paths:
+                - '^products/cdp/backend/(api|models)/'
+                - '^products/workflows/backend/(facade|presentation|models)/'
+                - '^products/messaging/backend/(api|models)/'
+                - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
+        exempt_path_prefixes:
+            - 'products/cdp/backend/api/test/'
+            - 'products/messaging/backend/api/test/'
+        exempt_author_teams:
+            - 'team-workflows'
 allow:
     path_patterns:
         - 'docs/'

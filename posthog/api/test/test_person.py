@@ -28,7 +28,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-import posthog.models.person.deletion
+import posthog.models.person.divergence
 from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
@@ -733,7 +733,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        self.assertEqual([(1, 1, "{}")], ch_persons)
         # No async deletion is scheduled
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute(
@@ -744,7 +744,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("postgres_delete_fails", "posthog.models.person.bulk_delete.delete_persons_from_postgres", 503, False),
+            ("postgres_tombstone_fails", "posthog.models.person.bulk_delete.tombstone_persons_in_postgres", 503, False),
             ("activity_log_fails", "posthog.models.person.bulk_delete.bulk_log_activity", 202, True),
         ]
     )
@@ -759,7 +759,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected_status == 503:
             data = response.json()
             self.assertEqual(data["code"], "person_deletion_failed")
-            self.assertIn("delete_postgres", data["detail"])
+            self.assertIn("tombstone_postgres", data["detail"])
 
     @parameterized.expand(
         [
@@ -799,7 +799,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        self.assertEqual([(1, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
@@ -846,7 +846,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        self.assertEqual([(1, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
@@ -893,7 +893,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        self.assertEqual([(1, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
         async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
@@ -938,7 +938,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        self.assertEqual([(1, 1, "{}")], ch_persons)
         # No async deletion is scheduled
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute(
@@ -1144,9 +1144,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["person_uuid"], str(person1.uuid))
 
-    @mock.patch("posthog.models.person.bulk_delete.delete_person")
-    def test_bulk_delete_partial_failure(self, mock_delete_person):
-        """Test that bulk_delete continues when a single person fails to delete and reports errors"""
+    @mock.patch("posthog.models.person.util.publish_person_tombstone")
+    def test_bulk_delete_partial_publish_failure_reports_the_person_and_still_counts_it_deleted(self, mock_publish):
         person1 = _create_person(
             team=self.team,
             distinct_ids=["person_1"],
@@ -1158,8 +1157,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        # Make delete_person fail on the first person, succeed on the second
-        mock_delete_person.side_effect = [Exception("DB connection lost"), None]
+        mock_publish.side_effect = [Exception("Kafka produce failed"), []]
 
         response = self.client.post(
             f"/api/person/bulk_delete/",
@@ -1169,17 +1167,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         data = response.json()
         self.assertEqual(data["persons_found"], 2)
-        self.assertEqual(data["persons_deleted"], 1)
+        # Both Postgres tombstones landed; the failed publish is reported, not counted as a missed delete.
+        self.assertEqual(data["persons_deleted"], 2)
         self.assertEqual(len(data["deletion_errors"]), 1)
         self.assertEqual(data["deletion_errors"][0]["person_uuid"], str(person1.uuid))
-        self.assertEqual(data["deletion_errors"][0]["step"], "tombstone_clickhouse")
+        self.assertEqual(data["deletion_errors"][0]["step"], "publish_clickhouse_tombstone")
         self.assertNotIn("detail", data["deletion_errors"][0])
 
     @mock.patch(
-        "posthog.models.person.bulk_delete.delete_persons_from_postgres",
+        "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
         side_effect=Exception("DB connection lost"),
     )
-    def test_bulk_delete_total_failure_reports_every_person(self, _mock_delete_from_postgres):
+    def test_bulk_delete_total_failure_reports_every_person(self, _mock_tombstone):
         person1 = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
         person2 = _create_person(team=self.team, distinct_ids=["person_2"], immediate=True)
 
@@ -1193,7 +1192,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             sorted(error["person_uuid"] for error in data["deletion_errors"]),
             sorted([str(person1.uuid), str(person2.uuid)]),
         )
-        self.assertEqual({error["step"] for error in data["deletion_errors"]}, {"delete_postgres"})
+        self.assertEqual({error["step"] for error in data["deletion_errors"]}, {"tombstone_postgres"})
         self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(person1.uuid)))
         self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(person2.uuid)))
 
@@ -2126,6 +2125,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("junk_limit", "limit=not-a-number"),
+            ("junk_offset", "offset=not-a-number"),
+        ]
+    )
+    def test_list_rejects_non_integer_pagination_params(self, _name: str, query: str):
+        response = self.client.get(f"/api/person/?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_csv_export(self):
         _create_person(
             team=self.team,
@@ -2389,8 +2399,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert person_after.version is not None and person_after.version > 105
 
     @mock.patch(
-        f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
-        wraps=posthog.models.person.deletion.create_person_distinct_id,
+        f"{posthog.models.person.divergence.__name__}.create_person_distinct_id",
+        wraps=posthog.models.person.divergence.create_person_distinct_id,
     )
     @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
@@ -2668,6 +2678,23 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         PropertyAccessControl.objects.create(
             team=self.team, property_definition=restricted, access_level=PropertyAccessLevel.NONE.value
         )
+
+    @mock.patch(f"{posthog.models.person.divergence.__name__}.capture_internal")
+    def test_reset_does_not_copy_a_restricted_property_into_an_event(self, capture: mock.MagicMock) -> None:
+        person = create_person(team=self.team, properties={"email": "pg@example.com"}, version=5, uuid=str(uuid4()))
+        add_distinct_id(person=person, distinct_id="target", version=0)
+        create_person_in_ch(
+            uuid=str(person.uuid), team_id=self.team.pk, version=10, properties={"email": "ch@example.com", "ssn": "1"}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "target"}
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        capture.assert_not_called()
+        person_after = get_person_by_uuid(self.team.pk, str(person.uuid))
+        assert person_after is not None and person_after.version == 5
 
     @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
     def test_batch_endpoint_strips_restricted_person_properties(self, action: str) -> None:

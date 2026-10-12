@@ -159,7 +159,6 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
-            "The DNS query name does not exist": None,
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
@@ -208,6 +207,9 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # match the marker rather than the topology suffix, which a reachable-but-down cluster
             # emits too. A name that does not resolve stays unresolved until the user fixes it.
             **dict.fromkeys(_DNS_NAME_NOT_FOUND_MARKERS, _MONGO_HOST_UNRESOLVED_MESSAGE),
+            # The same answer for a mongodb+srv:// URI, whose SRV lookup fails before pymongo picks a
+            # server. The raw dnspython text echoes the cluster host, so it never reaches the customer.
+            _SRV_DNS_NAME_NOT_FOUND_MARKER: _MONGO_HOST_UNRESOLVED_MESSAGE,
             # pymongo removes every server whose replica set name differs from the `replicaSet` the
             # connection string asks for, which empties the topology and names the set rather than a
             # host in the selection error. A cluster that is merely down keeps its servers as Unknown
@@ -448,7 +450,6 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         # The `_id` checkpoint covers only a full refresh. An incremental or append run restarts from

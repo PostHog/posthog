@@ -40,7 +40,7 @@ class DailyBriefing(ProductTeamModel):
                 condition=models.Q(status__in=["collecting", "writing"]),
             ),
         ]
-        # One run per day at a time: two requests that both find no briefing must not both start a sandbox.
+        # One run per day at a time: two requests that both find no briefing must not both start a run.
         constraints = [
             models.UniqueConstraint(
                 fields=["team_id", "user_id", "local_day"],

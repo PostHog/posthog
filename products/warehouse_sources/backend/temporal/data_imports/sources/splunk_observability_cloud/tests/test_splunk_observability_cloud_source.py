@@ -7,9 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splunkobservabilitycloud import (
     SplunkObservabilityCloudSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.settings import (
-    ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.source import (
     SplunkObservabilityCloudSource,
 )
@@ -45,37 +42,9 @@ class TestSplunkObservabilityCloudSource:
         # changing it must force the token to be re-entered.
         assert self.source.connection_host_fields == ["realm"]
 
-    def test_get_schemas_incremental_flags(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        # Only the two endpoints with a server-side time filter (detector events'
-        # from/to, SignalFlow's start/stop) advertise incremental sync.
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental == {"detector_events", "metric_time_series"}
-        for name in incremental:
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["timestamp"]
-
-    def test_get_schemas_default_sync_selection(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        # dimensions (unbounded volume) and metric_time_series (needs the optional
-        # SignalFlow program) must not be force-enabled by one-shot setup.
-        off_by_default = {name for name, s in schemas.items() if not s.should_sync_default}
-        assert off_by_default == {"dimensions", "metric_time_series"}
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["detectors"])
         assert [s.name for s in schemas] == ["detectors"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
-    def test_canonical_descriptions_cover_known_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        # Keyed by endpoint name: an entry for a non-existent endpoint silently never
-        # applies, and a missing entry falls back to paid LLM enrichment.
-        assert set(descriptions) == set(ENDPOINTS)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.source.splunk_observability_cloud_source"

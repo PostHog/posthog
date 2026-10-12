@@ -10,7 +10,7 @@ export function MetricTestsTabLabel({ metricId }: { metricId: string }): JSX.Ele
 
     return (
         <span className="flex items-center gap-1">
-            Tests{failing > 0 && <LemonTag type="danger">{failing} failing</LemonTag>}
+            Data quality{failing > 0 && <LemonTag type="danger">{failing} failing</LemonTag>}
         </span>
     )
 }

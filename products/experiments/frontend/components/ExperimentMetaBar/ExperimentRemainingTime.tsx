@@ -17,22 +17,16 @@ export function ExperimentRemainingTime({
     experiment: Experiment
     onConfigure: () => void
 }): JSX.Element {
-    const {
-        remainingDays,
-        currentExposures,
-        targetSampleSize,
-        isComplete,
-        isManualMode,
-        primaryMetricsResultsLoading,
-    } = useValues(runningTimeLogic({ experiment }))
+    const { remainingDays, currentExposures, targetSampleSize, isComplete, isCalculating } = useValues(
+        runningTimeLogic({ experiment })
+    )
 
     const launched = isLaunched(experiment)
-    const isLoading = primaryMetricsResultsLoading && !isManualMode
     const showProgress = currentExposures !== null && targetSampleSize !== null
     const days = remainingDays === null ? null : Math.ceil(remainingDays)
 
     let content: JSX.Element
-    if (isLoading) {
+    if (isCalculating) {
         content = <span className="text-secondary">Calculating…</span>
     } else if (days === null) {
         content = <span className="text-secondary">{launched ? 'Duration pending' : 'Duration not estimated'}</span>

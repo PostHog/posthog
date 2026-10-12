@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.today.backend.logic.generate import ATTEMPTS
 from products.today.backend.temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, MarkFailedInputs
 from products.today.backend.temporal.workflows import GenerateTodayBriefingWorkflow
 
@@ -22,15 +23,17 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 
 
 @pytest.mark.asyncio
-async def test_an_agent_failure_marks_the_briefing_failed_once(environment: WorkflowEnvironment) -> None:
+async def test_a_failing_attempt_is_retried_then_marks_the_briefing_failed_once(
+    environment: WorkflowEnvironment,
+) -> None:
     attempts = 0
     marked_failed: list[MarkFailedInputs] = []
 
     @activity.defn(name="run_agent_activity")
-    async def run_agent(inputs: GenerateBriefingInputs) -> None:
+    async def write_briefing(inputs: GenerateBriefingInputs) -> None:
         nonlocal attempts
         attempts += 1
-        raise ApplicationError("The agent finished without storing the briefing.")
+        raise ApplicationError("The LLM reply was not a briefing.")
 
     @activity.defn(name="mark_failed_activity")
     async def mark_failed(inputs: MarkFailedInputs) -> None:
@@ -40,7 +43,7 @@ async def test_an_agent_failure_marks_the_briefing_failed_once(environment: Work
         environment.client,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         workflows=[GenerateTodayBriefingWorkflow],
-        activities=[run_agent, mark_failed],
+        activities=[write_briefing, mark_failed],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         await environment.client.execute_workflow(
@@ -50,6 +53,5 @@ async def test_an_agent_failure_marks_the_briefing_failed_once(environment: Work
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
-    # One attempt: a retry would start a second sandbox for the same briefing.
-    assert attempts == 1
-    assert [failed.error for failed in marked_failed] == ["The agent finished without storing the briefing."]
+    assert attempts == ATTEMPTS
+    assert [failed.error for failed in marked_failed] == ["The LLM reply was not a briefing."]
