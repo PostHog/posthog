@@ -9614,6 +9614,13 @@ export const BIAggregationApi = {
     Custom: 'custom',
 } as const
 
+export type ShelfApi = (typeof ShelfApi)[keyof typeof ShelfApi]
+
+export const ShelfApi = {
+    Rows: 'rows',
+    Columns: 'columns',
+} as const
+
 export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
 
 export const BITableCalculationTypeApi = {
@@ -9642,6 +9649,8 @@ export interface BIValueApi {
     field: BIFieldApi
     formatting?: ChartSettingsFormattingApi | null
     label?: string | null
+    /** Measures in older worksheets belong to rows. */
+    shelf?: ShelfApi | null
     tableCalculation?: BITableCalculationApi | null
 }
 

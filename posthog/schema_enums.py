@@ -722,6 +722,11 @@ class BITableCalculationType(StrEnum):
     RANK = "rank"
 
 
+class Shelf(StrEnum):
+    ROWS = "rows"
+    COLUMNS = "columns"
+
+
 class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"

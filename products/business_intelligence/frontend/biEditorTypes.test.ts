@@ -309,6 +309,12 @@ describe('BI editor query generation', () => {
                     filters: { dateRange: { date_from: 'all' } },
                 },
                 display: ChartDisplayType.ActionsBar,
+                chartSettings: {
+                    xAxis: { column: 'event' },
+                    yAxis: [{ column: 'sum_revenue' }],
+                    xAxisLabel: 'event',
+                    leftYAxisSettings: { label: 'SUM(revenue)' },
+                },
             },
         })
     })
@@ -368,6 +374,7 @@ describe('BI editor query generation', () => {
         expect(result.node.chartSettings).toEqual({
             xAxis: { column: 'bi_column_revenue' },
             xAxisLabel: 'revenue',
+            leftYAxisSettings: { label: 'Count of rows' },
             yAxis: [{ column: 'count' }],
             seriesBreakdownColumn: 'bi_row_browser',
             showLegend: true,

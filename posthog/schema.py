@@ -280,6 +280,7 @@ from posthog.schema_enums import (
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
+    Shelf as Shelf,
     SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlashCommandName as SlashCommandName,
@@ -5190,6 +5191,7 @@ class BIValue(BaseModel):
     field: BIField
     formatting: ChartSettingsFormatting | None = None
     label: str | None = None
+    shelf: Shelf | None = Field(default=None, description="Measures in older worksheets belong to rows.")
     tableCalculation: BITableCalculation | None = None
 
 

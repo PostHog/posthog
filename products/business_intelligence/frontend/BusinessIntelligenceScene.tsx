@@ -178,7 +178,11 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         ) : (
                             <div className="flex flex-1 items-center justify-center p-4 text-secondary">
                                 {worksheet.config.source
-                                    ? 'Press Run to see the results of this worksheet.'
+                                    ? worksheet.config.rows.length ||
+                                      worksheet.config.columns.length ||
+                                      worksheet.config.values.length
+                                        ? 'Press Run to see the results of this worksheet.'
+                                        : 'Drag a field to rows or columns to build your worksheet.'
                                     : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}

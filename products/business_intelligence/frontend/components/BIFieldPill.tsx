@@ -21,6 +21,8 @@ import {
 import { BIExpressionPopover } from 'products/business_intelligence/frontend/components/BIExpressionPopover'
 import { BIPill } from 'products/business_intelligence/frontend/components/BIPill'
 
+import { BIShelfDropTarget } from './BIShelfDropTarget'
+
 type ExpressionTarget = 'field' | 'aggregation'
 
 /** A dimension on rows or columns, or a measure from the values shelf. */
@@ -34,6 +36,7 @@ export function BIFieldPill({
     const { config, activeExpressionEditorId, activeExpressionEditorTarget, sortOptions } = useValues(biEditorLogic)
     const {
         addFieldToShelf,
+        convertMeasureToDimension,
         editCalculatedMeasure,
         moveFieldToShelf,
         removeFieldFromShelf,
@@ -97,6 +100,13 @@ export function BIFieldPill({
             : null,
         {
             items: [
+                isMeasure
+                    ? {
+                          label: value?.shelf === 'columns' ? 'Move to rows' : 'Move to columns',
+                          onClick: () =>
+                              moveFieldToShelf('values', index, value?.shelf === 'columns' ? 'rows' : 'columns'),
+                      }
+                    : null,
                 !isCalculatedMeasure ? { label: 'Edit field expression', onClick: () => setEditing('field') } : null,
                 value?.aggregation === 'custom'
                     ? { label: 'Edit calculated measure', onClick: () => editCalculatedMeasure(index) }
@@ -123,7 +133,7 @@ export function BIFieldPill({
                     ? {
                           label: 'Convert to dimension',
                           disabledReason: isCalculatedMeasure ? 'Calculated measures aggregate each group' : undefined,
-                          onClick: () => moveFieldToShelf('values', index, 'rows'),
+                          onClick: () => convertMeasureToDimension(index),
                       }
                     : { label: 'Convert to measure', onClick: () => moveFieldToShelf(shelf, index, 'values') },
                 !isMeasure
@@ -161,7 +171,7 @@ export function BIFieldPill({
                 }
             }}
         >
-            <span className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
+            <BIShelfDropTarget shelf={shelf} index={index} className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
                 <LemonMenu items={items} placement="bottom-start">
                     <BIPill
                         kind={isMeasure ? 'measure' : 'dimension'}
@@ -173,7 +183,7 @@ export function BIFieldPill({
                         data-attr={`bi-editor-${shelf}-pill`}
                     />
                 </LemonMenu>
-            </span>
+            </BIShelfDropTarget>
         </BIExpressionPopover>
     )
 }

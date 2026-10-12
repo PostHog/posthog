@@ -6529,6 +6529,11 @@
                 "label": {
                     "type": "string"
                 },
+                "shelf": {
+                    "description": "Measures in older worksheets belong to rows.",
+                    "enum": ["rows", "columns"],
+                    "type": "string"
+                },
                 "tableCalculation": {
                     "$ref": "#/definitions/BITableCalculation"
                 }
