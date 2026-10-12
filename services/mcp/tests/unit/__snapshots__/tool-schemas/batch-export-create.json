@@ -1210,7 +1210,7 @@
                     "type": "null"
                 }
             ],
-            "description": "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export."
+            "description": "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
         },
         "timezone": {
             "anyOf": [
