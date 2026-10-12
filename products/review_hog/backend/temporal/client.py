@@ -34,8 +34,8 @@ from typing import Any, cast
 from django.conf import settings
 
 from asgiref.sync import async_to_sync
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.client import WorkflowExecutionStatus, WorkflowQueryRejectedError
+from temporalio.common import QueryRejectCondition, RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team.team import Team
@@ -86,6 +86,28 @@ def probe_workflow(workflow_id: str, rpc_timeout: timedelta | None = None) -> Wo
     if description.status == WorkflowExecutionStatus.RUNNING:
         return WorkflowProbe.RUNNING
     return WorkflowProbe.NOT_RUNNING
+
+
+def queued_review_heads(workflow_id: str, rpc_timeout: timedelta | None = None) -> list[str | None]:
+    """The heads the PR's review queue still has to review. Empty when no queue runs.
+
+    Raises when Temporal does not answer, so a caller cannot read an outage as "nothing queued".
+    """
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        # async_to_sync erases query's overloads, so mypy binds the wrong one.
+        query = cast(Callable[..., Any], async_to_sync(handle.query))
+        heads: list[str | None] = query(
+            "requested_heads", reject_condition=QueryRejectCondition.NOT_OPEN, rpc_timeout=rpc_timeout
+        )
+    except WorkflowQueryRejectedError:
+        return []
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return []
+        raise
+    return list(heads)
 
 
 def workflow_running(workflow_id: str) -> bool:

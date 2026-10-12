@@ -94,6 +94,8 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
                     start_signal="request_review",
                     start_signal_args=[request],
                 )
+            # Stamphog reads the waiting heads from this query, because they exist only in the queue.
+            assert sorted(await handle.query("requested_heads")) == ["a", "c", "c"]
             release.set()
             assert await handle.result() == "report"
 

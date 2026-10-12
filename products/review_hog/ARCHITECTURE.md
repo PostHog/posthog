@@ -461,7 +461,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     suppress the publish or clobber a stranger's comment.
     **Reactions:** once a publishing turn passes every gate, the workflow puts a 👀 on the PR (`add_review_reaction_activity`) and removes it by the returned reaction id when the turn ends, on success, failure, or cancellation (the `finally` around the review stages).
     Both calls are fail-open and gated by the `reviewhog-pr-reactions-2026-10` patch.
-    Stamphog lists `posthog[bot]` in its trusted reviewer bots, so it waits while that 👀 is fresh.
+    The 👀 is a cue for people only. Stamphog reads the review state from `head_review_status.py` instead, which `receivers.connect()` registers through stamphog's `facade/review_status.py` (ReviewHog depends on stamphog, never the reverse).
+    It answers per head: pending while a request for the head waits in the queue (the queue workflow's `requested_heads` query) or a turn on the head runs, through its publish; completed with the kind, the valid findings count and the published flag; failed when the turn for the head failed; None for any other head or a repository no project owns.
     **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
     A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`).
     Status comments that earlier turns left on the PR stay as they are, and a Standard turn never refreshes them.
