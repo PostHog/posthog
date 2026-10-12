@@ -1885,7 +1885,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-frequency-cap',
                 title: 'Frequency cap',
                 description:
-                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Email, SMS, and push messages all count. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. Leave both fields empty to turn the cap off.',
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Email, SMS, and push messages all count. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. Messages that are not sent to a person, such as account broadcasts, are not capped either. Leave both fields empty to turn the cap off.',
                 component: <WorkflowsFrequencyCapSettings />,
                 keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
             },
