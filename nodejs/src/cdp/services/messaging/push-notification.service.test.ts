@@ -1052,7 +1052,7 @@ describe('PushNotificationService', () => {
                 expect(new Set(sentTokens()).size).toBe(2)
                 expect(mockValkeySet).toHaveBeenCalledWith(
                     expect.stringContaining('@posthog/apns-provider-jwt-refresh/'),
-                    '1',
+                    expect.any(String),
                     'EX',
                     1200,
                     'NX'
@@ -1079,6 +1079,7 @@ describe('PushNotificationService', () => {
                 const set = mockValkeySet.getMockImplementation()!
                 mockValkeySet.mockImplementation((key: string, ...rest: any[]) => {
                     if (key.includes('jwt-refresh')) {
+                        valkeyStore.set(key, String(Date.now()))
                         valkeyStore.set(jwtCacheKey, 'token-from-another-pod')
                         return null
                     }
@@ -1092,6 +1093,20 @@ describe('PushNotificationService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(sentTokens()[1]).toBe('bearer token-from-another-pod')
+            })
+
+            it('does not wait for a replacement when the refresh was claimed long ago', async () => {
+                const refreshKey = jwtCacheKey.replace('apns-provider-jwt/', 'apns-provider-jwt-refresh/')
+                valkeyStore.set(refreshKey, String(Date.now() - 5 * 60 * 1000))
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                const result = await send()
+
+                expect(result.error).toContain('InvalidProviderToken')
+                const cacheReads = mockValkey.useClient.mock.calls.filter(
+                    ([opts]: any) => opts.name === 'apns-jwt-read'
+                )
+                expect(cacheReads).toHaveLength(2)
             })
 
             it('signs no new tokens for a rejected key while Valkey is down', async () => {

@@ -84,6 +84,7 @@ const APNS_JWT_REFRESH_WINDOW_SECONDS = 20 * 60
 const APNS_REJECTED_TOKEN_CODES = new Set(['InvalidProviderToken', 'ExpiredProviderToken'])
 const APNS_JWT_REPLACEMENT_POLLS = 5
 const APNS_JWT_REPLACEMENT_POLL_MS = 100
+const APNS_JWT_FRESH_CLAIM_MS = 2000
 
 // Keeps a token another pod already put in place of the rejected one.
 const APNS_JWT_DROP_IF_REJECTED_SCRIPT = `
@@ -770,12 +771,19 @@ export class PushNotificationService {
         }
 
         // Fails closed: without Valkey a pod cannot tell whether the fleet already refreshed this key.
+        const refreshKey = `${APNS_JWT_REFRESH_PREFIX}${fingerprint}`
         const claimed = await this.valkey.useClient({ name: 'apns-jwt-refresh', failOpen: true }, (client) =>
-            client.set(`${APNS_JWT_REFRESH_PREFIX}${fingerprint}`, '1', 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS, 'NX')
+            client.set(refreshKey, String(Date.now()), 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS, 'NX')
         )
         if (claimed !== 'OK') {
-            // The pod that holds the claim can still be signing, so give its token a moment to appear.
-            for (let attempt = 0; attempt < APNS_JWT_REPLACEMENT_POLLS; attempt++) {
+            const claimedAtMs = Number(
+                await this.valkey.useClient({ name: 'apns-jwt-refresh-read', failOpen: true }, (client) =>
+                    client.get(refreshKey)
+                )
+            )
+            // Only a recent claim can still be signing. A key Apple keeps rejecting must not make every send wait.
+            const polls = Date.now() - claimedAtMs < APNS_JWT_FRESH_CLAIM_MS ? APNS_JWT_REPLACEMENT_POLLS : 0
+            for (let attempt = 0; attempt < polls; attempt++) {
                 await sleep(APNS_JWT_REPLACEMENT_POLL_MS)
                 const adopted = await this.readReplacementApnsJwt(cacheKey, rejectedJwt)
                 if (adopted) {
