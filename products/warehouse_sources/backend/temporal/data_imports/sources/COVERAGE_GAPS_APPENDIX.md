@@ -5446,12 +5446,13 @@ Today (8): `currencies`, `dividends`, `eod`, `exchanges`, `intraday`, `splits`, 
 
 Diffed against: <https://api.swaggerhub.com/apis/apilayer-863/MarketstackAPIv2/2.0.0/swagger.json>
 
-- [ ] `/tickerinfo` — Company profile/fundamentals per symbol - the lookup table that resolves the tickers we already sync (high)
+- [x] `/tickerinfo` — Company profile/fundamentals per symbol - the lookup table that resolves the tickers we already sync (high). Added as `tickerinfo` (one request per configured symbol, v2 only).
 - [ ] `/indexlist and /indexinfo` — Market index reference and metadata; benchmarking EOD prices against indices is a core use case (medium)
-- [ ] `/etfholdings` — Constituent breakdown per ETF, a genuine breakdown dimension (medium)
+- [ ] `/etfholdings` — Constituent breakdown per ETF, a genuine breakdown dimension (medium). Skipped for now: the spec documents `limit`/`offset` and a date range on a single-filing response with no pagination block, holdings carry no documented unique identifier, and each call costs 20x quota, so the row grain can't be pinned down without a live account.
 - [ ] `/commodities and /commoditieshistory` — Commodity price time series alongside the equity EOD series (medium)
-- [ ] `/companyratings` — Analyst ratings per ticker, a common join onto price history (medium)
-- [ ] `/company_facts and /submissions` — SEC filing facts and submission history keyed by CIK, for fundamentals analysis (medium)
+- [x] `/companyratings` — Analyst ratings per ticker, a common join onto price history (medium). Added as `companyratings` (one row per analyst rating, one request per configured symbol paced to the endpoint's one-call-per-minute limit, v2 only).
+- [x] `/submissions` — SEC submission history keyed by CIK, for fundamentals analysis (medium). Added as `submissions` (one row per recent filing, one request per configured CIK code, v2 only).
+- [ ] `/company_facts` — SEC XBRL filing facts keyed by CIK, for fundamentals analysis (medium). Skipped for now: facts are nested under dynamic taxonomy/concept/unit keys with no unique fact identifier, and the documented `limit`/`offset` don't say what they page over on a single-company response.
 - [ ] `/bondlist and /bond` — Bond reference and pricing data for fixed-income coverage (low)
 - [ ] `/etflist` — Lookup table of ETFs that etfholdings rows reference (low)
 
