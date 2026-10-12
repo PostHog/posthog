@@ -73,11 +73,10 @@ def _script(
             if not token_queue:
                 raise UnexpectedRequest(f"no token answer left for {request.url}")
             return token_queue.pop(0)
-        if callable(gets):
-            return gets(request)
-        if get_queue is None:
-            assert isinstance(gets, ScriptedResponse)
+        if isinstance(gets, ScriptedResponse):
             return gets
+        if get_queue is None:
+            return gets(request)
         if not get_queue:
             raise UnexpectedRequest(f"no answer left for {request.method} {request.url}")
         return get_queue.pop(0)
