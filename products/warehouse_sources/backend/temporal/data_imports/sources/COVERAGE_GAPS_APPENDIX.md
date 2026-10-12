@@ -5273,14 +5273,14 @@ Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-
 
 ## LogzIO — **thin**
 
-Today (5): `alerts`, `drop_filters`, `notification_endpoints`, `search_logs`, `triggered_alerts`
+Today (9): `alerts`, `audit_trail`, `drop_filters`, `notification_endpoints`, `search_logs`, `security_events`, `security_rules`, `triggered_alerts`, `users`
 
 Diffed against: <https://docs.logz.io/docs/logz/logz-io-api>
 
-- [ ] `POST /v2/security/rules/events/search (Fetch security events)` — SIEM detection events — the main analytical output of the security product (high)
-- [ ] `POST /v2/security/rules/search (Retrieve security rules)` — lookup resolving the rule ids on every security event (high)
-- [ ] `GET/POST audit trail (Retrieve audit trail / List account audit trails)` — who changed what in the account, a standard warehouse audit dataset (high)
-- [ ] `GET /v1/user-management/users (Retrieve all users)` — lookup resolving user ids on alerts, audit rows and triggered alerts (high)
+- [x] `POST /v2/security/rules/events/search (Fetch security events)` — SIEM detection events — the main analytical output of the security product (`security_events`)
+- [x] `POST /v2/security/rules/search (Retrieve security rules)` — lookup resolving the rule ids on every security event (`security_rules`)
+- [x] `POST /v1/audit-trail (Retrieve a filtered list of audit trail events)` — who changed what in the account, a standard warehouse audit dataset (`audit_trail`)
+- [x] `GET /v1/user-management (Retrieve all users)` — lookup resolving user ids on alerts, audit rows and triggered alerts (`users`)
 - [ ] `POST /v1/security/rules/events/logs/search (Logs that triggered a security event)` — drills a detection down to the underlying log lines (medium)
 - [ ] `GET /v1/insights (Get the list of Insights)` — Cognitive Insights findings, an analytical product surface (medium)
 - [ ] `POST lookup lists search + lookup list elements search` — literal lookup tables used to enrich logs and alerts (medium)
