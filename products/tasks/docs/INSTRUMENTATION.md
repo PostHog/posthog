@@ -180,6 +180,21 @@ Additional properties:
 | `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
 | `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
 
+A failure reported through the run PATCH path carries the cause that the caller sent in `error_type`.
+The value is `agent_reported` when the caller sent no cause or sent one that `TASK_RUN_FAILURE_ERROR_TYPES` does not list.
+
+| `error_type`          | Cause                                                     |
+| --------------------- | --------------------------------------------------------- |
+| `agent_server_crash`  | The agent server process crashed                          |
+| `agent_declined`      | The agent called the finish tool with a failed status     |
+| `output_parse_failed` | The caller could not parse or validate the agent's output |
+| `poll_timeout`        | The caller's poll budget ran out before the turn ended    |
+| `pi_runtime_error`    | The pi runtime reported a turn error                      |
+
+The agent server also sends its own classification of the error that ended the turn:
+`upstream_stream_terminated`, `upstream_connection_error`, `upstream_timeout`, `upstream_provider_failure`, `upstream_request_rejected`, `content_block_rejection`, `turn_ended_without_response`, `subscription_usage_limit`, `task_spend_limit` or `agent_error`.
+`AgentErrorClassification` in `packages/agent/packages/agent/src/adapters/error-classification.ts` defines these values.
+
 ## Loop Fire Metrics
 
 Source: `products/tasks/backend/metrics.py`, emitted from `products/tasks/backend/logic/services/loop_runs.py::fire_loop`.
