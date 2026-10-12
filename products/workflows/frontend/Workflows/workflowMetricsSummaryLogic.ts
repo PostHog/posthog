@@ -119,6 +119,9 @@ export type EmailMetric =
     | 'email_untracked'
     | 'email_suspended'
     | 'email_paused'
+    // Emitted by the project-wide marketing frequency cap. Not email-prefixed because the same
+    // metric name covers SMS and push steps; this table only reads it for email steps.
+    | 'message_frequency_capped'
 
 // The bounce rollup's per-type rows. They are fetched and shown as a breakdown of Bounced rather
 // than as metrics of their own, so they stay out of `EmailMetric`, whose keys are enumerated to
@@ -154,6 +157,8 @@ export type EmailMetricRow = {
     bouncedSoft: number
     bouncedUnknown: number
     bouncePrevented: number
+    // Sends skipped because the person already reached the project's marketing frequency cap.
+    frequencyCapped: number
     // Spam complaints. Stored under the email_blocked metric name for continuity with
     // historical data (see the SES webhook handler's Complaint mapping).
     markedAsSpam: number
@@ -196,6 +201,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Link clicked': getColorVar('data-color-5'),
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
+    'Frequency capped': getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
     Suspended: getColorVar('data-color-11'),
@@ -302,6 +308,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: METRIC_COLORS['Bounce prevented'],
         metricNames: ['email_bounce_prevented'],
     },
+    message_frequency_capped: {
+        name: 'Frequency capped',
+        description:
+            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
+        color: METRIC_COLORS['Frequency capped'],
+        metricNames: ['message_frequency_capped'],
+    },
     email_blocked: {
         name: 'Marked as spam',
         description:
@@ -384,6 +397,9 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     email_bounced_undetermined: { search: 'Undetermined bounce', levels: ['WARN'] },
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
+    // Frequency cap skips log "Skipping send: recipient reached the frequency cap." at INFO, so the
+    // search term has to be narrower than the bounce-prevented one to tell the two apart.
+    message_frequency_capped: { search: 'reached the frequency cap', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
     email_suspended: { search: 'Skipping send', levels: ['WARN'] },
@@ -432,6 +448,7 @@ const EMAIL_METRICS: EmailMetricName[] = [
     'email_untracked',
     'email_suspended',
     'email_paused',
+    'message_frequency_capped',
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
@@ -1537,6 +1554,7 @@ export function buildEmailMetricRows(
             bouncedSoft: totals.email_bounced_transient ?? 0,
             bouncedUnknown: totals.email_bounced_undetermined ?? 0,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
+            frequencyCapped: totals.message_frequency_capped ?? 0,
             markedAsSpam,
             untracked,
             trackedSends: Math.max(0, sent - untracked),
