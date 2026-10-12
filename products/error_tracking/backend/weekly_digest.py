@@ -397,6 +397,58 @@ def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
     return [{"height_percent": int((v / max_val) * 100) if max_val > 0 else 0} for v in daily_counts]
 
 
+def get_issue_daily_occurrences(
+    team: Team, issue_ids: list[str], period_start: datetime.datetime, period_end: datetime.datetime
+) -> dict[str, list[int]]:
+    # Counts every occurrence, like the issue page, so test accounts are not filtered out.
+    from posthog.hogql import ast
+    from posthog.hogql.constants import HogQLGlobalSettings
+    from posthog.hogql.query import execute_hogql_query
+
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.workload import Workload
+
+    if not issue_ids:
+        return {}
+    day_count = max((period_end - period_start).days, 1)
+
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:issue_daily_occurrences")
+
+    # Day buckets count seconds from period_start, because HogQL converts timestamps to the
+    # project timezone and calendar-day functions would shift the buckets.
+    response = execute_hogql_query(
+        query="""
+            SELECT
+                toString(issue_id) AS issue,
+                intDiv(dateDiff('second', {period_start}, timestamp), 86400) AS day_index,
+                count() AS occurrences
+            FROM events
+            WHERE event = '$exception'
+            AND timestamp >= {period_start}
+            AND timestamp < {period_end}
+            AND toString(issue_id) IN {issue_ids}
+            GROUP BY issue, day_index
+            LIMIT {row_limit}
+        """,
+        team=team,
+        placeholders={
+            "period_start": ast.Constant(value=period_start),
+            "period_end": ast.Constant(value=period_end),
+            "issue_ids": ast.Constant(value=[str(issue_id) for issue_id in issue_ids]),
+            "row_limit": ast.Constant(value=len(issue_ids) * day_count),
+        },
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
+        settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
+    )
+
+    daily_by_issue = {str(issue_id): [0] * day_count for issue_id in issue_ids}
+    for issue, day_index, occurrences in response.results or []:
+        if issue in daily_by_issue and 0 <= day_index < day_count:
+            daily_by_issue[issue][day_index] = int(occurrences)
+    return daily_by_issue
+
+
 def _source_maps_wizard_command() -> str:
     """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend."""
     return "npx -y @posthog/wizard@latest upload-source-maps"

@@ -154,7 +154,7 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
             status=ErrorTrackingIssue.Status.ACTIVE,
         )
         .order_by("-created_at")
-        .values("team_id", "name", "id")
+        .values("team_id", "name", "description", "id")
     )
 
 
@@ -755,6 +755,12 @@ def get_new_issues_for_team(team: Any) -> list[dict[str, Any]]:
 
 def get_daily_exception_counts(team: Any) -> list[dict[str, Any]]:
     return weekly_digest.get_daily_exception_counts(team)
+
+
+def get_issue_daily_occurrences(
+    team: Any, issue_ids: list[str], period_start: datetime, period_end: datetime
+) -> dict[str, list[int]]:
+    return weekly_digest.get_issue_daily_occurrences(team, issue_ids, period_start, period_end)
 
 
 def get_crash_free_sessions(team: Any) -> CrashFreeSummary | None:
