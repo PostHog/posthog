@@ -43,11 +43,6 @@ class KindVisibility:
     allowed_ids: frozenset[str] | None = None
     blocked_ids: frozenset[str] = frozenset()
 
-    def allows(self, item_id: str) -> bool:
-        if self.allowed_ids is not None:
-            return item_id in self.allowed_ids
-        return item_id not in self.blocked_ids
-
 
 @frozen
 class Change:
@@ -97,6 +92,10 @@ def _activity_changes(
         created_at__gte=window.start,
         created_at__lte=window.end,
     )
+    if kind == ChangeKind.EXPERIMENT:
+        # Holdout and shared metric changes also log under this scope, with their own ids as `item_id`.
+        # A plain `exclude` also drops rows with no `type` key, because the SQL comparison is NULL there.
+        queryset = queryset.filter(Q(detail__type__isnull=True) | ~Q(detail__type__in=["holdout", "shared_metric"]))
     queryset = apply_activity_visibility_restrictions(queryset, user)
     if visibility.allowed_ids is not None:
         queryset = queryset.filter(item_id__in=visibility.allowed_ids)
@@ -118,7 +117,7 @@ def _activity_changes(
     ]
 
 
-def _release_changes(*, team_id: int, window: ChangeWindow, visibility: KindVisibility, limit: int) -> list[Change]:
+def _release_changes(*, team_id: int, window: ChangeWindow, limit: int) -> list[Change]:
     releases = error_tracking_api.list_releases_created_between(
         team_id, start=window.start, end=window.end, limit=limit
     )
@@ -134,7 +133,6 @@ def _release_changes(*, team_id: int, window: ChangeWindow, visibility: KindVisi
             actor_name=None,
         )
         for release in releases
-        if visibility.allows(str(release.id))
     ]
 
 
@@ -191,7 +189,7 @@ def list_changes(
                 team_id=team_id, user=user, kind=kind, window=window, visibility=kind_visibility, limit=limit + 1
             )
         elif kind == ChangeKind.RELEASE:
-            changes += _release_changes(team_id=team_id, window=window, visibility=kind_visibility, limit=limit + 1)
+            changes += _release_changes(team_id=team_id, window=window, limit=limit + 1)
         elif kind == ChangeKind.ANNOTATION:
             changes += _annotation_changes(
                 team_id=team_id,

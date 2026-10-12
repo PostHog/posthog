@@ -11,7 +11,8 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.scopes import APIScopeObject
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import APIScopeObject, scopes_not_covered
 
 from products.annotations.backend.change_feed import ChangeKind, ChangeWindow, KindVisibility, list_changes
 
@@ -96,13 +97,25 @@ class ChangeFeedViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "annotation"
 
-    def _visibility(self) -> dict[ChangeKind, KindVisibility]:
+    def _visibility(self, request: Request) -> dict[ChangeKind, KindVisibility]:
         access = self.user_access_control
+        # The endpoint needs only `annotation:read`, so a scoped token must also hold each source's read scope.
+        key_scopes = get_authenticator_scopes(request.successful_authenticator)
         allowlisted = access.allowlisted_resource_ids_by_scope
         blocked = access.blocked_resource_ids_by_scope
         visibility: dict[ChangeKind, KindVisibility] = {}
         for kind, resource in KIND_RESOURCES.items():
-            if resource in allowlisted:
+            if (
+                key_scopes is not None
+                and "*" not in key_scopes
+                and scopes_not_covered(key_scopes, [f"{resource}:read"])
+            ):
+                continue
+            if kind == ChangeKind.RELEASE:
+                # Object-level error tracking rules address issues, not releases.
+                if access.check_access_level_for_resource(resource, "viewer"):
+                    visibility[kind] = KindVisibility()
+            elif resource in allowlisted:
                 visibility[kind] = KindVisibility(allowed_ids=allowlisted[resource])
             elif access.check_access_level_for_resource(resource, "viewer"):
                 visibility[kind] = KindVisibility(blocked_ids=blocked.get(resource, frozenset()))
@@ -125,7 +138,7 @@ class ChangeFeedViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             organization_id=self.team.organization_id,
             user=cast(User, request.user),
             window=ChangeWindow(start=query["date_from"], end=query["date_to"]),
-            visibility=self._visibility(),
+            visibility=self._visibility(request),
             limit=query["limit"],
         )
         return Response(ChangeFeedSerializer(feed).data)
