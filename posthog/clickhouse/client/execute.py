@@ -598,6 +598,7 @@ def sync_execute(
             # the queue wait.
             execute_start_time = perf_counter()
             try:
+                query_stats.record_query_id(query_id)
                 result = client.execute(
                     prepared_sql,
                     params=prepared_args,

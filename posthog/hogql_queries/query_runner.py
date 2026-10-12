@@ -2668,6 +2668,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
             "clickhouse_workload": None,
             "clickhouse_query_count": None,
+            "clickhouse_query_ids": [],
+            "clickhouse_query_ids_truncated": False,
             "warehouse_tables_referenced": None,
             "saved_queries_referenced": None,
             "direct_connection_source_ids": None,
@@ -2705,6 +2707,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "clickhouse_duration_ms": round(stats.duration_ms) if stats else None,
                 "clickhouse_workload": stats.workload() if stats else None,
                 "clickhouse_query_count": stats.query_count if stats else None,
+                "clickhouse_query_ids": list(stats.query_ids) if stats else [],
+                "clickhouse_query_ids_truncated": stats.query_ids_truncated if stats else False,
                 **compute_phase_times(self.timings.to_dict(), before=self._timings_before_run),
             }
             report_user_or_team_action(
@@ -2925,6 +2929,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "clickhouse_duration_ms": round(query_stats.duration_ms),
                 "clickhouse_workload": query_stats.workload(),
                 "clickhouse_query_count": query_stats.query_count,
+                "clickhouse_query_ids": list(query_stats.query_ids),
+                "clickhouse_query_ids_truncated": query_stats.query_ids_truncated,
                 "warehouse_tables_referenced": sorted(query_stats.warehouse_table_ids),
                 "saved_queries_referenced": sorted(query_stats.saved_query_ids),
                 "direct_connection_source_ids": sorted(query_stats.direct_source_ids),
