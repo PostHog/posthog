@@ -1,17 +1,11 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.callrail import (
     CallRailResumeConfig,
     _format_start_date,
-    callrail_source,
-    get_rows,
     resolve_account_id,
     validate_credentials,
 )
@@ -19,67 +13,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.s
     CALLRAIL_ENDPOINTS,
     ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the callrail module.
-CALLRAIL_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.callrail.callrail.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source import CallRailSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.callrail import (
+    CallRailSourceConfig,
 )
 
 
-def _response(body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver(account_id: str | None = "ACC") -> SourceDriver:
+    return SourceDriver(CallRailSource(), CallRailSourceConfig(api_key="key", account_id=account_id))
 
 
-def _page(response_key: str, items: list[dict[str, Any]], total_pages: int) -> Response:
-    return _response({response_key: items, "total_pages": total_pages, "total_records": 999})
+def _page(response_key: str, items: list[dict[str, Any]], total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(json={response_key: items, "total_pages": total_pages, "total_records": 999})
 
 
-def _accounts(ids: list[str]) -> Response:
-    return _response({"accounts": [{"id": account_id} for account_id in ids]})
-
-
-def _make_manager(resume_state: CallRailResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return snapshots of each request AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _collect(
-    endpoint: str,
-    responses: list[Response],
-    MockSession: mock.MagicMock,
-    manager: mock.MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]], mock.MagicMock]:
-    session = MockSession.return_value
-    snapshots = _wire(session, responses)
-    manager = manager if manager is not None else _make_manager()
-    batches = list(get_rows("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs))
-    return batches, snapshots, manager
+def _accounts(ids: list[str]) -> ScriptedResponse:
+    return ScriptedResponse(json={"accounts": [{"id": account_id} for account_id in ids]})
 
 
 class TestFormatStartDate:
@@ -107,98 +61,89 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(CALLRAIL_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(
-        self, mock_session: mock.MagicMock, status_code: int, expected: bool
-    ) -> None:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        attempts = 4 if status_code == 500 else 1
+        with scripted_network([ScriptedResponse(status=status_code)] * attempts) as network:
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
+        assert len(network.requests_log) == attempts
+        assert network.requests_log[0].path == "/v3/a.json"
+        assert network.requests_log[0].param("per_page") == "1"
 
 
 class TestResolveAccountId:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_raises_when_no_accounts(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_accounts([])])
-        with pytest.raises(ValueError):
-            resolve_account_id("key", 1, "j")
+    def test_raises_when_no_accounts(self) -> None:
+        with scripted_network([_accounts([])]) as network:
+            with pytest.raises(ValueError):
+                resolve_account_id("key", 1, "j")
+
+        assert network.requests_log[0].path == "/v3/a.json"
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_by_page_number(self, MockSession: mock.MagicMock) -> None:
-        batches, snapshots, manager = _collect(
+    def test_paginates_by_page_number(self) -> None:
+        result = _driver().run(
             "calls",
             [
                 _page("calls", [{"id": "1"}, {"id": "2"}], total_pages=2),
                 _page("calls", [{"id": "3"}], total_pages=2),
             ],
-            MockSession,
-            account_id="ACC",
         )
 
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2", "3"]
-        assert snapshots[0]["params"]["page"] == 1
-        assert snapshots[0]["params"]["per_page"] == 250
-        assert snapshots[1]["params"]["page"] == 2
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == ["1", "2", "3"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("per_page") == ["250", "250"]
         # State saved once (after page 1, pointing at page 2); page 2 is the last so no save after it.
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert saved == CallRailResumeConfig(account_id="ACC", page=2)
+        assert result.saved_states == [CallRailResumeConfig(account_id="ACC", page=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, snapshots, _ = _collect(
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
             "calls",
             [_page("calls", [{"id": "9"}], total_pages=5)],
-            MockSession,
-            manager=_make_manager(CallRailResumeConfig(account_id="ACC9", page=5)),
-            account_id="ACC",
+            resume_state=CallRailResumeConfig(account_id="ACC9", page=5),
         )
 
         # Resumes at the saved page and pinned account, ignoring the passed account_id, and
         # without re-resolving accounts.
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 5
-        assert "/a/ACC9/" in snapshots[0]["url"]
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.params("page") == ["5"]
+        assert "/a/ACC9/" in result.urls[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resolves_account_when_not_resuming(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
+    def test_resolves_account_when_not_resuming(self) -> None:
+        result = _driver(account_id=None).run(
             "users",
             [
                 _accounts(["RESOLVED"]),
                 _page("users", [{"id": "u1"}], total_pages=1),
             ],
-            MockSession,
         )
 
-        assert "/a/RESOLVED/users.json" in snapshots[1]["url"]
+        assert result.raised is None
+        assert "/a/RESOLVED/users.json" in result.urls[1]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_start_date_omitted_when_last_value_missing(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
+    def test_start_date_omitted_when_last_value_missing(self) -> None:
+        result = _driver().run(
             "calls",
             [_page("calls", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
 
-        assert "start_date" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert result.requests[0].param("start_date") is None
 
 
 class TestCallRailSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = CALLRAIL_ENDPOINTS[endpoint]
-        response = callrail_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json={"total_pages": 1})])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
@@ -224,32 +169,30 @@ class TestCallRailSourceResponse:
 
 
 class TestAccountsEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accounts_needs_no_account_resolution(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect("accounts", [_page("accounts", [{"id": "ACC1"}], total_pages=1)], MockSession)
+    def test_accounts_needs_no_account_resolution(self) -> None:
+        result = _driver(account_id=None).run("accounts", [_page("accounts", [{"id": "ACC1"}], total_pages=1)])
 
         # /a.json is the one endpoint not nested under an account, so the listing is the only request.
-        assert len(snapshots) == 1
-        assert snapshots[0]["url"].endswith("/a.json")
-        assert snapshots[0]["params"]["sort"] == "name"
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.paths == ["/v3/a.json"]
+        assert result.params("sort") == ["name"]
 
 
 class TestLeadsEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_leads_sorts_ascending_and_never_sends_a_date_filter(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
+    def test_leads_sorts_ascending_and_never_sends_a_date_filter(self) -> None:
+        result = _driver().run(
             "leads",
             [_page("leads", [{"id": "L1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["sort"] == "created_at"
-        assert snapshots[0]["params"]["order"] == "asc"
+        assert result.raised is None
+        assert result.params("sort") == ["created_at"]
+        assert result.params("order") == ["asc"]
         # CallRail's date filters cover calls, the call summary, and conversations only.
-        assert "start_date" not in snapshots[0]["params"]
+        assert result.requests[0].param("start_date") is None
 
 
 def _page_view(page_url: str, created_at: str) -> dict[str, Any]:
@@ -262,47 +205,42 @@ _C2_PATH = "/a/ACC/calls/C2/page_views.json"
 
 
 class TestFanoutEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_page_views_fan_out_injects_the_parent_call_id(self, MockSession: mock.MagicMock) -> None:
-        batches, snapshots, _ = _collect(
+    def test_page_views_fan_out_injects_the_parent_call_id(self) -> None:
+        result = _driver().run(
             "page_views",
             [
                 _page("calls", _CALLS_PARENT, total_pages=1),
                 _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
                 _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
             ],
-            MockSession,
-            account_id="ACC",
         )
 
-        rows = [row for batch in batches for row in batch]
-        assert [row["call_id"] for row in rows] == ["C1", "C2"]
+        assert result.raised is None
+        assert [row["call_id"] for row in result.rows] == ["C1", "C2"]
         # Page-view rows carry no id, so call_id is part of the primary key and must not stay
         # under the framework's `_{parent}_{field}` prefix.
-        assert not any(key.startswith("_calls_") for row in rows for key in row)
-        assert _C1_PATH in snapshots[1]["url"]
-        assert _C2_PATH in snapshots[2]["url"]
-        assert snapshots[1]["params"]["per_page"] == 250
+        assert not any(key.startswith("_calls_") for row in result.rows for key in row)
+        assert _C1_PATH in result.urls[1]
+        assert _C2_PATH in result.urls[2]
+        assert result.requests[1].param("per_page") == "250"
         # The parent listing walks ascending by its own cursor field so its pagination is stable.
-        assert snapshots[0]["params"]["sort"] == "start_time"
+        assert result.requests[0].param("sort") == "start_time"
         # The endpoint takes no sort param of its own.
-        assert "sort" not in snapshots[1]["params"]
+        assert result.requests[1].param("sort") is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_child_never_sends_a_date_filter(self, MockSession: mock.MagicMock) -> None:
+    def test_fan_out_child_never_sends_a_date_filter(self) -> None:
         # The child endpoints take no date filter, so an incremental sync bounds its requests
         # through the parent listing and relies on the merge to keep earlier rows.
-        _, snapshots, _ = _collect(
+        result = _driver().run(
             "page_views",
             [
                 _page("calls", [{"id": "C1"}], total_pages=1),
                 _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
             ],
-            MockSession,
-            account_id="ACC",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert "start_date" not in snapshots[1]["params"]
-        assert "created_at" not in snapshots[1]["params"]
+        assert result.raised is None
+        assert result.requests[1].param("start_date") is None
+        assert result.requests[1].param("created_at") is None

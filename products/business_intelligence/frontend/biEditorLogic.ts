@@ -46,11 +46,13 @@ import {
     getBIDataSourceKey,
     getBIShelfEditorKey,
     getBISortOptions,
+    getBIValueSortKey,
     isBIFieldCompatible,
+    isBIMeasureField,
     normalizeBIConfig,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
-import { localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
+import { getBILocalFields, localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
 import { matchesBIFieldSearch } from './biPropertyFields'
 import { getBIDateField } from './biQueryFilters'
 
@@ -62,6 +64,9 @@ export interface BICalculatedMeasureDraft {
     index: number | null
     name: string
     expression: string
+    kind?: 'dimension' | 'measure'
+    fieldId?: string
+    type?: BIField['type']
 }
 
 function freshBIConfig(): BIConfig {
@@ -88,6 +93,7 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         ...config,
         source,
         localFields: undefined,
+        colorBy: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],
@@ -138,6 +144,9 @@ function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIC
     const source = config.source ?? field.source
     const sourceConfig = config.source ? config : setDataSourceInConfig(config, source)
 
+    if (field.localDefinition?.kind === 'expression' && field.localDefinition.aggregate && shelf === 'filters') {
+        return config
+    }
     switch (shelf) {
         case 'rows':
         case 'columns':
@@ -146,7 +155,12 @@ function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIC
             }
             return { ...sourceConfig, source, [shelf]: [...sourceConfig[shelf], field] }
         case 'values':
-            return addValueToConfig(sourceConfig, { field, aggregation: defaultAggregationForField(field) })
+            return addValueToConfig(
+                sourceConfig,
+                field.localDefinition?.kind === 'expression' && field.localDefinition.aggregate
+                    ? { field, aggregation: 'custom', customExpression: field.expression, label: field.name }
+                    : { field, aggregation: defaultAggregationForField(field) }
+            )
         case 'filters':
             if (
                 sourceConfig.filters.some(
@@ -182,16 +196,67 @@ function fieldOnShelf(config: BIConfig, shelf: BIShelf, index: number): BIField 
     }
 }
 
-function moveFieldInConfig(config: BIConfig, fromShelf: BIShelf, fromIndex: number, toShelf: BIShelf): BIConfig {
+function moveFieldInConfig(
+    config: BIConfig,
+    fromShelf: BIShelf,
+    fromIndex: number,
+    toShelf: BIShelf,
+    toIndex?: number
+): BIConfig {
+    if (fromShelf === toShelf) {
+        const fields = [...config[fromShelf]]
+        const target = Math.max(0, Math.min(toIndex ?? fields.length, fields.length))
+        const [field] = fields.splice(fromIndex, 1)
+        if (!field) {
+            return config
+        }
+        fields.splice(target > fromIndex ? target - 1 : target, 0, field)
+        if (fromShelf === 'values') {
+            const indices = (fields as BIValue[]).map((value) => config.values.indexOf(value))
+            const sortedIndex = config.values.findIndex(
+                (_, index) => getBIValueSortKey(config, index) === config.sort?.key
+            )
+            return {
+                ...config,
+                values: fields as BIValue[],
+                sort:
+                    config.sort && sortedIndex !== -1
+                        ? {
+                              ...config.sort,
+                              key:
+                                  getBIValueSortKey(
+                                      { ...config, values: fields as BIValue[] },
+                                      indices.indexOf(sortedIndex)
+                                  ) ?? config.sort.key,
+                          }
+                        : config.sort,
+                resultFilters: config.resultFilters?.map((filter) => ({
+                    ...filter,
+                    measureIndex: indices.indexOf(filter.measureIndex),
+                })),
+                topN: config.topN
+                    ? { ...config.topN, measureIndex: indices.indexOf(config.topN.measureIndex) }
+                    : undefined,
+            }
+        }
+        return { ...config, [fromShelf]: fields }
+    }
+    if (fromShelf === 'values' && (toShelf === 'rows' || toShelf === 'columns')) {
+        return {
+            ...config,
+            values: config.values.map((value, index) => (index === fromIndex ? { ...value, shelf: toShelf } : value)),
+        }
+    }
     if (fromShelf === 'values' && config.values[fromIndex]?.label) {
         return config
     }
     const field = fieldOnShelf(config, fromShelf, fromIndex)
-    if (!field || fromShelf === toShelf) {
+    if (!field) {
         return config
     }
 
-    return addFieldToConfig(removeFieldFromConfig(config, fromShelf, fromIndex), field, toShelf)
+    const next = addFieldToConfig(removeFieldFromConfig(config, fromShelf, fromIndex), field, toShelf)
+    return toIndex === undefined ? next : moveFieldInConfig(next, toShelf, next[toShelf].length - 1, toShelf, toIndex)
 }
 
 function removeFieldFromConfig(config: BIConfig, shelf: BIShelf, index: number): BIConfig {
@@ -256,9 +321,10 @@ function setFieldDateBucketInConfig(
     config: BIConfig,
     shelf: BIShelf,
     index: number,
-    dateBucket: BIDateBucket | null
+    dateBucket: BIDateBucket | null,
+    datePart?: BIField['datePart']
 ): BIConfig {
-    const updateField = (field: BIField): BIField => ({ ...field, dateBucket: dateBucket ?? undefined })
+    const updateField = (field: BIField): BIField => ({ ...field, dateBucket: dateBucket ?? undefined, datePart })
 
     switch (shelf) {
         case 'rows':
@@ -297,6 +363,7 @@ export interface biEditorLogicValues {
     activeMeasureSettingsIndex: number | null
     autoUpdate: boolean
     availableDataSources: BIDataSource[]
+    calculatedFieldError: string | undefined
     calculatedMeasureDraft: BICalculatedMeasureDraft | null
     chartFits: Partial<Record<ChartDisplayType, BIChartFit>>
     chartTypesOpen: boolean
@@ -356,6 +423,20 @@ export interface biEditorLogicActions {
     combineMeasures: () => {
         value: true
     }
+    convertMeasureToDimension: (index: number) => {
+        index: number
+    }
+    duplicateField: (
+        shelf: Exclude<BIShelf, 'filters'>,
+        index: number
+    ) => {
+        fieldId: string
+        index: number
+        shelf: 'columns' | 'rows' | 'values'
+    }
+    editCalculatedField: (field?: BIField) => {
+        field: BIField | undefined
+    }
     editCalculatedMeasure: (index?: number | null) => {
         index: number | null
     }
@@ -372,10 +453,12 @@ export interface biEditorLogicActions {
     moveFieldToShelf: (
         fromShelf: BIShelf,
         fromIndex: number,
-        toShelf: BIShelf
+        toShelf: BIShelf,
+        toIndex?: number
     ) => {
         fromIndex: number
         fromShelf: BIShelf
+        toIndex: number | undefined
         toShelf: BIShelf
     }
     removeFieldFromShelf: (
@@ -384,6 +467,9 @@ export interface biEditorLogicActions {
     ) => {
         index: number
         shelf: BIShelf
+    }
+    removeLocalField: (fieldId: string) => {
+        fieldId: string
     }
     removeResultFilter: (id: string) => {
         id: string
@@ -425,6 +511,9 @@ export interface biEditorLogicActions {
     setChartTypesOpen: (chartTypesOpen: boolean) => {
         chartTypesOpen: boolean
     }
+    setColorBy: (colorBy: string | null | undefined) => {
+        colorBy: string | null | undefined
+    }
     setCompareFilter: (compareFilter: CompareFilter) => {
         compareFilter: CompareFilter
     }
@@ -449,6 +538,15 @@ export interface biEditorLogicActions {
         dateBucket: BIDateBucket | null
     ) => {
         dateBucket: BIDateBucket | null
+        index: number
+        shelf: BIShelf
+    }
+    setFieldDatePart: (
+        shelf: BIShelf,
+        index: number,
+        datePart: BIField['datePart']
+    ) => {
+        datePart: 'day_of_week' | 'month' | 'quarter' | undefined
         index: number
         shelf: BIShelf
     }
@@ -497,6 +595,13 @@ export interface biEditorLogicActions {
     }
     setLocalFieldDraft: (field: BIField | null) => {
         field: BIField | null
+    }
+    setMeasureShelf: (
+        index: number,
+        shelf: 'columns' | 'rows'
+    ) => {
+        index: number
+        shelf: 'columns' | 'rows'
     }
     setMissingDates: (missingDates: BIConfig['missingDates']) => {
         missingDates: 'gap' | 'zero' | undefined
@@ -568,6 +673,10 @@ export interface biEditorLogicActions {
 export interface biEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        calculatedFieldError: (
+            calculatedMeasureDraft: BICalculatedMeasureDraft | null,
+            config: BIConfig
+        ) => string | undefined
         chartTypesOpen: (showMeOpen: boolean) => boolean
         availableDataSources: (
             allTables: DatabaseSchemaTable[],
@@ -640,12 +749,24 @@ export const biEditorLogic = kea<biEditorLogicType>([
         saveCalculatedMeasure: true,
         upsertCalculatedMeasure: (draft: BICalculatedMeasureDraft) => ({ draft, fieldId: `bi-calculated-${uuid()}` }),
         clearActiveDropShelf: (shelf: BIShelf) => ({ shelf }),
-        moveFieldToShelf: (fromShelf: BIShelf, fromIndex: number, toShelf: BIShelf) => ({
+        moveFieldToShelf: (fromShelf: BIShelf, fromIndex: number, toShelf: BIShelf, toIndex?: number) => ({
             fromShelf,
             fromIndex,
             toShelf,
+            toIndex,
         }),
+        setMeasureShelf: (index: number, shelf: 'rows' | 'columns') => ({ index, shelf }),
         swapRowsAndColumns: true,
+        setColorBy: (colorBy: string | null | undefined) => ({ colorBy }),
+        editCalculatedField: (field?: BIField) => ({ field }),
+        removeLocalField: (fieldId: string) => ({ fieldId }),
+        duplicateField: (shelf: Exclude<BIShelf, 'filters'>, index: number) => ({ shelf, index, fieldId: uuid() }),
+        setFieldDatePart: (shelf: BIShelf, index: number, datePart: BIField['datePart']) => ({
+            shelf,
+            index,
+            datePart,
+        }),
+        convertMeasureToDimension: (index: number) => ({ index }),
         setAutoUpdate: (autoUpdate: boolean) => ({ autoUpdate }),
         setChartTypesOpen: (chartTypesOpen: boolean) => ({ chartTypesOpen }),
         setHoveredChartType: (chartType: ChartDisplayType | null) => ({ chartType }),
@@ -777,18 +898,63 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         return config
                     }
                     const existing = draft.index === null ? null : config.values[draft.index]
-                    const value = {
-                        field: existing?.field ?? { ...blankField(config.source, fieldId), type: 'float' as const },
-                        aggregation: 'custom' as const,
-                        customExpression: draft.expression.trim(),
-                        label: draft.name.trim(),
+                    const id =
+                        draft.fieldId ?? existing?.field.localFieldId ?? (existing?.label ? existing.field.id : fieldId)
+                    const aggregate = draft.kind !== 'dimension'
+                    const field: BIField = {
+                        ...blankField(config.source, id),
+                        name: draft.name.trim(),
+                        expression: draft.expression.trim(),
+                        type: draft.type ?? (aggregate ? 'float' : 'string'),
+                        localDefinition: { kind: 'expression', expression: draft.expression.trim(), aggregate },
                     }
-                    return draft.index === null
-                        ? addValueToConfig(config, value)
-                        : {
-                              ...config,
-                              values: config.values.map((current, index) => (index === draft.index ? value : current)),
-                          }
+                    const updated = upsertBILocalField({ ...config, localFields: getBILocalFields(config) }, field)
+                    if (existing && existing.field.id !== id && !existing.field.localFieldId) {
+                        return {
+                            ...updated,
+                            values: updated.values.map((value, index) =>
+                                index === draft.index
+                                    ? {
+                                          ...value,
+                                          field,
+                                          aggregation: 'custom',
+                                          customExpression: field.expression,
+                                          label: field.name,
+                                      }
+                                    : value
+                            ),
+                        }
+                    }
+                    if (draft.fieldId || existing) {
+                        return updated
+                    }
+                    return aggregate
+                        ? addValueToConfig(updated, {
+                              field,
+                              aggregation: 'custom',
+                              customExpression: field.expression,
+                              label: field.name,
+                          })
+                        : addFieldToConfig(updated, field, 'rows')
+                },
+                removeLocalField: (config, { fieldId }) => {
+                    const matches = (field: BIField): boolean => (field.localFieldId ?? field.id) === fieldId
+                    let next = {
+                        ...config,
+                        localFields: getBILocalFields(config).filter((field) => field.id !== fieldId),
+                    }
+                    for (let index = next.values.length - 1; index >= 0; index--) {
+                        if (matches(next.values[index].field)) {
+                            next = { ...removeFieldFromConfig(next, 'values', index), localFields: next.localFields }
+                        }
+                    }
+                    return normalizeBIConfig({
+                        ...next,
+                        rows: next.rows.filter((field) => !matches(field)),
+                        columns: next.columns.filter((field) => !matches(field)),
+                        filters: next.filters.filter((filter) => !matches(filter.field)),
+                        dateField: next.dateField && matches(next.dateField) ? undefined : next.dateField,
+                    })
                 },
                 addFieldToShelf: (config, { field, shelf }) => addFieldToConfig(config, field, shelf),
                 setFilterGroup: (config, { scope, group }) => ({
@@ -815,11 +981,67 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 addBlankFieldToShelf: (config, { shelf, fieldId }) =>
                     config.source ? addFieldToConfig(config, blankField(config.source, fieldId), shelf) : config,
                 removeFieldFromShelf: (config, { shelf, index }) => removeFieldFromConfig(config, shelf, index),
-                moveFieldToShelf: (config, { fromShelf, fromIndex, toShelf }) =>
-                    normalizeBIConfig(moveFieldInConfig(config, fromShelf, fromIndex, toShelf)),
+                moveFieldToShelf: (config, { fromShelf, fromIndex, toShelf, toIndex }) =>
+                    normalizeBIConfig(moveFieldInConfig(config, fromShelf, fromIndex, toShelf, toIndex)),
+                setMeasureShelf: (config, { index, shelf }) => ({
+                    ...config,
+                    values: config.values.map((value, i) => (i === index ? { ...value, shelf } : value)),
+                }),
+                convertMeasureToDimension: (config, { index }) => {
+                    const value = config.values[index]
+                    if (!value || (value.aggregation === 'custom' && value.label)) {
+                        return config
+                    }
+                    return normalizeBIConfig(
+                        addFieldToConfig(
+                            removeFieldFromConfig(config, 'values', index),
+                            value.field,
+                            value.shelf ?? 'rows'
+                        )
+                    )
+                },
                 swapRowsAndColumns: (config) =>
-                    normalizeBIConfig({ ...config, rows: config.columns, columns: config.rows }),
+                    normalizeBIConfig({
+                        ...config,
+                        rows: config.columns,
+                        columns: config.rows,
+                        values: (config.values.length
+                            ? config.values
+                            : config.source && (config.rows.length || config.columns.length)
+                              ? [
+                                    {
+                                        field: blankField(config.source, 'bi-default-count'),
+                                        aggregation: 'custom' as const,
+                                        customExpression: 'count(*)',
+                                        label: 'Count of rows',
+                                    },
+                                ]
+                              : []
+                        ).map((value: BIValue) => ({
+                            ...value,
+                            shelf: value.shelf === 'columns' ? 'rows' : 'columns',
+                        })),
+                        sort: config.sort
+                            ? {
+                                  ...config.sort,
+                                  key: (config.sort.key === 'values:count' && !config.values.length
+                                      ? 'values:bi-default-count'
+                                      : config.sort.key
+                                  ).replace(
+                                      /^(rows|columns):/,
+                                      (_, shelf) => `${shelf === 'rows' ? 'columns' : 'rows'}:`
+                                  ),
+                              }
+                            : config.sort,
+                        chartType:
+                            config.chartType === ChartDisplayType.ActionsBar
+                                ? ChartDisplayType.ActionsBarValue
+                                : config.chartType === ChartDisplayType.ActionsBarValue
+                                  ? ChartDisplayType.ActionsBar
+                                  : config.chartType,
+                    }),
                 setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
+                setColorBy: (config, { colorBy }) => normalizeBIConfig({ ...config, colorBy }),
                 setDateRange: (config, { dateRange }) => ({ ...config, dateRange }),
                 setCompareFilter: (config, { compareFilter }) => ({ ...config, compareFilter }),
                 setMissingDates: (config, { missingDates }) => ({ ...config, missingDates }),
@@ -894,6 +1116,30 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     setFieldExpressionInConfig(config, shelf, index, expression),
                 setFieldDateBucket: (config, { shelf, index, dateBucket }) =>
                     setFieldDateBucketInConfig(config, shelf, index, dateBucket),
+                setFieldDatePart: (config, { shelf, index, datePart }) =>
+                    setFieldDateBucketInConfig(config, shelf, index, null, datePart),
+                duplicateField: (config, { shelf, index, fieldId }) => {
+                    if (shelf === 'values') {
+                        const value = config.values[index]
+                        return value ? { ...config, values: [...config.values, { ...value }] } : config
+                    }
+                    const field = config[shelf][index]
+                    return field
+                        ? {
+                              ...config,
+                              [shelf]: [
+                                  ...config[shelf],
+                                  {
+                                      ...field,
+                                      id: fieldId,
+                                      localFieldId: field.localDefinition
+                                          ? (field.localFieldId ?? field.id)
+                                          : undefined,
+                                  },
+                              ],
+                          }
+                        : config
+                },
                 setValueCustomExpression: (config, { index, customExpression }) => ({
                     ...config,
                     values: config.values.map((value, valueIndex) =>
@@ -907,11 +1153,41 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     ),
                 }),
                 restoreState: (_, { state }) => normalizeBIConfig(state.config),
-                resetConfig: freshBIConfig,
+                resetConfig: (config) => ({
+                    ...freshBIConfig(),
+                    source: config.source,
+                    localFields: getBILocalFields(config),
+                    dateField: config.dateField,
+                    dateRange: config.dateRange,
+                }),
             },
         ],
     })),
     selectors({
+        calculatedFieldError: [
+            (s) => [s.calculatedMeasureDraft, s.config],
+            (draft: BICalculatedMeasureDraft | null, config: BIConfig): string | undefined => {
+                if (!draft?.name.trim()) {
+                    return 'Enter a name for this field'
+                }
+                if (!draft.expression.trim()) {
+                    return 'Enter a HogQL expression'
+                }
+                const existingId =
+                    draft.fieldId ??
+                    (draft.index === null
+                        ? undefined
+                        : (config.values[draft.index]?.field.localFieldId ?? config.values[draft.index]?.field.id))
+                if (
+                    getBILocalFields(config).some(
+                        (field) =>
+                            field.id !== existingId && field.name.toLowerCase() === draft.name.trim().toLowerCase()
+                    )
+                ) {
+                    return 'A local field with this name already exists'
+                }
+            },
+        ],
         chartTypesOpen: [(s) => [s.showMeOpen], (open: boolean): boolean => open],
         availableDataSources: [
             (selectors) => [selectors.allTables, selectors.posthogTables, selectors.databaseConnectionId],
@@ -945,7 +1221,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         ],
         generatedQuery: [
             (selectors) => [selectors.config],
-            (config: BIConfig): BIQueryBuildResult | null => buildBIQuery(config),
+            (config: BIConfig): BIQueryBuildResult | null =>
+                config.rows.length || config.columns.length || config.values.length ? buildBIQuery(config) : null,
         ],
         sortOptions: [
             (selectors) => [selectors.config],
@@ -971,8 +1248,15 @@ export const biEditorLogic = kea<biEditorLogicType>([
                               allTables.find((table) => table.name === config.source?.table),
                               config.source
                           ),
+                          measures: [
+                              ...getBILocalFields(config).filter(isBIMeasureField),
+                              ...getBIDataPaneFields(
+                                  allTables.find((table) => table.name === config.source?.table),
+                                  config.source
+                              ).measures,
+                          ],
                           dimensions: [
-                              ...(config.localFields ?? []),
+                              ...getBILocalFields(config).filter((field) => !isBIMeasureField(field)),
                               ...getBIDataPaneFields(
                                   allTables.find((table) => table.name === config.source?.table),
                                   config.source
@@ -1052,6 +1336,23 @@ export const biEditorLogic = kea<biEditorLogicType>([
             captureBIWorksheetAction('local_field_saved', values.config)
             actions.runAfterChange()
         },
+        editCalculatedField: ({ field }) => {
+            if (!values.config.source) {
+                return
+            }
+            actions.setCalculatedMeasureDraft({
+                index: null,
+                fieldId: field?.id,
+                kind:
+                    field?.localDefinition?.kind === 'expression' && field.localDefinition.aggregate
+                        ? 'measure'
+                        : 'dimension',
+                name: field?.name ?? '',
+                expression: field?.expression ?? '',
+                type: field?.type ?? 'string',
+            })
+        },
+        removeLocalField: () => actions.runAfterChange(),
         editCalculatedMeasure: ({ index }) => {
             if (!values.config.source) {
                 return
@@ -1062,11 +1363,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 index,
                 name: value?.label ?? '',
                 expression: value?.customExpression ?? '',
+                kind: 'measure',
+                fieldId: value?.field.localFieldId,
+                type: value?.field.type ?? 'float',
             })
         },
         saveCalculatedMeasure: () => {
             const draft = values.calculatedMeasureDraft
-            if (draft?.name.trim() && draft.expression.trim()) {
+            if (draft && !values.calculatedFieldError) {
                 actions.upsertCalculatedMeasure(draft)
             }
         },
@@ -1085,6 +1389,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         },
         addFieldToShelf: () => actions.runAfterChange(),
         moveFieldToShelf: () => actions.runAfterChange(),
+        convertMeasureToDimension: () => actions.runAfterChange(),
+        setMeasureShelf: () => actions.runAfterChange(),
         swapRowsAndColumns: () => actions.runAfterChange(),
         setAutoUpdate: ({ autoUpdate }) => {
             if (autoUpdate) {
@@ -1094,6 +1400,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         addBlankFieldToShelf: () => actions.runAfterChange(),
         removeFieldFromShelf: () => actions.runAfterChange(),
         setChartType: () => actions.runAfterChange(),
+        setColorBy: () => actions.runAfterChange(),
         setDateRange: () => actions.runAfterChange(),
         setCompareFilter: () => actions.runAfterChange(),
         setMissingDates: () => actions.runAfterChange(),
@@ -1115,9 +1422,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setSort: () => actions.runAfterChange(),
         setFieldExpression: () => actions.runAfterChange(),
         setFieldDateBucket: () => actions.runAfterChange(),
+        setFieldDatePart: () => actions.runAfterChange(),
+        duplicateField: () => actions.runAfterChange(),
         setValueCustomExpression: () => actions.runAfterChange(),
         setFilterCustomExpression: () => actions.runAfterChange(),
-        resetConfig: () => actions.runAfterChange(),
     })),
     subscriptions(({ actions, values }) => ({
         config: (config: BIConfig, oldConfig: BIConfig | undefined) => {

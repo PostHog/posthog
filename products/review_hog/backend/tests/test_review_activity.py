@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.instance_setting import _clear_instance_setting_cache
+
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
@@ -17,7 +19,11 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
+    FLASH_LENS_MAX_CHUNKS,
+    FLASH_LENSES,
+    REVIEW_HOG_FINDING_MARKER,
     REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     ReviewArm,
     review_arm_for_mode,
 )
@@ -29,15 +35,20 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
+    CoordinatorReviewInput,
     LensReviewInput,
     LoadedPerspectiveDTO,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
     _current_pr_comments,
+    coordinator_review_activity,
+    dedup_activity,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -594,6 +605,71 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
     ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failed_task,malformed_task,duplicated_task,expect_raise",
+    [
+        ("contracts_security_1", None, None, False),
+        (None, "contracts_security_1", None, False),
+        (None, None, "contracts_security_1", False),
+        ("main_1", None, None, True),
+    ],
+)
+async def test_coordinator_persists_each_sub_agent_under_its_session_key(
+    failed_task: str | None, malformed_task: str | None, duplicated_task: str | None, expect_raise: bool
+) -> None:
+    # Dedup reads each unit by its separate session's key, so a sub-agent stored under another key loses its
+    # findings. The persisted lens part needs no sub-agent again, a malformed lens costs only that lens, and
+    # only a failed main review fails the turn.
+    finding = {"title": "Guard the empty list", "priority": "P1", "file": "a.py", "line_start": 4, "body": "b"}
+    tasks = ["main_1", "performance_reliability_1", "contracts_security_1", "contracts_security_2"]
+    review = CoordinatorReview(
+        results=[
+            CoordinatorResult(
+                task=task,
+                status="failed" if task == failed_task else "ok",
+                findings=[{**finding, "line_start": None} if task == malformed_task else finding],
+            )
+            for task in tasks
+        ]
+        + [CoordinatorResult(task=task, status="ok", findings=[]) for task in tasks if task == duplicated_task]
+    )
+    mock_review = AsyncMock(return_value=review)
+    mock_persist = MagicMock()
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_perspective_results", return_value={(2001, 2): IssuesReview(issues=[])}),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        run = ActivityEnvironment().run(
+            coordinator_review_activity, CoordinatorReviewInput(**_single_agent_stage(lens_chunk_count=2))
+        )
+        if expect_raise:
+            with pytest.raises(ApplicationError, match="main review"):
+                await run
+        else:
+            result = await run
+            assert result.lens_failures == 1
+
+    assert [file.name for file in mock_review.call_args.kwargs["files"]] == [f"{task}.prompt.md" for task in tasks]
+    # Codex rejects spawns past its sub-agent limit, so the limit must fit the largest PR's review units.
+    assert mock_review.call_args.kwargs["codex_max_subagents"] >= 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
+    persisted = mock_persist.call_args.kwargs["results"]
+    assert {key: review.issues[0].source_perspective for key, review in persisted.items()} == {
+        key: source
+        for key, source, task in [
+            ((2000, 1), "flash-single-agent", "main_1"),
+            ((2001, 1), "flash-lens-performance-reliability", "performance_reliability_1"),
+            ((2002, 1), "flash-lens-contracts-security", "contracts_security_1"),
+            ((2002, 2), "flash-lens-contracts-security", "contracts_security_2"),
+        ]
+        if task not in (failed_task, malformed_task, duplicated_task)
+    }
+
+
 def _comment(comment_id: int, line: int | None) -> PRComment:
     return PRComment(id=comment_id, path="a.py", line=line, body="x", diff_hunk="", user="other-bot", created_at="c")
 
@@ -628,3 +704,38 @@ def test_full_dedup_reads_current_comments_without_outdated_ones(
         comments = _current_pr_comments(SandboxStageInput(**_single_agent_stage()), snapshot)
 
     assert [comment.id for comment in comments] == expected_ids
+
+
+@pytest.mark.django_db
+async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_not_cached() -> None:
+    _clear_instance_setting_cache()
+    ours = PRComment(
+        id=1, path="a.py", line=1, body=REVIEW_HOG_FINDING_MARKER, diff_hunk="", user="reviewhog[bot]", created_at="c"
+    )
+    theirs = PRComment(id=2, path="a.py", line=1, body="x", diff_hunk="", user="alice", created_at="c")
+    outcome = DedupOutcome(
+        kept=[],
+        duplicates=[
+            Duplicate(issue=_wave_issue("Mine again"), duplicate_of="1"),
+            Duplicate(issue=_wave_issue("Already said"), duplicate_of="2"),
+        ],
+    )
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}._combine_and_clean", return_value=[]),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
+        patch(f"{_MODULE}.load_prior_findings_with_verdicts", return_value=[]),
+        patch(f"{_MODULE}._current_pr_comments", return_value=[ours, theirs]),
+        patch(f"{_MODULE}.deduplicate_issues", AsyncMock(return_value=outcome)),
+        patch(f"{_MODULE}.replace_deduplicated_findings", return_value=[]),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+    ):
+        result = await ActivityEnvironment().run(
+            dedup_activity,
+            SandboxStageInput(
+                **_single_agent_stage(review_mode=REVIEW_MODE_FULL, review_design=REVIEW_DESIGN_PIPELINE)
+            ),
+        )
+
+    assert result.raised_elsewhere == [AlreadyRaised(title="Already said", level="P2", comment_id=2, commenter="alice")]
