@@ -3,7 +3,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 import structlog
 import temporalio.activity
@@ -36,9 +36,9 @@ from products.experiments.backend.facade.timeseries import (
     apply_saved_metric_overrides,
     backfill_experiment_timeseries,
     build_metric,
+    daily_inline_metric_calculations,
+    daily_saved_metric_calculations,
     is_daily_timeseries_metric,
-    is_scheduled_metric,
-    metric_calculation_keys_for_experiments,
     record_daily_metric_failure,
     record_daily_metric_result,
     sync_timeseries_recalculation,
@@ -50,7 +50,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -73,51 +73,28 @@ def _build_metric_validated(
 def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
     close_old_connections()
 
-    experiment_metrics: list[ExperimentRegularMetricInput] = []
-
-    experiments = list(
+    team_id_by_experiment_id = dict(
         Experiment.objects.filter(
             recalculation_hour_filter(hour),
             deleted=False,
             status=Experiment.Status.RUNNING,
             start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-        ).exclude(
+        )
+        .exclude(
             Q(metrics__isnull=True) | Q(metrics=[]),
             Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
         )
+        .values_list("id", "team_id")
     )
-    keys_by_experiment = metric_calculation_keys_for_experiments(
-        {experiment.id: experiment.team_id for experiment in experiments}
-    )
-
-    for experiment in experiments:
-        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-        calculation_keys = keys_by_experiment[experiment.id].inline
-
-        for metric in all_metrics:
-            metric_uuid = metric.get("uuid")
-            if not metric_uuid:
-                logger.warning(
-                    "Metric has no UUID, skipping",
-                    experiment_id=experiment.id,
-                )
-                continue
-            if not is_scheduled_metric(metric):
-                continue
-
-            fingerprint = calculation_keys.get(metric_uuid)
-            if fingerprint is None:
-                # The experiment lost this metric after the discovery query read it.
-                continue
-
-            experiment_metrics.append(
-                ExperimentRegularMetricInput(
-                    experiment_id=experiment.id,
-                    metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
-                    team_id=experiment.team_id,
-                )
-            )
+    experiment_metrics = [
+        ExperimentRegularMetricInput(
+            experiment_id=calculation.experiment_id,
+            metric_uuid=calculation.metric_uuid,
+            fingerprint=calculation.calculation_key,
+            team_id=calculation.team_id,
+        )
+        for calculation in daily_inline_metric_calculations(team_id_by_experiment_id)
+    ]
 
     logger.info(
         "Discovered experiment metrics for hour",
@@ -363,52 +340,24 @@ async def calculate_experiment_regular_metric(
 def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSavedMetricInput]:
     close_old_connections()
 
-    experiment_metrics: list[ExperimentSavedMetricInput] = []
-
-    experiments = [
-        experiment
-        for experiment in Experiment.objects.filter(
+    team_id_by_experiment_id = dict(
+        Experiment.objects.filter(
+            Exists(ExperimentToSavedMetric.objects.filter(experiment_id=OuterRef("id"))),
             recalculation_hour_filter(hour),
             deleted=False,
             status=Experiment.Status.RUNNING,
             start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-        ).prefetch_related("experimenttosavedmetric_set__saved_metric")
-        if experiment.experimenttosavedmetric_set.all()
-    ]
-    keys_by_experiment = metric_calculation_keys_for_experiments(
-        {experiment.id: experiment.team_id for experiment in experiments}
+        ).values_list("id", "team_id")
     )
-
-    for experiment in experiments:
-        calculation_keys = keys_by_experiment[experiment.id].saved
-
-        for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
-            saved_metric = exp_to_saved_metric.saved_metric
-            metric_uuid = saved_metric.query.get("uuid")
-
-            if not metric_uuid:
-                logger.warning(
-                    "Saved metric has no UUID, skipping",
-                    experiment_id=experiment.id,
-                    saved_metric_id=saved_metric.id,
-                )
-                continue
-            if not is_scheduled_metric(saved_metric.query):
-                continue
-
-            fingerprint = calculation_keys.get(exp_to_saved_metric.id)
-            if fingerprint is None:
-                # The experiment lost this link after the discovery query read it.
-                continue
-
-            experiment_metrics.append(
-                ExperimentSavedMetricInput(
-                    experiment_id=experiment.id,
-                    metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
-                    team_id=experiment.team_id,
-                )
-            )
+    experiment_metrics = [
+        ExperimentSavedMetricInput(
+            experiment_id=calculation.experiment_id,
+            metric_uuid=calculation.metric_uuid,
+            fingerprint=calculation.calculation_key,
+            team_id=calculation.team_id,
+        )
+        for calculation in daily_saved_metric_calculations(team_id_by_experiment_id)
+    ]
 
     logger.info(
         "Discovered experiment saved metrics for hour",
