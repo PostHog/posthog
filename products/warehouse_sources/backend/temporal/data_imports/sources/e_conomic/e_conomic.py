@@ -30,7 +30,7 @@ E_CONOMIC_BASE_URL = "https://restapi.e-conomic.com"
 E_CONOMIC_HOST = urlparse(E_CONOMIC_BASE_URL).netloc
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EConomicResumeConfig:
     # Full URL of the next page to fetch. The API's pagination links already carry pagesize, sort and
     # filter, so resuming is just "GET this URL".

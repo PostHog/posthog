@@ -14,7 +14,7 @@ def _incremental_field(name: str, field_type: IncrementalFieldType) -> Increment
     return {"label": name, "type": field_type, "field": name, "field_type": field_type}
 
 
-@dataclass
+@dataclass(frozen=True)
 class EConomicEndpointConfig:
     name: str
     # Path on https://restapi.e-conomic.com. Uses hyphens (e.g. /customer-groups) while the schema/table
