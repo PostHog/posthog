@@ -589,6 +589,7 @@ the row lists both.
 | onehundredms                     | HTTP                        | requests                                                        | ✅                          |
 | onepagecrm                       | HTTP                        | requests                                                        | ✅                          |
 | onepassword                      | HTTP (cursor pagination)    | requests                                                        | ✅                          |
+| onesignal                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | onfleet                          | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates              | HTTP                        | requests                                                        | ✅                          |
 | open_meteo                       | HTTP (date windows)         | requests                                                        | ✅                          |
@@ -1321,7 +1322,6 @@ doesn't conflict with concurrent PRs.
 - onedrive
 - oneleet
 - onelogin
-- onesignal
 - open_data_dc
 - open_dental
 - openfec
