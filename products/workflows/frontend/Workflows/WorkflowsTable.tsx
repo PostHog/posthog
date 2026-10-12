@@ -118,7 +118,6 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 export function WorkflowsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
-    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -131,7 +130,6 @@ export function WorkflowsTable(): JSX.Element {
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
-        guidedOnboardingEnabled &&
         filters.type === 'automation' &&
         !filters.search &&
         filters.createdBy === null &&
@@ -403,7 +401,7 @@ export function WorkflowsTable(): JSX.Element {
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
-                {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
+                <MessagingSetupReminderBanner />
                 <div className="mb-3">
                     <LemonSegmentedButton<WorkflowTypeFilter>
                         size="small"
@@ -485,7 +483,7 @@ export function WorkflowsTable(): JSX.Element {
                     nouns={['workflow', 'workflows']}
                     emptyState={showAutomationEmptyState ? <AutomationEmptyState /> : 'No workflows matching filters'}
                 />
-                {guidedOnboardingEnabled && <AutomationSuggestionBanner />}
+                <AutomationSuggestionBanner />
             </>
         </div>
     )
