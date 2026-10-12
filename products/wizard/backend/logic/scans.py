@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
@@ -26,6 +26,7 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
         tools.setdefault(tool.kind, tool)
 
     with transaction.atomic():
+        _lock_workspace(params.team_id, params.workspace_fingerprint)
         scan, created = WizardScan.objects.for_team(params.team_id).get_or_create(
             team_id=params.team_id,
             session_id=params.session_id,
@@ -41,15 +42,33 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
         if not created:
             return WizardScanResult(id=scan.id, created=False)
 
-        existing = {
-            row.kind: row
-            for row in WizardDetectedTool.objects.for_team(params.team_id)
-            .select_for_update()
-            .filter(workspace_fingerprint=params.workspace_fingerprint)
-        }
-        _apply_scan(scan, tools, existing)
+        # Tool state follows the newest scan of the workspace. A scan that arrives after a newer one is stored,
+        # but it changes nothing, even when the newer scan found no tools at all.
+        newer_scan_exists = (
+            WizardScan.objects.for_team(params.team_id)
+            .filter(workspace_fingerprint=params.workspace_fingerprint, scanned_at__gt=scan.scanned_at)
+            .exists()
+        )
+        if not newer_scan_exists:
+            existing = {
+                row.kind: row
+                for row in WizardDetectedTool.objects.for_team(params.team_id).filter(
+                    workspace_fingerprint=params.workspace_fingerprint
+                )
+            }
+            _apply_scan(scan, tools, existing)
 
     return WizardScanResult(id=scan.id, created=True)
+
+
+def _lock_workspace(team_id: int, workspace_fingerprint: str) -> None:
+    # Scans of one workspace from different sessions write the same tool rows. Without the lock, two first scans
+    # both insert a row and one fails on the unique constraint, and the newest-scan check can miss a scan that
+    # commits in between. The lock ends with the transaction.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"wizard-scan:{workspace_fingerprint}"]
+        )
 
 
 def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: dict[str, WizardDetectedTool]) -> None:
@@ -72,9 +91,7 @@ def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: di
             )
             _classify(row)
             to_create.append(row)
-        # A scan that reaches us after a newer sighting or removal for the same workspace must not move
-        # state back, so it is compared with whichever of the two happened last.
-        elif scanned_at > max(row.last_seen_at, row.removed_at or row.last_seen_at):
+        else:
             row.signals = _signals_json(tool)
             row.last_seen_scan = scan
             row.last_seen_at = scanned_at
@@ -84,7 +101,7 @@ def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: di
             to_update.append(row)
 
     for kind, row in existing.items():
-        if kind not in tools and row.removed_at is None and scanned_at > row.last_seen_at:
+        if kind not in tools and row.removed_at is None:
             row.removed_in_scan = scan
             row.removed_at = scanned_at
             to_update.append(row)
