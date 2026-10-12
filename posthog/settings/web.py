@@ -1293,8 +1293,6 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:write",
     "element:read",
     "uploaded_media:write",
-    "survey:read",
-    "survey:write",
     "field_note:read",
     "field_note:write",
 ]
