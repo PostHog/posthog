@@ -173,6 +173,39 @@ ENDPOINTS: dict[str, MaxioEndpointConfig] = {
             "refunds": "true",
         },
     ),
+    "subscription_components": MaxioEndpointConfig(
+        path="/subscriptions_components.json",
+        data_selector="subscriptions_components",
+        # `id` is the component id, so it repeats across subscriptions.
+        primary_keys=["subscription_id", "component_id"],
+        partition_keys=["created_at"],
+        incremental_fields=[_datetime_field("updated_at")],
+        incremental_date_field="updated_at",
+        # The only sort options are `id` and `updated_at`; `id` keeps full-refresh pages
+        # stable while rows are updated mid-sync.
+        sort_params={"sort": "id", "direction": "asc"},
+        incremental_sort_params={"sort": "updated_at", "direction": "asc"},
+    ),
+    "component_price_points": MaxioEndpointConfig(
+        path="/components_price_points.json",
+        data_selector="price_points",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # Date filtering is only available via nested `filter[...]` params — full refresh only.
+        incremental_fields=[],
+        extra_params={"include": "currency_prices"},
+        sort_params={"direction": "asc"},
+    ),
+    "product_price_points": MaxioEndpointConfig(
+        path="/products_price_points.json",
+        data_selector="price_points",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # Date filtering is only available via nested `filter[...]` params — full refresh only.
+        incremental_fields=[],
+        extra_params={"include": "currency_prices"},
+        sort_params={"direction": "asc"},
+    ),
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
