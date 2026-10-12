@@ -709,6 +709,46 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             expected == status.HTTP_201_CREATED
         )
 
+    def test_system_email_template_custom_code_cannot_be_restored_or_created_as_deleted(self) -> None:
+        self._create_system_email_template()
+        custom_hog = "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"
+        subject = {"key": "subject", "type": "string", "label": "Subject", "required": True}
+        body = {"key": "body", "type": "string", "label": "Body", "required": True}
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "internal_destination",
+                "name": "Sync alert",
+                "template_id": "template-posthog-email",
+                "hog": custom_hog,
+                "deleted": True,
+                "inputs": {"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
+                "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            },
+        )
+        assert create_response.status_code == status.HTTP_400_BAD_REQUEST, create_response.json()
+        assert create_response.json()["attr"] == "hog"
+
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Sync alert",
+            type="internal_destination",
+            template_id="template-posthog-email",
+            enabled=False,
+            deleted=True,
+            inputs_schema=[subject, body],
+            inputs={"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
+            hog=custom_hog,
+        )
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/", data={"deleted": False}
+        )
+        assert restore_response.status_code == status.HTTP_400_BAD_REQUEST, restore_response.json()
+        assert restore_response.json()["attr"] == "hog"
+        fn.refresh_from_db()
+        assert fn.deleted
+
     @parameterized.expand(
         [
             # Only the two messaging functions are refused. Async functions that stage an ordinary

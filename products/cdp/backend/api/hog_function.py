@@ -557,7 +557,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # the reserved-function check allows any call that the template's own code makes.
         instance = self.instance if isinstance(self.instance, HogFunction) else None
         template_id = attrs.get("template_id") or (instance.template_id if instance else None)
-        if template_id != SYSTEM_EMAIL_TEMPLATE_ID or attrs.get("deleted") is True:
+        # Deleting an existing function stays possible so it can be cleaned up. A create that is
+        # marked deleted is still checked, and so is the undelete, because both end in a live function.
+        if template_id != SYSTEM_EMAIL_TEMPLATE_ID or (instance is not None and attrs.get("deleted") is True):
             return
 
         if attrs.get("type", instance.type if instance else None) != HogFunctionType.INTERNAL_DESTINATION:
@@ -579,7 +581,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
         proposed_hog = attrs.get("hog")
-        if proposed_hog is not None and proposed_hog not in (template.code, instance.hog if instance else None):
+        undeleting = instance is not None and instance.deleted and attrs.get("deleted") is False
+        if undeleting:
+            # An unchanged saved `hog` is normally accepted, but a restore must not bring back custom code.
+            proposed_hog = proposed_hog if proposed_hog is not None else instance.hog
+            allowed_hog: tuple = (template.code,)
+        else:
+            allowed_hog = (template.code, instance.hog if instance else None)
+        if proposed_hog is not None and proposed_hog not in allowed_hog:
             raise serializers.ValidationError({"hog": "The code of this template is fixed and cannot be edited."})
 
     def _validate_no_reserved_functions(self, attrs: dict) -> None:
