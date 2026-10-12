@@ -323,14 +323,16 @@ export interface featureFlagsLogicActions {
         errorObject?: any
     }
     updateFeatureFlagArchivedSuccess: (
-        featureFlags: {
-            count: number
-            filters?: FeatureFlagsFilters | null | undefined
-            lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: any[]
-        },
+        featureFlags:
+            | FeatureFlagsResult
+            | {
+                  count: number
+                  filters?: FeatureFlagsFilters | null | undefined
+                  lastUpdatedFlagId: number
+                  next?: string | null | undefined
+                  previous?: string | null | undefined
+                  results: any[]
+              },
         payload?: {
             id: number
             archived: boolean
@@ -338,14 +340,16 @@ export interface featureFlagsLogicActions {
             cleanupPr?: FeatureFlagCleanupPrRequestApi
         }
     ) => {
-        featureFlags: {
-            count: number
-            filters?: FeatureFlagsFilters | null | undefined
-            lastUpdatedFlagId: number
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: any[]
-        }
+        featureFlags:
+            | FeatureFlagsResult
+            | {
+                  count: number
+                  filters?: FeatureFlagsFilters | null | undefined
+                  lastUpdatedFlagId: number
+                  next?: string | null | undefined
+                  previous?: string | null | undefined
+                  results: any[]
+              }
         payload?: {
             id: number
             archived: boolean

@@ -4311,7 +4311,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             )
         },
-        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
+        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate, payload }) => {
+            if (payload?.archived && payload.cleanupPr && payload.cleanupPr.keep !== 'disabled') {
+                return
+            }
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
                 // Archiving also disables the flag, so archived/active/version are the persisted
