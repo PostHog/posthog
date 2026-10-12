@@ -33,6 +33,8 @@ use ingestion_consumer::batcher::packer::PackTargets;
 use ingestion_consumer::batcher::state_machine::RequestBudget;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::BatcherObserver;
+use ingestion_consumer::commit_pacer::CommitPacer;
+use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
@@ -596,6 +598,8 @@ impl WorkerIngestService for FakeWorkerGrpc {
 
 // ── Test harness ───────────────────────────────────────────────────────────
 
+const COMMIT_INTERVAL: Duration = Duration::from_millis(500);
+
 struct Harness {
     pub workers: Vec<FakeWorker>,
     pub registry: Arc<WorkerRegistry>,
@@ -614,6 +618,7 @@ struct Harness {
     deferred_flush_timeout: Duration,
     pack_targets: PackTargets,
     budget: Option<RequestBudget>,
+    completion_granularity: CompletionGranularity,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -626,7 +631,12 @@ fn make_kafka_consumer(
     group_id: &str,
     instance_id: Option<&str>,
 ) -> StreamConsumer<SentinelContext> {
-    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+    make_kafka_consumer_with_context(
+        topic,
+        group_id,
+        instance_id,
+        SentinelContext::detached(CommitPacer::immediate()),
+    )
 }
 
 /// Like `make_kafka_consumer`, under a context the test keeps a hand on.
@@ -712,6 +722,7 @@ impl Harness {
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
             None,
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -742,6 +753,7 @@ impl Harness {
                 soft_budget: Duration::from_millis(500),
                 attempts: BUDGET_ATTEMPTS,
             }),
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -767,6 +779,7 @@ impl Harness {
             ComponentOptions::new(),
             pack_targets,
             None,
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -791,6 +804,7 @@ impl Harness {
                 .with_stall_threshold(stall_threshold),
             common::ONE_MESSAGE_PER_REQUEST,
             None,
+            CompletionGranularity::Poll,
         )
         .await
     }
@@ -810,6 +824,30 @@ impl Harness {
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
             None,
+            CompletionGranularity::Poll,
+        )
+        .await
+    }
+
+    async fn start_group_granularity(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            pack_targets,
+            None,
+            CompletionGranularity::Group,
         )
         .await
     }
@@ -826,6 +864,7 @@ impl Harness {
         component_options: ComponentOptions,
         pack_targets: PackTargets,
         budget: Option<RequestBudget>,
+        completion_granularity: CompletionGranularity,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -853,7 +892,10 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let context = SentinelContext::detached();
+        let context = SentinelContext::detached(CommitPacer::for_granularity(
+            completion_granularity,
+            COMMIT_INTERVAL,
+        ));
         let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
@@ -878,6 +920,7 @@ impl Harness {
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
+                completion_granularity,
             },
             handle,
         );
@@ -909,6 +952,7 @@ impl Harness {
             deferred_flush_timeout,
             pack_targets,
             budget,
+            completion_granularity,
         }
     }
 
@@ -938,7 +982,10 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let context = SentinelContext::detached();
+        let context = SentinelContext::detached(CommitPacer::for_granularity(
+            self.completion_granularity,
+            COMMIT_INTERVAL,
+        ));
         self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
@@ -963,6 +1010,7 @@ impl Harness {
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
+                completion_granularity: self.completion_granularity,
             },
             handle,
         );
@@ -1064,6 +1112,7 @@ impl Harness {
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
+                completion_granularity: self.completion_granularity,
             },
             handle,
         );
@@ -2475,21 +2524,8 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
     harness.stop().await;
 }
 
-/// The broker-committed offset is the ledger frontier — one past everything
-/// the workers accepted — and a restart resumes from it with no loss and no
-/// redelivery.
-#[tokio::test]
-async fn the_committed_offset_is_the_ledger_frontier() {
-    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
-    let mut harness = Harness::start(
-        &topic,
-        1,
-        1,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+async fn assert_commits_track_the_ledger_frontier(mut harness: Harness) {
+    let topic = harness.topic.clone();
     let producer = make_producer();
 
     for seq in 0..10usize {
@@ -2523,6 +2559,118 @@ async fn the_committed_offset_is_the_ledger_frontier() {
         total, 15,
         "a committed frontier behind the accepted work would redeliver here"
     );
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn the_committed_offset_is_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start(
+            &topic,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+        )
+        .await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn group_granularity_commits_the_ledger_frontier() {
+    let topic = format!("e2e-group-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start_group_granularity(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, 1).await,
+    )
+    .await;
+}
+
+const STALL_KEYS: [(i32, &str); 2] = [(0, "user-a"), (1, "user-b")];
+
+async fn stall_two_partitions_on_two_workers(
+    harness: &Harness,
+    topic: &str,
+) -> Vec<Option<tokio::sync::OwnedMutexGuard<()>>> {
+    let mut guards = Vec::new();
+    for worker in &harness.workers {
+        guards.push(Some(worker.block().await));
+    }
+
+    let producer = make_producer();
+    let mut sends = Vec::new();
+    for seq in 0..5usize {
+        for (partition, key) in STALL_KEYS {
+            sends.push(produce(&producer, topic, partition, "tok", key, seq));
+        }
+    }
+    futures::future::join_all(sends).await;
+
+    wait_until(
+        Duration::from_secs(10),
+        "both workers to hold a sub-batch",
+        || harness.workers.iter().all(|w| w.arrived_count() > 0),
+    )
+    .await;
+
+    guards
+}
+
+fn accepted_partition(harness: &Harness, idx: usize) -> i32 {
+    let worker = &harness.workers[idx];
+    assert_eq!(
+        worker.count(),
+        5,
+        "each worker must hold exactly one key's messages"
+    );
+    STALL_KEYS
+        .iter()
+        .find(|(_, key)| !worker.seqs_for(key).is_empty())
+        .map(|(partition, _)| *partition)
+        .expect("the released worker accepted neither key")
+}
+
+/// One message per request, because the packer would otherwise pack both
+/// keys into one request on one worker.
+#[tokio::test]
+async fn group_granularity_commits_a_partition_while_another_stalls() {
+    let topic = format!("e2e-group-stall-{}", Uuid::new_v4());
+    let harness =
+        Harness::start_group_granularity(common::ONE_MESSAGE_PER_REQUEST, &topic, 2, 2, 2).await;
+    let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
+
+    guards[0] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the released worker to accept its key",
+        || harness.workers[0].count() == 5,
+    )
+    .await;
+    let released = accepted_partition(&harness, 0);
+    let stalled = 1 - released;
+
+    wait_until(
+        Duration::from_secs(10),
+        "the released partition to commit",
+        || harness.committed_offset(released) == Some(5),
+    )
+    .await;
+    assert_eq!(
+        harness.committed_offset(stalled),
+        None,
+        "the stalled send must hold its own partition back"
+    );
+
+    guards[1] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the stalled partition to commit once released",
+        || harness.committed_offset(stalled) == Some(5),
+    )
+    .await;
 
     harness.stop().await;
 }
@@ -3236,6 +3384,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
         },
         handle,
     );
