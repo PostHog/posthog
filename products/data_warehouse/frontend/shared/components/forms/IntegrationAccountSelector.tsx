@@ -4,10 +4,8 @@ import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
+import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -192,17 +190,6 @@ function captionHelp(caption?: string): JSX.Element | undefined {
     return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
 }
 
-/** Where the in-place reconnect returns to. The wizard keeps the chosen source in `?kind=`, so a
- *  bare pathname lands the user back on the source catalog. The previous callback's result params
- *  are dropped because the new callback sets its own. */
-export function reconnectReturnUrl(pathname: string, search: string): string {
-    const params = new URLSearchParams(search)
-    params.delete('integration_id')
-    params.delete(INTEGRATION_ERROR_PARAM)
-    const query = params.toString()
-    return query ? `${pathname}?${query}` : pathname
-}
-
 /** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
  *  without hunting for the disconnect/reconnect action elsewhere on the page. */
 function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.Element {
@@ -211,7 +198,7 @@ function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.El
     return (
         <Link
             disableClientSideRouting
-            to={api.integrations.authorizeUrl({
+            to={integrationAuthorizeUrl({
                 kind: integrationKind,
                 next: reconnectReturnUrl(window.location.pathname, window.location.search),
             })}
@@ -362,11 +349,13 @@ function MultiAccountFieldWithOptions({
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     const options = useMemo<LemonInputSelectOption[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
@@ -463,11 +452,13 @@ function IntegrationAccountFieldWithDropdown({
     const { accounts, accountsLoading, accountsLoaded, accountsError, search } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     // The list is filtered server-side, so while a search term is active `accounts` holds the
     // matches rather than everything the connection can reach. Every "we found nothing" hint below

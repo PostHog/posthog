@@ -30,7 +30,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')
@@ -38,7 +37,13 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes('raw_session_replay_events')) {
+                        return [200, { results: [[7]] }]
+                    }
+                    return [200, recordingEventsJson]
+                },
             },
         }),
     ],
@@ -133,7 +138,6 @@ export const EventMatchScopeOnlyDuringRecording: Story = {
 
 export const TemplatesTab: Story = {
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_TEMPLATES_IN_FILTERS_PANEL_EXPERIMENT]: 'test' },
         pageUrl: combineUrl(urls.replay(), { showFilters: true, filtersTab: 'templates' }).url,
     },
 }

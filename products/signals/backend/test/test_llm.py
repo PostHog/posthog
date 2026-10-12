@@ -33,6 +33,20 @@ def _mock_anthropic_client() -> MagicMock:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("has_text", [False, True])
+async def test_explicit_refusal_is_not_treated_as_text(has_text: bool) -> None:
+    response = _text_response("refused")
+    response.stop_reason = "refusal"
+    if not has_text:
+        response.content = []
+    client = _mock_anthropic_client()
+    client.messages.create.return_value = response
+    with patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client):
+        with pytest.raises(llm.LLMRefusalError):
+            await call_llm(team_id=1, system_prompt="s", user_prompt="u", validate=lambda text: text)
+
+
+@pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_gateway_mode_omits_legacy_stage_header():
     client = _mock_anthropic_client()
@@ -160,6 +174,8 @@ async def test_eval_fixture_generation_opts_in_as_signals_eval():
         ("claude-sonnet-4-5", True, False, True, "enabled", None),
         ("claude-sonnet-5", False, False, False, None, "medium"),
         ("claude-sonnet-5", True, False, False, "adaptive", "medium"),
+        ("claude-sonnet-5-5", False, False, False, None, "medium"),
+        ("claude-sonnet-5-5", True, False, False, "adaptive", "medium"),
         ("claude-sonnet-4-6", False, False, True, None, "medium"),
     ],
 )
@@ -229,8 +245,8 @@ def _reload_model_constants(env: dict[str, str]) -> tuple[str, str]:
 @pytest.mark.parametrize(
     "env,expected_matching,expected_safety",
     [
-        ({}, "claude-sonnet-5", "claude-sonnet-5"),
-        ({"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5"}, "claude-opus-5", "claude-sonnet-5"),
+        ({}, "claude-sonnet-5-5", "claude-sonnet-5-5"),
+        ({"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5"}, "claude-opus-5", "claude-sonnet-5-5"),
         (
             {"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5", "SIGNAL_SAFETY_LLM_MODEL": "claude-haiku-4-5"},
             "claude-opus-5",

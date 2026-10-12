@@ -45,7 +45,8 @@ describe('OfflineOverviewTrend', () => {
 
         await screen.findByText(scorer.name)
         expect(screen.getByText('0.851667')).toBeInTheDocument()
-        expect(screen.getByText('Mean score · 6 experiments')).toBeInTheDocument()
+        expect(screen.getByText('6 experiments (570 items)')).toBeInTheDocument()
+        expect(screen.getByText('Mean score')).toBeInTheDocument()
         if (partial) {
             expect(screen.getByText(/6 of 200 experiment\/version results.*Partial history/)).toBeInTheDocument()
             expect(screen.getByText('Earlier experiments and scorer versions may not be shown.')).toBeInTheDocument()

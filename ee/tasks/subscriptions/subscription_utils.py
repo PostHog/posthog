@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in products/subscriptions/frontend/components/Subscriptions/insightSelectorLogic.ts.
-MAX_INSIGHTS = 10
+MAX_INSIGHTS = 20
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 # Marks text every channel had to cut short. Shared so email, Slack and Teams read the same.
 TRUNCATION_MARKER = "... (truncated)"

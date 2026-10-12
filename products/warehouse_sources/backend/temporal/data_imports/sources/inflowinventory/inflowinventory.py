@@ -23,6 +23,7 @@ INFLOWINVENTORY_BASE_URL = "https://cloudapi.inflowinventory.com"
 # source pin selects which of these labels is sent, so previously-created sources keep their behaviour.
 INFLOWINVENTORY_API_VERSION_2023_04_01 = "2023-04-01"
 INFLOWINVENTORY_API_VERSION_2026_07_10 = "2026-07-10"
+INFLOWINVENTORY_API_VERSION_2026_09_29 = "2026-09-29"
 # The list endpoints accept up to 100 records per page; the largest page minimises round trips.
 PAGE_SIZE = 100
 # inFlow company IDs are GUIDs. Restrict to host/path-safe characters so the credential stays

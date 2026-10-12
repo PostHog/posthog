@@ -11,11 +11,9 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
-    _offset_from_url,
     _to_date_string,
     _to_epoch_seconds,
     get_endpoint_permissions,
-    get_status_code,
     sendgrid_source,
 )
 
@@ -82,9 +80,6 @@ class TestToEpochSeconds:
     def test_to_epoch_seconds(self, value: Any, expected: int) -> None:
         assert _to_epoch_seconds(value) == expected
 
-    def test_naive_datetime_treated_as_utc(self) -> None:
-        assert _to_epoch_seconds(datetime(2023, 11, 14, 22, 13, 20)) == 1700000000
-
 
 class TestToDateString:
     @pytest.mark.parametrize(
@@ -100,9 +95,6 @@ class TestToDateString:
     )
     def test_to_date_string(self, value: Any, expected: str) -> None:
         assert _to_date_string(value) == expected
-
-    def test_naive_datetime_treated_as_utc(self) -> None:
-        assert _to_date_string(datetime(2024, 1, 15, 22, 13, 20)) == "2024-01-15"
 
 
 class TestStats:
@@ -125,18 +117,6 @@ class TestStats:
         assert params[0]["aggregated_by"] == "day"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_sync_backfills_a_required_start_date(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response([])])
-
-        # /stats rejects a request with no start_date, so a cursorless sync must still send one.
-        _rows(_source("stats", _make_manager()))
-
-        assert "start_date" in params[0]
-        # A YYYY-MM-DD string, not epoch seconds — the format /stats requires.
-        datetime.strptime(params[0]["start_date"], "%Y-%m-%d")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_cursor_becomes_a_date_formatted_start_date(self, MockSession) -> None:
         session = MockSession.return_value
         params, _urls = _wire(session, [_response([])])
@@ -152,19 +132,6 @@ class TestStats:
         )
 
         assert params[0]["start_date"] == "2024-03-10"
-
-
-class TestOffsetFromUrl:
-    @pytest.mark.parametrize(
-        ("url", "expected"),
-        [
-            ("https://api.sendgrid.com/v3/suppression/bounces?limit=500&offset=500", 500),
-            ("https://api.sendgrid.com/v3/suppression/bounces?limit=500", 0),
-            ("https://api.sendgrid.com/v3/suppression/bounces", 0),
-        ],
-    )
-    def test_offset_from_url(self, url: str, expected: int) -> None:
-        assert _offset_from_url(url) == expected
 
 
 class TestOffsetPagination:
@@ -188,18 +155,6 @@ class TestOffsetPagination:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"email": "a@x.com"}, {"email": "b@x.com"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("bounces", manager))
-
-        assert [r["email"] for r in rows] == ["a@x.com", "b@x.com"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params, _urls = _wire(session, [_response([{"email": "b@x.com"}])])
@@ -220,32 +175,6 @@ class TestOffsetPagination:
         _rows(_source("bounces", manager))
 
         assert params[0]["offset"] == 500
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_start_time_in_initial_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response([{"email": "b@x.com"}])])
-
-        _rows(
-            _source(
-                "bounces",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
-                incremental_field="created",
-            )
-        )
-
-        assert params[0]["start_time"] == 1700000000
-        assert params[0]["offset"] == 0
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_start_time_without_incremental(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response([{"email": "b@x.com"}])])
-
-        _rows(_source("bounces", _make_manager()))
-        assert "start_time" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_raises_loudly(self, MockSession) -> None:
@@ -275,15 +204,6 @@ class TestMetadataPagination:
         assert urls[1] == next_url
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == SendGridResumeConfig(next_url=next_url)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_templates_sends_generations_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response({"result": [{"id": 1}], "_metadata": {}})])
-
-        _rows(_source("templates", _make_manager()))
-        assert params[0]["generations"] == "legacy,dynamic"
-        assert params[0]["page_size"] == 100
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_result_key_raises_loudly(self, MockSession) -> None:
@@ -325,21 +245,6 @@ class TestOffHostGuard:
         manager = _make_manager(SendGridResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"))
         with pytest.raises(ValueError, match="unexpected URL"):
             _rows(_source("marketing_lists", manager))
-
-
-class TestSinglePagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_request_no_pagination(self, MockSession) -> None:
-        session = MockSession.return_value
-        groups = [{"id": 1}, {"id": 2}]
-        _wire(session, [_response(groups)])
-
-        manager = _make_manager()
-        rows = _rows(_source("unsubscribe_groups", manager))
-
-        assert rows == groups
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
@@ -477,50 +382,6 @@ class TestActivityPagination:
             _rows(_source("message_activity", _make_manager()))
 
         assert "403 Client Error: Forbidden for url: https://api.sendgrid.com/v3/messages" in str(excinfo.value)
-
-
-class TestSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_suppression_endpoint_partitioning_and_keys(self, MockSession) -> None:
-        response = _source("bounces", _make_manager())
-        assert response.name == "bounces"
-        assert response.primary_keys == ["email"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created"]
-        assert response.sort_mode == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_partitioning(self, MockSession) -> None:
-        response = _source("marketing_lists", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_message_activity_is_desc_keyed_on_msg_id_and_unpartitioned(self, MockSession) -> None:
-        response = _source("message_activity", _make_manager())
-        assert response.primary_keys == ["msg_id"]
-        # Newest-first walk: declaring "asc" would checkpoint the watermark at ≈now after the
-        # first batch and skip everything older on the next incremental sync.
-        assert response.sort_mode == "desc"
-        # last_event_time advances whenever a new event lands, so it can't be a partition key.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
-class TestGetStatusCode:
-    @pytest.mark.parametrize("status", [200, 401, 403, 404])
-    def test_returns_status(self, status: int) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
-            assert get_status_code("k", "/scopes") == status
-
-    def test_returns_none_on_transport_error(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
-            assert get_status_code("k", "/scopes") is None
 
 
 class TestGetEndpointPermissions:

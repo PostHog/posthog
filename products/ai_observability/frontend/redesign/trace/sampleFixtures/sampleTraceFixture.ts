@@ -1,6 +1,6 @@
+import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 import { NodeDetailProps } from '../components/NodeDetail'
 import { TraceViewReadyProps } from '../components/TraceView'
-import { NodeStats } from '../types'
 
 export type SampleNodeDetail = Omit<NodeDetailProps, 'node' | 'tab' | 'onTabChange' | 'onViewInThread' | 'onSelectNode'>
 
@@ -9,7 +9,7 @@ export type SampleTraceFixture = Pick<TraceViewReadyProps, 'header' | 'summary' 
     details: Record<string, SampleNodeDetail>
 }
 
-export function sampleStats(stats: Partial<NodeStats>): NodeStats {
+export function sampleStats(stats: Partial<TraceNodeStatsApi>): TraceNodeStatsApi {
     return {
         costUsd: null,
         inputTokens: null,

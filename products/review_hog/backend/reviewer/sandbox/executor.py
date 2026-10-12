@@ -11,6 +11,12 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
+# Sent once when the agent ends its first turn with prose instead of the JSON the step needs.
+JSON_RETRY_PROMPT = (
+    "Your last reply did not contain the JSON object the task asks for. "
+    "Reply now with only that JSON object, matching the schema above. Do not add prose or code fences."
+)
+
 
 async def _run_prompt(
     prompt: str,
@@ -45,6 +51,7 @@ async def _run_prompt(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            json_retry_prompt=JSON_RETRY_PROMPT,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -89,7 +96,7 @@ async def run_sandbox_review(
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
     not auto-approve MCP tool calls).
     """
-    full_prompt = f"{system_prompt}\n\n{prompt}"
+    full_prompt = "\n\n".join(part for part in (system_prompt, prompt) if part)
     context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -137,7 +144,7 @@ async def start_sandbox_session(
     session's LLM exactly like ``run_sandbox_review``'s kwargs; all-``None`` keeps the agent server's
     default. The pin applies to the whole session — every follow-up turn runs on the opener's model.
     """
-    full_prompt = f"{system_prompt}\n\n{prompt}"
+    full_prompt = "\n\n".join(part for part in (system_prompt, prompt) if part)
     context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -161,6 +168,7 @@ async def start_sandbox_session(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            json_retry_prompt=JSON_RETRY_PROMPT,
         )
     except Exception:
         logger.exception("Sandbox session start failed")

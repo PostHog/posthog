@@ -9,6 +9,10 @@ INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
 INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
 
+# Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
+INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")
+INTERNAL_FEEDBACK_SLACK_CHANNEL = get_from_env("INTERNAL_FEEDBACK_SLACK_CHANNEL", "C09G8Q32R6F")
+
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
 
@@ -23,6 +27,16 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 # keep the app importable and the OAuth auth method dormant until the client is provisioned.
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+
+# Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
+# ES256 JWT this app signs per token request with the private key whose public half was registered
+# in Apple Ads (see posthog/models/integration/apple_ads.py). Empty defaults keep the app importable
+# and the OAuth auth method dormant until the service provider registration is provisioned.
+APPLE_ADS_APP_CLIENT_ID = get_from_env("APPLE_ADS_APP_CLIENT_ID", "")
+APPLE_ADS_APP_TEAM_ID = get_from_env("APPLE_ADS_APP_TEAM_ID", "")
+APPLE_ADS_APP_KEY_ID = get_from_env("APPLE_ADS_APP_KEY_ID", "")
+# PEM body of the EC P-256 private key. Newlines may be escaped as literal \n.
+APPLE_ADS_APP_PRIVATE_KEY = get_from_env("APPLE_ADS_APP_PRIVATE_KEY", "")
 
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
@@ -125,6 +139,9 @@ BING_ADS_CLIENT_ID_FALLBACK = get_from_env("BING_ADS_CLIENT_ID_FALLBACK", "")
 BING_ADS_CLIENT_SECRET_FALLBACK = get_from_env("BING_ADS_CLIENT_SECRET_FALLBACK", "")
 BING_ADS_DEVELOPER_TOKEN = get_from_env("BING_ADS_DEVELOPER_TOKEN", "")
 
+TWITTER_ADS_CONSUMER_KEY = get_from_env("TWITTER_ADS_CONSUMER_KEY", "")
+TWITTER_ADS_CONSUMER_SECRET = get_from_env("TWITTER_ADS_CONSUMER_SECRET", "")
+
 REDDIT_ADS_CLIENT_ID = get_from_env("REDDIT_ADS_CLIENT_ID", "")
 REDDIT_ADS_CLIENT_SECRET = get_from_env("REDDIT_ADS_CLIENT_SECRET", "")
 
@@ -152,8 +169,7 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 #   marketplace app's own token. That token is written into the customer's Stripe Secret Store at
 #   account scope, so every member of their Stripe account can read it. It must not share an
 #   application with the orchestrator, because the provisioning namespace authorizes on application
-#   identity alone. Until this is set the two share one application and marketplace tokens can reach
-#   the provisioning endpoints.
+#   identity alone. Left unset, a new install gets no PostHog credential.
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")

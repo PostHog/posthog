@@ -378,10 +378,6 @@ jobs:
 
                   - The release workflow validates the generated changelog and package changes before it opens this pull request.
 
-                  ## Automatic notifications
-
-                  - [ ] Publish to changelog?
-
                   ## Docs update
 
                   None.

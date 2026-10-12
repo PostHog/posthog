@@ -8,7 +8,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActorType } from '~/types'
+import { ActorType, GroupActorType } from '~/types'
 
 import { relatedGroupsLogic } from 'products/groups/frontend/logics/relatedGroupsLogic'
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
@@ -32,6 +32,8 @@ export interface RelatedGroupsProps {
     highlightStaleTooltip?: string
     /** Extra group rows to append (deduped by id), e.g. a group not in the live related list. */
     extraActors?: ActorType[]
+    /** Extra content shown under a group's name, e.g. figures the caller loads for that group. */
+    renderGroupDetail?: (actor: GroupActorType) => React.ReactNode
 }
 
 export function RelatedGroups({
@@ -46,6 +48,7 @@ export function RelatedGroups({
     highlightStale = false,
     highlightStaleTooltip,
     extraActors,
+    renderGroupDetail,
 }: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const { aggregationLabel } = useValues(groupsModel)
@@ -80,7 +83,7 @@ export function RelatedGroups({
                 render: function RenderActor(_, actor: ActorType) {
                     if (actor.type === 'group') {
                         const isHighlighted = highlightGroupKey != null && actor.group_key === highlightGroupKey
-                        return (
+                        const nameRow = (
                             <div className="flex items-center gap-2">
                                 <GroupActorDisplay actor={actor} />
                                 {isHighlighted && highlightLabel && (
@@ -99,6 +102,15 @@ export function RelatedGroups({
                                 )}
                             </div>
                         )
+                        if (!renderGroupDetail) {
+                            return nameRow
+                        }
+                        return (
+                            <div className="flex flex-col gap-1">
+                                {nameRow}
+                                {renderGroupDetail(actor)}
+                            </div>
+                        )
                     }
                     return <PersonDisplay person={actor} withIcon={false} />
                 },
@@ -111,6 +123,7 @@ export function RelatedGroups({
             highlightLabelTooltip,
             highlightStale,
             highlightStaleTooltip,
+            renderGroupDetail,
         ]
     )
 

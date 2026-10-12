@@ -40,6 +40,20 @@ def _funnel_call(
     return ("mcp__posthog__query-funnel", query, "ok")
 
 
+def _saved_call(display: str, wrapped: bool = True, status: str = "completed") -> tuple:
+    source = {"kind": "TrendsQuery", **_trends_call(display, "file_type", ["uploaded_file"])[1]}
+    query = {"kind": "InsightVizNode", "source": source} if wrapped else source
+    return ("mcp__posthog__insight-create", {"name": "Uploads by file type", "query": query}, "ok", status)
+
+
+UPLOADS_BY_FILE_TYPE = {
+    "tool": "query-trends",
+    "display": ["ActionsBarValue"],
+    "breakdown": "file_type",
+    "events": ["uploaded_file"],
+}
+
+
 def _sql_call(status: str = "completed") -> tuple:
     return ("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1", status)
 
@@ -78,6 +92,36 @@ PAGEVIEWS_BY_BROWSER = {
             {"tool": "query-funnel", "funnel_viz": "trends"},
             0.0,
             ["funnel_viz"],
+        ),
+        ([_saved_call("ActionsBarValue")], UPLOADS_BY_FILE_TYPE, 1.0, []),
+        ([_saved_call("ActionsBarValue", wrapped=False)], UPLOADS_BY_FILE_TYPE, 1.0, []),
+        (
+            [_trends_call("ActionsBarValue", "file_type", ["uploaded_file"]), _saved_call("ActionsBar")],
+            UPLOADS_BY_FILE_TYPE,
+            0.0,
+            ["display"],
+        ),
+        (
+            [
+                _trends_call("ActionsBarValue", "file_type", ["uploaded_file"]),
+                _saved_call("ActionsBar", status="failed"),
+            ],
+            UPLOADS_BY_FILE_TYPE,
+            1.0,
+            [],
+        ),
+        (
+            [
+                _trends_call("ActionsBarValue", "file_type", ["uploaded_file"]),
+                (
+                    "mcp__posthog__insight-create",
+                    {"name": "Uploads", "query": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}},
+                    "ok",
+                ),
+            ],
+            UPLOADS_BY_FILE_TYPE,
+            0.0,
+            ["tool"],
         ),
         ([_sql_call()], PAGEVIEWS_BY_BROWSER, 0.0, ["tool"]),
         ([_trends_call("ActionsLineGraph", "$browser"), _sql_call()], {"tool": "execute-sql"}, 0.0, ["tool"]),

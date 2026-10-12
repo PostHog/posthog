@@ -6,7 +6,7 @@ import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
-from products.experiments.backend.facade.timeseries import resolve_saved_metric_definition
+from products.experiments.backend.facade.timeseries import apply_saved_metric_overrides
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -24,8 +24,7 @@ def recalculation_hour_filter(hour: int) -> Q:
     The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse
     relation. experiment_recalculation_times holds "HH:00:00" strings, so hour membership
     is a jsonb containment check. A null list or a missing config row means the default
-    hour; the deprecated experiment_recalculation_time column is not consulted, because
-    the API keeps the list in sync with it on every write.
+    hour.
     """
     match = Q(team__teamexperimentsconfig__experiment_recalculation_times__contains=[f"{hour:02d}:00:00"])
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
@@ -104,7 +103,7 @@ def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         query = link.saved_metric.query
         if isinstance(query, dict) and query.get("uuid") == metric_uuid:
-            return resolve_saved_metric_definition(query, link.metadata)
+            return apply_saved_metric_overrides(query, link.metadata)
     return None
 
 

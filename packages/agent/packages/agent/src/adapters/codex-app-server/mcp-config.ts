@@ -8,7 +8,12 @@ interface CodexMcpServerToolConfig {
 
 interface CodexMcpServerPolicyConfig {
   tools?: Record<string, CodexMcpServerToolConfig>;
+  required?: boolean;
+  startup_timeout_sec?: number;
 }
+
+// Codex drops a server that does not finish its handshake in 10s by default.
+const REQUIRED_POSTHOG_MCP_STARTUP_TIMEOUT_SEC = 30;
 
 /**
  * Codex's per-thread `mcp_servers` config entry (stdio: command/args/env; http:
@@ -78,7 +83,7 @@ export function codexKeyMatchesMcpServerName(
  */
 export function toCodexMcpServers(
   servers: McpServer[] | undefined,
-  options?: { gatePosthogExec?: boolean },
+  options?: { gatePosthogExec?: boolean; requirePosthogMcp?: boolean },
 ): Record<string, CodexMcpServerConfig> | undefined {
   if (!servers || servers.length === 0) {
     return undefined;
@@ -90,11 +95,23 @@ export function toCodexMcpServers(
     // `approval_mode: "prompt"` makes codex ask before every exec call; the
     // per-sub-tool regex filtering happens in the adapter's approval handlers,
     // which auto-accept calls the session's permission policy does not gate.
-    const policy =
-      options?.gatePosthogExec &&
-      isPostHogExecDescriptor({ server: server.name, tool: "exec" })
+    const isPosthog = isPostHogExecDescriptor({
+      server: server.name,
+      tool: "exec",
+    });
+    const policy: CodexMcpServerPolicyConfig = {
+      ...(options?.gatePosthogExec && isPosthog
         ? { tools: { exec: { approval_mode: "prompt" as const } } }
-        : {};
+        : {}),
+      // A required server that fails to start fails `thread/start`. Without it,
+      // codex starts the thread anyway and the run has no `exec` tool.
+      ...(options?.requirePosthogMcp && isPosthog
+        ? {
+            required: true,
+            startup_timeout_sec: REQUIRED_POSTHOG_MCP_STARTUP_TIMEOUT_SEC,
+          }
+        : {}),
+    };
     if ("command" in server && server.command) {
       const env = pairsToRecord(server.env);
       out[uniqueCodexMcpServerName(server.name, taken)] = {

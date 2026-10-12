@@ -25,8 +25,8 @@
             "type": "string"
         },
         "scanner_type": {
-            "description": "Restrict the feed to observations from scanners of this type.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
-            "enum": ["monitor", "classifier", "scorer", "summarizer"],
+            "description": "Restrict the feed to observations from scanners of this type.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
         },
         "search": {

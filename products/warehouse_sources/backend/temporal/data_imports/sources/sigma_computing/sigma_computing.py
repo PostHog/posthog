@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sigma_computing.settings import (
     SIGMA_ENDPOINTS,
+    Pagination,
     SigmaComputingEndpointConfig,
     resolve_base_url,
 )
@@ -38,13 +39,15 @@ class SigmaAuthError(Exception):
 @frozen
 class SigmaComputingResumeConfig:
     # Opaque framework checkpoint: `{"cursor": ...}` for a top-level endpoint's
-    # JSONResponseCursorPaginator, or the fan-out manager's combined state for a workbook-scoped
-    # child endpoint - round-tripped into `initial_paginator_state` on resume. Frozen since it's
+    # JSONResponseCursorPaginator, or the fan-out manager's combined state for a workbook- or
+    # report-scoped child endpoint - round-tripped into `initial_paginator_state` on resume. Frozen since it's
     # only ever constructed fresh and handed to `resumable_source_manager.save_state`.
     paginator_state: dict[str, Any]
 
 
-def _paginator_config() -> PaginatorConfig:
+def _paginator_config(pagination: Pagination = "page") -> PaginatorConfig:
+    if pagination == "page_token":
+        return {"type": "cursor", "cursor_path": "nextPageToken", "cursor_param": "pageToken"}
     return {"type": "cursor", "cursor_path": "nextPage", "cursor_param": "page"}
 
 
@@ -187,6 +190,7 @@ def sigma_computing_source(
             resumable_source_manager.save_state(SigmaComputingResumeConfig(paginator_state=dict(state)))
 
     if endpoint_config.fanout:
+        parent_config = SIGMA_ENDPOINTS[endpoint_config.fanout.parent_name]
         dependent_resource = build_dependent_resource(
             endpoint_configs=cast(Any, SIGMA_ENDPOINTS),
             child_endpoint=endpoint,
@@ -196,9 +200,17 @@ def sigma_computing_source(
             team_id=team_id,
             job_id=job_id,
             db_incremental_field_last_value=None,
-            page_size_param="limit",
-            parent_endpoint_extra={"paginator": _paginator_config(), "data_selector": "entries"},
-            child_endpoint_extra={"paginator": _paginator_config(), "data_selector": "entries"},
+            # The two pagination styles name the page size differently, so a mixed fan-out sets it
+            # through the fanout's parent/child params instead.
+            page_size_param="limit" if endpoint_config.pagination == parent_config.pagination else None,
+            parent_endpoint_extra={
+                "paginator": _paginator_config(parent_config.pagination),
+                "data_selector": "entries",
+            },
+            child_endpoint_extra={
+                "paginator": _paginator_config(endpoint_config.pagination),
+                "data_selector": "entries",
+            },
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
         )

@@ -41,8 +41,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-MAX_ROWS = 1000
-MAX_DECISIONS = 1000
 MAX_INPUT_BYTES = 8192
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_BATCH_BYTES = 32768
@@ -223,7 +221,7 @@ class PromptJevRunner:
                 if key not in self.cache:
                     missing[key] = None
         input_bytes = self.input_bytes + sum(len(key.text.encode()) for key in missing)
-        if len(self.cache) + len(missing) > MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
+        if len(self.cache) + len(missing) > settings.HOGQL_JEV_MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
             raise QueryError("jev exceeds the query budget. Select fewer or shorter inputs.")
         return missing
 
@@ -300,22 +298,24 @@ class PromptJevBudget(TraversingVisitor):
         for column in node.select:
             finder.visit(column)
         if finder.calls:
-            rows = MAX_ROWS
+            max_rows = settings.HOGQL_JEV_MAX_ROWS
+            max_decisions = settings.HOGQL_JEV_MAX_DECISIONS
+            rows = max_rows
             if node.limit is not None:
                 if (
                     not isinstance(node.limit, ast.Constant)
                     or type(node.limit.value) is not int
-                    or not 0 <= node.limit.value <= MAX_ROWS
+                    or not 0 <= node.limit.value <= max_rows
                 ):
-                    raise QueryError(f"jev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                    raise QueryError(f"jev LIMIT must be an integer literal between 0 and {max_rows}.")
                 rows = node.limit.value
             # Reserve the worst case before any stage runs, including stages that depend on earlier decisions.
             self.decisions += rows * len(finder.calls)
-            if self.decisions > MAX_DECISIONS:
+            if self.decisions > max_decisions:
                 raise QueryError(
-                    f"jev exceeds the query budget of {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
+                    f"jev exceeds the query budget of {max_decisions} row evaluations across all columns and SELECTs. "
                     f"This query reserves {self.decisions}. Add smaller LIMITs to the SELECTs containing Jev calls, "
-                    "or use fewer Jev columns. A SELECT without LIMIT reserves 1000 rows per Jev column."
+                    f"or use fewer Jev columns. A SELECT without LIMIT reserves {max_rows} rows per Jev column."
                 )
         super().visit_select_query(node)
 
@@ -435,21 +435,22 @@ class PromptJevPlanner(CloningVisitor):
             if PromptJevFinder.contains(source):
                 raise QueryError("Use jev only in SELECT columns. Filter its results in an outer query.")
             _AliasReferences(aliases).visit(source)
+            max_rows = settings.HOGQL_JEV_MAX_ROWS
             if source.limit is None:
-                source.limit = ast.Constant(value=MAX_ROWS + 1)
+                source.limit = ast.Constant(value=max_rows + 1)
             elif (
                 not isinstance(source.limit, ast.Constant)
                 or type(source.limit.value) is not int
-                or not 0 <= source.limit.value <= MAX_ROWS
+                or not 0 <= source.limit.value <= max_rows
             ):
-                raise QueryError(f"jev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                raise QueryError(f"jev LIMIT must be an integer literal between 0 and {max_rows}.")
             result = self.execute(source)
             response = result.response
             if response.error:
                 raise QueryError(response.error)
             rows: list[list[object]] = [list(row) for row in response.results or []]
-            if len(rows) > MAX_ROWS:
-                raise QueryError(f"jev reads at most {MAX_ROWS} rows. Add a LIMIT to its SELECT.")
+            if len(rows) > max_rows:
+                raise QueryError(f"jev reads at most {max_rows} rows. Add a LIMIT to its SELECT.")
             names = response.columns or []
             if len(names) != len(query.select) or len(set(names)) != len(names):
                 raise QueryError("Give each column in the jev SELECT a unique name.")

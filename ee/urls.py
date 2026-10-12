@@ -26,7 +26,6 @@ from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import authentication, billing, conversation, core_memory, organization_billing, subscription
-from .api.rbac import role
 from .api.scim import views as scim_views
 
 
@@ -44,18 +43,6 @@ def extend_api_router() -> None:
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
-    organization_roles_router = organizations_router.register(
-        r"roles",
-        role.RoleViewSet,
-        "organization_roles",
-        ["organization_id"],
-    )
-    organization_roles_router.register(
-        r"role_memberships",
-        role.RoleMembershipViewSet,
-        "organization_role_memberships",
-        ["organization_id", "role_id"],
-    )
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
     project_subscriptions_router = projects_router.register(
@@ -102,7 +89,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         notebook_markdown_migration_stats_view,
         notebook_markdown_migration_view,
     )
-    from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
@@ -115,21 +101,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/redisvalues", redis_values_view, name="redis_values"),
         path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
-        path(
-            "admin/radar-bypass/",
-            admin.site.admin_view(radar_bypass_view),
-            name="radar-bypass",
-        ),
-        path(
-            "admin/api/radar-bypass/",
-            RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="radar-bypass-api-list",
-        ),
-        path(
-            "admin/api/radar-bypass/<str:email>/",
-            RadarBypassViewSet.as_view({"delete": "destroy"}),
-            name="radar-bypass-api-detail",
-        ),
         path(
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),

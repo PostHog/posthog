@@ -6,16 +6,16 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 
 import { visionScannersWatchFeedRetrieve } from '../generated/api'
-import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { ReplayScannerApi, VisionQuotaApi, WatchFeedResponseApi } from '../generated/api.schemas'
 import type { VisionScannersWatchFeedRetrieveParams, WatchFeedItemApi } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
+import type { RankerEnumApi } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { csvParam, parseCsvParam } from '../utils/urlParams'
@@ -35,6 +35,8 @@ export interface watchFeedLogicValues {
     feedFailed: boolean
     feedItems: WatchFeedItemApi[] | null
     feedItemsLoading: boolean
+    feedRanker: WatchFeedRanker
+    feedRankerVariant: string | null
     hasFeedFilters: boolean
     scannerIdsFilter: string[]
     scannerTypeFilter: ScannerType | null
@@ -91,6 +93,13 @@ export interface watchFeedLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setFeedRanker: (
+        ranker: WatchFeedRanker,
+        variant: string | null
+    ) => {
+        ranker: RankerEnumApi
+        variant: string | null
+    }
     setScannerIdsFilter: (scannerIds: string[]) => {
         scannerIds: string[]
     }
@@ -140,6 +149,14 @@ export type watchFeedLogicType = MakeLogicType<
 
 export const DEFAULT_FEED_DATE_FROM: string = '-7d'
 
+/** Which ranker ordered the loaded feed. Server-decided per team (the flag evaluates against the
+ * team, not the viewer), so the client reads it from the response instead of checking the flag. */
+export type WatchFeedRanker = WatchFeedResponseApi['ranker']
+
+/** The ranker experiment's flag. The server decides its variant per project, so the client can't
+ * evaluate it and reports the variant the response carries instead. */
+const WATCH_FEED_RANKER_FLAG = 'vision-watch-feed-ranker'
+
 function reportFiltered(values: watchFeedLogicValues): void {
     posthog.capture('replay_vision_watch_feed_filtered', {
         date_from: values.dateFrom,
@@ -180,9 +197,10 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         restoreFeedFilters: (search: string, scannerIds: string[], tags: string[]) => ({ search, scannerIds, tags }),
         clearFeedFilters: true,
         loadFeed: true,
+        setFeedRanker: (ranker: WatchFeedRanker, variant: string | null) => ({ ranker, variant }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         feedItems: [
             null as WatchFeedItemApi[] | null,
             {
@@ -213,6 +231,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     const response = await visionScannersWatchFeedRetrieve(String(teamId), params)
                     // Drop out-of-order responses — the most recent filter change owns the feed.
                     breakpoint()
+                    actions.setFeedRanker(response.ranker ?? 'weighted-score', response.ranker_variant ?? null)
                     return response.results
                 },
             },
@@ -276,6 +295,19 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 loadFeedFailure: () => true,
             },
         ],
+        // Set from each response, so the card layout always matches the ranking it shows.
+        feedRanker: [
+            'weighted-score' as WatchFeedRanker,
+            {
+                setFeedRanker: (_, { ranker }) => ranker,
+            },
+        ],
+        feedRankerVariant: [
+            null as string | null,
+            {
+                setFeedRanker: (_, { variant }) => variant,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -321,22 +353,16 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 clip_count: items.length,
                 scanner_count: new Set(items.map((item) => item.observation.scanner_id)).size,
                 reason_kind_counts: countByReasonKind,
+                ranker: values.feedRanker,
+                // The ranker experiment counts this event as its exposure, so it carries the project's variant.
+                ...(values.feedRankerVariant
+                    ? { [`$feature/${WATCH_FEED_RANKER_FLAG}`]: values.feedRankerVariant }
+                    : {}),
                 signal_share: items.length > 0 ? (countByReasonKind.signal_emitted ?? 0) / items.length : 0,
                 // Which dead end the reader hit, so the empty screens can be counted and ranked
                 // against each other instead of only showing up as a clip count of zero.
                 ...(items.length === 0 ? { empty_reason: values.emptyReason ?? 'unresolved' } : {}),
             })
-        },
-        // A card writes `?t=<seconds>` so the player opens at the key moment; clear it on close so a
-        // link copied afterwards doesn't seek a recording the user is no longer looking at.
-        [sessionPlayerModalLogic.actionTypes.closeSessionPlayer]: () => {
-            const { location, searchParams, hashParams } = router.values
-            if (searchParams.t === undefined) {
-                return
-            }
-            const nextParams = { ...searchParams }
-            delete nextParams.t
-            router.actions.replace(location.pathname, nextParams, hashParams)
         },
     })),
 

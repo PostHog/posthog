@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
@@ -181,6 +182,15 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # with a fresh cursor) can recover. `meta_ads._raise_meta_api_error` raises this
             # message for that code.
             META_INVALID_CURSOR_ERROR_MESSAGE: META_INVALID_CURSOR_ERROR_MESSAGE,
+            # The schema's sync type wants an incremental cursor (incremental/append) but no
+            # incremental field is stored in its config, so `meta_ads_source.get_rows` raises this
+            # before any request. The stored config stays fixed until the customer edits it, so
+            # every retry hits the same error.
+            "incremental_field and incremental_field_type can't be None": (
+                "This table is set to sync incrementally but has no incremental field selected. "
+                "Choose date_start as the incremental field in the table's sync settings, or switch "
+                "it to full refresh, then run the sync again."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -194,6 +204,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # for volume. Only waiting helps, and the sync already retries via Temporal, so this
             # shouldn't page us as a bug either.
             META_RATE_LIMIT_ERROR_MESSAGE,
+            ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -208,6 +219,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             META_RATE_LIMIT_ERROR_MESSAGE: (
                 "Meta is rate limiting requests for this connection, so this sync run did not finish. "
                 "The next sync runs on schedule."
+            ),
+            ENTITY_PAGE_REFUSED_ERROR_MESSAGE: (
+                "Meta was too busy to return this table's data, so this sync run did not finish. "
+                "This usually clears on its own and the next sync runs on schedule."
             ),
         }
 

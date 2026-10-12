@@ -3,12 +3,19 @@ import { BehavioralFilterKey, CohortClientErrors } from 'scenes/cohorts/CohortFi
 import {
     cleanBehavioralTypeCriteria,
     cleanCriteria,
+    cohortBroadcastDisabledReason,
     criteriaToHumanSentence,
     determineFilterType,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
-import { AnyCohortCriteriaType, BehavioralEventType, CohortCriteriaGroupFilter, FilterLogicalOperator } from '~/types'
+import {
+    AnyCohortCriteriaType,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
+    CohortType,
+    FilterLogicalOperator,
+} from '~/types'
 
 describe('validateGroup', () => {
     function groupWithNegatedCriteria(criteria: AnyCohortCriteriaType[]): CohortCriteriaGroupFilter {
@@ -228,4 +235,34 @@ describe('criteria whose value collides with an Object.prototype key', () => {
             expect(criteriaToHumanSentence(criteria(value), {}, {})).toEqual(<></>)
         }
     )
+})
+
+describe('cohortBroadcastDisabledReason', () => {
+    const behavioral = { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent }
+    const person = { type: BehavioralFilterKey.Person, key: 'email', value: 'is_set' }
+    const cohort = (criteria: AnyCohortCriteriaType[], overrides: Partial<CohortType> = {}): CohortType => ({
+        id: 1,
+        groups: [],
+        filters: {
+            properties: {
+                type: FilterLogicalOperator.Or,
+                values: [{ type: FilterLogicalOperator.And, values: criteria }],
+            },
+        },
+        ...overrides,
+    })
+
+    it.each([
+        ['a property-based cohort', cohort([person as AnyCohortCriteriaType]), null],
+        ['a static cohort built from events', cohort([behavioral as AnyCohortCriteriaType], { is_static: true }), null],
+        [
+            'an event condition in a nested group',
+            cohort([person, behavioral] as AnyCohortCriteriaType[]),
+            "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort.",
+        ],
+        ['an unsaved cohort', cohort([], { id: 'new' }), 'Save the cohort first'],
+        ['a deleted cohort', cohort([], { deleted: true }), 'Restore the cohort first'],
+    ])('for %s', (_, input, expected) => {
+        expect(cohortBroadcastDisabledReason(input)).toEqual(expected)
+    })
 })

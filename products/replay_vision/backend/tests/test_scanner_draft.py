@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from google.genai.types import FinishReason
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
@@ -24,6 +25,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import Scann
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
     _MAX_BASELINE_EVENTS,
+    _MAX_OUTPUT_TOKENS,
     DraftError,
     ScannerDraft,
     _build_user_content,
@@ -494,7 +496,7 @@ class TestGenerate:
 
         _generate(user_content="goal", team_id=1, distinct_id="u")
 
-        assert generate.call_args.kwargs["config"].max_output_tokens == 8192
+        assert generate.call_args.kwargs["config"].max_output_tokens == _MAX_OUTPUT_TOKENS
 
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
     def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
@@ -580,6 +582,24 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             ],
             "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
         }
+
+    @parameterized.expand(
+        [
+            ("free name kept", [], "User intent"),
+            ("taken name suffixed", ["User intent"], "User intent (2)"),
+            ("next free suffix", ["User intent", "User intent (2)"], "User intent (3)"),
+        ]
+    )
+    @patch(_GENERATE_PATH)
+    def test_drafted_name_avoids_existing_scanner_names(self, _name, existing, expected, mock_generate):
+        mock_generate.return_value = _draft(name="User intent")
+        for name in existing:
+            self._create_scanner(name=name, scanner_type=ScannerType.MONITOR, scanner_config={"prompt": "Anything?"})
+
+        resp = self.client.post(self.draft_url, data={"goal": "understand what users come here to do"}, format="json")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["name"] == expected
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
     @patch(_GENERATE_PATH)

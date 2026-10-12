@@ -11,8 +11,10 @@ import { SpaceFeedControls } from './SpaceFeedControls'
 import { SPACE_FEED_TYPES, SpaceFeedType } from './spaceFeedEntries'
 import { SpaceFeedListRow } from './SpaceFeedListRow'
 import { SpaceFeedPullRequestRow } from './SpaceFeedPullRequestRow'
+import { SpaceFeedSelectionBar } from './SpaceFeedSelectionBar'
 import { SpaceFeedSkeleton } from './SpaceFeedSkeleton'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
+import { SpaceFeedWelcome } from './SpaceFeedWelcome'
 import { SpaceFeedSourceStatus, spaceSceneLogic } from './spaceSceneLogic'
 
 const EMPTY_NOUNS: Record<SpaceFeedType, string> = { task: 'sessions', canvas: 'canvases', pr: 'pull requests' }
@@ -31,6 +33,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         feedSourceOptions,
         feedRepositories,
         feedStatus,
+        pullRequestTitles,
         sessionsById,
         sessionsLoading,
     } = useValues(spaceSceneLogic({ id }))
@@ -50,6 +53,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         // No gap: the cards' own margins and the separators' padding space the feed, like PostHog Desktop.
         <div className="flex flex-col">
             <SpaceFeedControls sourceOptions={feedSourceOptions} />
+            <SpaceFeedSelectionBar spaceId={id} />
             {feedStatus.sessions === 'failed' && (
                 <div className="flex flex-col items-start gap-2 px-2 pt-4">
                     <Text size="sm" variant="muted">
@@ -83,8 +87,10 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                 </div>
             )}
             {feedPending && <SpaceFeedSkeleton listRows={listRows} />}
-            {feedEmpty && (
-                <div className="flex flex-col items-start gap-2 px-2 pt-6">
+            {feedEmpty && !filtersActive && emptyTypes.includes('task') ? (
+                <SpaceFeedWelcome id={id} />
+            ) : feedEmpty ? (
+                <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
                     <Text size="sm" variant="muted">
                         {filtersActive ? 'Nothing here matches these filters.' : emptyNote(emptyTypes)}
                     </Text>
@@ -99,7 +105,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                         </Button>
                     )}
                 </div>
-            )}
+            ) : null}
             {feedSections.map((section) => {
                 const entries = section.entries.filter(
                     (entry) => entry.kind === 'canvas' || sessionsById[entry.item.id]
@@ -153,6 +159,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                                     <SpaceFeedPullRequestRow
                                         key={entry.key}
                                         pullRequest={entry.pullRequest}
+                                        pullRequestTitle={pullRequestTitles[entry.pullRequest.url]}
                                         session={entry.item}
                                         author={task.created_by ?? null}
                                         listRow={listRows}
@@ -169,6 +176,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             return listRows ? (
                                 <div key={entry.key} className={rowClassName}>
                                     <SpaceFeedListRow
+                                        spaceId={id}
                                         task={task}
                                         pinned={pinnedIds.has(task.id)}
                                         unread={unreadSessionIds.has(task.id)}
@@ -177,6 +185,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             ) : (
                                 <SpaceFeedCard
                                     key={entry.key}
+                                    spaceId={id}
                                     task={task}
                                     pinned={pinnedIds.has(task.id)}
                                     unread={unreadSessionIds.has(task.id)}

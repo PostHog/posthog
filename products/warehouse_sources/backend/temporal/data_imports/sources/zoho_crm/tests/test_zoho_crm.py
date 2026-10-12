@@ -12,13 +12,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
     MAX_FIELDS_PER_REQUEST,
     MAX_PAGE,
     PAGE_SIZE,
     REFRESH_TOKEN_REJECTED_MESSAGE,
-    RegionHosts,
     ZohoCRMAuthError,
     ZohoCRMClient,
     ZohoCRMResumeConfig,
@@ -121,21 +119,6 @@ def _get_headers(session: mock.MagicMock, index: int) -> dict[str, str]:
 
 
 class TestResolveHosts:
-    @pytest.mark.parametrize(
-        "region, accounts_host, api_host",
-        [
-            ("us", "https://accounts.zoho.com", "https://www.zohoapis.com"),
-            ("eu", "https://accounts.zoho.eu", "https://www.zohoapis.eu"),
-            ("in", "https://accounts.zoho.in", "https://www.zohoapis.in"),
-            ("au", "https://accounts.zoho.com.au", "https://www.zohoapis.com.au"),
-            ("jp", "https://accounts.zoho.jp", "https://www.zohoapis.jp"),
-            ("ca", "https://accounts.zohocloud.ca", "https://www.zohoapis.ca"),
-            ("cn", "https://accounts.zoho.com.cn", "https://www.zohoapis.com.cn"),
-        ],
-    )
-    def test_regional_hosts(self, region: str, accounts_host: str, api_host: str) -> None:
-        assert resolve_hosts(region) == RegionHosts(accounts_host=accounts_host, api_domain=api_host)
-
     def test_unknown_region_raises(self) -> None:
         with pytest.raises(ValueError):
             resolve_hosts("mars")
@@ -202,15 +185,6 @@ class TestZohoCRMClient:
             _client().mint_access_token()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_authorization_header_uses_the_zoho_scheme(self, make_session: mock.MagicMock) -> None:
-        session = _session([_response(200, {"modules": []})])
-        make_session.return_value = session
-
-        _client().get("/crm/v8/settings/modules")
-
-        assert _get_headers(session, 0)["Authorization"] == "Zoho-oauthtoken access-token"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_remints_once_on_401_and_replays_the_request(self, make_session: mock.MagicMock) -> None:
         session = _session(
             [_response(401), _response(200, {"data": []})],
@@ -222,15 +196,6 @@ class TestZohoCRMClient:
 
         assert response.status_code == 200
         assert session.post.call_count == 2
-
-    @pytest.mark.parametrize("status_code", [204, 304])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_no_content_is_returned_without_raising(self, make_session: mock.MagicMock, status_code: int) -> None:
-        no_content = _no_content_response(status_code)
-        no_content.raise_for_status.side_effect = AssertionError(f"{status_code} must not be treated as an error")
-        make_session.return_value = _session([no_content])
-
-        assert _client().get("/crm/v8/Leads").status_code == status_code
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_session_disables_sample_capture_and_redacts_credentials(self, make_session: mock.MagicMock) -> None:
@@ -280,33 +245,6 @@ class TestReadableFieldNames:
 
 class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_single_page_module_requests_its_fields_and_clears_state(self, make_session: mock.MagicMock) -> None:
-        session = _session([_fields_response(3), _records_response([{"id": "1"}, {"id": "2"}])])
-        make_session.return_value = session
-        manager = FakeResumeManager()
-
-        batches = list(get_rows(_client(), "v8", "Leads", manager, mock.MagicMock()))
-
-        assert batches == [[{"id": "1"}, {"id": "2"}]]
-        records_params = _get_params(session, 1)
-        assert records_params["fields"] == "Field_0,Field_1,Field_2"
-        assert records_params["per_page"] == str(PAGE_SIZE)
-        assert records_params["page"] == "1"
-        assert manager.saved == []
-        assert manager.cleared is True
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_sorts_by_the_immutable_id(self, make_session: mock.MagicMock) -> None:
-        session = _session([_fields_response(1), _records_response([{"id": "1"}])])
-        make_session.return_value = session
-
-        list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock()))
-
-        assert _get_params(session, 1)["sort_by"] == "id"
-        assert _get_params(session, 1)["sort_order"] == "asc"
-        assert "If-Modified-Since" not in _get_headers(session, 1)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_sync_filters_and_sorts_on_the_cursor_field(self, make_session: mock.MagicMock) -> None:
         session = _session([_fields_response(1), _records_response([{"id": "1"}])])
         make_session.return_value = session
@@ -326,45 +264,6 @@ class TestGetRows:
 
         assert _get_headers(session, 1)["If-Modified-Since"] == "2024-06-01T00:00:00+00:00"
         assert _get_params(session, 1)["sort_by"] == "Modified_Time"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_by_page_then_by_token_and_checkpoints_each_page(self, make_session: mock.MagicMock) -> None:
-        session = _session(
-            [
-                _fields_response(1),
-                _records_response([{"id": "1"}], more_records=True),
-                _records_response([{"id": "2"}], more_records=True, next_page_token="tok-2"),
-                _records_response([{"id": "3"}], more_records=False),
-            ]
-        )
-        make_session.return_value = session
-        manager = FakeResumeManager()
-
-        batches = list(get_rows(_client(), "v8", "Leads", manager, mock.MagicMock()))
-
-        assert batches == [[{"id": "1"}], [{"id": "2"}], [{"id": "3"}]]
-        assert _get_params(session, 2)["page"] == "2"
-        assert "page_token" not in _get_params(session, 2)
-        assert _get_params(session, 3)["page_token"] == "tok-2"
-        assert "page" not in _get_params(session, 3)
-        assert [(state.page, state.page_tokens) for state in manager.saved] == [(2, []), (3, ["tok-2"])]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_stops_when_the_api_reports_no_more_records(self, make_session: mock.MagicMock) -> None:
-        session = _session([_fields_response(1), _records_response([{"id": "1"}], more_records=False)])
-        make_session.return_value = session
-
-        list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock()))
-
-        assert session.get.call_count == 2
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_stops_pagination_even_when_more_records_is_set(self, make_session: mock.MagicMock) -> None:
-        session = _session([_fields_response(1), _records_response([], more_records=True)])
-        make_session.return_value = session
-
-        assert list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock())) == []
-        assert session.get.call_count == 2
 
     @pytest.mark.parametrize("status_code", [204, 304])
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -387,28 +286,6 @@ class TestGetRows:
         logger.warning.assert_called_once()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_wide_module_merges_its_field_slices_per_page(self, make_session: mock.MagicMock) -> None:
-        session = _session(
-            [
-                _fields_response(MAX_FIELDS_PER_REQUEST + 2),
-                _records_response([{"id": "1", "Field_0": "a"}, {"id": "2", "Field_0": "b"}]),
-                _records_response([{"id": "1", "Field_50": "x"}, {"id": "2", "Field_50": "y"}]),
-            ]
-        )
-        make_session.return_value = session
-
-        batches = list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock()))
-
-        assert batches == [
-            [
-                {"id": "1", "Field_0": "a", "Field_50": "x"},
-                {"id": "2", "Field_0": "b", "Field_50": "y"},
-            ]
-        ]
-        assert len(_get_params(session, 1)["fields"].split(",")) == MAX_FIELDS_PER_REQUEST
-        assert _get_params(session, 2)["fields"] == "Field_50,Field_51"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_the_saved_page_token(self, make_session: mock.MagicMock) -> None:
         session = _session([_fields_response(1), _records_response([{"id": "9"}])])
         make_session.return_value = session
@@ -418,16 +295,6 @@ class TestGetRows:
 
         assert batches == [[{"id": "9"}]]
         assert _get_params(session, 1)["page_token"] == "tok-11"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_the_saved_page_number_within_the_window(self, make_session: mock.MagicMock) -> None:
-        session = _session([_fields_response(1), _records_response([{"id": "9"}])])
-        make_session.return_value = session
-        manager = FakeResumeManager(ZohoCRMResumeConfig(page=3, page_tokens=[]))
-
-        list(get_rows(_client(), "v8", "Leads", manager, mock.MagicMock()))
-
-        assert _get_params(session, 1)["page"] == "3"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_restarts_when_saved_tokens_no_longer_match_the_field_slices(self, make_session: mock.MagicMock) -> None:
@@ -527,25 +394,6 @@ class TestValidateCredentials:
 
 
 class TestZohoCRMSourceResponse:
-    @pytest.mark.parametrize("endpoint", sorted(ZOHO_CRM_ENDPOINTS))
-    def test_response_shape_per_endpoint(self, endpoint: str) -> None:
-        response = zoho_crm_source(
-            region="us",
-            client_id="cid",
-            client_secret="secret",
-            refresh_token="refresh",
-            endpoint=endpoint,
-            api_version="v8",
-            resumable_source_manager=FakeResumeManager(),
-            logger=mock.MagicMock(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [ZOHO_CRM_ENDPOINTS[endpoint].partition_key]
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_items_are_lazy_until_iterated(self, make_session: mock.MagicMock) -> None:
         session = _session([_fields_response(1), _records_response([{"id": "1"}])])

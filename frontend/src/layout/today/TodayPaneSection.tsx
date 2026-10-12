@@ -16,11 +16,11 @@ export interface TodayPaneSectionProps {
     heading?: JSX.Element | null
     divider?: boolean
     dataAttr: string
-    height: number
-    animate: boolean
+    height?: number
+    animate?: boolean
     resizer?: TodaySectionResizer
     resizing?: boolean
-    contentRef: RefCallback<HTMLElement>
+    contentRef?: RefCallback<HTMLElement>
     children: ReactNode
 }
 
@@ -34,7 +34,7 @@ export function TodayPaneSection({
     divider = false,
     dataAttr,
     height,
-    animate,
+    animate = false,
     resizer,
     resizing = false,
     contentRef,
@@ -68,10 +68,10 @@ export function TodayPaneSection({
                     animate && 'transition-all duration-200 ease-out motion-reduce:transition-none'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ height: open ? height : 0 }}
+                style={{ height: open ? (height ?? 'auto') : 0 }}
             >
                 {open && (
-                    <div className="h-full overflow-y-auto">
+                    <div className="scroll-mask-8 h-full scroll-py-8 overflow-y-auto">
                         <div ref={contentRef} className="flex flex-col gap-px pb-2">
                             {children}
                         </div>

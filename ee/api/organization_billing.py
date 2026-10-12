@@ -36,11 +36,14 @@ from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustaine
 from posthog.utils import get_trusted_client_ip
 
 from ee.api.billing import (
+    BILLING_MANAGED_BY_PARTNER_HELP_TEXT,
     USAGE_BREAKDOWNS_MESSAGE,
     BillingExportThrottle,
+    BillingManagedByPartnerSerializer,
     BillingQueryTimeout,
     BillingTimeSeriesPointSerializer,
     BillingUsageRequestSerializer,
+    billing_managed_by_partner,
 )
 from ee.billing.billing_manager import BillingManager
 from ee.billing.exports import (
@@ -167,6 +170,9 @@ class BillingSubscriptionSerializer(serializers.Serializer):
     billing_portal_url = serializers.URLField()
     invoices_url = serializers.URLField(required=False)
     license = LicenseSerializer()
+    billing_managed_by_partner = BillingManagedByPartnerSerializer(
+        allow_null=True, help_text=BILLING_MANAGED_BY_PARTNER_HELP_TEXT
+    )
 
 
 class ProductFeatureSerializer(serializers.Serializer):
@@ -790,6 +796,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             "startup_program_label_previous": data.get("startup_program_label_previous"),
             "billing_portal_url": f"{settings.SITE_URL}/api/billing/portal",
             "license": {"plan": license.plan if license else None},
+            "billing_managed_by_partner": billing_managed_by_partner(organization),
         }
         vercel_integration = OrganizationIntegration.objects.filter(
             organization=organization, kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL

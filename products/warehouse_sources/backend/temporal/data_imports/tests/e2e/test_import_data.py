@@ -69,7 +69,7 @@ def _setup(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id="some_workflow_id",
-        pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
@@ -176,10 +176,8 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
-            byte_bounded_extraction=False,
             activity_attempt=1,
             resumable_source_manager=mock.ANY,
-            keyset_full_load_enabled=False,
         )
 
 
@@ -232,10 +230,8 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
-            byte_bounded_extraction=False,
             activity_attempt=1,
             resumable_source_manager=mock.ANY,
-            keyset_full_load_enabled=False,
         )
 
 
@@ -300,10 +296,8 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
-            byte_bounded_extraction=False,
             activity_attempt=1,
             resumable_source_manager=mock.ANY,
-            keyset_full_load_enabled=False,
         )
 
 
@@ -383,10 +377,8 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
-            byte_bounded_extraction=False,
             activity_attempt=1,
             resumable_source_manager=mock.ANY,
-            keyset_full_load_enabled=False,
         )
 
 

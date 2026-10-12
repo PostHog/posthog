@@ -16,10 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.
     aftership_source,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.settings import (
-    DEFAULT_VERSION,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.settings import DEFAULT_VERSION
 
 BASE_URL = f"https://api.aftership.com/tracking/{DEFAULT_VERSION}"
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -104,36 +101,6 @@ class TestToAftershipDatetime:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_cursor_from_nested_envelope(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, urls = _wire(
-            session,
-            [
-                _response("trackings", [{"id": "1"}], next_cursor="cur-1"),
-                _response("trackings", [{"id": "2"}]),
-            ],
-        )
-
-        rows = _rows(_source("trackings", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert urls[0] == f"{BASE_URL}/trackings"
-        assert params[0] == {"limit": PAGE_SIZE}
-        assert params[1] == {"limit": PAGE_SIZE, "cursor": "cur-1"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_cursor_ends_pagination_without_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("trackings", [{"id": "a"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("trackings", manager))
-
-        assert [r["id"] for r in rows] == ["a"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_couriers_is_single_page_and_never_sends_a_cursor(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value

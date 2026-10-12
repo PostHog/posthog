@@ -64,13 +64,13 @@ export const BusinessKnowledgeRepositoriesConnectCreateBody = /* @__PURE__ */ zo
  * Every name must be a repository the connected installation can see. Names are stored lowercased.
  * @summary Replace the repositories business knowledge can read
  */
-export const businessKnowledgeRepositoriesSelectionCreateBodyReposMax = 20
+export const businessKnowledgeRepositoriesSelectionCreateBodyReposMax = 100
 
 export const BusinessKnowledgeRepositoriesSelectionCreateBody = /* @__PURE__ */ zod.object({
     repos: zod
         .array(zod.string())
         .max(businessKnowledgeRepositoriesSelectionCreateBodyReposMax)
-        .describe('owner\/repo names to allow. At most 20. Replaces the current list.'),
+        .describe('owner\/repo names to allow. At most 100. Replaces the current list.'),
 })
 
 /**

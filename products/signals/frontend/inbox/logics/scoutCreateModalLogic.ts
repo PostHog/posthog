@@ -428,6 +428,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                         const config = await signalsScoutConfigUpdate(String(values.currentTeamId), existingConfigId, {
                             ...runSettings,
                             enabled: true,
+                            suggestion_id: logicProps.initialValues?.suggestionId,
                         })
                         actions.resetScoutCreateForm()
                         actions.resetMcpServersDefaulted()

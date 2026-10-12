@@ -16,7 +16,9 @@ logger = structlog.get_logger(__name__)
 # Single source of truth for the managed-alert event boundary. Also used as a Postgres regex
 # filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
 # POSIX-compatible (no (?:...) groups).
-MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match)$"
+MANAGED_ALERT_EVENT_PATTERN = (
+    r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match|incident_opened|incident_closed)$"
+)
 LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
@@ -40,6 +42,28 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
         isinstance(event_name, str)
         and event_name != LEGACY_INSIGHT_ALERT_EVENT
         and _MANAGED_ALERT_EVENT.fullmatch(event_name) is not None
+    )
+
+
+# Alert products whose destinations stay editable through the generic hog functions API, keyed by
+# the prefix of their alert events and valued by the API scope object their own alert API checks.
+# An edit through the generic API requires that product's write scope and editor access on top of
+# the hog function ones, so a token or member that cannot touch the alert cannot touch its
+# destination either. The other alert products stay read-only there.
+GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, str] = {"$logs_alert_": "logs"}
+
+
+def generic_api_editable_alert_scope(event_name: object) -> str | None:
+    """Return the scope object that guards generic-API edits of a managed alert event's destinations."""
+    if not is_managed_alert_internal_event(event_name):
+        return None
+    return next(
+        (
+            scope
+            for prefix, scope in GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES.items()
+            if str(event_name).startswith(prefix)
+        ),
+        None,
     )
 
 

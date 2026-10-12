@@ -377,6 +377,24 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Completions for the cursor position in a Python cell, from the notebook's running kernel. Returns no matches when no kernel is running or the kernel is busy, and never starts one.
+ */
+export const notebooksKernelCompleteCreateBodyCodeMax = 100000
+
+export const notebooksKernelCompleteCreateBodyCursorPosMin = 0
+
+export const NotebooksKernelCompleteCreateBody = /* @__PURE__ */ zod.object({
+    code: zod
+        .string()
+        .max(notebooksKernelCompleteCreateBodyCodeMax)
+        .describe('The full source of the cell being edited.'),
+    cursor_pos: zod
+        .number()
+        .min(notebooksKernelCompleteCreateBodyCursorPosMin)
+        .describe('Character offset of the cursor in `code`, counting from 0.'),
+})
+
+/**
  * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
 export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
@@ -453,6 +471,34 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
     _create_in_folder: zod.string().optional(),
+})
+
+/**
+ * The signature and docstring of the name at the cursor in a Python cell, from the notebook's running kernel. Returns found=false when no kernel is running or the kernel is busy.
+ */
+export const notebooksKernelInspectCreateBodyCodeMax = 100000
+
+export const notebooksKernelInspectCreateBodyCursorPosMin = 0
+
+export const notebooksKernelInspectCreateBodyDetailLevelDefault = 0
+export const notebooksKernelInspectCreateBodyDetailLevelMin = 0
+export const notebooksKernelInspectCreateBodyDetailLevelMax = 1
+
+export const NotebooksKernelInspectCreateBody = /* @__PURE__ */ zod.object({
+    code: zod
+        .string()
+        .max(notebooksKernelInspectCreateBodyCodeMax)
+        .describe('The full source of the cell being edited.'),
+    cursor_pos: zod
+        .number()
+        .min(notebooksKernelInspectCreateBodyCursorPosMin)
+        .describe('Character offset of the cursor in `code`, counting from 0.'),
+    detail_level: zod
+        .number()
+        .min(notebooksKernelInspectCreateBodyDetailLevelMin)
+        .max(notebooksKernelInspectCreateBodyDetailLevelMax)
+        .default(notebooksKernelInspectCreateBodyDetailLevelDefault)
+        .describe('0 for the signature and docstring, 1 to add the source when the kernel can find it.'),
 })
 
 /**

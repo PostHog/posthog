@@ -34,6 +34,9 @@ class StartSlackAgentDesignStreamInput:
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     first_markdown_text: Optional[str] = None
     plan_title: Optional[str] = None
+    run_id: Optional[str] = None
+    # The message this turn answers. The reply tags its sender.
+    message_id: Optional[str] = None
 
 
 @frozen
@@ -41,6 +44,8 @@ class SlackAgentDesignStream:
     ts: str
     # Whether the message has a plan block, so closing it can set the plan title.
     has_plan: bool
+    # Who the reply tags, so closing the stream tags the same person.
+    actor_slack_user_id: Optional[str] = None
 
 
 @frozen
@@ -67,6 +72,7 @@ class StopSlackAgentDesignStreamInput:
     plan_title: Optional[str] = None
     # The stream opened with the answer, which already carried the @-mention.
     mention_sent: bool = False
+    actor_slack_user_id: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -81,6 +87,19 @@ def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]
     return rewrite_object_tags_for_slack(text, project_url=project_url)
 
 
+def _reply_target(run_id: Optional[str], message_id: Optional[str]) -> Optional[str]:
+    """The Slack user this turn's reply tags, resolved as the flag-off reply does."""
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.temporal.process_task.utils import slack_reply_target
+
+    task_run = TaskRun.objects.filter(id=run_id).first() if run_id else None
+    if task_run is None:
+        return None
+    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+    return slack_reply_target(task_run, mapping, message_id)
+
+
 def _chunk_dicts(task_updates: list[TaskUpdateChunk]) -> list[dict[str, Any]]:
     return [{"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in task_updates]
 
@@ -93,14 +112,18 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context)
+        handler = SlackThreadHandler(context, actor_slack_user_id=_reply_target(input.run_id, input.message_id))
         markdown_text = _rewrite_object_tags(input.first_markdown_text, handler.project_url)
         new_ts = handler.start_status_stream(
             task_updates=_chunk_dicts(input.task_updates),
             first_markdown_text=markdown_text,
             plan_title=input.plan_title,
         )
-        return SlackAgentDesignStream(ts=new_ts, has_plan=bool(input.task_updates)) if new_ts else None
+        if not new_ts:
+            return None
+        return SlackAgentDesignStream(
+            ts=new_ts, has_plan=bool(input.task_updates), actor_slack_user_id=handler.actor_slack_user_id
+        )
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
         return None
@@ -108,20 +131,21 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
 @activity.defn
 @close_db_connections
-def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> None:
-    """Append plan-block step transitions and a new plan title."""
+def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> bool:
+    """Append plan-block step transitions and a new plan title. Returns False once Slack has closed the stream."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
-        handler.append_status_chunks(
+        return handler.append_status_chunks(
             ts=input.ts,
             task_updates=_chunk_dicts(input.task_updates),
             plan_title=input.plan_title,
         )
     except Exception as e:
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
+        return True
 
 
 @activity.defn
@@ -132,13 +156,19 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
     from products.tasks.backend.logic.services.living_artifacts import (
         SlackFileDeliveryResult,
         attach_streamed_slack_files,
+        deliver_pending_slack_file_artifacts,
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler.for_run(context, input.run_id, turn_trace_id=input.trace_id)
+        handler = SlackThreadHandler.for_run(
+            context,
+            input.run_id,
+            actor_slack_user_id=input.actor_slack_user_id,
+            turn_trace_id=input.trace_id,
+        )
         task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
         deliveries: list[SlackFileDeliveryResult] = []
 
@@ -165,5 +195,8 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
                 attach_streamed_slack_files(
                     task_run, delivery, attach_files=lambda file_ids: handler.attach_files(input.ts, file_ids)
                 )
+        if handler.stream_ended and task_run is not None:
+            # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
+            deliver_pending_slack_file_artifacts(task_run)
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

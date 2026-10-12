@@ -82,6 +82,7 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
+| A new action and its effect, which one screenshot cannot show                        | A feature reel in place of the "after" screenshot         |
 | A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
@@ -92,7 +93,21 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 
 No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet or "None".
 
-### Screenshots
+### Screenshots and reels
+
+A screenshot is the default for every visual change.
+A feature reel is an animated WebP of one UI flow, made with reel mode of `/qa-frontend`.
+Use a reel only for a new action and its effect, when a screenshot of the end state hides the action.
+Examples are a right-click menu on an element that had none, or a bar that appears when rows are selected.
+A new item in an existing menu, a new column, or new copy gets a screenshot, because the reviewer already knows how a person gets there.
+Before you make a reel, read `references/screenshots-and-reels.md`. It has the test, worked examples, and what a reel leaves out.
+
+Take each screenshot from the first source that can show the change:
+
+1. The running app, when one is up.
+2. Storybook, through a headless browser. Use the story that covers the surface. When no story does, write a scratch story for the screenshot and keep it out of the commit.
+
+Capture at `deviceScaleFactor: 2`. A 1x image looks soft on a high-density screen, and GitHub shrinks a wider image to fit the column. Take the before from the base branch the same way. A new surface has no before, so say that in one line.
 
 Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
 
@@ -172,7 +187,7 @@ When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
 - Agent context: autonomy, tool and exact model, skills invoked, and what changed across the session.
-- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the changelog checkbox to find it.
+- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
 The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
 

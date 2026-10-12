@@ -110,15 +110,21 @@ function mentionLabel(tag: string, attrs: Record<string, string>, body: string):
     return attrs.id ? unescapeXml(body).trim() || attrs.id : ''
 }
 
-export function spaceFeedPreview(text: string | null | undefined): string {
-    if (!text) {
-        return ''
-    }
+export function stripInjectedBlocks(text: string): string {
     return text
         .replace(COMPLETE_BLOCK, '')
         .replace(CUSTOM_INSTRUCTIONS_BLOCK, (block: string, inner: string) =>
             inner.trimStart().startsWith(CUSTOM_INSTRUCTIONS_PREAMBLE) ? '' : block
         )
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
+export function spaceFeedPreview(text: string | null | undefined): string {
+    if (!text) {
+        return ''
+    }
+    return stripInjectedBlocks(text)
         .replace(TRUNCATED_BLOCK, '')
         .replace(
             MENTION_TAG,

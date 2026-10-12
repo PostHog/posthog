@@ -3,6 +3,7 @@ import {
   aiGatewayDenialCode,
   aiGatewayRemintReason,
   classifyGatewayLimitError,
+  isAnthropicModelId,
 } from "@posthog/shared";
 import {
   buildPosthogProjectHeaderRecord,
@@ -27,6 +28,8 @@ import {
   type AnthropicErrorResponse,
   type AnthropicMessagesRequest,
   type AnthropicMessagesResponse,
+  type ChatCompletionsRequest,
+  type ChatCompletionsResponse,
   type GatewayRoute,
   type LlmMessage,
   type PromptOutput,
@@ -39,8 +42,22 @@ import {
 export const HELPER_GATEWAY_MODEL = "claude-haiku-4-5";
 
 const FREE_TIER_GATEWAY_MODEL = "@cf/zai-org/glm-5.2";
+// The same model in the Go gateway's spelling; Go does not resolve `@cf/`.
+const GO_FREE_TIER_GATEWAY_MODEL = "zai-org/glm-5.2";
+
+// The Messages API requires max_tokens; the Go gateway forwards the body as sent.
+const HELPER_DEFAULT_MAX_TOKENS = 4096;
+// Open-weight reasoning spends max_tokens, so a Claude-sized budget can end before any content.
+const CHAT_MIN_MAX_TOKENS = 1024;
 
 type GoRoute = Extract<GatewayRoute, { mode: "go" }>;
+
+type PromptShape = "anthropic-messages" | "openai-chat";
+
+// Go serves only Claude models on the Messages API.
+function goPromptShape(model: string): PromptShape {
+  return isAnthropicModelId(model) ? "anthropic-messages" : "openai-chat";
+}
 
 export function desktopUsageUrl(apiHost: string, projectId: number): string {
   return `${apiHost}/api/projects/${projectId}/desktop/usage/`;
@@ -57,11 +74,19 @@ type SendOptions = {
 
 // The Go gateway's model for a helper prompt, picked from the token's pin
 // so a free-tier token never spends a round trip on a refused model.
+// A paid pin is the whole product list; Go enforces it in canonical spelling,
+// which a bare requested id never string-matches.
 function pickGoModel(route: GoRoute, requested: string): string {
   const allowed = route.allowedModels;
-  if (allowed === null || allowed.includes(requested)) return requested;
-  if (route.plan === "free" && allowed.includes(FREE_TIER_GATEWAY_MODEL)) {
-    return FREE_TIER_GATEWAY_MODEL;
+  if (
+    allowed === null ||
+    route.plan === "paid" ||
+    allowed.includes(requested)
+  ) {
+    return requested;
+  }
+  if (route.plan === "free" && allowed.includes(GO_FREE_TIER_GATEWAY_MODEL)) {
+    return GO_FREE_TIER_GATEWAY_MODEL;
   }
   return allowed[0] ?? requested;
 }
@@ -180,11 +205,14 @@ export class LlmGatewayService {
     options: SendOptions,
     route: GoRoute,
   ): Promise<PromptOutput> {
+    const shape = goPromptShape(options.model);
+    const path =
+      shape === "anthropic-messages" ? "/v1/messages" : "/v1/chat/completions";
     const send = (current: GoRoute) =>
       this.executePrompt(
         messages,
         options,
-        `${current.gatewayUrl}/v1/messages`,
+        `${current.gatewayUrl}${path}`,
         (url, init) =>
           (this.auth.fetch ?? fetch)(url, {
             ...init,
@@ -199,6 +227,7 @@ export class LlmGatewayService {
           ai_product: "posthog_code",
           team_id: current.teamId,
         }),
+        shape,
       );
     try {
       return await send(route);
@@ -248,21 +277,33 @@ export class LlmGatewayService {
     messagesUrl: string,
     fetchImpl: (url: string, init: RequestInit) => Promise<Response>,
     extraHeaders: Record<string, string>,
+    shape: PromptShape = "anthropic-messages",
   ): Promise<PromptOutput> {
     const { system, maxTokens, model, signal, timeoutMs = 60_000 } = options;
 
-    const requestBody: AnthropicMessagesRequest = {
-      model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-      stream: false,
-    };
-
-    if (maxTokens !== undefined) {
-      requestBody.max_tokens = maxTokens;
-    }
-
-    if (system) {
-      requestBody.system = system;
+    const turns = messages.map((m) => ({ role: m.role, content: m.content }));
+    const maxTokensOrDefault = maxTokens ?? HELPER_DEFAULT_MAX_TOKENS;
+    let requestBody: AnthropicMessagesRequest | ChatCompletionsRequest;
+    if (shape === "openai-chat") {
+      requestBody = {
+        model,
+        messages: system
+          ? [{ role: "system", content: system }, ...turns]
+          : turns,
+        stream: false,
+        max_tokens: Math.max(maxTokensOrDefault, CHAT_MIN_MAX_TOKENS),
+      };
+    } else {
+      const anthropicBody: AnthropicMessagesRequest = {
+        model,
+        messages: turns,
+        stream: false,
+        max_tokens: maxTokensOrDefault,
+      };
+      if (system) {
+        anthropicBody.system = system;
+      }
+      requestBody = anthropicBody;
     }
 
     this.log.debug("Sending request to LLM gateway", {
@@ -345,6 +386,26 @@ export class LlmGatewayService {
         errorCode,
         response.status,
       );
+    }
+
+    if (shape === "openai-chat") {
+      const chat = (await response.json()) as ChatCompletionsResponse;
+      const choice = chat.choices[0];
+      this.log.debug("LLM gateway response received", {
+        model: chat.model,
+        stopReason: choice?.finish_reason ?? null,
+        inputTokens: chat.usage?.prompt_tokens ?? 0,
+        outputTokens: chat.usage?.completion_tokens ?? 0,
+      });
+      return {
+        content: choice?.message.content ?? "",
+        model: chat.model,
+        stopReason: choice?.finish_reason ?? null,
+        usage: {
+          inputTokens: chat.usage?.prompt_tokens ?? 0,
+          outputTokens: chat.usage?.completion_tokens ?? 0,
+        },
+      };
     }
 
     const data = (await response.json()) as AnthropicMessagesResponse;

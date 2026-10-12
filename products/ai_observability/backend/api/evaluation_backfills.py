@@ -31,12 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import (
-    AccessControlPermission,
-    APIScopePermission,
-    PostHogFeatureFlagPermission,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import (
     AIObservabilityBackfillCreateSustainedThrottle,
     AIObservabilityBackfillCreateThrottle,
@@ -272,8 +267,6 @@ class EvaluationBackfillViewSet(
 ):
     """Historical runs of one evaluation over a closed time window (nested under an evaluation)."""
 
-    # The same flag as the tab, so the API and the surface reach a project together.
-    posthog_feature_flag = "llm-analytics-eval-backfills"
     scope_object = "evaluation"
     scope_object_read_actions = ["list", "retrieve", "estimate"]
     scope_object_write_actions = WRITE_ACTIONS
@@ -288,7 +281,6 @@ class EvaluationBackfillViewSet(
             APIScopePermission(),
             EvaluationBackfillAccessControlPermission(),
             TeamMemberAccessPermission(),
-            PostHogFeatureFlagPermission(),
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:

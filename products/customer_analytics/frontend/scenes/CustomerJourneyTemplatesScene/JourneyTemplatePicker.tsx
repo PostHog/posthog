@@ -10,7 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
+import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
 import { urls } from 'scenes/urls'
 
 import { InsightModel } from '~/types'

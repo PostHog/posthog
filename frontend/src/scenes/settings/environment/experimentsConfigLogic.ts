@@ -9,7 +9,6 @@ import { teamLogic } from '~/scenes/teamLogic'
 import { DEFAULT_MDE } from 'products/experiments/frontend/constants'
 
 export interface ExperimentsConfig {
-    experiment_recalculation_time: string | null
     experiment_recalculation_times: string[] | null
     default_experiment_confidence_level: number | null
     default_experiment_stats_method: string | null

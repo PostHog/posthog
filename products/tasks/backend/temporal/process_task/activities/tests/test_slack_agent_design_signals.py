@@ -10,7 +10,7 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design_
     _resume_position,
 )
 
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+from ee.hogai.sandbox import BACKGROUND_TURN_COMPLETE_METHOD, TURN_COMPLETE_METHOD
 
 SLACK_CTX = {"channel": "C1", "integration_id": 7}
 
@@ -49,8 +49,29 @@ def _turn_complete(trace_id: str | None = None) -> dict[str, Any]:
     return {"type": "notification", "notification": notification}
 
 
-def _session_prompt() -> dict[str, Any]:
-    return {"type": "notification", "notification": {"method": "session/prompt"}}
+def _background_turn_complete() -> dict[str, Any]:
+    return {
+        "type": "notification",
+        "notification": {"method": BACKGROUND_TURN_COMPLETE_METHOD, "params": {"stopReason": "end_turn"}},
+    }
+
+
+def _notification(method: str) -> dict[str, Any]:
+    return {"type": "notification", "notification": {"method": method, "params": {}}}
+
+
+def _task_notification() -> dict[str, Any]:
+    return {
+        "type": "notification",
+        "notification": {"method": "_posthog/task_notification", "params": {"status": "completed"}},
+    }
+
+
+def _session_prompt(message_id: str | None = None) -> dict[str, Any]:
+    notification: dict[str, Any] = {"method": "session/prompt"}
+    if message_id:
+        notification["params"] = {"_meta": {"messageId": message_id}}
+    return {"type": "notification", "notification": notification}
 
 
 class TestSlackAgentDesignSignalEmitter:
@@ -60,7 +81,7 @@ class TestSlackAgentDesignSignalEmitter:
         signals = emitter.process(_text_chunk("Hello"))
 
         assert signals == [
-            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": None}),
             ("agent_text_delta", "Hello"),
         ]
 
@@ -134,14 +155,20 @@ class TestSlackAgentDesignSignalEmitter:
             ("agent_status_update", {"plan": [{"title": "Count weekly signups", "status": "in_progress"}]})
         ]
 
-    def test_turn_completed_emitted_only_when_turn_active(self) -> None:
+    @parameterized.expand(
+        [
+            ("turn_complete", _turn_complete()),
+            ("background_turn_complete", _background_turn_complete()),
+        ]
+    )
+    def test_turn_completed_emitted_only_when_turn_active(self, _name: str, completion: dict[str, Any]) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
 
         # No turn open yet — a stray completion is a no-op.
-        assert emitter.process(_turn_complete()) == []
+        assert emitter.process(completion) == []
 
         emitter.process(_text_chunk("hi"))
-        assert emitter.process(_turn_complete()) == [("turn_completed", None)]
+        assert emitter.process(completion) == [("turn_completed", None)]
 
     def test_turn_completed_carries_the_turns_trace_id(self) -> None:
         # The closing reply carries the thumbs, and this event is the only place the id
@@ -153,16 +180,25 @@ class TestSlackAgentDesignSignalEmitter:
 
         assert signals == [("turn_completed", "f960aead-b2af-4ee0-b0eb-630109a1b2a0")]
 
-    def test_second_turn_reopens_after_idle_prompt(self) -> None:
+    @parameterized.expand(
+        [
+            ("user_prompt", _session_prompt("msg-2"), "msg-2"),
+            ("finished_background_task", _task_notification(), None),
+            ("background_turn_started", _notification("_posthog/background_turn_started"), None),
+        ]
+    )
+    def test_second_turn_reopens_after_idle_prompt(
+        self, _name: str, opener: dict[str, Any], message_id: str | None
+    ) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("turn one"))
         emitter.process(_turn_complete())
-        emitter.process(_session_prompt())  # a new user message arms the next turn
+        emitter.process(opener)
 
         signals = emitter.process(_text_chunk("turn two"))
 
         assert signals == [
-            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": message_id}),
             ("agent_text_delta", "turn two"),
         ]
 
@@ -195,7 +231,7 @@ class TestSlackAgentDesignSignalEmitter:
         assert emitter.process(_text_chunk("stray")) == []
         emitter.process(_session_prompt())
         assert emitter.process(_text_chunk("real")) == [
-            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": None}),
             ("agent_text_delta", "real"),
         ]
 

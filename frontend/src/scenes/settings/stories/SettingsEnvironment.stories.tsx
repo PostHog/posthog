@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
@@ -139,7 +141,6 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
 
 const EXPERIMENTS_CONFIG_MOCK = {
-    experiment_recalculation_time: '02:00:00',
     experiment_recalculation_times: ['02:00:00'],
     default_experiment_confidence_level: null,
     default_experiment_stats_method: null,
@@ -268,6 +269,77 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
                     integration_id: null,
                     integration_name: '',
                     repos: [],
+                },
+            },
+        }),
+    ],
+}
+
+const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, Record<string, unknown>> => ({
+    get: {
+        '/api/users/@me/integrations/codex/': codex,
+    },
+})
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'connected',
+                plan_type: 'pro',
+                email: 'jane@example.com',
+                connected_at: '2023-05-20T10:00:00Z',
+            }),
+        },
+    },
+}
+
+export const SettingsEnvironmentAiSubscriptionsCodexReauthRequired: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'reauth_required',
+                plan_type: 'plus',
+                email: 'jane@example.com',
+                connected_at: '2023-05-20T10:00:00Z',
+            }),
+        },
+    },
+}
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnectModal: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'not_connected',
+                plan_type: null,
+                email: null,
+                connected_at: null,
+            }),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Connect Codex'))
+    },
+}
+
+export const SettingsEnvironmentAgentInstructions: Story = {
+    args: { sectionId: 'environment-task-agent-instructions' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/tasks/config/': {
+                    ai_run_preferences: null,
+                    agent_instructions: 'Use pnpm, not npm.\nOpen pull requests as drafts.',
+                },
+                '/api/projects/:id/tasks/@me/config/': {
+                    ai_run_preferences: null,
+                    resolved_ai_run_defaults: null,
+                    agent_instructions: '',
                 },
             },
         }),

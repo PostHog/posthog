@@ -90,7 +90,8 @@ def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
                 datetime.datetime(args[0]["year"], args[0]["month"], args[0]["day"]) - datetime.datetime(1970, 1, 1)
             ).days
         return int(args[0])
-    except ValueError:
+    # TypeError covers null and other unconvertible types; the TS and Rust VMs return null for those too.
+    except (TypeError, ValueError):
         return None
 
 
@@ -105,7 +106,8 @@ def toFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
                 ).days
             )
         return float(args[0])
-    except ValueError:
+    # TypeError covers null and other unconvertible types; the TS and Rust VMs return null for those too.
+    except (TypeError, ValueError):
         return None
 
 

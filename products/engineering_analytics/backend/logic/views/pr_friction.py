@@ -109,7 +109,7 @@ def build_query(
     source_id: str,
     pull_requests_table: str,
     workflow_runs_table: str,
-    workflow_jobs_table: str,
+    workflow_jobs_table: workflow_jobs.JobsTable,
     issue_events_table: str | None,
     reviews_table: str | None,
 ) -> str:
@@ -189,9 +189,9 @@ bounds AS (
     FROM pr AS p{ready_join}{approvals_join}
 ),
 job_attempts AS (
-    SELECT run_id, groupArray(tuple(attempt_number, started_at, completed_at, unfinished, failed_jobs, unsuccessful)) AS jas
+    SELECT ci_engine, run_id, groupArray(tuple(attempt_number, started_at, completed_at, unfinished, failed_jobs, unsuccessful)) AS jas
     FROM (
-        SELECT run_id, ifNull(run_attempt, 1) AS attempt_number,
+        SELECT ci_engine, run_id, ifNull(run_attempt, 1) AS attempt_number,
             min(started_at) AS started_at,
             max(completed_at) AS completed_at,
             countIf(status != 'completed') AS unfinished,
@@ -199,24 +199,25 @@ job_attempts AS (
             countIf(conclusion NOT IN ('success', 'skipped')) AS unsuccessful
         FROM ({jobs}) AS j
         WHERE NOT is_rerun_copy
-        GROUP BY run_id, attempt_number
+        GROUP BY ci_engine, run_id, attempt_number
         HAVING started_at IS NOT NULL
     )
-    GROUP BY run_id
+    GROUP BY ci_engine, run_id
 ),
 master AS (
     SELECT workflow_name, groupArray(tuple(job, completed_at)) AS fails
     FROM (
-        SELECT ifNull(workflow_name, '') AS workflow_name,
-            {_strip_shard("name")} AS job,
-            parseDateTimeBestEffort(completed_at) AS completed_at
-        FROM {workflow_jobs_table}
-        WHERE created_at >= {_raw_floor(run_days)}
-            AND head_branch IN (SELECT default_branch FROM pr WHERE default_branch != '')
+        SELECT ifNull(j.workflow_name, '') AS workflow_name,
+            {_strip_shard("j.name")} AS job,
+            parseDateTimeBestEffort(j.completed_at) AS completed_at
+        FROM {workflow_jobs_table.rows} AS j
+        INNER JOIN ({runs}) AS mr ON j.run_id = mr.id AND j.ci_engine = mr.ci_engine
+        WHERE j.created_at >= {_raw_floor(run_days)}
+            AND {workflow_jobs.branch("j", "mr")} IN (SELECT default_branch FROM pr WHERE default_branch != '')
             -- The timeline counts failures of default-branch runs that started in its window, gate runs excluded.
-            AND run_id IN (SELECT id FROM ({runs}) AS mr WHERE NOT mr.is_merge_queue AND mr.run_started_at >= {run_from})
-            AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
-            AND completed_at IS NOT NULL
+            AND NOT mr.is_merge_queue AND mr.run_started_at >= {run_from}
+            AND j.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
+            AND j.completed_at IS NOT NULL
     )
     WHERE completed_at IS NOT NULL
     GROUP BY workflow_name
@@ -241,7 +242,7 @@ run_rows AS (
         m.fails AS master_fails
     FROM ({runs}) AS r
     INNER JOIN bounds AS b ON b.number = r.pr_number
-    LEFT JOIN job_attempts AS ja ON ja.run_id = r.id
+    LEFT JOIN job_attempts AS ja ON ja.run_id = r.id AND ja.ci_engine = r.ci_engine
     LEFT JOIN master AS m ON m.workflow_name = r.workflow_name
     WHERE r.run_started_at >= {run_from} AND r.pr_number > 0
 ),

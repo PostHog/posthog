@@ -8,12 +8,17 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
 from posthog.models import Team
 
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+WRAPPER_NODE_KINDS = [
+    NodeKind.DATA_TABLE_NODE,
+    NodeKind.DATA_VISUALIZATION_NODE,
+    NodeKind.BI_VISUALIZATION_NODE,
+    NodeKind.INSIGHT_VIZ_NODE,
+]
 _DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "LifecycleDataWarehouseNode"}
 
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
 # when set. Property filters are handled separately (stacked unless they contradict).
-_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts", "compareFilter"]
 
 # Tile-only flag, not a filter value: it must never reach DashboardFilter(**effective_filters)
 # (extra="forbid"), so every merged output strips it. It only acts on the override (tile) layer;

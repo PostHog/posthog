@@ -30,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
@@ -448,6 +449,13 @@ def log_playlist_activity(
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # Not a model column.
+    creation_method = serializers.ChoiceField(
+        choices=["new", "pin", "duplicate"],
+        required=False,
+        write_only=True,
+        help_text="How the PostHog app created the playlist, for product analytics. Not stored.",
+    )
     is_synthetic = serializers.SerializerMethodField()
     name = serializers.CharField(
         max_length=400,
@@ -499,6 +507,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "type",
             "is_synthetic",
             "_create_in_folder",
+            "creation_method",
         ]
         read_only_fields = [
             "id",
@@ -579,6 +588,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
+        creation_method = validated_data.pop("creation_method", None)
         playlist_type = validated_data.pop("type", None)
         if not playlist_type or playlist_type not in ["collection", "filters"]:
             raise ValidationError("Must provide a valid playlist type: either filters or collection")
@@ -607,6 +617,17 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             user=self.context["request"].user,
             was_impersonated=is_impersonated(self.context["request"]),
         )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording playlist created",
+            properties={
+                "playlist_id": playlist.short_id,
+                "playlist_type": playlist.type,
+                "creation_method": creation_method,
+            },
+            team=team,
+            request=request,
+        )
 
         return playlist
 
@@ -617,6 +638,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         # type cannot be changed after creation
         validated_data.pop("type", None)
+        validated_data.pop("creation_method", None)
 
         try:
             before_update = SessionRecordingPlaylist.objects.get(pk=instance.id)
@@ -646,6 +668,17 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             user=self.context["request"].user,
             was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
+        )
+        report_user_action(
+            user=cast(User, self.context["request"].user),
+            event="recording playlist updated",
+            properties={
+                "playlist_id": updated_playlist.short_id,
+                "playlist_type": updated_playlist.type,
+                "updated_fields": sorted(validated_data.keys()),
+            },
+            team=self.context["get_team"](),
+            request=self.context["request"],
         )
 
         return updated_playlist

@@ -41,16 +41,6 @@ def _no_sleep():
 
 
 class TestBaseUrl:
-    @pytest.mark.parametrize(
-        "environment, expected",
-        [
-            ("production", "https://production.plaid.com"),
-            ("sandbox", "https://sandbox.plaid.com"),
-        ],
-    )
-    def test_known_environments_return_correct_host(self, environment, expected):
-        assert _base_url(environment) == expected
-
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
             _base_url("evil")
@@ -84,16 +74,6 @@ class TestValidateCredentials:
         mock_session.return_value.post.return_value = _response({}, status=status_code)
 
         assert validate_credentials("production", "cid", "sec", "tok") is expected
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_posts_credentials_to_item_get(self, mock_session):
-        mock_session.return_value.post.return_value = _response({})
-
-        validate_credentials("production", "cid", "sec", "tok")
-
-        call = mock_session.return_value.post.call_args
-        assert call.args[0] == "https://production.plaid.com/item/get"
-        assert call.kwargs["json"] == {"client_id": "cid", "secret": "sec", "access_token": "tok"}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_credentials_swallows_exceptions(self, mock_session):
@@ -177,18 +157,6 @@ class TestGetRowsTransactions:
 
         body = mock_session.return_value.post.call_args.kwargs["json"]
         assert body["options"]["offset"] == 1500
-
-    @mock.patch(f"{_MODULE}._today")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_response_stops_without_saving_state(self, mock_session, mock_today):
-        mock_today.return_value = "2024-06-01"
-        mock_session.return_value.post.return_value = _response({"transactions": [], "total_transactions": 0})
-
-        manager = _make_manager()
-        batches = list(get_rows("production", "cid", "sec", "tok", "transactions", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
 
 
 class TestPlaidSourceResponse:

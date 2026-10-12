@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.db import connections
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, When
 
 from posthog.dataclasses import frozen
 
@@ -73,6 +73,7 @@ class _Aggregate:
     mean: float | None
     true_count: int
     false_count: int
+    pass_count: int | None
     coverage: _ItemCoverage
     categories: dict[str, int]
 
@@ -510,17 +511,56 @@ class OfflineEvaluationReadService:
             data=payload.data if payload is not None else None,
         )
 
-    def _aggregates(self, identities: list[_SummaryIdentity]) -> dict[_SummaryIdentity, _Aggregate]:
+    @staticmethod
+    def _passing_condition(version: ScoreDefinitionVersion) -> Q | None:
+        if version.definition.kind == "boolean":
+            return Q(boolean_value=version.config.get("true_is_failure") is not True)
+        elif version.definition.kind == "numeric":
+            rule = version.config.get("passing_rule")
+            if isinstance(rule, dict):
+                if rule.get("operator") == "gte":
+                    return Q(numeric_value__gte=rule["threshold"])
+                if rule.get("operator") == "lte":
+                    return Q(numeric_value__lte=rule["threshold"])
+        elif version.definition.kind == "categorical":
+            rule = version.config.get("passing_rule")
+            if isinstance(rule, dict):
+                categories = rule["categories"]
+                return (
+                    Q(categorical_values__contained_by=categories) & ~Q(categorical_values=[])
+                    if categories
+                    else Q(categorical_values=[])
+                )
+        return None
+
+    def _aggregates(
+        self, identities: list[_SummaryIdentity], *, versions: dict[UUID, ScoreDefinitionVersion]
+    ) -> dict[_SummaryIdentity, _Aggregate]:
         selected = Q(pk__in=[])
         for identity in identities:
             selected |= Q(item__experiment_id=identity.experiment_id, scorer_version_id=identity.version_id)
+        passing = Q(pk__in=[])
+        configured_versions = set()
+        for version_id, version in versions.items():
+            condition = self._passing_condition(version)
+            if condition is not None:
+                configured_versions.add(version_id)
+                passing |= Q(scorer_version_id=version_id) & condition
         results = (
             self._results()
             .filter(selected)
             .order_by()
-            .annotate(experiment_id=F("item__experiment_id"))
+            .annotate(
+                experiment_id=F("item__experiment_id"), score_passes=Case(When(passing, then=True), default=False)
+            )
             .values(
-                "experiment_id", "scorer_version_id", "status", "numeric_value", "boolean_value", "categorical_values"
+                "experiment_id",
+                "scorer_version_id",
+                "status",
+                "numeric_value",
+                "boolean_value",
+                "categorical_values",
+                "score_passes",
             )
         )
         sql, params = results.query.sql_with_params()
@@ -537,7 +577,8 @@ class OfflineEvaluationReadService:
                        count(*) FILTER (WHERE status = 'not_applicable') AS not_applicable_count,
                        avg(numeric_value::text::numeric) FILTER (WHERE status = 'ok') AS mean,
                        count(*) FILTER (WHERE status = 'ok' AND boolean_value IS TRUE) AS true_count,
-                       count(*) FILTER (WHERE status = 'ok' AND boolean_value IS FALSE) AS false_count
+                       count(*) FILTER (WHERE status = 'ok' AND boolean_value IS FALSE) AS false_count,
+                       count(*) FILTER (WHERE status = 'ok' AND score_passes) AS pass_count
                 FROM selected GROUP BY experiment_id, scorer_version_id
             ), category_counts AS (
                 SELECT experiment_id, scorer_version_id, category, count(*) AS selected_count
@@ -564,7 +605,7 @@ class OfflineEvaluationReadService:
                    a.skipped_count, a.not_applicable_count, a.mean, a.true_count, a.false_count,
                    c.observed_item_count, c.distinct_case_count, c.items_with_case_key_count,
                    c.items_without_case_key_count, c.trial_item_count, c.distinct_trial_count,
-                   categories.keys, categories.counts
+                   categories.keys, categories.counts, a.pass_count
             FROM aggregates a JOIN coverage c USING (experiment_id)
             LEFT JOIN categories USING (experiment_id, scorer_version_id)
         """
@@ -586,6 +627,7 @@ class OfflineEvaluationReadService:
                     mean=float(row[7]) if row[7] is not None else None,
                     true_count=row[8],
                     false_count=row[9],
+                    pass_count=row[18] if row[1] in configured_versions else None,
                     coverage=_ItemCoverage(
                         observed_item_count=row[10],
                         distinct_case_count=row[11],
@@ -608,7 +650,7 @@ class OfflineEvaluationReadService:
             .filter(id__in=[identity.version_id for identity in identities])
             .select_related("definition")
         }
-        aggregates = self._aggregates(identities)
+        aggregates = self._aggregates(identities, versions=versions)
         summaries = {}
         for identity in identities:
             version = versions.get(identity.version_id)
@@ -648,6 +690,13 @@ class OfflineEvaluationReadService:
                 false_count=aggregate.false_count if scorer.kind == "boolean" else None,
                 true_rate=aggregate.true_count / aggregate.status_counts.ok
                 if scorer.kind == "boolean" and aggregate.status_counts.ok
+                else None,
+                pass_count=aggregate.pass_count,
+                fail_count=aggregate.status_counts.ok - aggregate.pass_count
+                if aggregate.pass_count is not None
+                else None,
+                pass_rate=aggregate.pass_count / aggregate.status_counts.ok
+                if aggregate.pass_count is not None and aggregate.status_counts.ok
                 else None,
                 categories=categories,
             )

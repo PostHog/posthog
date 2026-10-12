@@ -9,6 +9,7 @@ export type AgentErrorClassification =
   | "turn_ended_without_response"
   | "subscription_usage_limit"
   | "task_spend_limit"
+  | "upstream_request_rejected"
   | "agent_error";
 
 const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
@@ -30,6 +31,8 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
+const UPSTREAM_REQUEST_REJECTED_PATTERN =
+  /invalid_request_error|unexpected status\s*(?:400|404|422)\b|API Error:\s*(?:400|404|422)\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -96,6 +99,9 @@ export function classifyAgentError(
   if (SUBSCRIPTION_USAGE_LIMIT_PATTERN.test(text)) {
     return "subscription_usage_limit";
   }
+  if (UPSTREAM_REQUEST_REJECTED_PATTERN.test(text)) {
+    return "upstream_request_rejected";
+  }
   return "agent_error";
 }
 
@@ -120,7 +126,22 @@ export function sanitizeAgentErrorCause(
   ) {
     return classification;
   }
+  if (classification === "upstream_request_rejected") {
+    if (!text.startsWith("{")) {
+      return text.slice(0, 200);
+    }
+    return (rejectedRequestMessage(text) ?? classification).slice(0, 200);
+  }
   return text.slice(0, 400);
+}
+
+function rejectedRequestMessage(body: string): string | undefined {
+  try {
+    const message = JSON.parse(body)?.error?.message;
+    return typeof message === "string" ? message : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

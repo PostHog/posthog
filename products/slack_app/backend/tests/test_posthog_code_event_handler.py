@@ -1767,12 +1767,19 @@ class TestUntaggedFollowupPrompt(SimpleTestCase):
 
 
 class TestPostSlackUserEphemeral(SimpleTestCase):
-    def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
+    @parameterized.expand(
+        [
+            ("ephemeral", lambda slack, api: api._post_slack_user_ephemeral(slack, "C001", "U123", None, "nope")),
+            ("feedback", lambda slack, api: api._post_slack_user_feedback(slack, "C001", "U123", "1.0", "nope")),
+        ]
+    )
+    def test_request_timeout_applies_to_the_client_that_makes_the_call(self, _name, post):
         # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend import api
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS
 
         built_clients: list[MagicMock] = []
 
@@ -1782,7 +1789,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
                 built_clients.append(MagicMock())
                 return built_clients[-1]
 
-        posted = _post_slack_user_ephemeral(cast(SlackIntegration, _NewClientPerAccess()), "C001", "U123", None, "nope")
+        posted = post(cast(SlackIntegration, _NewClientPerAccess()), api)
 
         assert posted is True
         assert len(built_clients) == 1

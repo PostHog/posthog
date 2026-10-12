@@ -20,6 +20,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -983,6 +984,7 @@ class TestBillingProviderWebhookSigning(SimpleTestCase):
     def setUp(self):
         self.license = SimpleNamespace(key="license_id::license_secret")
         self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+        self.enterContext(patch("ee.billing.billing_manager.get_billing_lock_partner", return_value=None))
 
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
     @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
@@ -1097,6 +1099,36 @@ class TestBuildBillingToken(BaseTest):
         assert "distinct_id" not in decoded
         assert "email" not in decoded
         assert "organization_role" not in decoded
+
+    @parameterized.expand([("paying_partner", True), ("no_partner", False)])
+    @patch("ee.billing.billing_manager.get_billing_lock_partner")
+    def test_build_billing_token_payer_partner_claim(
+        self, _name: str, has_partner: bool, mock_partner: MagicMock
+    ) -> None:
+        application = (
+            OAuthApplication.objects.create(
+                client_id="example-partner",
+                name="Example Partner",
+                client_secret="",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+            )
+            if has_partner
+            else None
+        )
+        mock_partner.return_value = application
+
+        token = build_billing_token(self.license, self.organization)
+
+        mock_partner.assert_called_once_with(self.organization)
+        decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+        if application is not None:
+            assert decoded["payer_partner_id"] == str(application.id)
+        else:
+            assert "payer_partner_id" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
         """Token with user should include distinct_id and organization_role as level display string"""

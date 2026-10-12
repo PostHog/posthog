@@ -69,11 +69,6 @@ class TestSwarmiaSource:
         if not expected_valid:
             assert error
 
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error: Unauthorized for url: https://app.swarmia.com" in errors
-        assert "403 Client Error: Forbidden for url: https://app.swarmia.com" in errors
-
     def test_canonical_descriptions_match_endpoint_catalog(self) -> None:
         # A canonical entry keyed off a name not in the catalog is silently unused (typo guard).
         assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)

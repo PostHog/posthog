@@ -771,7 +771,7 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
     if not expect_references:
         assert "Source issues" not in description
         assert "addressing" not in description
-        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
+        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001?link_source=task).' -" in description
 
 
 def test_autostart_description_opens_the_pr_before_the_simplify_pass():
@@ -789,6 +789,11 @@ def test_autostart_description_opens_the_pr_before_the_simplify_pass():
     assert open_pr < simplify
     assert fork_push < simplify
     assert "skip this polish pass" in description
+    # The PR must follow the repository's own checks, and a run must not claim checks it never ran.
+    repo_checks = description.index("Find out how the repository runs its tests, lint and typecheck")
+    assert repo_checks < open_pr
+    assert "name the checks you skipped and why in the PR description" in description
+    assert "stop and say so in your summary rather than reverting it" in description
 
 
 @pytest.mark.parametrize(

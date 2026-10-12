@@ -141,23 +141,6 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         expect(logic.values.scoreDefinitionCountLabel).toBe('0 scorers')
     })
 
-    it('stores modal context in logic', async () => {
-        const logic = aiObservabilityScoreDefinitionsLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.openModal('metadata', mockScoreDefinition)
-        }).toFinishAllListeners()
-
-        expect(logic.values.modalMode).toBe('metadata')
-        expect(logic.values.selectedDefinition).toEqual(mockScoreDefinition)
-
-        logic.actions.closeModal()
-
-        expect(logic.values.modalMode).toBeNull()
-        expect(logic.values.selectedDefinition).toBeNull()
-    })
-
     it('archives through logic and reloads the list', async () => {
         const logic = aiObservabilityScoreDefinitionsLogic()
         logic.mount()

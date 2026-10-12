@@ -42,6 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS,
     TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_MISSING_SCOPE_FRAGMENT,
+    TIKTOK_MISSING_SCOPE_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_CODES,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
@@ -75,6 +77,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # Must precede TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a denial matches both keys, and
             # `external_data_job` takes the first match in dict order, discarding it when None.
             **dict.fromkeys(TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS, TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE),
+            TIKTOK_MISSING_SCOPE_FRAGMENT: TIKTOK_MISSING_SCOPE_MESSAGE,
             # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
             # doesn't exist or has been deleted). The paginator raises these with this exact
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as

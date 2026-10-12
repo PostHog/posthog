@@ -128,6 +128,11 @@
                     {
                         "name": "storybook/preview-api",
                         "message": "The withKea decorator renders a story after Storybook clears its hook context, so Storybook preview hooks such as useArgs throw or never fire, and the story renders blank in visual regression runs. Keep story state in React's useState."
+                    },
+                    {
+                        "name": "storybook/test",
+                        "importNames": ["within", "waitFor"],
+                        "message": "Import within and waitFor from @testing-library/dom to use the configured Storybook async timeout."
                     }
                 ],
                 "patterns": [
@@ -238,7 +243,11 @@
             }
         },
         {
-            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
+            "files": [
+                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
+                "products/**/mcp/apps/**/*.{ts,tsx}",
+                "products/tasks/frontend/infrastructure/**/*.{ts,tsx}"
+            ],
             "rules": {
                 "react/forbid-elements": "off"
             }

@@ -227,6 +227,26 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     } else {
         FeatureFlagList::from_pg(db.non_persons_reader.clone(), team.id).await?
     };
+    let mut loaded = vec![stored.clone()];
+    if !cached {
+        loaded.push(
+            FeatureFlagList::from_pg_keeping_undecodable(db.non_persons_reader.clone(), team.id)
+                .await?
+                .0,
+        );
+    }
+    let v1_keys = [
+        "absent",
+        "one",
+        "one-float",
+        "one-rounded",
+        "inactive",
+        "deleted",
+    ];
+    for flag in loaded.iter().flatten() {
+        let v1 = v1_keys.contains(&flag.key.as_str());
+        assert_eq!(flag.filters.non_v1.is_none(), v1, "{}", flag.key);
+    }
     for (key, valid) in [
         ("evaluated-valid-v2", true),
         ("evaluated-rounded-v2", true),

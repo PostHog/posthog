@@ -20,13 +20,16 @@ import math
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from posthog.hogql.errors import BaseHogQLError
 
 from products.signals.backend.report_charts import validate_report_query
+
+if TYPE_CHECKING:
+    from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +102,22 @@ REPORT_METRIC_VALUE_FORMATS: tuple[ReportMetricValueFormat, ...] = (
     "duration",
     "currency",
 )
+
+
+def validate_metric_number(
+    kind: ReportMetricKind, value_format: ReportMetricValueFormat, value: float, label: str
+) -> None:
+    if not math.isfinite(value):
+        raise ValueError(f"{label} must be finite")
+    if value_format == "count" and (value < 0 or not value.is_integer()):
+        raise ValueError(f"a count {label} must be a non-negative whole number")
+    if kind == "duration" and value < 0:
+        raise ValueError(f"a duration {label} must be non-negative")
+    if kind in {"conversion_rate", "error_rate"}:
+        upper_bound = 1 if value_format == "percentage_scaled" else 100
+        if not 0 <= value <= upper_bound:
+            raise ValueError(f"a rate {label} must be between 0 and {upper_bound}")
+
 
 _LIVE_METRIC_QUERY_KINDS = frozenset({"InsightVizNode"})
 _LIVE_METRIC_SERIES_KINDS = frozenset({"ActionsNode", "EventsNode"})
@@ -181,6 +200,15 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
+def _validate_live_metric_hogql(expression: str) -> None:
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 — keeps the query parser off startup
+
+    try:
+        parse_expr(expression)
+    except (BaseHogQLError, SyntaxError, RecursionError) as error:
+        raise ValueError(f"a live metric math_hogql must be a valid HogQL expression: {error}") from None
+
+
 def validate_metric_id(value: str) -> str:
     """Normalize a metric id and refuse one nothing can reference.
 
@@ -243,6 +271,9 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             action_id = item.get("id")
             if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id <= 0:
                 raise ValueError("a live metric action series needs a positive integer action id")
+        expression = item.get("math_hogql")
+        if item.get("math") == "hogql" and expression is not None:
+            _validate_live_metric_hogql(expression)
     if source.get("breakdownFilter") or source.get("breakdown"):
         raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
     sampling_factor = source.get("samplingFactor")
@@ -585,13 +616,8 @@ class ReportMetric(BaseModel):
             raise ValueError("goal_value must be finite")
         if self.goal_value is not None and self.decision_window_days is None and self.minimum_data_points is None:
             raise ValueError("a goal requires a suggested decision window or minimum data points")
-        if self.goal_value is not None and self.value_format == "count":
-            if self.goal_value < 0 or not self.goal_value.is_integer():
-                raise ValueError("a count goal must be a non-negative whole number")
-        if self.goal_value is not None and self.kind in {"conversion_rate", "error_rate"}:
-            upper_bound = 1 if self.value_format == "percentage_scaled" else 100
-            if not 0 <= self.goal_value <= upper_bound:
-                raise ValueError(f"a rate goal must be between 0 and {upper_bound}")
+        if self.goal_value is not None:
+            validate_metric_number(self.kind, self.value_format, self.goal_value, "goal")
         if (self.value is None) != (self.value_at is None):
             raise ValueError("value and value_at must be provided together")
         self._drop_a_snapshot_measured_in_the_future()
@@ -637,35 +663,22 @@ class ReportMetric(BaseModel):
                 raise ValueError("a duration metric must use duration formatting")
             if self.unit not in {"ms", "s"}:
                 raise ValueError("a duration metric must use `ms` or `s` as its unit")
-            if self.goal_value is not None and self.goal_value < 0:
-                raise ValueError("a duration goal must be non-negative")
-            if self.value is not None and self.value < 0:
-                raise ValueError("a duration snapshot must be non-negative")
-            if self.comparison is not None and self.comparison.value < 0:
-                raise ValueError("a duration comparison must be non-negative")
         if self.kind == "revenue":
             if self.value_format != "currency":
                 raise ValueError("a revenue metric must use currency formatting")
             if self.unit is None or re.fullmatch(r"[A-Z]{3}", self.unit) is None:
                 raise ValueError("a revenue metric must use a three-letter ISO currency code as its unit")
-        if self.value_format == "count" and self.value is not None:
-            if self.value < 0 or not self.value.is_integer():
-                raise ValueError("a count snapshot must be a non-negative whole number")
+        if self.value is not None:
+            validate_metric_number(self.kind, self.value_format, self.value, "snapshot")
         if self.value_format == "count" and self.series is not None:
             if any(point < 0 or not point.is_integer() for point in self.series):
                 raise ValueError("a count series must contain non-negative whole numbers")
-        if self.value_format == "count" and self.comparison is not None:
-            if self.comparison.value < 0 or not self.comparison.value.is_integer():
-                raise ValueError("a count comparison must be a non-negative whole number")
+        if self.comparison is not None:
+            validate_metric_number(self.kind, self.value_format, self.comparison.value, "comparison")
         percentage_formats = {"percentage", "percentage_scaled"}
         if self.kind in {"conversion_rate", "error_rate"}:
             if self.value_format not in percentage_formats:
                 raise ValueError("a conversion_rate or error_rate metric must use percentage formatting")
-            upper_bound = 1 if self.value_format == "percentage_scaled" else 100
-            if self.value is not None and not 0 <= self.value <= upper_bound:
-                raise ValueError(f"a {self.value_format} rate snapshot must be between 0 and {upper_bound}")
-            if self.comparison is not None and not 0 <= self.comparison.value <= upper_bound:
-                raise ValueError(f"a {self.value_format} rate comparison must be between 0 and {upper_bound}")
         if self.value_format in percentage_formats:
             trends_filter = self.query["source"].get("trendsFilter")
             axis_format = trends_filter.get("aggregationAxisFormat") if isinstance(trends_filter, dict) else None
@@ -703,3 +716,42 @@ def metric_batch_error(metrics: Sequence[ReportMetric]) -> str | None:
     if affected_users_count > 1:
         return "a report accepts at most one affected_users metric"
     return None
+
+
+class ReportMetricSnapshot(BaseModel):
+    """The saved figure of one report metric, with its live query as stored.
+
+    Reading a snapshot this way skips the query validation `ReportMetric` runs. The query was
+    validated when the metric was saved, and the reader runs it through the regular query endpoint.
+    """
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    role: ReportMetricRole = "supporting"
+    value: float
+    series: list[float] | None = None
+    value_format: ReportMetricValueFormat = "number"
+    unit: str | None = None
+    query: dict[str, Any] = Field(default_factory=dict)
+
+
+def saved_metric_snapshots(raw_metrics: object, metric_access: ReportMetricAccessPolicy) -> list[ReportMetricSnapshot]:
+    """The metrics in a report's stored `metrics` list that have a saved value the viewer may read.
+
+    Malformed entries are skipped. A snapshot the viewer may not read is left out entirely, because it
+    carries both the userless value and the query definition the Inbox redacts for that viewer.
+    """
+    if not isinstance(raw_metrics, list):
+        return []
+    snapshots: list[ReportMetricSnapshot] = []
+    for raw in raw_metrics:
+        if not isinstance(raw, dict) or raw.get("value") is None or not metric_access.may_read_snapshot(raw):
+            continue
+        try:
+            snapshots.append(ReportMetricSnapshot.model_validate(raw))
+        except ValidationError:
+            continue
+    return snapshots

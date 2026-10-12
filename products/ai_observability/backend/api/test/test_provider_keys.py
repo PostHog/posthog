@@ -174,7 +174,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.organization_membership.save()
 
     @parameterized.expand([("create",), ("update",), ("validate",), ("prevalidate",)])
-    def test_system_one_customer_project_cannot_use_posthog_gateway_or_disabled_feature(self, operation: str) -> None:
+    def test_system_one_connection_requires_enabled_feature(self, operation: str) -> None:
         gateway_url = "https://ai-gateway.us.posthog.com/v1"
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -187,8 +187,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         with (
             self.settings(POSTHOG_INTERNAL_ORG_IDS=[]),
             patch(
-                "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
-                return_value=operation != "prevalidate",
+                "products.ai_observability.backend.llm.decisions.get_feature_flag_or_none",
+                return_value=False,
             ),
             patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         ):
@@ -209,7 +209,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 response = self.client.post(f"{base_url}provider_keys/{key.id}/validate/")
             else:
                 response = self.client.post(
-                    f"{base_url}provider_key_validations/", {"provider": "system_one", "api_key": "example-token"}
+                    f"{base_url}provider_key_validations/",
+                    {"provider": "system_one", "api_key": "example-token", "base_url": gateway_url},
                 )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
         request.assert_not_called()
@@ -261,7 +262,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
-    @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
+    @patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(self, _flag: Mock, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
             {
