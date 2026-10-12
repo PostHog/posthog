@@ -75,6 +75,7 @@ MCPBuiltInAgentKey = Literal["support", "scout", "workflow"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
+MCP_TOOL_ALLOWLIST_STATE_KEY = "mcp_allowed_tools"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
@@ -657,6 +658,23 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @property
+    def mcp_tool_allowlist(self) -> list[str] | None:
+        """MCP tool names a scout owner picked for this run, stamped once at dispatch.
+
+        None (no snapshot) means no per-tool policy. Once a snapshot exists, a malformed value
+        fails closed to an empty list, so the run holds only the tools every scout run holds.
+        Reads through `mcp_builtin_agent_key` like the gateway allowlist.
+        """
+        if self.mcp_builtin_agent_key is None:
+            return None
+        names = (self.state or {}).get(MCP_TOOL_ALLOWLIST_STATE_KEY)
+        if names is None:
+            return None
+        if not isinstance(names, list):
+            return []
+        return [name for name in names if isinstance(name, str)]
+
     @classmethod
     def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
         prefix = {"": "", "task": "task__"}[relation]
@@ -1153,6 +1171,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1271,6 +1290,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
+            if mcp_tool_allowlist is not None:
+                initial_state[MCP_TOOL_ALLOWLIST_STATE_KEY] = [str(name) for name in mcp_tool_allowlist]
 
         task = Task(
             team=team,
@@ -1450,6 +1471,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -1480,6 +1502,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
         )
         task.save()
         return task
@@ -1537,6 +1560,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
@@ -1597,6 +1621,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
         )
 
         run_extra_state = dict(extra_state or {})

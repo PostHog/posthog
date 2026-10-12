@@ -762,6 +762,12 @@ def read_task_state_entry(task_id: str | UUID, team_id: int, key: str) -> object
     return (state or {}).get(key)
 
 
+def get_task_mcp_tool_allowlist(task_id: str | UUID, team_id: int) -> list[str] | None:
+    """The MCP tool list stamped on a built-in agent task at dispatch, or None when it has none."""
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("id", "origin_product", "state").first()
+    return task.mcp_tool_allowlist if task is not None else None
+
+
 def update_task_state_entry(
     task_id: str | UUID,
     team_id: int,

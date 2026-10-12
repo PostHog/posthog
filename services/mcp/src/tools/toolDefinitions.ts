@@ -55,6 +55,11 @@ export const ToolDefinitionSchema = z
          * Other filters (readOnly, AI consent, feature flags, scopes) still apply.
          */
         always_available: z.boolean().optional(),
+        /**
+         * API operations the tool calls, as `METHOD /api/path/{param}/`. The API refuses a
+         * request from a scout run when no tool the scout holds lists its operation.
+         */
+        operations: z.array(z.string()).optional(),
         annotations: z.object({
             destructiveHint: z.boolean(),
             idempotentHint: z.boolean(),

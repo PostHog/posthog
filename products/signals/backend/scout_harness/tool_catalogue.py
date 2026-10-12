@@ -8,11 +8,13 @@ before any of it can be configured.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import posthoganalytics
 
+from posthog.api.api_operations import api_operation
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.mcp_tool_definitions import McpToolDefinition, get_mcp_tool_definitions
@@ -158,4 +160,26 @@ def get_scout_tool_catalogue() -> ScoutToolCatalogue:
                 tools=tuple(sorted((*read_tools, "conversations-tickets-notes-create"))),
             ),
         ),
+    )
+
+
+def scout_held_tools(allowed_mcp_tools: Iterable[str]) -> frozenset[str]:
+    """The tools a run with a picked tool list holds.
+
+    The run-context tools are part of every run, and the always-available tools are part of
+    every MCP session, so a picked list adds to them and never removes them. Holding a tool
+    grants no scope: the token's scope posture still decides what the run can write.
+    """
+    always_available = {name for name, definition in get_mcp_tool_definitions().items() if definition.always_available}
+    return frozenset(allowed_mcp_tools) | SCOUT_RUN_CONTEXT_TOOLS | always_available
+
+
+def scout_held_operations(held_tools: Iterable[str]) -> frozenset[str]:
+    """The API operations, as `api_operation` keys, that some held tool calls."""
+    definitions = get_mcp_tool_definitions()
+    return frozenset(
+        api_operation(*operation.split(" ", 1))
+        for name in held_tools
+        if (definition := definitions.get(name)) is not None
+        for operation in definition.operations
     )

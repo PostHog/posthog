@@ -1090,6 +1090,9 @@ async def _spawn_and_run(
         # coordinator-discovered scouts. The per-scout selection below picks which of those
         # team-shared servers this scout's runs mount. Empty selects none.
         mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
+        # Stamped once per run like the server selection, so a config edit applies from the next run.
+        # The API refuses operations outside it when the team has `scouts-tool-access`.
+        mcp_tool_allowlist=config.allowed_mcp_tools,
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. Team attribution rides along as `team_id`.
@@ -1391,6 +1394,9 @@ def _create_run_row(
     # grant, so absence reads as "the fleet posture".
     if granted_write_scopes := _granted_write_scopes(config):
         metadata["write_scopes"] = granted_write_scopes
+    # The picked tool list, stamped for the same reason. Omitted when the scout has none.
+    if config.allowed_mcp_tools is not None:
+        metadata["allowed_mcp_tools"] = list(config.allowed_mcp_tools)
     # Which tree the run was looking at, so a reader of its report can tell. Stamped rather than
     # read off the config, for the same reason as the write grant: the pin can be edited or
     # dropped afterwards, and this is the only record of what a past run actually cloned. Omitted

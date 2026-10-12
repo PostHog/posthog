@@ -102,6 +102,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -147,6 +148,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
             files=files,
@@ -227,6 +229,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -246,6 +249,8 @@ class MultiTurnSession:
         regardless of grant scope (a scout's per-scout selection). None leaves them
         unfiltered; an empty list mounts nothing.
 
+        `mcp_tool_allowlist` is a scout's picked MCP tool list. None means no per-tool policy.
+
         `files` go into the sandbox before the first turn, and the first prompt lists
         their paths. Use them for text too long for the agent to pass on itself, such as
         the task of a sub-agent.
@@ -264,6 +269,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
             output_schema=output_schema,
