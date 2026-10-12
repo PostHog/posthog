@@ -56,3 +56,14 @@ class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["team", "status", "kind"], name="warehouse_sugg_status_kind"),
             models.Index(fields=["team", "last_seen_at"], name="warehouse_sugg_last_seen"),
         ]
+
+
+class WarehouseSuggestionTeamConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
+    )
+    enabled = models.BooleanField(default=True)
+    paused_reason = models.CharField(max_length=32, null=True, blank=True)
+    eligible = models.BooleanField(default=False)
+    days_with_data = models.PositiveSmallIntegerField(default=0)
+    last_run_at = models.DateTimeField(null=True, blank=True)

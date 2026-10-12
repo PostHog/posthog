@@ -121,16 +121,29 @@ class TestValidateCredentials:
 
 
 class TestPagination:
+    @parameterized.expand(
+        [
+            ("apps", "apps", True),
+            # Catalog replies carry only `count`, no `has_next`, so the short page must end the walk.
+            ("catalog_instances", "instances", None),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_offset_pagination_and_progresses(self, MockSession) -> None:
+    def test_follows_offset_pagination_and_progresses(
+        self, endpoint: str, data_key: str, has_next: bool | None, MockSession
+    ) -> None:
         session = MockSession.return_value
         full_page = [{"id": str(i)} for i in range(100)]
         snaps = _wire(
-            session, [_response("apps", full_page, has_next=True), _response("apps", [{"id": "last"}], has_next=False)]
+            session,
+            [
+                _response(data_key, full_page, has_next=has_next),
+                _response(data_key, [{"id": "last"}], has_next=False if has_next else None),
+            ],
         )
 
         manager = _make_manager()
-        rows = _rows(_run("apps", manager=manager))
+        rows = _rows(_run(endpoint, manager=manager))
 
         assert len(rows) == 101
         assert session.send.call_count == 2

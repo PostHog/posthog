@@ -189,6 +189,13 @@ class _ManifestAuth(BaseModel):
         return self
 
 
+def _without_retry_limit_overrides(client: dict[str, Any]) -> dict[str, Any]:
+    """A user-authored manifest cannot raise the retry limits; only a trusted source definition can."""
+    return {
+        key: value for key, value in client.items() if key not in ("retry_budget_seconds", "retry_after_max_seconds")
+    }
+
+
 class _ManifestClient(BaseModel):
     base_url: str = Field(min_length=1)
     auth: _ManifestAuth | None = None
@@ -1276,7 +1283,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 _strip_engine_unsupported_incremental_keys(chosen),
             ]
             engine_manifest = cast(
-                RESTAPIConfig, {**manifest_without_default_incremental, "resources": engine_resources}
+                RESTAPIConfig,
+                {
+                    **manifest_without_default_incremental,
+                    "client": _without_retry_limit_overrides(manifest["client"]),
+                    "resources": engine_resources,
+                },
             )
 
             # Backstop for manifests stored before create-time validation covered this: an
@@ -1456,7 +1468,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 **_split_default_incremental(manifest)[0],
                 "resources": engine_resources,
                 "client": {
-                    **client,
+                    **_without_retry_limit_overrides(client),
                     "session": _build_preview_session(secret_values),
                     # One attempt only — a rate-limited endpoint must surface an error
                     # inline, not sleep on `Retry-After` and tie up the request thread.

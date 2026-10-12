@@ -18,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_CHOICES,
     RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
@@ -626,9 +627,12 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
         return None
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if not self.user_access_control:
             return None
+
+        if isinstance(obj, ObjectAccessRef):
+            return self.user_access_control.access_level_for_ref(obj)
 
         # Check if self.instance is a list - if so we want to preload the user access controls
         if not self._preloaded_access_controls and isinstance(self.instance, list):

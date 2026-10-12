@@ -8,7 +8,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
 import { libraryLogic } from 'scenes/library/libraryLogic'
 import { libraryListHref, libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
+import { libraryRowProductLabels, toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -31,7 +31,9 @@ export function TodayProductsSidebar(): JSX.Element {
     const objectPageType = libraryTypeForPath(path)
 
     const showAllObjects = matchesPaneQuery('All objects', search)
-    const libraryTypes = objectTypes.filter((type) => matchesPaneQuery(type.pluralLabel, search))
+    const libraryTypes = objectTypes.filter((type) =>
+        [type.pluralLabel, ...libraryRowProductLabels(type.value)].some((label) => matchesPaneQuery(label, search))
+    )
     const showLibrary = showAllObjects || libraryTypes.length > 0
     const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
     const categorySections = toolGroups.map((group) => ({
@@ -97,7 +99,11 @@ export function TodayProductsSidebar(): JSX.Element {
                                         label={type.pluralLabel}
                                         icon={iconForType(type.value as FileSystemIconType)}
                                         to={libraryListHref(type.value) ?? urls.library(type.value)}
-                                        active={path === urls.library(type.value) || objectPageType === type.value}
+                                        // A product page can share a scene with a Library list. The product's own row then takes the highlight.
+                                        active={
+                                            path === urls.library(type.value) ||
+                                            (objectPageType === type.value && !activeHref)
+                                        }
                                         action={<LibraryCreateButton objectType={type.value} />}
                                         dataAttr="today-library-type"
                                     />

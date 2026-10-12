@@ -189,6 +189,31 @@ class TestReferenceEndpoints:
 
         assert [row["id"] for row in rows] == ["1"]
 
+    @parameterized.expand([("CitationCategories", "citation-categories"), ("CitationTags", "citation-tags")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_per_category_endpoints_fan_out_and_stamp_the_category(
+        self, endpoint: str, path_segment: str, MockSession
+    ) -> None:
+        # The rows carry only `value` and `name`, which repeat across categories, so `category_id`
+        # has to come from the request for the primary key to be unique.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _json_response([{"id": "c1"}, {"id": "c2"}]),
+                _json_response({"data": [{"value": "owned", "name": "Owned"}]}),
+                _json_response({"data": [{"value": "owned", "name": "Owned"}]}),
+            ],
+        )
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        urls = [c.args[0].url for c in session.send.call_args_list]
+        assert urls[1].endswith(f"/v1/org/categories/c1/{path_segment}")
+        assert urls[2].endswith(f"/v1/org/categories/c2/{path_segment}")
+        assert [(row["category_id"], row["value"]) for row in rows] == [("c1", "owned"), ("c2", "owned")]
+        assert all("_Categories_id" not in row for row in rows)
+
 
 class TestSourceResponseShape:
     @parameterized.expand(

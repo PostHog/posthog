@@ -182,6 +182,9 @@ export const getConversationsTicketsDestroyUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
 
+/**
+ * Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window.
+ */
 export const conversationsTicketsDestroy = async (
     projectId: string,
     id: string,

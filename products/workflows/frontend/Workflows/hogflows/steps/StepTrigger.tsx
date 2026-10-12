@@ -240,29 +240,18 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 value: 'webhook',
                 icon: <IconWebhooks />,
             },
-            ...(type === 'manual'
-                ? [
-                      {
-                          label: 'Manual',
-                          description: 'Trigger your workflow manually... with a button!',
-                          value: 'manual',
-                          icon: <IconButton />,
-                      },
-                  ]
-                : []),
-            // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
-            // current trigger is already a schedule, so existing workflows still render and can be
-            // switched to a different trigger type without crashing.
-            ...(type === 'schedule'
-                ? [
-                      {
-                          label: 'Schedule',
-                          description: 'Run your workflow on a schedule',
-                          value: 'schedule',
-                          icon: <IconClock />,
-                      },
-                  ]
-                : []),
+            {
+                label: 'Manual',
+                description: 'Run your workflow when you click the trigger button',
+                value: 'manual',
+                icon: <IconButton />,
+            },
+            {
+                label: 'Schedule',
+                description: 'Run your workflow once or on a recurring schedule, without a person or event',
+                value: 'schedule',
+                icon: <IconClock />,
+            },
             {
                 label: 'Tracking pixel',
                 description: 'Trigger your workflow using a 1x1 tracking pixel',
@@ -286,7 +275,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 })),
         ]
         return items
-    }, [type, featureFlags])
+    }, [featureFlags])
 
     const selectedItem = allTriggerItems.find((item) => item.value === displayType)
 

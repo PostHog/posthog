@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_adapter,
     make_tracked_session,
     resolve_request_timeout,
+    suspend_adapter_retries,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "make_tracked_session",
     "resolve_request_timeout",
     "scoped_job_context",
+    "suspend_adapter_retries",
 ]

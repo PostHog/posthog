@@ -12,7 +12,6 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
@@ -36,6 +35,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.process_task.activities import provision_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -247,22 +247,12 @@ class TestGetTaskProcessingContextActivity:
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
-        private_payload = {"reports": {"synthetic-report": {"summary": "Private observation. " * 20_000}}}
         extra_state: dict[str, object] = {"claude_model_access": "own-subscription"} if subscription else {}
         if is_trial:
             test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
             test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
             test_task.save(update_fields=["origin_product", "origin_key"])
-            extra_state.update({"scout_trial": {"version": 1}, "scout_trial_private": private_payload})
         task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
-        if is_trial:
-            SignalScoutRun.objects.for_team(test_task.team_id).create(
-                team_id=test_task.team_id,
-                task_run=task_run,
-                skill_name="signals-scout-fixture",
-                skill_version=1,
-                metadata={"scout_trial": {"version": 1}},
-            )
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         with (
@@ -295,39 +285,6 @@ class TestGetTaskProcessingContextActivity:
         assert result.agent_otel_telemetry_enabled is (not is_trial)
         assert result.context_layer_enabled is (not is_trial)
         assert result.state is not None
-        assert "scout_trial_private" not in result.state
-        if is_trial:
-            assert result.state["scout_trial"] == {"version": 1}
-            task_run.refresh_from_db()
-            assert task_run.state["scout_trial_private"] == private_payload
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("missing", ["origin", "marker", "version", "bridge"])
-    def test_private_context_requires_matching_server_provenance(
-        self, activity_environment: ActivityEnvironment, test_task: Task, missing: str
-    ) -> None:
-        if missing != "origin":
-            test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
-            test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
-            test_task.save(update_fields=["origin_product", "origin_key"])
-        extra_state = {} if missing == "marker" else {"scout_trial": {"version": 2 if missing == "version" else 1}}
-        task_run = test_task.create_run(extra_state=extra_state)
-        if missing != "bridge":
-            SignalScoutRun.objects.for_team(test_task.team_id).create(
-                team_id=test_task.team_id,
-                task_run=task_run,
-                skill_name="signals-scout-fixture",
-                skill_version=1,
-                metadata={"scout_trial": {"version": 1}},
-            )
-
-        async def execute_context() -> TaskProcessingContext:
-            return await activity_environment.run(
-                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
-            )
-
-        with pytest.raises(TaskInvalidStateError, match="inconsistent private context"):
-            async_to_sync(execute_context)()
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -762,15 +719,17 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "flag_value,expected_state",
+        "flag_value,include_live_context,expected_state",
         [
-            (True, "resolved"),
-            (False, []),
-            (None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, None, "resolved"),
+            (False, None, []),
+            (None, None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, False, []),
+            (None, False, []),
         ],
     )
     def test_store_skills_state_follows_the_sandbox_flag(
-        self, activity_environment, test_task, user, flag_value, expected_state
+        self, activity_environment, test_task, user, mocker, flag_value, include_live_context, expected_state
     ):
         LLMSkill.objects.create(
             team=test_task.team,
@@ -781,16 +740,40 @@ class TestGetTaskProcessingContextActivity:
             is_latest=True,
             created_by=user,
         )
-        task_run = test_task.create_run()
+        task_run = test_task.create_run(
+            extra_state={"include_live_context": include_live_context} if include_live_context is not None else {}
+        )
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
-            return_value=flag_value,
+        with (
+            patch(
+                "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
+                return_value=flag_value,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.context_layer_facade.is_context_layer_enabled",
+                return_value=True,
+            ),
         ):
-            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
+        assert result.context_layer_enabled is (include_live_context is not False)
+        if include_live_context is False:
+            assert result.state is not None
+            assert result.state[STORE_SKILLS_STATE_KEY] == []
+        for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+            mocker.patch.object(provision_sandbox, name, return_value={})
+        mocker.patch.object(provision_sandbox, "get_sandbox_jwt_public_key", return_value="public-key")
+        mocker.patch.object(
+            provision_sandbox.context_layer_facade,
+            "sandbox_environment_variables",
+            return_value={"POSTHOG_CONTEXT_LAYER_PATH": "/tmp/workspace/context"},
+        )
+        environment = provision_sandbox._build_environment_variables(result, test_task, "", "fake-token")
+        assert environment.get("POSTHOG_CONTEXT_LAYER_PATH") == (
+            "/tmp/workspace/context" if include_live_context is not False else None
+        )
         stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
         if expected_state == "untouched":
             assert stored == [{"name": "from-last-session"}]

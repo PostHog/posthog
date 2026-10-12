@@ -63,7 +63,7 @@ _MAX_RETRIES = 3
 # coverage the adapter provided.
 _RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES)
 # Upper bound on a server-provided 429 wait, so a misreported Retry-After or reset header cannot
-# park a worker. Matches the shared REST client's MAX_RETRY_AFTER_SECONDS.
+# park a worker. Matches the default limit of the shared REST client.
 _MAX_RETRY_AFTER_SECONDS = 300.0
 # Safety bound for how many issues the issue_tag_values fan-out will skip while
 # fast-forwarding to a saved checkpoint issue. If the checkpoint issue was

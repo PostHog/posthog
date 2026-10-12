@@ -50,6 +50,7 @@ import { pluralize } from 'lib/utils/strings'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
+import { HiddenEventExplanation } from './HiddenEventExplanation'
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
@@ -795,9 +796,7 @@ function InfiniteListEmptyState(): JSX.Element {
                         <strong>{hiddenEventSearched}</strong> isn't available here
                     </span>
                     <span className="max-w-80 text-center text-secondary">
-                        PostHog still collects this event, but you can't build a saved query on it. Its data is moving,
-                        so a saved query would stop returning results. To see how a flag is used, open the flag and
-                        check its Usage tab.
+                        <HiddenEventExplanation />
                     </span>
                 </div>
             ) : (

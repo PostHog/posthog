@@ -468,10 +468,11 @@ class MetricDescriptionConcise(Scorer):
 METRIC_DESCRIPTION_QUALITY_PROMPT = """\
 You are grading the 'description' an agent wrote when saving a metric to a governed catalog.
 
-A good description states, in 1-3 sentences, what the metric means and what it serves: the
-business meaning plus any load-bearing inclusions/exclusions or grain. It must not narrate or
-restate the query or calculation steps - those live in the metric's definition, and the agent's
-rationale belongs in the separate 'reasoning' field.
+A good description states, in 1-2 short sentences, what the number is: its meaning and grain plus
+any inclusion or exclusion that changes it. It must not narrate or restate the query or calculation
+steps - those live in the metric's definition, and the agent's rationale belongs in the separate
+'reasoning' field. It must not name source tables or views, trace lineage, list columns, or compare
+with or point to other metrics.
 
 The description to grade:
 <description>{{output.description}}</description>
@@ -482,9 +483,10 @@ The metric's definition, for reference, to spot narration:
 The agent's reasoning field:
 <reasoning>{{output.reasoning}}</reasoning>
 
-Answer "yes" only if the description is 1-3 sentences stating meaning and purpose without walking
+Answer "yes" only if the description is 1-2 sentences stating what the number is without walking
 through the query or calculation steps. Answer "no" if it narrates the query, restates SQL or
-step-by-step mechanics, or pads beyond 3 sentences."""
+step-by-step mechanics, names source tables or lineage, lists columns, compares with or points to
+other metrics, or pads beyond 2 sentences."""
 
 
 class MetricDescriptionQuality(JudgedScorer):

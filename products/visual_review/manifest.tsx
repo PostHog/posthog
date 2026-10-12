@@ -101,6 +101,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.VISUAL_REVIEW],
             category: ProductItemCategory.UNRELEASED,
             href: urls.visualReviewRuns(),
+            searchKeywords: ['visual regression', 'screenshot diffs', 'baselines'],
             iconType: 'visual_review' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-visual-review-light)',

@@ -145,16 +145,28 @@ class TestValidateCredentials:
 
     @pytest.mark.parametrize(
         "workspace_id",
-        ["https://app.clickup.com/9/settings/team/9/general", "app.clickup.com/9/home"],
+        ["https://app.clickup.com/9/settings/team/9/general", "app.clickup.com/9/home", " 9 "],
     )
     @mock.patch(CLICKUP_SESSION_PATCH)
-    def test_workspace_url_is_rejected_before_calling_clickup(
+    def test_pasted_workspace_url_resolves_to_its_id(self, mock_session: mock.MagicMock, workspace_id: str) -> None:
+        mock_session.return_value.get.return_value = _response({"teams": [{"id": "9"}]})
+
+        valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
+
+        assert (valid, message) == (True, None)
+
+    @pytest.mark.parametrize(
+        "workspace_id",
+        ["https://app.clickup.com/t/86abc123", "my-workspace", "https://evil.com/app.clickup.com/9"],
+    )
+    @mock.patch(CLICKUP_SESSION_PATCH)
+    def test_non_numeric_workspace_is_rejected_before_calling_clickup(
         self, mock_session: mock.MagicMock, workspace_id: str
     ) -> None:
         valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
 
         assert valid is False
-        assert message is not None and "Enter only that number" in message
+        assert message is not None and "Paste that URL or enter just the number" in message
         assert workspace_id not in message
         mock_session.return_value.get.assert_not_called()
 

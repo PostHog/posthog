@@ -113,7 +113,7 @@ describe('dashboard SQL visualization support', () => {
                 result: [['US', 'Chrome']],
             })
 
-            const option = getTableDisplayOptions(columns, [], ChartDisplayType.ActionsTable, undefined, false, true)
+            const option = getTableDisplayOptions(columns, [], ChartDisplayType.ActionsTable)
                 .flatMap((group: any) => (Array.isArray(group.options) ? group.options : []))
                 .find((candidate: any) => candidate.value === displayType)
 

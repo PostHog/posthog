@@ -177,19 +177,33 @@ class TestValidateCredentials:
 
 
 class TestGetRowsWindowing:
+    @parameterized.expand(
+        [
+            (
+                "compliance",
+                "compliance_evaluations_aws",
+                "/Configs/ComplianceEvaluations/search",
+                "dataset",
+                "AwsCompliance",
+            ),
+            ("inventory", "inventory_gcp", "/Inventory/search", "csp", "GCP"),
+        ]
+    )
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_compliance_search_includes_dataset(self) -> None:
+    def test_search_includes_required_body_param(
+        self, _name: str, endpoint: str, path: str, param: str, value: str
+    ) -> None:
         session = _FakeSession([_FakeResponse(200, {"data": [], "paging": {}})])
         _collect_rows(
             session,
-            "compliance_evaluations_aws",
+            endpoint,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 15, 6, 0, tzinfo=UTC),
         )
 
         _method, url, body, _headers = session.data_calls[0]
-        assert url.endswith("/api/v2/Configs/ComplianceEvaluations/search")
-        assert body is not None and body["dataset"] == "AwsCompliance"
+        assert url.endswith(f"/api/v2{path}")
+        assert body is not None and body[param] == value
 
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_full_refresh_uses_default_lookback(self) -> None:
@@ -204,6 +218,69 @@ class TestGetRowsWindowing:
             "startTime": "2026-06-08T12:00:00.000Z",
             "endTime": "2026-06-15T12:00:00.000Z",
         }
+
+
+class TestGetRowsUnwindowed:
+    def test_list_endpoint_pages_without_time_range_and_strips_credentials(self) -> None:
+        next_url = "https://mycompany.lacework.net/api/v2/CloudAccounts/page2"
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "intgGuid": "A",
+                                "data": {
+                                    "awsAccountId": "123",
+                                    "crossAccountCredentials": {"externalId": "x", "roleArn": "arn"},
+                                },
+                            }
+                        ],
+                        "paging": {"urls": {"nextPage": next_url}},
+                    },
+                ),
+                _FakeResponse(
+                    200,
+                    {"data": [{"intgGuid": "B", "data": {"credentials": {"clientSecret": "s"}, "tenantId": "t"}}]},
+                ),
+            ]
+        )
+        manager = _FakeResumableManager()
+        rows = _collect_rows(session, "cloud_accounts", manager=manager)
+
+        assert rows == [
+            {"intgGuid": "A", "data": {"awsAccountId": "123"}},
+            {"intgGuid": "B", "data": {"tenantId": "t"}},
+        ]
+        assert [(m, u, b) for m, u, b, _h in session.data_calls] == [
+            ("GET", "https://mycompany.lacework.net/api/v2/CloudAccounts", None),
+            ("GET", next_url, None),
+        ]
+        assert manager.saved == []
+
+    @parameterized.expand(
+        [
+            ("credential_endpoint", "cloud_accounts", False),
+            ("plain_endpoint", "policies", True),
+        ]
+    )
+    def test_data_session_capture_follows_credential_redaction(self, _name: str, endpoint: str, captured: bool) -> None:
+        session = _FakeSession([_FakeResponse(200, {"data": []})])
+        with patch(f"{_LACEWORK_MODULE}.make_tracked_session", return_value=session) as mock_make:
+            list(
+                get_rows(
+                    account_name="mycompany",
+                    key_id="KEY_ID",
+                    secret_key="secret",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        data_session_calls = [c for c in mock_make.call_args_list if not c.kwargs.get("redact_values")]
+        assert [c.kwargs.get("capture", True) for c in data_session_calls] == [captured]
 
 
 class TestGetRowsPagination:

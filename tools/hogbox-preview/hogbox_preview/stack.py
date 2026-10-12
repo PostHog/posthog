@@ -208,6 +208,8 @@ class PostHogPreviewStack:
     # Pass image=None to fall back to the build-from-checkout escape hatch.
     IMAGE = "ghcr.io/posthog/posthog:master"
     CDP_IMAGE = "ghcr.io/posthog/posthog-node:master"
+    SQLX_MIGRATE_IMAGE = "ghcr.io/posthog/posthog/sqlx-migrate:master"
+    CYCLOTRON_NODE_DATABASE_URL = "postgres://posthog:posthog@db:5432/cyclotron_node"
     STATIC_PROXY_IMAGE = "caddy:2-alpine"
     STATIC_PROXY_CADDYFILE = "preview-static.Caddyfile"
     OTEL_COLLECTOR_CONFIG = "preview-otel-collector.yaml"
@@ -216,6 +218,7 @@ class PostHogPreviewStack:
     TELEMETRY_SERVICES = ["capture-logs", "ingestion-logs", "ingestion-traces", "ingestion-metrics", "otel-collector"]
     CELERY_SERVICES = ["worker"]
     CELERY_CONCURRENCY = 2
+    FLAGS_REDIS_URL = "redis://redis7:6379/1"
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
@@ -335,6 +338,10 @@ class PostHogPreviewStack:
                 self.generate_demo_data()
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"[hogbox-preview] demo-data seeding skipped (preview still usable): {e}\n")
+        try:
+            self.warm_flag_caches()
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] flag cache warm skipped (preview still usable): {e}\n")
         if self.frontend_dist_tar:
             # Serve the PR's frontend (else it's the golden's :master SPA). Must
             # run before up_web so the fresh web container reads the new index
@@ -545,6 +552,7 @@ class PostHogPreviewStack:
             "      - ADMIN_PORTAL_ENABLED=1",
             "      - SELF_CAPTURE=1",
             "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
             "      - OTEL_SERVICE_NAME=posthog-web",
             *_OTEL_ENV,
         ]
@@ -566,7 +574,7 @@ class PostHogPreviewStack:
             # The checkout mount from dev-full masks the compiled code in the published image.
             "    volumes: !override []",
             "    environment:",
-            "      - CYCLOTRON_NODE_DATABASE_URL=postgres://posthog:posthog@db:5432/cyclotron_node",
+            f"      - CYCLOTRON_NODE_DATABASE_URL={self.CYCLOTRON_NODE_DATABASE_URL}",
             "      - CDP_REDIS_HOST=redis7",
             "      - CDP_VALKEY_HOST=valkey",
             "      - CDP_VALKEY_PORT=6379",
@@ -574,6 +582,15 @@ class PostHogPreviewStack:
             "      - PERSONHOG_ADDR=personhog-router:50052",
             "      - PERSONHOG_ENABLED=true",
             *_OTEL_ENV,
+            "  cyclotron-node-migrate:",
+            f"    image: {self.SQLX_MIGRATE_IMAGE}",
+            "    profiles:",
+            "      - migrate",
+            "    command: cyclotron-node",
+            "    environment:",
+            f"      - CYCLOTRON_NODE_DATABASE_URL={self.CYCLOTRON_NODE_DATABASE_URL}",
+            "    volumes:",
+            "      - ./rust/cyclotron-node-migrations:/migrations/cyclotron-node-migrations:ro",
         ]
         lines += self._self_capture_services() + self._telemetry_services() + self._celery_worker_service()
         # Mirror the bake script's personhog service definitions (hogland
@@ -697,6 +714,7 @@ class PostHogPreviewStack:
             # doesn't start. Values mirror the bake.
             "      - TEMPORAL_HEALTH_PORT=7999",
             "      - TEMPORAL_HEALTH_MAX_IDLE_SECONDS=86400",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
             "      - OTEL_SERVICE_NAME=posthog-temporal-worker",
             "      - TEMPORAL_OTEL_PLUGIN_ENABLED=true",
             *_OTEL_ENV,
@@ -723,12 +741,20 @@ class PostHogPreviewStack:
             "      - SELF_CAPTURE=1",
             "      - SELF_CAPTURE_HOST=http://static-proxy:8000",
             f"      - WEB_CONCURRENCY={self.CELERY_CONCURRENCY}",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
             "      - OTEL_SERVICE_NAME=posthog-celery-worker",
             *_OTEL_ENV,
         ]
 
     def _self_capture_services(self) -> list[str]:
         return [
+            "  feature-flags:",
+            "    environment:",
+            f"      - FLAGS_REDIS_URL={self.FLAGS_REDIS_URL}",
+            "      - REDIS_COMPRESSION_ENABLED=true",
+            "      - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000",
+            "      - AWS_ACCESS_KEY_ID=object_storage_root_user",
+            "      - AWS_SECRET_ACCESS_KEY=object_storage_root_password",
             "  ingestion-general:",
             "    extends:",
             "      file: docker-compose.base.yml",
@@ -921,6 +947,12 @@ class PostHogPreviewStack:
             timeout=900,
         )
         self.backend.run_long(
+            f"{self._compose('run --rm -T cyclotron-node-migrate')} || "
+            'echo "WARN: cyclotron node migrations failed, so plugins cannot dequeue jobs in this preview" >&2',
+            name="migrate-cyclotron-node",
+            timeout=900,
+        )
+        self.backend.run_long(
             self._compose("run --rm -T web python manage.py migrate_clickhouse"),
             name="migrate-clickhouse",
             timeout=1800,
@@ -974,6 +1006,15 @@ class PostHogPreviewStack:
         self.backend.run_long(
             self._compose("run --rm -T web python manage.py sync_feature_flags"),
             name="sync-flags",
+            timeout=600,
+        )
+
+    def warm_flag_caches(self) -> None:
+        timing.stage("warm team and flag caches")
+        commands = ("warm_team_metadata_cache", "warm_flags_cache")
+        self.backend.run_long(
+            " && ".join(self._compose(f"run --rm -T web python manage.py {command}") for command in commands),
+            name="warm-flag-caches",
             timeout=600,
         )
 

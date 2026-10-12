@@ -283,6 +283,10 @@ class WorkflowTemplate:
     variables: list[dict[str, Any]] | None
 
 
+class WorkflowTemplateNotFound(Exception):
+    pass
+
+
 @frozen
 class FunctionTemplateSchema:
     """The parts of a cdp function template that a workflow step validates its inputs against."""
@@ -607,6 +611,7 @@ class WorkflowProposalRecord:
     resolved_at: datetime | None
     resolved_by: "User | None"
     applied_version: int | None
+    rejection_reason: str
 
 
 @frozen

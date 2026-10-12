@@ -54,6 +54,7 @@ class Product(StrEnum):
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_CATALOG = "data_catalog"
+    DATA_MODELING = "data_modeling"
     DATA_QUALITY = "data_quality"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
@@ -108,6 +109,7 @@ class Feature(StrEnum):
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
+    WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
@@ -542,6 +544,7 @@ class QueryTags(BaseModel):
 
     # data quality
     data_quality_check_id: Optional[str] = None
+    data_quality_run_id: Optional[str] = None
     data_quality_check_type: Optional[str] = None  # not_null, unique, freshness, custom_sql, ...
     data_quality_subject_type: Optional[str] = None  # table or view
     data_quality_subject_id: Optional[str] = None

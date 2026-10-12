@@ -181,6 +181,23 @@ class TestPageEndpoints:
         )
         assert fetched == list(pages)
 
+    def test_bare_array_response_stops_on_short_page(self, monkeypatch: Any) -> None:
+        # /eval/simulation/run may answer with a bare array instead of the {results, metadata} envelope.
+        pages = {
+            "https://api.vapi.ai/eval/simulation/run?limit=2&page=1&sortOrder=ASC&sortBy=createdAt": [
+                {"id": "r1", "createdAt": "2026-01-01T00:00:00.000Z"},
+                {"id": "r2", "createdAt": "2026-01-02T00:00:00.000Z"},
+            ],
+            "https://api.vapi.ai/eval/simulation/run?limit=2&page=2&sortOrder=ASC&sortBy=createdAt": [
+                {"id": "r3", "createdAt": "2026-01-03T00:00:00.000Z"},
+            ],
+        }
+        fetched = _patch_fetch(monkeypatch, pages)
+        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="simulation_runs")
+
+        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
+        assert fetched == list(pages)
+
 
 class TestSensitiveValueScrubbing:
     def test_auth_material_redacted_before_batching(self, monkeypatch: Any) -> None:

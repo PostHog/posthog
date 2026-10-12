@@ -54,7 +54,6 @@ managed_migrations
 marketing_analytics
 mcp_analytics
 mcp_store
-messaging
 notebooks
 notifications
 platform_features
@@ -75,4 +74,3 @@ tracing
 user_interviews
 warehouse_sources_queue
 web_analytics
-workflows

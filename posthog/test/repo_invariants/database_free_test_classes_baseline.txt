@@ -366,7 +366,6 @@ products/tasks/backend/tests/test_repository_readiness.py::TestSelectCandidatePa
 products/tasks/backend/tests/test_repository_readiness.py::TestShouldScanPath
 products/tasks/backend/tests/test_webhooks.py::TestAccountType
 products/warehouse_sources/backend/tests/api/test_external_data_source.py::TestGetOAuthIntegrationKinds
-products/warehouse_sources/backend/tests/api/test_external_data_source.py::TestSensitiveFieldClassification
 products/web_analytics/backend/hogql_queries/test/test_custom_bot_definitions.py::TestPatternsCompile
 products/web_analytics/backend/hogql_queries/test/test_web_lazy_precompute_common.py::TestComputeFiltersEligibilityHash
 products/web_analytics/backend/hogql_queries/test/test_web_lazy_precompute_common.py::TestComputeShapeCapKey
