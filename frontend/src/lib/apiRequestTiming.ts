@@ -24,21 +24,33 @@ export interface ApiRequestTiming {
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MAX_PENDING_RESOURCES = 32
 
 /** One POST attempt, with resource phases attributed only by a server-provided request ID. */
 export class ApiRequestTimingRecorder {
     private readonly startedAt: number
     private timing: Omit<ApiRequestTiming, 'request_total_ms' | 'resource_timing_status'> = {}
     private responseUrl?: string
+    private observer?: PerformanceObserver
+    private resourceEntries: PerformanceResourceTiming[] = []
 
     constructor(private readonly clock: Pick<Performance, 'now' | 'getEntriesByName'> = performance) {
         this.startedAt = clock.now()
+        try {
+            this.observer = new PerformanceObserver((list) => this.collectResources(list.getEntries()))
+            // Observe only new entries: the global buffer can fill during a long-lived app session.
+            this.observer.observe({ type: 'resource' })
+        } catch {
+            this.observer?.disconnect()
+            this.observer = undefined
+        }
     }
 
     startFetch(): void {
         // Authentication can retry internally; only the terminal fetch may supply response identity.
         this.timing = {}
         this.responseUrl = undefined
+        this.resourceEntries = []
     }
 
     recordHeaders(response: { status?: number; headers?: Headers; url?: string }): void {
@@ -67,6 +79,38 @@ export class ApiRequestTimingRecorder {
             delete this.timing.envoy_upstream_ms
         }
         this.responseUrl = response.url
+        if (this.timing.http_request_id && this.responseUrl) {
+            this.resourceEntries = this.resourceEntries.filter((entry) => this.isResponseEntry(entry)).slice(0, 2)
+        }
+    }
+
+    private isResponseEntry(entry: PerformanceResourceTiming): boolean {
+        return (
+            entry.name === this.responseUrl &&
+            entry.serverTiming?.some(
+                (metric) =>
+                    metric.name === 'request_id' && metric.description.toLowerCase() === this.timing.http_request_id
+            )
+        )
+    }
+
+    private collectResources(entries: PerformanceEntry[]): void {
+        for (const entry of entries as PerformanceResourceTiming[]) {
+            if (entry.entryType !== 'resource') {
+                continue
+            }
+            if (this.timing.http_request_id && this.responseUrl) {
+                // Two candidates already prove ambiguity; unrelated resources need no retention.
+                if (this.resourceEntries.length < 2 && this.isResponseEntry(entry)) {
+                    this.resourceEntries.push(entry)
+                }
+            } else {
+                if (this.resourceEntries.length === MAX_PENDING_RESOURCES) {
+                    this.resourceEntries.shift()
+                }
+                this.resourceEntries.push(entry)
+            }
+        }
     }
 
     async readBody(response: Response): Promise<string> {
@@ -94,15 +138,22 @@ export class ApiRequestTimingRecorder {
             request_total_ms: finishedAt - this.startedAt,
             resource_timing_status: 'missing_request_id',
         }
-        if (!timing.http_request_id) {
-            return timing
-        }
         try {
-            const entries = this.responseUrl ? this.clock.getEntriesByName(this.responseUrl, 'resource') : []
+            // Fetch/body promises can resolve before the observer callback is delivered.
+            this.collectResources(this.observer?.takeRecords() ?? [])
+            if (!timing.http_request_id) {
+                return timing
+            }
+            const entries = this.observer
+                ? this.resourceEntries
+                : this.responseUrl
+                  ? this.clock.getEntriesByName(this.responseUrl, 'resource')
+                  : []
             const matches = (entries as PerformanceResourceTiming[]).filter((entry) =>
                 entry.serverTiming?.some(
                     (serverTiming) =>
-                        serverTiming.name === 'request_id' && serverTiming.description === timing.http_request_id
+                        serverTiming.name === 'request_id' &&
+                        serverTiming.description.toLowerCase() === timing.http_request_id
                 )
             )
             timing.resource_timing_status = matches.length > 1 ? 'ambiguous' : 'not_found'
@@ -110,6 +161,11 @@ export class ApiRequestTimingRecorder {
                 return timing
             }
             const entry = matches[0]
+            const identities = entry.serverTiming.filter((metric) => metric.name === 'request_id')
+            if (identities.length !== 1 || !UUID_PATTERN.test(identities[0].description)) {
+                timing.resource_timing_status = 'ambiguous'
+                return timing
+            }
             if (entry.requestStart === 0 || entry.responseStart === 0) {
                 timing.resource_timing_status = 'restricted'
                 return timing
@@ -129,6 +185,8 @@ export class ApiRequestTimingRecorder {
             timing.resource_callback_ms = finishedAt - entry.responseEnd
         } catch {
             timing.resource_timing_status = 'unavailable'
+        } finally {
+            this.observer?.disconnect()
         }
         return timing
     }

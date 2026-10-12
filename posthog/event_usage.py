@@ -578,7 +578,7 @@ def get_mcp_properties(request) -> McpProps:
     }
 
 
-def get_request_analytics_properties(request) -> AnalyticsProps:
+def get_request_analytics_properties(request, *, include_http_request_id: bool = False) -> AnalyticsProps:
     """Extract standard analytics properties from a request."""
     current_url = request.headers.get("Referer")
     host: str | None = None
@@ -603,7 +603,7 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
     }
-    if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
+    if include_http_request_id and isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
         analytics_props["http_request_id"] = str(http_request_id)
     return analytics_props
 

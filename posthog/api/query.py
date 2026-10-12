@@ -246,10 +246,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         response = super().finalize_response(request, response, *args, **kwargs)
         if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
             response["X-Request-ID"] = str(http_request_id)
+            response._posthog_query_request_id = http_request_id
             request_id_timing = f'request_id;desc="{http_request_id}"'
             if existing_server_timing := response.get("Server-Timing"):
                 request_id_timing = f"{existing_server_timing}, {request_id_timing}"
             response["Server-Timing"] = request_id_timing
+            exposed_headers = response.get("Access-Control-Expose-Headers", "")
+            if "x-request-id" not in {header.strip().lower() for header in exposed_headers.split(",")}:
+                response["Access-Control-Expose-Headers"] = ", ".join(
+                    header for header in (exposed_headers, "X-Request-ID") if header
+                )
         return response
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
@@ -320,7 +326,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 _mark_explicit_date_boundaries(query)
 
             self._tag_client_query_id(client_query_id)
-            analytics_props = get_request_analytics_properties(request)
+            analytics_props = get_request_analytics_properties(request, include_http_request_id=True)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
