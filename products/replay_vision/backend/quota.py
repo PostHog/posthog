@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from django.db.models import IntegerField, Sum, Value
+from django.db.models import Count, IntegerField, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
@@ -249,17 +249,24 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
     if not scanner_ids:
         return {}
     period = current_period_bounds(organization_id)
-    pairs = Counter(
+    # Counted in SQL per (scanner, model), so only a handful of rows come back rather than one per
+    # observation. Priced in Python, not with `observation_credits_case()`: each CASE branch re-reads
+    # the snapshot JSON, which made the aggregate slower than fetching every row.
+    rows = (
         ReplayObservation.objects.filter(
             scanner_id__in=scanner_ids,
             team__organization_id=organization_id,
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=period.start,
             created_at__lt=period.end,
-        ).values_list("scanner_id", "scanner_snapshot__model")
+        )
+        .order_by()
+        .values("scanner_id", "scanner_snapshot__model")
+        .annotate(count=Count("id"))
+        .values_list("scanner_id", "scanner_snapshot__model", "count")
     )
     totals: dict[UUID, ScannerSpend] = {}
-    for (scanner_id, model), count in pairs.items():
+    for scanner_id, model, count in rows:
         prev = totals.get(scanner_id, ScannerSpend(0, 0))
         totals[scanner_id] = ScannerSpend(
             credits=prev.credits + observation_credits_for_model(model or "") * count,

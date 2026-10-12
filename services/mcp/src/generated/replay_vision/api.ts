@@ -691,6 +691,12 @@ export const VisionScannersListQueryParams = () => zod.object({
             'Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true`\/`false`. Omit to list every scanner.'
         ),
     experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
+    include_spend: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Set to false to leave `credits_this_month` and `observations_this_month` out of each row. They count every observation of the billing period, so they are the slowest part of the list; load them for the page from `spend\/` instead. Defaults to true.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod

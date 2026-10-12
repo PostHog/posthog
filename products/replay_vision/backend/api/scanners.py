@@ -145,6 +145,7 @@ from products.replay_vision.backend.quota import (
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
+    accessible_experiment_ids,
     accessible_observations,
     is_experiment_accessible,
     readable_observation_scanner_ids,
@@ -686,10 +687,22 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
         return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
-    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # The list's `include_spend=false` leaves out the fields that read every observation of the period;
+        # the caller loads them from `spend/` after the rows are on screen.
+        if self.context.get("omit_spend"):
+            for name in _SPEND_FIELDS:
+                fields.pop(name, None)
+        return fields
+
+    def _page_scanners(self, scanner: ReplayScanner) -> list[ReplayScanner]:
         root = self.root
         instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-        return [s.id for s in instance] if instance is not None else [scanner.id]
+        return list(instance) if instance is not None else [scanner]
+
+    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+        return [s.id for s in self._page_scanners(scanner)]
 
     def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
@@ -962,7 +975,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Don't disclose an experiment (its id and variants) to a viewer who can't access it: a
         # scanner is viewable at a coarser grain than its targeted experiment. Mirrors the write-side
         # check in validate_experiment_targeting — a caller without experiment access sees null.
-        if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
+        if data.get("experiment_targeting") and not self._can_view_page_experiment(
+            instance, data["experiment_targeting"]
+        ):
             data["experiment_targeting"] = None
         # The experiment type keeps its scope in scanner_config; hide only the experiment keys from
         # a denied caller, so the rest of the config (prompt, length) stays readable. Writes are a
@@ -970,7 +985,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # denied caller.
         if instance.scanner_type == ScannerType.EXPERIMENT and isinstance(data.get("scanner_config"), dict):
             experiment_id = data["scanner_config"].get("experiment_id")
-            if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+            if experiment_id is not None and not self._can_view_page_experiment(
+                instance, {"experiment_id": experiment_id}
+            ):
                 data["scanner_config"] = {
                     key: value
                     for key, value in data["scanner_config"].items()
@@ -986,6 +1003,32 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
             return True
         return is_experiment_accessible(self.user_access_control, get_team().id, experiment_id)
+
+    def _can_view_page_experiment(self, instance: ReplayScanner, targeting: dict[str, Any]) -> bool:
+        """`_can_view_targeted_experiment` for reads, checked once for the whole page through the shared
+        context dict rather than one query per row. An id outside the page falls back to the single check."""
+        experiment_id = targeting.get("experiment_id")
+        get_team = self.context.get("get_team")
+        if experiment_id is None or get_team is None:
+            return self._can_view_targeted_experiment(targeting)
+        checked = self.context.get("_page_experiment_access")
+        if checked is None:
+            page_ids = self._page_experiment_ids(instance)
+            checked = (page_ids, accessible_experiment_ids(self.user_access_control, get_team().id, page_ids))
+            self.context["_page_experiment_access"] = checked
+        page_ids, accessible = checked
+        if experiment_id in page_ids:
+            return experiment_id in accessible
+        return self._can_view_targeted_experiment(targeting)
+
+    def _page_experiment_ids(self, instance: ReplayScanner) -> set[int]:
+        scopes: list[dict[str, Any]] = []
+        for scanner in self._page_scanners(instance):
+            if isinstance(scanner.experiment_targeting, dict):
+                scopes.append(scanner.experiment_targeting)
+            if scanner.scanner_type == ScannerType.EXPERIMENT and isinstance(scanner.scanner_config, dict):
+                scopes.append(scanner.scanner_config)
+        return {scope["experiment_id"] for scope in scopes if scope.get("experiment_id") is not None}
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
@@ -1798,6 +1841,50 @@ class WatchFeedResponseSerializer(serializers.Serializer):
     )
 
 
+_SPEND_FIELDS = ("credits_this_month", "observations_this_month")
+SCANNER_SPEND_MAX_IDS = 100
+
+
+class ScannerSpendQuerySerializer(serializers.Serializer):
+    """Query parameters of GET /vision/scanners/spend/."""
+
+    scanner_ids = serializers.CharField(
+        help_text=(
+            f"Comma-separated scanner UUIDs, at most {SCANNER_SPEND_MAX_IDS}. Ids that do not exist or that you "
+            "cannot read are left out of the response."
+        ),
+    )
+
+    def validate_scanner_ids(self, value: str) -> list[UUID]:
+        raw_ids = split_csv(value)
+        if not raw_ids:
+            raise serializers.ValidationError("At least one scanner id is required.")
+        if len(raw_ids) > SCANNER_SPEND_MAX_IDS:
+            raise serializers.ValidationError(f"At most {SCANNER_SPEND_MAX_IDS} scanner ids are allowed.")
+        try:
+            return list(dict.fromkeys(UUID(raw_id) for raw_id in raw_ids))
+        except ValueError:
+            raise serializers.ValidationError("Scanner ids must be UUIDs.")
+
+
+class ScannerSpendSerializer(serializers.Serializer):
+    scanner_id = serializers.UUIDField(help_text="The scanner these figures belong to.")
+    credits_this_month = serializers.IntegerField(
+        help_text="Same figure as the scanner's `credits_this_month`.",
+    )
+    observations_this_month = serializers.IntegerField(
+        help_text="Same figure as the scanner's `observations_this_month`.",
+    )
+
+
+class ScannerSpendResponseSerializer(serializers.Serializer):
+    """Spend this billing period for a set of scanners — lets the list load without its slowest columns."""
+
+    results = ScannerSpendSerializer(
+        many=True, help_text="One entry for each requested scanner you can read, in request order."
+    )
+
+
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
     """Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown."""
 
@@ -2163,7 +2250,18 @@ class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
                 required=False,
                 enum=ordering_enum(SCANNER_ORDER_FIELDS),
                 description=(f"Sort scanners by {', '.join(SCANNER_ORDER_FIELDS)}. Prefix with `-` for descending."),
-            )
+            ),
+            OpenApiParameter(
+                "include_spend",
+                bool,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Set to false to leave `credits_this_month` and `observations_this_month` out of each row. "
+                    "They count every observation of the billing period, so they are the slowest part of the list; "
+                    "load them for the page from `spend/` instead. Defaults to true."
+                ),
+            ),
         ]
     )
 )
@@ -2177,6 +2275,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "retrieve",
         "creators",
         "stats",
+        "spend",
         "self_driving_stats",
         "watch_feed",
     ]
@@ -2220,6 +2319,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # The credit limit rule runs in the serializer, because only a serializer error keys its
         # message to the `credit_limit` field.
         context["scout_sandbox_caller"] = is_scout_sandbox_request(self.request)
+        context["omit_spend"] = (
+            self.action == "list" and self.request.query_params.get("include_spend", "").lower() == "false"
+        )
         return context
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2382,6 +2484,33 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             id__in=accessible.values_list("created_by_id", flat=True),
         ).order_by("first_name", "last_name", "email", "id")
         return Response({"creators": UserBasicSerializer(users, many=True).data})
+
+    @extend_schema(parameters=[ScannerSpendQuerySerializer], responses={200: ScannerSpendResponseSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def spend(self, request: Request, **kwargs: Any) -> Response:
+        """Spend this billing period for the given scanners — the list's `credits_this_month` and
+        `observations_this_month`, loaded after the rows so the table does not wait on them."""
+        query = ScannerSpendQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        requested = query.validated_data["scanner_ids"]
+        readable = set(
+            self.user_access_control.filter_queryset_by_access_level(
+                ReplayScanner.objects.filter(team_id=self.team_id, id__in=requested)
+            ).values_list("id", flat=True)
+        )
+        scanner_ids = [scanner_id for scanner_id in requested if scanner_id in readable]
+        totals = credits_used_by_scanner(self.team.organization_id, scanner_ids)
+        results = []
+        for scanner_id in scanner_ids:
+            spend = totals.get(scanner_id, ScannerSpend(0, 0))
+            results.append(
+                {
+                    "scanner_id": scanner_id,
+                    "credits_this_month": spend.credits,
+                    "observations_this_month": spend.observations,
+                }
+            )
+        return Response(ScannerSpendResponseSerializer({"results": results}).data)
 
     @extend_schema(responses={200: ScannerStatsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)

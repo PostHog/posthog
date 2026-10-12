@@ -1426,6 +1426,25 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([row["name"] for row in resp.json()["results"]], ["for-exp"])
 
+    def test_list_experiment_access_is_constant_queries(self) -> None:
+        self._create_scanner(name="targeted-0", experiment_targeting=self.targeting)
+        self.client.get(self.scanners_url)  # Warm request-scoped caches so both captures compare cleanly.
+        with CaptureQueriesContext(connection) as one_row:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        for i in range(1, 5):
+            experiment = create_experiment(self.team, f"exp-{i}")
+            self._create_scanner(name=f"targeted-{i}", experiment_targeting={"experiment_id": experiment.id})
+            self._create_scanner(
+                name=f"experiment-{i}",
+                scanner_type=ScannerType.EXPERIMENT,
+                scanner_config={"prompt": "p", "experiment_id": experiment.id},
+            )
+        with CaptureQueriesContext(connection) as nine_rows:
+            resp = self.client.get(self.scanners_url)
+            self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()["results"]), 9)
+        self.assertEqual(len(one_row.captured_queries), len(nine_rows.captured_queries))
+
     @parameterized.expand(
         [
             ("superscript", "\u00b2"),
@@ -1755,8 +1774,8 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         # scanner with the targeting already nulled. Copying the stored row instead would hand them
         # a scanner that scans against an experiment the create path refuses to target.
         with patch(
-            "products.replay_vision.backend.api.scanners.is_experiment_accessible",
-            return_value=False,
+            "products.replay_vision.backend.scanner_access._accessible_experiment_ids",
+            return_value=set(),
         ):
             resp = self._duplicate(source.id)
 
@@ -4183,6 +4202,30 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertEqual(credits["spender"], 2 * observation_credits_for_model(spender.model))
         self.assertEqual(credits["idle"], 0)
 
+    def test_credits_this_month_prices_each_observation_by_its_snapshot_model(self) -> None:
+        spender = self._create_scanner(name="spender")
+        other_model = next(m for m in ScannerModel if m != spender.model)
+        self._succeeded_observation(spender, "current-model")
+        retargeted = self._succeeded_observation(spender, "older-model")
+        unknown = self._succeeded_observation(spender, "unknown-model")
+        ReplayObservation.objects.filter(pk=retargeted.pk).update(
+            scanner_snapshot={**_snapshot_for(spender), "model": other_model}
+        )
+        ReplayObservation.objects.filter(pk=unknown.pk).update(
+            scanner_snapshot={**_snapshot_for(spender), "model": "retired-model"}
+        )
+
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        row = next(r for r in resp.json()["results"] if r["name"] == "spender")
+        self.assertEqual(
+            row["credits_this_month"],
+            observation_credits_for_model(spender.model)
+            + observation_credits_for_model(other_model)
+            + observation_credits_for_model("retired-model"),
+        )
+        self.assertEqual(row["observations_this_month"], 3)
+
     def test_order_by_credits_matches_displayed_values(self) -> None:
         low = self._create_scanner(name="low")
         high = self._create_scanner(name="high")
@@ -4312,6 +4355,66 @@ class TestScannerSpend(_VisionAPITestCase):
             return len([q for q in ctx.captured_queries if "replay_vision_replayobservation" in q["sql"]])
 
         self.assertEqual(spend_queries(five_page), spend_queries(single_page))
+
+    def test_list_can_leave_out_spend(self) -> None:
+        spender = self._create_scanner(name="spender")
+        self._succeeded_observation(spender, "in-window")
+
+        with CaptureQueriesContext(connection) as ctx:
+            resp = self.client.get(f"{self.scanners_url}?include_spend=false")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        row = resp.json()["results"][0]
+        self.assertNotIn("credits_this_month", row)
+        self.assertNotIn("observations_this_month", row)
+        self.assertIs(row["limit_reached"], False)
+        self.assertFalse(
+            any("COUNT" in q["sql"] and "replay_vision_replayobservation" in q["sql"] for q in ctx.captured_queries)
+        )
+
+    def test_spend_matches_the_list_figures_in_request_order(self) -> None:
+        spender = self._create_scanner(name="spender")
+        idle = self._create_scanner(name="idle")
+        self._succeeded_observation(spender, "in-window-1")
+        self._succeeded_observation(spender, "in-window-2")
+        listed = {row["id"]: row for row in self.client.get(self.scanners_url).json()["results"]}
+
+        resp = self.client.get(f"{self.scanners_url}spend/?scanner_ids={idle.id},{spender.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(
+            resp.json()["results"],
+            [
+                {
+                    "scanner_id": str(scanner_id),
+                    "credits_this_month": listed[str(scanner_id)]["credits_this_month"],
+                    "observations_this_month": listed[str(scanner_id)]["observations_this_month"],
+                }
+                for scanner_id in (idle.id, spender.id)
+            ],
+        )
+        self.assertEqual(resp.json()["results"][1]["observations_this_month"], 2)
+
+    def test_spend_leaves_out_unknown_and_other_team_scanners(self) -> None:
+        mine = self._create_scanner(name="mine")
+        other_team = Team.objects.create(organization=self.team.organization, name="sibling")
+        theirs = self._create_scanner(team=other_team, name="theirs")
+        self._succeeded_observation(theirs, "theirs-1")
+
+        resp = self.client.get(f"{self.scanners_url}spend/?scanner_ids={theirs.id},{uuid.uuid4()},{mine.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([row["scanner_id"] for row in resp.json()["results"]], [str(mine.id)])
+
+    @parameterized.expand(
+        [
+            ("missing", ""),
+            ("not_a_uuid", "?scanner_ids=abc"),
+            ("blank", "?scanner_ids=,"),
+            ("too_many", "?scanner_ids=" + ",".join(str(uuid.uuid4()) for _ in range(101))),
+        ]
+    )
+    def test_spend_rejects_bad_scanner_ids(self, _name: str, query: str) -> None:
+        resp = self.client.get(f"{self.scanners_url}spend/{query}")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_ids")
 
 
 class TestCurrentPeriodBounds(SimpleTestCase):

@@ -17,6 +17,10 @@
             "description": "Filter to scanners whose targeting watches the given experiment.",
             "type": "string"
         },
+        "include_spend": {
+            "description": "Set to false to leave `credits_this_month` and `observations_this_month` out of each row. They count every observation of the billing period, so they are the slowest part of the list; load them for the page from `spend/` instead. Defaults to true.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
