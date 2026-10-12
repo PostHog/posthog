@@ -1,4 +1,4 @@
-"""Choices the review request contracts carry. No Django here, so clients and other products can read them."""
+"""Choices the review contracts carry. No Django here, so clients and other products can read them."""
 
 from enum import StrEnum
 
@@ -32,3 +32,33 @@ class ReviewRequestRefusal(LabeledStrEnum):
 
     FLASH_AFTER_FULL = "flash_after_full", "Standard after a published Deep review"
     RESOLUTION_NOT_OPTED_IN = "resolution_not_opted_in", "The pull request owner has not opted in to resolution"
+
+
+class DefaultReviewMode(LabeledStrEnum):
+    FOLLOW = "follow", "Let each repository decide"
+    FLASH = "flash", "On everywhere"
+    OFF = "off", "Off everywhere"
+
+
+class UrgencyThreshold(LabeledStrEnum):
+    # Values mirror `IssuePriority`, so the threshold compares directly against finding priorities.
+    CONSIDER = "consider", "Consider (all)"
+    SHOULD_FIX = "should_fix", "Should fix"
+    MUST_FIX = "must_fix", "Must fix"
+
+
+class PreferenceSource(LabeledStrEnum):
+    USER = "user", "Set by the user"
+    PROJECT = "project", "Project default"
+    DEFAULT = "default", "Built-in default"
+
+
+class ReviewSkillKind(StrEnum):
+    """The review skill families a user configures. Each family is one skill-name prefix."""
+
+    # Multi-enable: several run on one review, and at least one must stay enabled.
+    PERSPECTIVE = "perspective"
+    # Single-active: exactly one runs, and selecting one switches the others off.
+    VALIDATION = "validation"
+    BLIND_SPOTS = "blind_spots"
+    RESOLUTION = "resolution"

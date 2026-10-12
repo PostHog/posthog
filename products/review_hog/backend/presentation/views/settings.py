@@ -1,31 +1,18 @@
-import logging
 from typing import cast
 
-from django.db import transaction
-
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
-from products.review_hog.backend.preferences import (
-    PREFERENCE_KEYS,
-    DefaultReviewMode,
-    PreferenceSource,
-    ReviewPreferences,
-    UrgencyThreshold,
-)
-from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
-from products.stamphog.backend.facade.api import has_reviewable_repo_config
-
-logger = logging.getLogger(__name__)
+from products.review_hog.backend.facade.api import get_review_user_preferences, update_review_user_preferences
+from products.review_hog.backend.facade.contracts import ReviewUserPreferences
+from products.review_hog.backend.facade.enums import DefaultReviewMode, PreferenceSource, UrgencyThreshold
 
 
 def _source_field(key: str) -> serializers.ChoiceField:
@@ -107,27 +94,14 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
     )
     project_defaults = ReviewProjectDefaultsSerializer(
         read_only=True,
-        source="project",
         help_text="The project defaults the Deep review preferences fall back to.",
     )
-    stamphog_connected = serializers.SerializerMethodField(
+    stamphog_connected = serializers.BooleanField(
+        read_only=True,
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
         "false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it "
         "disabled with a pointer to connect the Stamphog GitHub App.",
     )
-
-    def _team_id(self) -> int:
-        return self.context["team_id"]
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_stamphog_connected(self, instance: ReviewPreferences) -> bool:
-        # This reads the stamphog product DB, which can fail fast on its own circuit breaker. An
-        # informational UI flag must not fail the settings endpoint, so fall back to False.
-        try:
-            return has_reviewable_repo_config(self._team_id())
-        except Exception:
-            logger.exception("review_hog_stamphog_connected_check_failed")
-            return False
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -142,28 +116,13 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     scope_object = "INTERNAL"
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "review-hog"
-    # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
-    queryset = ReviewUserSettings.objects.unscoped()
     serializer_class = ReviewUserSettingsSerializer
 
     def _user_id(self) -> int:
         return cast(User, self.request.user).id
 
-    def _save_changes(self, team_id: int, changes: dict) -> ReviewPreferences:
-        # Resolve a raw environment URL id to its root team once: `for_team` canonicalizes its filter
-        # but not the create kwargs, and mismatched ids mean a never-matching get plus 500s on re-read.
-        rows = ReviewUserSettings.objects.for_team(team_id, canonical=True)
-        with transaction.atomic():
-            row, _created = rows.get_or_create(team_id=team_id, user_id=self._user_id())
-            # The lock keeps two concurrent edits of different keys from losing one of them.
-            row = rows.select_for_update().get(id=row.id)
-            current = ReviewPreferences.resolve(row.preferences, ReviewProjectSettings.load(team_id).defaults)
-            row.preferences = current.with_changes(changes)
-            row.save(update_fields=["preferences", "updated_at"])
-        return ReviewUserSettings.load_preferences(team_id, self._user_id())
-
-    def _response(self, team_id: int, preferences: ReviewPreferences) -> Response:
-        return Response(ReviewUserSettingsSerializer(preferences, context={"team_id": team_id}).data)
+    def _response(self, preferences: ReviewUserPreferences) -> Response:
+        return Response(ReviewUserSettingsSerializer(preferences).data)
 
     @extend_schema(
         methods=["GET"],
@@ -190,17 +149,10 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     # Not named `settings` — that would shadow DRF's `APIView.settings` (its APISettings object).
     @action(detail=False, methods=["GET", "PATCH"], url_path="settings", url_name="settings")
     def user_settings(self, request: Request, **kwargs) -> Response:
-        team_id = resolve_effective_team_id(self.team_id)
         if request.method == "PATCH":
-            serializer = ReviewUserSettingsSerializer(data=request.data, partial=True, context={"team_id": team_id})
+            serializer = ReviewUserSettingsSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
-            changes = {
-                key: serializer.validated_data[key] for key in PREFERENCE_KEYS if key in serializer.validated_data
-            }
-            return self._response(team_id, self._save_changes(team_id, changes))
-        # Seed the authoring companion before any review has run: the "Create your own …" tasks
-        # `skill-get` it over MCP, and this settings GET is the Code review tab's always-called
-        # endpoint. `team_id` is already the effective (root) team, the same team the review runs
-        # under, so the skill lands where the sandbox agent's `skill-get` will look.
-        seed_canonicals_tolerantly(team_id, sync_canonical_authoring)
-        return self._response(team_id, ReviewUserSettings.load_preferences(team_id, self._user_id()))
+            return self._response(
+                update_review_user_preferences(self.team_id, self._user_id(), serializer.validated_data)
+            )
+        return self._response(get_review_user_preferences(self.team_id, self._user_id()))
