@@ -1,0 +1,42 @@
+name: Notify wizard of tool catalog changes
+
+# The wizard repo builds its codebase detector registry from this catalog. It regenerates the
+# registry and opens a pull request when it receives the dispatch.
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - products/wizard/tool-catalog.generated.json
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+# Every catalog change on master is dispatched, so master pushes never cancel each other.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
+jobs:
+    notify:
+        name: Dispatch tool-catalog-changed to the wizard repo
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Get wizard releaser token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_WIZARD_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_WIZARD_RELEASER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: wizard
+
+            - name: Dispatch the catalog commit
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  repository: PostHog/wizard
+                  event-type: tool-catalog-changed
+                  client-payload: '{"sha": "${{ github.sha }}"}'
