@@ -98,7 +98,8 @@ class InlineScanSpec:
 @frozen
 class RequestSession:
     session_id: str
-    scan_outcome: str
+    # None until the session's scan has started.
+    scan_outcome: str | None
     state: RequestSessionState
     observation: ReplayObservation | None
 
@@ -346,7 +347,7 @@ def _progress(
         state = RequestSessionState.PENDING if age < grace else RequestSessionState.FAILED
         return RequestProgress(
             sessions=[
-                RequestSession(session_id=sid, scan_outcome="failed", state=state, observation=None)
+                RequestSession(session_id=sid, scan_outcome=None, state=state, observation=None)
                 for sid in request.session_ids
             ]
         )
