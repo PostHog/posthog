@@ -112,7 +112,7 @@ export function ReportFeedbackFooter({
             {/* The question lives under the row so it never pushes the thumbs sideways. */}
             {askingWhy && (
                 <div
-                    className="flex w-full max-w-80 flex-col gap-1.5 rounded border border-primary p-2"
+                    className="flex w-full max-w-96 flex-col gap-1.5 rounded border border-primary p-2"
                     data-attr="inbox-report-feedback-question"
                 >
                     <div className="flex items-center gap-1">
@@ -130,7 +130,7 @@ export function ReportFeedbackFooter({
                     </div>
                     <div className="flex items-center gap-1.5">
                         <LemonInput
-                            size="small"
+                            size="medium"
                             fullWidth
                             value={feedbackNoteDraft}
                             onChange={setFeedbackNoteDraft}
@@ -144,7 +144,7 @@ export function ReportFeedbackFooter({
                         {/* Shown only once there is text, so there is never a disabled button to look at. */}
                         {feedbackNoteDraft.trim() && (
                             <LemonButton
-                                size="small"
+                                size="medium"
                                 type="primary"
                                 loading={feedbackNoteSubmitting}
                                 onClick={sendNote}
@@ -157,7 +157,7 @@ export function ReportFeedbackFooter({
                 </div>
             )}
             {feedbackNoteSent && (
-                <p className={clsx('m-0 max-w-80 text-xs text-tertiary', align === 'end' && 'text-end')}>
+                <p className={clsx('m-0 max-w-96 text-xs text-tertiary', align === 'end' && 'text-end')}>
                     Note added: {feedbackSentNote}
                 </p>
             )}

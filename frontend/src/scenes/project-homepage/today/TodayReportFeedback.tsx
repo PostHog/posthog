@@ -85,7 +85,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
             {/* The question lives under the row so it never pushes the thumbs sideways. */}
             {askingWhy && (
                 <div
-                    className="flex w-full max-w-80 flex-col gap-1.5 rounded-md border border-primary p-2"
+                    className="flex w-full max-w-96 flex-col gap-1.5 rounded-md border border-primary p-2"
                     data-attr="today-report-feedback-question"
                 >
                     <div className="flex items-center gap-1">
@@ -117,7 +117,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                             aria-label="Add a note about this report"
                             maxLength={NOTE_MAX_LENGTH}
                             autoFocus
-                            className="min-w-0 flex-1"
+                            className="h-9 min-w-0 flex-1"
                             data-attr="today-report-feedback-note"
                         />
                         {/* Shown only once there is text, so there is never a disabled button to look at. */}
@@ -136,7 +136,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 </div>
             )}
             {feedbackNoteSent && (
-                <Text size="xs" variant="muted" render={<p className="m-0 max-w-80" />}>
+                <Text size="xs" variant="muted" render={<p className="m-0 max-w-96" />}>
                     Note added: {feedbackSentNote}
                 </Text>
             )}
