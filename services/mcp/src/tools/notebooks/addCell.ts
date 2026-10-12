@@ -33,7 +33,7 @@ const AddCellInputSchema = z
         cell_type: z
             .enum(['sql', 'python', 'markdown', 'saved_insight', 'component'])
             .describe(
-                "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately; 'markdown' inserts prose (headings, tables, code/mermaid fences); 'saved_insight' embeds an existing insight; 'component' inserts any other notebook component tag (charts, media, PostHog entities)."
+                "Cell kind: 'sql' (HogQL against PostHog data) and 'python' run immediately unless run is false; 'markdown' inserts prose (headings, tables, code/mermaid fences); 'saved_insight' embeds an existing insight; 'component' inserts any other notebook component tag (charts, media, PostHog entities)."
             ),
         code: z.string().optional().describe('The SQL or Python source. Required for sql/python cells.'),
         markdown: z.string().optional().describe('Prose to insert. Required for markdown cells.'),
