@@ -1,6 +1,7 @@
 import itertools
 import threading
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -688,6 +689,45 @@ class TestJevWatchRankSweep(BaseTest):
             assert result.scanners_rate_limited >= 3
             assert result.scanners_backed_off == 0
             assert result.scanners_judged == scanner_count
+
+    def test_a_rate_limited_turn_delays_the_next_request(self) -> None:
+        # The pause is what gives the shared capacity back, so the request after a 429 must wait it out.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for index in range(2):
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name=f"s{index}",
+                scanner_type=ScannerType.SUMMARIZER,
+                scanner_config={"prompt": "p", "length": "short"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            )
+            self._succeeded_observation(scanner, f"session-{index}", "The user hit an error at checkout.")
+        pause = timedelta(seconds=0.3)
+        answer = _answer_every_question(0.1)
+        call_times: list[float] = []
+
+        def _decide(request: DecisionRequest, **kwargs: Any) -> DecisionResult:
+            call_times.append(monotonic())
+            if len(call_times) == 1:
+                raise DecisionGatewayError(429, "rate limited")
+            return answer(request)
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(f"{activities}.RATE_LIMIT_PAUSE", pause),
+            # One turn at a time, so the second request can only start after the first turn ends.
+            patch(f"{activities}.JUDGE_CONCURRENCY", 1),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = _decide
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert result.scanners_rate_limited == 1
+        assert result.scanners_judged == 2
+        assert call_times[1] - call_times[0] >= pause.total_seconds()
 
     def test_a_consent_revoked_while_a_scanner_waits_sends_nothing(self) -> None:
         # Scanners are queued when their team passes the consent check but judged at their turn,
