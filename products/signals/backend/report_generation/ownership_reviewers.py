@@ -74,7 +74,7 @@ def suggest_repository_owners(
     try:
         team = Team.objects.get(id=team_id)
         github = GitHubIntegration.first_for_team_repository(
-            team_id, repository, source="signals_reviewers", priority=Priority.CRITICAL
+            team_id, repository, source="signals_reviewers", priority=Priority.BATCH
         )
         if github is None:
             return []

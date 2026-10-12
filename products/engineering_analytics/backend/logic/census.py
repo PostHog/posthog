@@ -44,7 +44,7 @@ def collect_repo_census(repository: str, access_token: str, *, timeout: int = 30
                 timeout=timeout,
                 allow_redirects=True,
                 stream=True,
-                priority=Priority.CRITICAL,
+                priority=Priority.BATCH,
             )
         ) as response:
             raise_if_github_rate_limited(response)

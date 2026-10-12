@@ -425,7 +425,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         for integration in integrations:
             if integration.kind == "github":
                 UserGitHubIntegration(
-                    integration, source="user_integrations_api", priority=Priority.CRITICAL
+                    integration, source="user_integrations_api", priority=Priority.NORMAL
                 ).ensure_account_name()
                 results.append(
                     _serialize_github_integration(
@@ -997,7 +997,7 @@ def _serialize_github_integration(
     installation_reference_counts: dict[str, int],
 ) -> dict[str, Any]:
     """Build the response payload for a single GitHub UserIntegration."""
-    github = UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL)
+    github = UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.NORMAL)
     # Mirrors github_destroy's uninstall_if_last_reference: any other row, team or personal, keeps the
     # App installed on GitHub after this one is deleted. The precomputed map counts every reference
     # for the installation including this row, so more than one means another row still shares it.

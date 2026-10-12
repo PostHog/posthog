@@ -399,7 +399,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             source="signals_pr_review_comment",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
             installation_id=self.github_installation_id,
-            priority=Priority.CRITICAL,
+            priority=Priority.NORMAL,
             endpoint=endpoint,
             json=payload,
             timeout=15,
@@ -442,7 +442,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             source=source,
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
             installation_id=self.github_installation_id,
-            priority=Priority.CRITICAL,
+            priority=Priority.NORMAL,
             json=json,
             timeout=15,
         )

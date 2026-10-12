@@ -129,7 +129,7 @@ def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None] 
     skip-this-report condition for the batch, not a failure.
     """
     github = GitHubIntegration.first_for_team_repository(
-        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+        team_id, repository, source="review_hog", priority=Priority.BATCH
     )
     if github is None:
         return None

@@ -286,7 +286,7 @@ def _target_already_closed(team_id: int, target: ImplementationTarget) -> bool:
     parsed = GitHubIntegrationBase.parse_pull_request_url(target.pr_url)
     assert parsed is not None
     github = GitHubIntegration.first_for_team_repository(
-        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
     )
     current = github.get_pull_request(parsed.repository, parsed.number) if github else {}
     if not current.get("success"):

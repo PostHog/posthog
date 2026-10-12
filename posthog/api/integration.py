@@ -780,7 +780,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return None
         return (
             "unavailable"
-            if GitHubIntegration(obj, source="integrations_api", priority=Priority.CRITICAL).installation_unavailable()
+            if GitHubIntegration(obj, source="integrations_api", priority=Priority.NORMAL).installation_unavailable()
             else "connected"
         )
 
@@ -2782,7 +2782,7 @@ class IntegrationViewSet(
         instances = page if page is not None else list(queryset)
         for instance in instances:
             if instance.kind == "github":
-                GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL).ensure_account_name()
+                GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         # One grouped lookup for the whole page instead of an `exists()` per row, so
         # `installation_shared` stays a fixed one query however many GitHub rows there are.
         reference_counts = GitHubIntegration.installation_reference_counts(
@@ -2807,5 +2807,5 @@ class IntegrationViewSet(
         # second query and permission check for the row already in hand.
         instance = self.get_object()
         if instance.kind == "github":
-            GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL).ensure_account_name()
+            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         return Response(self.get_serializer(instance).data)

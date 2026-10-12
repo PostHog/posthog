@@ -288,7 +288,7 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
         .first()
     )
     if gh is not None:
-        github_login = UserGitHubIntegration(gh, source="visual_review", priority=Priority.CRITICAL).github_login
+        github_login = UserGitHubIntegration(gh, source="visual_review", priority=Priority.BATCH).github_login
         if github_login:
             return _Approver(label=github_login, is_github_login=True)
 

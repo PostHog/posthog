@@ -561,7 +561,7 @@ Use this tool when the user wants to:
 
             for integration in integrations:
                 try:
-                    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
+                    github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)
                     org = github.organization()
                     repos = github.list_all_cached_repositories()
 

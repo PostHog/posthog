@@ -362,7 +362,7 @@ def _get_coauthor_trailer(user_id: int, installation_id: str) -> str | None:
     ).first()
     if user_integration is None:
         return None
-    return UserGitHubIntegration(user_integration, source="visual_review", priority=Priority.CRITICAL).coauthor_trailer
+    return UserGitHubIntegration(user_integration, source="visual_review", priority=Priority.NORMAL).coauthor_trailer
 
 
 def _commit_baseline_to_github(

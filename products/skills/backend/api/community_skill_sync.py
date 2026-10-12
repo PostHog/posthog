@@ -300,7 +300,7 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
         source="community_skills",
         installation_id=None,
         timeout=COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS,
-        priority=Priority.CRITICAL,
+        priority=Priority.BATCH,
     )
     response.raise_for_status()
     payload = response.json()

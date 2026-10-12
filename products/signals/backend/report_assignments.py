@@ -199,7 +199,7 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
     )
     try:
         github = GitHubIntegration.first_for_team_repository(
-            team_id, parsed.repository, source="signals_reviewers", priority=Priority.CRITICAL
+            team_id, parsed.repository, source="signals_reviewers", priority=Priority.NORMAL
         )
     except Exception:
         logger.exception(

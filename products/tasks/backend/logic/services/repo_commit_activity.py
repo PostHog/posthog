@@ -77,7 +77,7 @@ def collect_repository_commit_activity(
     """
     repository = repository.strip().lower()
     github = GitHubIntegration.first_for_team_repository(
-        team_id, repository, source="repo_commit_activity", priority=Priority.CRITICAL
+        team_id, repository, source="repo_commit_activity", priority=Priority.BATCH
     )
     if github is None:
         raise RepositoryCommitActivityError(f"No GitHub integration for team {team_id} can access {repository}")

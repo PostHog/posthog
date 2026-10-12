@@ -245,7 +245,7 @@ def _github_for_repository(*, team_id: int, report_id: str, repository: str) -> 
     """The team's GitHub integration for a repository, or None when there is none to call."""
     try:
         return GitHubIntegration.first_for_team_repository(
-            team_id, repository, source="signals_reviewers", priority=Priority.CRITICAL
+            team_id, repository, source="signals_reviewers", priority=Priority.BATCH
         )
     except Exception:
         logger.exception(
