@@ -15,9 +15,15 @@ interface LogContextSelectorProps {
     log: ParsedLogMessage
     size?: 'xsmall' | 'small'
     noPadding?: boolean
+    showLabel?: boolean
 }
 
-export function LogContextSelector({ log, size = 'xsmall', noPadding }: LogContextSelectorProps): JSX.Element | null {
+export function LogContextSelector({
+    log,
+    size = 'xsmall',
+    noPadding,
+    showLabel = false,
+}: LogContextSelectorProps): JSX.Element | null {
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const { closeLogDetails } = useActions(logDetailsModalLogic)
     const { configuredSessionIdKeys } = useValues(logsConfigLogic)
@@ -44,15 +50,21 @@ export function LogContextSelector({ log, size = 'xsmall', noPadding }: LogConte
                 },
             }))}
         >
-            <LemonButton
-                size={size}
-                icon={<IconList />}
-                tooltip="View in context"
-                aria-label="View in context"
-                noPadding={noPadding ?? size === 'xsmall'}
-                className="text-muted"
-                data-attr="logs-viewer-context-selector"
-            />
+            {showLabel ? (
+                <LemonButton size={size} type="secondary" icon={<IconList />} data-attr="logs-viewer-context-selector">
+                    View in context
+                </LemonButton>
+            ) : (
+                <LemonButton
+                    size={size}
+                    icon={<IconList />}
+                    tooltip="View in context"
+                    aria-label="View in context"
+                    noPadding={noPadding ?? size === 'xsmall'}
+                    className="text-muted"
+                    data-attr="logs-viewer-context-selector"
+                />
+            )}
         </LemonMenu>
     )
 }

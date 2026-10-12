@@ -9,7 +9,7 @@ import { AlertEditorFormDetails } from 'products/alerts/frontend/components/Aler
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
 
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
-import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
+import { logsAlertFormLogic, LogsAlertFormLogicProps, LogsAlertFormType } from './logsAlertFormLogic'
 import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
@@ -18,18 +18,25 @@ import { hasAnyFilter, PendingLogsAlertNotification } from './logsAlertUtils'
 interface LogsAlertCreateModalProps {
     isOpen: boolean
     onClose: () => void
+    seed?: Partial<LogsAlertFormType>
 }
 
-export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalProps): JSX.Element {
+export function LogsAlertCreateModal({ isOpen, onClose, seed }: LogsAlertCreateModalProps): JSX.Element {
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="" simple width={900}>
-            {isOpen ? <LogsAlertCreateModalContent onClose={onClose} /> : null}
+            {isOpen ? <LogsAlertCreateModalContent onClose={onClose} seed={seed} /> : null}
         </LemonModal>
     )
 }
 
-function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
-    const formLogicProps = { alert: null, onSubmitSuccess: onClose }
+function LogsAlertCreateModalContent({
+    onClose,
+    seed,
+}: {
+    onClose: () => void
+    seed?: Partial<LogsAlertFormType>
+}): JSX.Element {
+    const formLogicProps: LogsAlertFormLogicProps = { alert: null, seed, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(logsAlertFormLogic(formLogicProps))
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))

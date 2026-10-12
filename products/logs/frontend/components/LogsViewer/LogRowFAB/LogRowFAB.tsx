@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    IconBell,
     IconBrackets,
     IconChevronLeft,
     IconChevronRight,
@@ -20,6 +21,8 @@ import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { buildAlertSeedFromLog } from 'products/logs/frontend/components/LogsAlerting/alertSeed'
+import { logsAlertQuickCreateLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertQuickCreateLogic'
 import { logsMetricRuleQuickCreateLogic } from 'products/logs/frontend/components/LogsMetricRules/logsMetricRuleQuickCreateLogic'
 import { buildMetricRuleSeedFromLog } from 'products/logs/frontend/components/LogsMetricRules/metricRuleSeed'
 import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
@@ -56,6 +59,7 @@ export function LogRowFAB({
     const { copyLinkToLog } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
     const { openWithSeed } = useActions(logsMetricRuleQuickCreateLogic)
+    const { openWithSeed: openAlertWithSeed } = useActions(logsAlertQuickCreateLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const metricRulesEnabled = useFeatureFlag('METRICS')
@@ -160,6 +164,19 @@ export function LogRowFAB({
                         disabledReason={metricsEditorDisabledReason ?? undefined}
                     />
                 )}
+                <LemonButton
+                    size="xsmall"
+                    noPadding
+                    icon={<IconBell />}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        openAlertWithSeed(buildAlertSeedFromLog(log))
+                    }}
+                    tooltip="Create alert"
+                    aria-label="Create alert"
+                    className="text-muted"
+                    data-attr="logs-viewer-create-alert"
+                />
                 {sessionId && (
                     <ViewRecordingButton
                         sessionId={sessionId}
