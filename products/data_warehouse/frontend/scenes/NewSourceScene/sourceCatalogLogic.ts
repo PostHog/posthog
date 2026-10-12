@@ -13,11 +13,10 @@ import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFuncti
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateStatus } from '~/types'
+import { type ExternalDataSourceType, HogFunctionTemplateStatus } from '~/types'
 
 import {
     DataWarehouseSourceCategoryApi,
-    ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -88,7 +87,7 @@ export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 
 export interface SourceCatalogLogicProps {
     /** When set, only managed sources whose name is in this list are shown. */
-    allowedSources?: ExternalDataSourceTypeEnumApi[]
+    allowedSources?: ExternalDataSourceType[]
 }
 
 export interface CatalogItem {
@@ -212,7 +211,7 @@ export interface sourceCatalogLogicMeta {
             }[],
             featureFlags: FeatureFlagsSet,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-            arg: ExternalDataSourceTypeEnumApi[] | undefined
+            arg: ExternalDataSourceType[] | undefined
         ) => CatalogItem[]
         categoriesWithCounts: (catalogItems: CatalogItem[]) => CatalogCategory[]
         selectedCategoryLabel: (
@@ -356,7 +355,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 }[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                allowedSources: ExternalDataSourceTypeEnumApi[] | undefined
+                allowedSources: ExternalDataSourceType[] | undefined
             ): CatalogItem[] => {
                 // SourceConfigResponseApi declares `existingSource`, but the /wizard payload this
                 // selector reads never populates it, so derive it from the project's source list.
@@ -559,9 +558,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         customSourceItem: [
             (s) => [s.catalogItems],
             (catalogItems: CatalogItem[]): CatalogItem | null =>
-                catalogItems.find(
-                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
-                ) ?? null,
+                catalogItems.find((item) => item.name === 'Custom' && item.status !== 'coming_soon') ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({

@@ -14,7 +14,7 @@ class TestTVMazeSource:
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
-        assert config.name.value == "TVMaze"
+        assert config.name == "TVMaze"
         assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/tvmaze.png"

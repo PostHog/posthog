@@ -1,18 +1,17 @@
 import { urls } from 'scenes/urls'
 
-import {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
+
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 // File upload is a client-only catalog entry — it has no backend SourceConfig because an uploaded
 // file becomes a self-managed DataWarehouseTable (read in place from our own bucket), not a synced
 // source. `FileUpload` is deliberately not a real source type (there is no backend
-// source of that type), so it's cast here once to reuse the shared source-config shape and the
-// wizard's connector-selection plumbing. This synthetic config drives the wizard's second step and
+// source of that type), but a source key is a plain string, so it reuses the shared source-config
+// shape and the wizard's connector-selection plumbing. This synthetic config drives the wizard's second step and
 // the tile icon; the three tiles below (one per format) all point back at it, since users look for
 // "CSV", not "File upload".
-export const FILE_UPLOAD_SOURCE_NAME = 'FileUpload' as unknown as ExternalDataSourceTypeEnumApi
+export const FILE_UPLOAD_SOURCE_NAME: ExternalDataSourceType = 'FileUpload'
 
 export type FileUploadFormat = 'csv' | 'json' | 'parquet'
 

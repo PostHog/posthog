@@ -470,6 +470,13 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+    # A warehouse source plugin keeps its icon in its own directory. The frontend build copies those
+    # icons into dist, so this finder is DEBUG-only for the same reason as `frontend/public` above.
+    STATICFILES_FINDERS = [
+        "django.contrib.staticfiles.finders.FileSystemFinder",
+        "django.contrib.staticfiles.finders.AppDirectoriesFinder",
+        "products.warehouse_sources.backend.source_icons.SourceIconFinder",
+    ]
 
 # WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
 if TEST:

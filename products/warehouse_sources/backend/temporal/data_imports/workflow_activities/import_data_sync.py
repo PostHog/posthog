@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -114,7 +115,6 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -456,7 +456,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         await logger.adebug("Running import_data_activity")
 
-        source_type = ExternalDataSourceType(model.pipeline.source_type)
+        source_type = known_source_key(model.pipeline.source_type)
 
         bind_job_context(
             team_id=inputs.team_id,

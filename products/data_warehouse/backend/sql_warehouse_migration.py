@@ -40,11 +40,7 @@ def is_multi_schema_capable_sql_source(source_type: ExternalDataSourceType | str
     The optional field is the opt-in marker (Postgres, MSSQL, Snowflake, Redshift today). Resolved via
     `get_all_sources`, not the test-mockable `get_source`, so the gate stays config-driven.
     """
-    try:
-        resolved_type = ExternalDataSourceType(source_type)
-    except ValueError:
-        return False
-    return _source_has_optional_schema_field(SourceRegistry.get_all_sources().get(resolved_type))
+    return _source_has_optional_schema_field(SourceRegistry.get_all_sources().get(source_type))
 
 
 def source_namespace_is_blank(source: ExternalDataSource) -> bool:

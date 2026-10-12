@@ -14,7 +14,7 @@ class TestCloudsmithSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Cloudsmith"
+        assert config.name == "Cloudsmith"
         assert config.label == "Cloudsmith"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA

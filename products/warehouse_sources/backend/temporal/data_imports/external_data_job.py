@@ -139,7 +139,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     RepartitionActivityInputs,
     maybe_repartition_table_activity,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -601,7 +600,7 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
         source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
-        source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_cls = SourceRegistry.get_source(source.source_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
         if len(non_retryable_errors) == 0:
@@ -1162,7 +1161,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             is_resumable_source = False
             if source_type is not None:
-                source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+                source = SourceRegistry.get_source(source_type)
                 # The class can resume, and its mechanism covers a run of this shape. Both halves
                 # matter: a class whose resume is narrower than itself would otherwise hand the
                 # resumable allowance to every one of its runs, including the ones that restart from

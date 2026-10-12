@@ -13,6 +13,7 @@ _B = "products.warehouse_sources.backend.temporal.data_imports."
 
 _LAZY = {
     "SourceRegistry": "sources",
+    "known_source_key": "sources.common.registry",
     "DocsFetchError": "sources.custom.ai_builder",
     "draft_manifest_sync": "sources.custom.ai_builder",
     "fetch_docs_text": "sources.custom.ai_builder",

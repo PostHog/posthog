@@ -25,7 +25,7 @@ class TestHelpScoutSource:
     def test_get_source_config(self):
         config = self.source.get_source_config
 
-        assert config.name.value == "HelpScout"
+        assert config.name == "HelpScout"
         assert config.label == "Help Scout"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is None

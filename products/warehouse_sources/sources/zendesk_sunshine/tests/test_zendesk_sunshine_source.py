@@ -25,7 +25,7 @@ class TestZendeskSunshineSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "ZendeskSunshine"
+        assert config.name == "ZendeskSunshine"
         assert config.label == "Zendesk Sunshine"
         assert config.category == DataWarehouseSourceCategory.CRM
         assert config.releaseStatus == ReleaseStatus.ALPHA

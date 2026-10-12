@@ -13,7 +13,7 @@ class TestDovetailSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Dovetail"
+        assert config.name == "Dovetail"
         assert config.label == "Dovetail"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA

@@ -323,7 +323,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
-        SourceRegistry.get_source(ExternalDataSourceType(self.source_type)).cleanup_cdc_resources_on_deletion(self)
+        SourceRegistry.get_source(self.source_type).cleanup_cdc_resources_on_deletion(self)
 
     def reload_schemas(self):
         # temporalio at module scope would put the Temporal client on the django.setup() path —

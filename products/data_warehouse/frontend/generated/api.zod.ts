@@ -1173,30 +1173,409 @@ export const WarehouseSavedQueryFoldersPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const warehouseTablesCreateBodyNameMax = 128
+
+export const warehouseTablesCreateBodyUrlPatternMax = 500
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax = 200
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax = 150
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax = 150
+
+export const warehouseTablesCreateBodyCredentialCreatedByOneEmailMax = 254
+
+export const warehouseTablesCreateBodyCredentialAccessKeyMax = 500
+
+export const warehouseTablesCreateBodyCredentialAccessSecretMax = 500
+
 export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .object({
+        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
+        name: zod
+            .string()
+            .max(warehouseTablesCreateBodyNameMax)
+            .describe(
+                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
+            ),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            )
+            .describe(
+                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod
+            .string()
+            .max(warehouseTablesCreateBodyUrlPatternMax)
+            .describe(
+                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
+            ),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'student',
+                                'other',
+                            ])
+                            .describe(
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.null(),
+                    ])
+                    .optional(),
+            }),
+            created_at: zod.iso.datetime({ offset: true }),
+            access_key: zod
+                .string()
+                .max(warehouseTablesCreateBodyCredentialAccessKeyMax)
+                .describe(
+                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                ),
+            access_secret: zod
+                .string()
+                .max(warehouseTablesCreateBodyCredentialAccessSecretMax)
+                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+        }),
+        options: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const warehouseTablesUpdateBodyNameMax = 128
+
+export const warehouseTablesUpdateBodyUrlPatternMax = 500
+
+export const warehouseTablesUpdateBodyCredentialCreatedByOneDistinctIdMax = 200
+
+export const warehouseTablesUpdateBodyCredentialCreatedByOneFirstNameMax = 150
+
+export const warehouseTablesUpdateBodyCredentialCreatedByOneLastNameMax = 150
+
+export const warehouseTablesUpdateBodyCredentialCreatedByOneEmailMax = 254
+
+export const warehouseTablesUpdateBodyCredentialAccessKeyMax = 500
+
+export const warehouseTablesUpdateBodyCredentialAccessSecretMax = 500
+
 export const WarehouseTablesUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .object({
+        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
+        name: zod
+            .string()
+            .max(warehouseTablesUpdateBodyNameMax)
+            .describe(
+                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
+            ),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            )
+            .describe(
+                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod
+            .string()
+            .max(warehouseTablesUpdateBodyUrlPatternMax)
+            .describe(
+                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
+            ),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseTablesUpdateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesUpdateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'student',
+                                'other',
+                            ])
+                            .describe(
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.null(),
+                    ])
+                    .optional(),
+            }),
+            created_at: zod.iso.datetime({ offset: true }),
+            access_key: zod
+                .string()
+                .max(warehouseTablesUpdateBodyCredentialAccessKeyMax)
+                .describe(
+                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                ),
+            access_secret: zod
+                .string()
+                .max(warehouseTablesUpdateBodyCredentialAccessSecretMax)
+                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+        }),
+        options: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const warehouseTablesPartialUpdateBodyNameMax = 128
+
+export const warehouseTablesPartialUpdateBodyUrlPatternMax = 500
+
+export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneDistinctIdMax = 200
+
+export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneFirstNameMax = 150
+
+export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneLastNameMax = 150
+
+export const warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailMax = 254
+
+export const warehouseTablesPartialUpdateBodyCredentialAccessKeyMax = 500
+
+export const warehouseTablesPartialUpdateBodyCredentialAccessSecretMax = 500
+
 export const WarehouseTablesPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .object({
+        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
+        name: zod
+            .string()
+            .max(warehouseTablesPartialUpdateBodyNameMax)
+            .optional()
+            .describe(
+                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
+            ),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            )
+            .optional()
+            .describe(
+                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod
+            .string()
+            .max(warehouseTablesPartialUpdateBodyUrlPatternMax)
+            .optional()
+            .describe(
+                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
+            ),
+        credential: zod
+            .object({
+                id: zod.uuid(),
+                created_by: zod.object({
+                    id: zod.number(),
+                    uuid: zod.uuid(),
+                    distinct_id: zod
+                        .string()
+                        .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod.email().max(warehouseTablesPartialUpdateBodyCredentialCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'student',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                }),
+                created_at: zod.iso.datetime({ offset: true }),
+                access_key: zod
+                    .string()
+                    .max(warehouseTablesPartialUpdateBodyCredentialAccessKeyMax)
+                    .describe(
+                        'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                    ),
+                access_secret: zod
+                    .string()
+                    .max(warehouseTablesPartialUpdateBodyCredentialAccessSecretMax)
+                    .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+            })
+            .optional(),
+        options: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const warehouseTablesUpdateSchemaCreateBodyNameMax = 128
+
+export const warehouseTablesUpdateSchemaCreateBodyUrlPatternMax = 500
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneDistinctIdMax = 200
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneFirstNameMax = 150
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneLastNameMax = 150
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailMax = 254
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialAccessKeyMax = 500
+
+export const warehouseTablesUpdateSchemaCreateBodyCredentialAccessSecretMax = 500
+
 export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .object({
+        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
+        name: zod
+            .string()
+            .max(warehouseTablesUpdateSchemaCreateBodyNameMax)
+            .describe(
+                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
+            ),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            )
+            .describe(
+                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod
+            .string()
+            .max(warehouseTablesUpdateSchemaCreateBodyUrlPatternMax)
+            .describe(
+                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
+            ),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.email().max(warehouseTablesUpdateSchemaCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'student',
+                                'other',
+                            ])
+                            .describe(
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.null(),
+                    ])
+                    .optional(),
+            }),
+            created_at: zod.iso.datetime({ offset: true }),
+            access_key: zod
+                .string()
+                .max(warehouseTablesUpdateSchemaCreateBodyCredentialAccessKeyMax)
+                .describe(
+                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                ),
+            access_secret: zod
+                .string()
+                .max(warehouseTablesUpdateSchemaCreateBodyCredentialAccessSecretMax)
+                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+        }),
+        options: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Turn a previously uploaded file into a self-managed warehouse table.
@@ -1223,9 +1602,104 @@ export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.obj
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */
+export const warehouseTablesFileCreateBodyNameMax = 128
+
+export const warehouseTablesFileCreateBodyUrlPatternMax = 500
+
+export const warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax = 200
+
+export const warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax = 150
+
+export const warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax = 150
+
+export const warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax = 254
+
+export const warehouseTablesFileCreateBodyCredentialAccessKeyMax = 500
+
+export const warehouseTablesFileCreateBodyCredentialAccessSecretMax = 500
+
 export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .object({
+        deleted: zod.boolean().nullish().describe('Whether the table is soft-deleted and hidden from queries.'),
+        name: zod
+            .string()
+            .max(warehouseTablesFileCreateBodyNameMax)
+            .describe(
+                'Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.'
+            ),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            )
+            .describe(
+                'File format of the objects the pattern matches. Every matched file must share this format.\n\n\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod
+            .string()
+            .max(warehouseTablesFileCreateBodyUrlPatternMax)
+            .describe(
+                "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
+            ),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'student',
+                                'other',
+                            ])
+                            .describe(
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.null(),
+                    ])
+                    .optional(),
+            }),
+            created_at: zod.iso.datetime({ offset: true }),
+            access_key: zod
+                .string()
+                .max(warehouseTablesFileCreateBodyCredentialAccessKeyMax)
+                .describe(
+                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                ),
+            access_secret: zod
+                .string()
+                .max(warehouseTablesFileCreateBodyCredentialAccessSecretMax)
+                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+        }),
+        options: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe(
+                'Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.'
+            ),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Store an uploaded file in object storage so a self-managed table can be created from it.

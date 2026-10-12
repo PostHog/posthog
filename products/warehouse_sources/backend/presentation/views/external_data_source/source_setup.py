@@ -70,11 +70,12 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     is_team_allowlisted_for_internal_hosts,
+    known_source_key,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, SourceKey
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
@@ -85,6 +86,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -167,6 +169,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "`auto_sync_new_schemas` is true."
         ),
     )
+    source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
     api_version = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -249,7 +252,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # Derive allowed keys dynamically from source config field definitions
         try:
-            source_type_model = ExternalDataSourceType(instance.source_type)
+            source_type_model = known_source_key(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
             split = helpers.get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
@@ -288,7 +291,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
         try:
-            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+            source = SourceRegistry.get_source(instance.source_type)
             return isinstance(source, WebhookSource)
         except Exception as e:
             capture_exception(e)
@@ -391,7 +394,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
-        source_type_model = ExternalDataSourceType(instance.source_type)
+        source_type_model = known_source_key(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
@@ -728,8 +731,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
     )
     payload = serializers.DictField(
@@ -801,8 +803,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
 
 
 class SourceSetupSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').",
     )
     payload = serializers.DictField(
@@ -864,8 +865,7 @@ class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
 
 
 class SourcePreviewRequestSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.",
     )
     payload = serializers.DictField(
@@ -967,6 +967,8 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
+    source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
+
     class Meta:
         model = ExternalDataSource
         fields = [
@@ -1175,12 +1177,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-        source_type_model = ExternalDataSourceType(source_type)
+        source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
         if not is_direct_query and not source.supports_scheduled_sync:
             return Response(
                 ExternalDataSourceErrorResponseSerializer(
-                    {"message": f"{source_type_model.label} is available only as a direct connection."}
+                    {
+                        "message": f"{source.get_source_config.label or source_type_model} is available only as a direct connection."
+                    }
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1894,7 +1898,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             instance.soft_delete()
 
         # Best-effort webhook cleanup — soft-deletes are already committed
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
         if isinstance(source, WebhookSource) and instance.job_inputs:
             try:
@@ -2016,7 +2020,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Mutable local: the CustomSource branch below rewrites payload keys before source creation.
         payload = resolved.payload
 
-        source_type_model = ExternalDataSourceType(source_type)
+        source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
@@ -2124,7 +2128,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         serializer.is_valid(raise_exception=True)
 
         source_type = serializer.validated_data["source_type"]
-        source = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = base.SourceRegistry.get_source(source_type)
         if not isinstance(source, CustomSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2261,7 +2265,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
     def _validate_source_config_and_credentials(
         self,
         source: AnySource,
-        source_type_model: ExternalDataSourceType,
+        source_type_model: SourceKey,
         payload: dict,
         access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
     ) -> tuple[Response | None, Config | None]:

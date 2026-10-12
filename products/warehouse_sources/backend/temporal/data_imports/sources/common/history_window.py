@@ -34,10 +34,9 @@ def history_start_for_schema(
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415
         SourceRegistry,
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
+        source = SourceRegistry.get_source(schema.source.source_type)
     except ValueError:
         # An unknown type means the source's module failed to import, not that it reads everything.
         # Both answer None here, so say which one this was rather than leave a widened range

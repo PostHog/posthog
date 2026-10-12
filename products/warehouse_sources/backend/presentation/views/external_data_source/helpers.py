@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     source_requires_ssl,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 
@@ -466,7 +466,7 @@ def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
     if not isinstance(job_inputs, dict):
         return frozenset()
     try:
-        source_config = SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).get_source_config
+        source_config = SourceRegistry.get_source(source.source_type).get_source_config
         sensitive = get_sensitive_field_names(source_config.fields)
     except (ValueError, KeyError):
         sensitive = set()

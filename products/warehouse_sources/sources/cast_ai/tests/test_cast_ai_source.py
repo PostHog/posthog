@@ -13,7 +13,7 @@ class TestCastAiSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "CastAi"
+        assert config.name == "CastAi"
         assert config.label == "CAST AI"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA

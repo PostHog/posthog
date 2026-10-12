@@ -36,14 +36,14 @@ title: Linking <Source> as a source
 sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
-sourceId: <EnumValue> # MUST equal the ExternalDataSourceType value, e.g. ActiveCampaign, Stripe
+sourceId: <SourceKey> # MUST equal the source key (SourceConfig.name), e.g. ActiveCampaign, Stripe
 beta: true # optional — only for beta sources
 ---
 ```
 
 `sourceId` is what links the doc to its API config (icon, fields, tables). Get it wrong and the doc
 renders with no `<SourceParameters />` / `<SourceTables />` data. It must be a real
-`ExternalDataSourceType` value (PascalCase, e.g. `ActiveCampaign`, not `Active Campaign`).
+source key, the `SourceConfig.name` of the source (PascalCase, e.g. `ActiveCampaign`, not `Active Campaign`).
 
 ## Canonical template
 
@@ -146,7 +146,7 @@ Renaming a published doc also needs a 301 in `posthog.com/vercel.json` for both
 
 ## Checklist
 
-- [ ] Frontmatter `sourceId` matches the `ExternalDataSourceType` value exactly
+- [ ] Frontmatter `sourceId` matches the source key (`SourceConfig.name`) exactly
 - [ ] Intro, Prerequisites, Adding a data source, Sync modes, Configuration, Supported tables, Troubleshooting
 - [ ] Status snippet + `beta: true` if alpha/beta
 - [ ] Shared snippets used instead of bespoke prose
