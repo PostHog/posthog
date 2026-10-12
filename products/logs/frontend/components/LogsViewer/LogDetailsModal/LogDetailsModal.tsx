@@ -137,6 +137,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             </div>
                         </div>
                         <LogContextLinks
+                            surface="drawer"
                             log={selectedLog}
                             onOpenRelatedErrors={(scope) => {
                                 setRelatedErrorsInitialScope(scope)
