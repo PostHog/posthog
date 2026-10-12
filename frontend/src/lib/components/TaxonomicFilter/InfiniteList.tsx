@@ -6,7 +6,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCheck,
+    IconLock,
+    IconPin,
+    IconPinFilled,
+    IconPlus,
+    IconSearch,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -862,7 +871,20 @@ function InfiniteListEmptyState(): JSX.Element {
 }
 
 function InfiniteListErrorState(): JSX.Element {
+    const { group, remoteFetchForbidden } = useValues(infiniteListLogic)
     const { retryRemoteItems } = useActions(infiniteListLogic)
+
+    if (remoteFetchForbidden) {
+        return (
+            <div className="no-infinite-results flex flex-col gap-y-1 items-center">
+                <IconLock className="text-5xl text-tertiary" />
+                <span className="text-center">
+                    You don't have access to {group?.searchPlaceholder || 'these results'} in this project.
+                </span>
+                <span className="text-center text-secondary">Ask a project admin for access.</span>
+            </div>
+        )
+    }
 
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">

@@ -295,7 +295,7 @@ const ENTRY_TYPE_TO_RESOURCE_TYPE: Record<string, AccessControlResourceType> = {
     session_recording_playlist: AccessControlResourceType.SessionRecording,
 }
 
-const productHasEffectiveNoneAccess = (resourceType: AccessControlResourceType): boolean => {
+export const productHasEffectiveNoneAccess = (resourceType: AccessControlResourceType): boolean => {
     return getAppContext()?.effective_resource_access_control?.[resourceType] === AccessControlLevel.None
 }
 

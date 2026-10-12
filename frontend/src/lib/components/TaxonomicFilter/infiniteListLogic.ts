@@ -321,6 +321,7 @@ export interface infiniteListLogicValues {
     rawLocalItems: (CohortType | EventDefinition)[]
     remoteEndpoint: string | null
     remoteFetchFailed: string | null
+    remoteFetchForbidden: boolean
     remoteItems: ListStorage
     remoteItemsLoading: boolean
     remoteResultsAreFresh: boolean
@@ -480,8 +481,12 @@ export interface infiniteListLogicActions {
     reconcilePinnedRowState: () => {
         value: true
     }
-    remoteItemsFetchFailedForQuery: (searchQuery: string) => {
+    remoteItemsFetchFailedForQuery: (
+        searchQuery: string,
+        forbidden?: boolean
+    ) => {
         searchQuery: string
+        forbidden: boolean
     }
     resetPinnedRowState: () => {
         value: true
@@ -877,7 +882,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
-        remoteItemsFetchFailedForQuery: (searchQuery: string) => ({ searchQuery }),
+        remoteItemsFetchFailedForQuery: (searchQuery: string, forbidden: boolean = false) => ({
+            searchQuery,
+            forbidden,
+        }),
         retryRemoteItems: true,
     }),
     loaders(({ actions, values, cache, props }) => ({
@@ -991,7 +999,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         if (!isBreakpoint(error) && !aborted) {
                             // Carry the query that was in flight when this run errored so the
                             // reducer can attribute the failure to the right query string.
-                            actions.remoteItemsFetchFailedForQuery(searchQuery)
+                            actions.remoteItemsFetchFailedForQuery(searchQuery, error?.status === 403)
                         }
                         throw error
                     } finally {
@@ -1137,6 +1145,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 loadRemoteItems: () => null,
                 loadRemoteItemsSuccess: () => null,
                 remoteItemsFetchFailedForQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
+        // A 403 means the user lacks permission for this list, so a retry can never succeed.
+        remoteFetchForbidden: [
+            false,
+            {
+                loadRemoteItems: () => false,
+                loadRemoteItemsSuccess: () => false,
+                remoteItemsFetchFailedForQuery: (_, { forbidden }) => forbidden,
             },
         ],
     })),
@@ -2345,7 +2362,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
-        remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
+        remoteItemsFetchFailedForQuery: ({ searchQuery, forbidden }) => {
             // Failures land on the same empty state as genuine no-matches, so without this
             // capture the "event exists but the backend blipped" case is invisible in prod.
             // The empty-query load that runs when the picker opens counts too: it hits the same
@@ -2366,6 +2383,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     surface: legacyTaxonomicSurface(),
                     groupType: props.listGroupType,
                     searchQuery: trimmedQuery,
+                    forbidden,
                 })
             }
         },
