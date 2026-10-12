@@ -1,6 +1,7 @@
 import re
 from time import perf_counter
 from typing import Any, NoReturn
+from uuid import UUID
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -240,6 +241,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
+            response["X-Request-ID"] = str(http_request_id)
+            request_id_timing = f'request_id;desc="{http_request_id}"'
+            if existing_server_timing := response.get("Server-Timing"):
+                request_id_timing = f"{existing_server_timing}, {request_id_timing}"
+            response["Server-Timing"] = request_id_timing
+        return response
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         if getattr(view, "action", None) != "create":

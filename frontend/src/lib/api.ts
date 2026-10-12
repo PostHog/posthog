@@ -15,6 +15,7 @@ import {
     readableErrorMessage,
     ResponseBodyReadError,
 } from 'lib/api-error'
+import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
@@ -313,6 +314,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    onRequestTiming?: (timing: ApiRequestTiming) => void
 }
 
 export interface ApiUploadProgress {
@@ -400,7 +402,12 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(
+    response: Response,
+    method: string,
+    url: string,
+    timing?: ApiRequestTimingRecorder
+): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -410,7 +417,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     }
     let text: string
     try {
-        text = await response.text()
+        text = timing ? await timing.readBody(response) : await response.text()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -434,7 +441,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
         return null
     }
     try {
-        return JSON.parse(text)
+        return timing ? timing.parseJSON(text) : JSON.parse(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -6832,17 +6839,39 @@ const api = {
     },
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.createResponse(url, data, options)
-        return await getJSONFromSuccessResponse(res, 'POST', url)
+        const timing = options?.onRequestTiming ? new ApiRequestTimingRecorder() : undefined
+        try {
+            const res = await api.createResponse(url, data, options, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+        } catch (error) {
+            if (error instanceof ApiError) {
+                timing?.recordFailure(error)
+            }
+            throw error
+        } finally {
+            if (timing) {
+                try {
+                    options?.onRequestTiming?.(timing.finish())
+                } catch {
+                    // Observability must not change request success, failure, or cancellation.
+                }
+            }
+        }
     },
 
-    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
+    async createResponse(
+        url: string,
+        data?: any,
+        options?: ApiMethodOptions,
+        timing?: ApiRequestTimingRecorder
+    ): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
+        return await handleFetch(url, 'POST', async () => {
+            timing?.startFetch()
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6854,7 +6883,9 @@ const api = {
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
             })
-        )
+            timing?.recordHeaders(response)
+            return response
+        })
     },
 
     /**

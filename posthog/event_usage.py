@@ -6,6 +6,7 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
 
@@ -421,6 +422,7 @@ AnalyticsProps = TypedDict(
         "$session_id": NotRequired[str | None],
         "was_impersonated": NotRequired[bool],
         "access_method": NotRequired[str | None],
+        "http_request_id": NotRequired[str],
         "user_agent": NotRequired[str | None],
         "mcp_user_agent": NotRequired[str | None],
         "mcp_client_name": NotRequired[str | None],
@@ -590,7 +592,7 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     # Auth classes tag the query context with access_method during DRF dispatch
     # (personal_api_key, oauth, id_jag, ...); session auth leaves it unset.
     access_method = get_query_tag_value("access_method")
-    return {
+    analytics_props: AnalyticsProps = {
         "source": get_event_source(request),
         "$current_url": current_url,
         "$host": host,
@@ -601,6 +603,9 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
     }
+    if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
+        analytics_props["http_request_id"] = str(http_request_id)
+    return analytics_props
 
 
 _tracer = trace.get_tracer(__name__)
