@@ -71,6 +71,11 @@ class FakeBigQueryClient:
     def create_dataset(self, name: str, exists_ok: bool = False) -> None:
         self.datasets.add(name)
 
+    def get_dataset(self, name: str) -> str:
+        if name not in self.datasets:
+            raise NotFound(f"Not found: Dataset {name}")
+        return name
+
     def get_table(self, ref: str | bigquery.Table) -> FakeTable:
         name = _ref_of(ref)
         if name not in self.tables:

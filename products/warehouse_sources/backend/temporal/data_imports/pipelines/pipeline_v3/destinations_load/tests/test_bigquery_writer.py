@@ -234,6 +234,19 @@ class TestConfigValidation:
         with pytest.raises(DestinationConfigurationError, match="Data Editor"):
             await writer.prepare_run(_ctx())
 
+    @pytest.mark.asyncio
+    async def test_an_existing_dataset_needs_no_permission_to_create_one(self) -> None:
+        client = FakeBigQueryClient()
+        client.datasets.add("proj.dataset")
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden("Access Denied: Project proj: User does not have bigquery.datasets.create permission")
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        await _deliver(writer, _ctx(), _rows([1], ["a"]), 0, is_final=True)
+
+        assert _read(client) == [(1, "a")]
+
 
 @pytest.mark.asyncio
 class TestFullRefresh:

@@ -258,7 +258,13 @@ class BigQueryDestinationWriter:
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
         def ensure_dataset() -> None:
             client = self._get_client()
-            client.create_dataset(f"{self._project}.{self._dataset}", exists_ok=True)
+            dataset_ref = f"{self._project}.{self._dataset}"
+            # Read first: `create_dataset` needs project-level `bigquery.datasets.create` even with
+            # `exists_ok=True`, which an account granted access to the dataset alone does not have.
+            try:
+                client.get_dataset(dataset_ref)
+            except NotFound:
+                client.create_dataset(dataset_ref, exists_ok=True)
 
         with self._permission_errors_as_configuration_error():
             await sync_to_async(ensure_dataset, thread_sensitive=False)()
