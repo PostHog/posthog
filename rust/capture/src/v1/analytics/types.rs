@@ -514,9 +514,7 @@ impl Publishable for WrappedEvent {
 }
 
 impl WrappedEvent {
-    /// The `$`-prefixed properties legacy ingestion expects, as a JSON fragment
-    /// to splice into the raw properties. Splicing avoids a `serde_json::Value`
-    /// round trip, so the client's property order and formatting stay intact.
+    /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
@@ -568,8 +566,8 @@ impl WrappedEvent {
         Ok(buf)
     }
 
-    /// Build spliced properties if injection is needed, or return None
-    /// to signal the caller should borrow `self.event.properties` directly.
+    /// Appends the injected pairs inside the client's raw properties object,
+    /// so capture never parses the properties. Returns None when nothing is injected.
     fn build_spliced_properties(
         &self,
         ctx: &RequestContext,
