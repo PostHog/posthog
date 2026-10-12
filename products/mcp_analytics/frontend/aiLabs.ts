@@ -39,6 +39,38 @@ export function foldedModelLabel(model: string): string {
     return otherModelsLabel(model === 'Other' ? 'Other' : modelLab(model))
 }
 
+// Matches the posthog.com MCP leaderboard, which names the same number of models on its model chart.
+export const TOP_MODEL_COUNT = 10
+
+export function topModels(totals: Iterable<[model: string, calls: number]>): Set<string> {
+    return new Set(
+        [...totals]
+            .filter(([model]) => model !== 'Other' && model !== UNKNOWN)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, TOP_MODEL_COUNT)
+            .map(([model]) => model)
+    )
+}
+
+// The row each model shows in on the model charts. A lab with a single model outside the top keeps that
+// model's name, because a one-model "Other <lab> models" row only hides it.
+export function modelRowLabels(models: string[], top: ReadonlySet<string>): Map<string, string> {
+    const leftovers = new Map<string, number>()
+    for (const model of models) {
+        if (!top.has(model)) {
+            const label = foldedModelLabel(model)
+            leftovers.set(label, (leftovers.get(label) ?? 0) + 1)
+        }
+    }
+    return new Map(
+        models.map((model) => {
+            const label = foldedModelLabel(model)
+            const keepsName = top.has(model) || (model !== 'Other' && leftovers.get(label) === 1)
+            return [model, keepsName ? model : label]
+        })
+    )
+}
+
 export function isFoldedModelsLabel(label: string): boolean {
     return LAB_ORDER.some((lab) => otherModelsLabel(lab) === label)
 }

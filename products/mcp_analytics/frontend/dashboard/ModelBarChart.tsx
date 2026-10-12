@@ -45,17 +45,24 @@ export function ModelBarChart({
     theme,
     filters = {},
     colorOf,
+    topModels,
 }: {
     rows: ModelRow[]
     theme: ChartTheme
     filters?: HogQLFilters
     /** Pass the page's model colors when another chart on the page also shows models. */
     colorOf?: (model: string) => string | undefined
+    /** Pass the page's top models when another chart on the page also names models. */
+    topModels?: ReadonlySet<string>
 }): JSX.Element {
     const logic = modelBreakdownLogic({ filters })
     const { expanded, modelPageLoading } = useValues(logic)
     const { setExpanded } = useActions(logic)
-    const { totalCalls, unknownCalls, rankedModels: sortedRows } = useMemo(() => summarizeModelBreakdown(rows), [rows])
+    const {
+        totalCalls,
+        unknownCalls,
+        rankedModels: sortedRows,
+    } = useMemo(() => summarizeModelBreakdown(rows, topModels), [rows, topModels])
     const chartRows = useMemo<ShareBarRow<ModelRow>[]>(() => {
         const ownColors = modelColors(
             theme,
@@ -114,7 +121,7 @@ export function ModelBarChart({
                                     {formatNumber(unknownCalls)} calls have no model identifier. Model names are
                                     reported by clients or agents.
                                     {sortedRows.some((row) => isFoldedModelsLabel(row.model))
-                                        ? ' Models outside the top six are grouped by AI lab.'
+                                        ? ' Models outside the top 10 are grouped by AI lab.'
                                         : ''}
                                 </>
                             }

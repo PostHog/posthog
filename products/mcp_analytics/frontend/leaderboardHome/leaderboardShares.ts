@@ -1,6 +1,6 @@
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
-import { foldedModelLabel, isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, seriesLab } from '../aiLabs'
+import { isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, modelRowLabels, seriesLab } from '../aiLabs'
 import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
 
 export interface BucketedFacetRow {
@@ -92,20 +92,14 @@ export function buildShareSeries(
 
 // The top models keep their own series, and each lab's other models fold into one series per lab. Series
 // are ordered by lab, so a lab's shades stack together and the chart still shows each lab's whole share.
-export function buildModelShareSeries(rows: BucketedFacetRow[], bucketKeys: string[], topCount: number): ShareSeries[] {
+export function buildModelShareSeries(
+    rows: BucketedFacetRow[],
+    bucketKeys: string[],
+    top: ReadonlySet<string>
+): ShareSeries[] {
     const named = rows.filter((row) => row.label !== UNKNOWN)
-    const totals = new Map<string, number>()
-    for (const row of named) {
-        totals.set(row.label, (totals.get(row.label) ?? 0) + row.calls)
-    }
-    const top = new Set(
-        [...totals.entries()]
-            .filter(([label]) => label !== OTHER)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, topCount)
-            .map(([label]) => label)
-    )
-    const groupOf = (label: string): string => (top.has(label) ? label : foldedModelLabel(label))
+    const rowLabels = modelRowLabels([...new Set(named.map((row) => row.label))], top)
+    const groupOf = (label: string): string => rowLabels.get(label) ?? label
     return buildShareSeries(named, bucketKeys, groupOf, Infinity).sort(
         (a, b) =>
             LAB_ORDER.indexOf(seriesLab(a.label)) - LAB_ORDER.indexOf(seriesLab(b.label)) ||

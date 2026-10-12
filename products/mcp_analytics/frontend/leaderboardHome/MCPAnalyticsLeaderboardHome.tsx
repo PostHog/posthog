@@ -68,6 +68,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         scoreboardShares,
         modelSeries,
         pageModels,
+        topModelNames,
         labSeries,
         protocolVersionSeries,
         reliabilitySeries,
@@ -170,7 +171,13 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             <Skeleton className="h-48 w-full" />
                         </Card>
                     ) : (
-                        <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} colorOf={modelColorOf} />
+                        <ModelBarChart
+                            rows={modelRows}
+                            theme={theme}
+                            filters={queryFilters}
+                            colorOf={modelColorOf}
+                            topModels={topModelNames}
+                        />
                     )}
                 </TwoColumns>
                 <TwoColumns>

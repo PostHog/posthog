@@ -24,7 +24,7 @@ describe('model breakdown', () => {
         expect(rows[0].model).toBe('Unknown')
     })
 
-    it('keeps the top six models and folds the rest into one row per AI lab, with lab-less models last', () => {
+    it('names the top models and lone leftovers, and folds the rest into one row per AI lab', () => {
         const rows = [
             { model: 'claude-opus-5-5', total_calls: 70 },
             { model: 'gpt-6', total_calls: 60 },
@@ -39,8 +39,10 @@ describe('model breakdown', () => {
             { model: 'Other', total_calls: 1 },
         ]
 
+        const top = new Set(rows.slice(0, 6).map((row) => row.model))
+
         expect(
-            summarizeModelBreakdown(rows).rankedModels.map(({ model, total_calls }) => [model, total_calls])
+            summarizeModelBreakdown(rows, top).rankedModels.map(({ model, total_calls }) => [model, total_calls])
         ).toEqual([
             ['claude-opus-5-5', 70],
             ['gpt-6', 60],
@@ -48,8 +50,8 @@ describe('model breakdown', () => {
             ['claude-fable-5-1', 40],
             ['grok-4.7', 30],
             ['claude-sonnet-5', 20],
+            ['gpt-5', 4],
             ['Other Anthropic models', 5],
-            ['Other OpenAI models', 4],
             ['Other models', 10],
         ])
     })

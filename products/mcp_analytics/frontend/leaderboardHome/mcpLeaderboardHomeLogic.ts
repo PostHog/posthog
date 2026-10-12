@@ -8,7 +8,7 @@ import { normalizeBucket } from 'lib/utils/timeBuckets'
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { labSqlExpression, modelLab } from '../aiLabs'
+import { labSqlExpression, modelLab, topModels } from '../aiLabs'
 import { summarizeModelBreakdown } from '../dashboard/modelBreakdown'
 import { bucketExpr, mcpDashboardOverviewLogic, type ModelRow } from '../mcpDashboardOverviewLogic'
 import {
@@ -29,8 +29,6 @@ import {
 } from './leaderboardShares'
 
 const MODEL_SERIES_LIMIT = 8
-// Matches the posthog.com MCP leaderboard, which stacks its model chart the same way.
-const TOP_MODEL_SERIES = 10
 const PROTOCOL_SERIES_LIMIT = 5
 
 // Key on the canonical event only, like the overview queries. `{filters}` carries the date range,
@@ -161,6 +159,7 @@ export interface mcpLeaderboardHomeLogicValues {
     leaderboardLoading: boolean
     modelSeries: ShareSeries[]
     pageModels: string[]
+    topModelNames: Set<string>
     protocolVersionSeries: ShareSeries[]
     reliabilityFailed: boolean
     reliabilityRows: ReliabilityRow[]
@@ -220,9 +219,10 @@ export interface mcpLeaderboardHomeLogicMeta {
             labShares: LabShare[],
             facets: LeaderboardFacets
         ) => LabShare[]
-        modelSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
+        topModelNames: (facets: LeaderboardFacets) => Set<string>
+        modelSeries: (facets: LeaderboardFacets, bucketKeys: string[], topModelNames: Set<string>) => ShareSeries[]
         labSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
-        pageModels: (modelRows: ModelRow[], modelSeries: ShareSeries[]) => string[]
+        pageModels: (modelRows: ModelRow[], modelSeries: ShareSeries[], topModelNames: Set<string>) => string[]
         protocolVersionSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         reliabilitySeries: (reliabilityRows: ReliabilityRow[], bucketKeys: string[]) => ReliabilitySeries
     }
@@ -327,10 +327,20 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                 return usersFailed ? [] : buildLabUserShares(facets.labUsers, facets.namedModelUsers)
             },
         ],
+        topModelNames: [
+            (s) => [s.facets],
+            (facets: LeaderboardFacets): Set<string> => {
+                const totals = new Map<string, number>()
+                for (const row of facets.model) {
+                    totals.set(row.label, (totals.get(row.label) ?? 0) + row.calls)
+                }
+                return topModels(totals)
+            },
+        ],
         modelSeries: [
-            (s) => [s.facets, s.bucketKeys],
-            (facets: LeaderboardFacets, bucketKeys: string[]): ShareSeries[] =>
-                buildModelShareSeries(facets.model, bucketKeys, TOP_MODEL_SERIES),
+            (s) => [s.facets, s.bucketKeys, s.topModelNames],
+            (facets: LeaderboardFacets, bucketKeys: string[], topModelNames: Set<string>): ShareSeries[] =>
+                buildModelShareSeries(facets.model, bucketKeys, topModelNames),
         ],
         labSeries: [
             (s) => [s.facets, s.bucketKeys],
@@ -343,10 +353,10 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                 ),
         ],
         pageModels: [
-            (s) => [s.modelRows, s.modelSeries],
-            (modelRows: ModelRow[], modelSeries: ShareSeries[]): string[] => [
+            (s) => [s.modelRows, s.modelSeries, s.topModelNames],
+            (modelRows: ModelRow[], modelSeries: ShareSeries[], topModelNames: Set<string>): string[] => [
                 ...modelSeries.map((series) => series.label),
-                ...summarizeModelBreakdown(modelRows).rankedModels.map((row) => row.model),
+                ...summarizeModelBreakdown(modelRows, topModelNames).rankedModels.map((row) => row.model),
             ],
         ],
         protocolVersionSeries: [

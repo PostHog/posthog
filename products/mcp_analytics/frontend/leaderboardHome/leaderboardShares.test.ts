@@ -21,23 +21,25 @@ const labShare = (lab: LabShare['lab'], share: number): LabShare => ({ lab, shar
 const windowRow = (label: string, calls: number): WindowFacetRow => ({ label, calls, users: 1, errors: 0 })
 
 describe('leaderboardShares', () => {
-    it('keeps the top models and folds the rest into one series per lab, ordered by lab', () => {
+    it('names the top models and lone leftovers, folds the rest per lab, and orders series by lab', () => {
         const rows = [
             row('d1', 'gpt-6', 50),
             row('d1', 'claude-opus-5-5', 40),
             row('d1', 'claude-haiku-5', 5),
+            row('d1', 'claude-opus-4-8', 2),
             row('d1', 'gpt-5', 4),
             row('d1', 'grok-4.7', 3),
             row('d1', 'example-custom-model', 2),
+            row('d1', 'Other', 1),
             row('d1', 'Unknown', 99),
         ]
-        expect(buildModelShareSeries(rows, ['d1'], 2)).toEqual([
+        expect(buildModelShareSeries(rows, ['d1'], new Set(['gpt-6', 'claude-opus-5-5']))).toEqual([
             { label: 'claude-opus-5-5', data: [40] },
-            { label: 'Other Anthropic models', data: [5] },
+            { label: 'Other Anthropic models', data: [7] },
             { label: 'gpt-6', data: [50] },
-            { label: 'Other OpenAI models', data: [4] },
-            { label: 'Other xAI models', data: [3] },
-            { label: 'Other models', data: [2] },
+            { label: 'gpt-5', data: [4] },
+            { label: 'grok-4.7', data: [3] },
+            { label: 'Other models', data: [3] },
         ])
     })
 
