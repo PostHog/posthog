@@ -204,6 +204,7 @@ impl PersonCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::codec::tests::{person_properties, trained_codec};
 
     /// Proto3 encodes an absent bytes field as empty, and every leader
     /// write path serializes at least `{}` — so empty properties can
@@ -311,6 +312,42 @@ mod tests {
             cached.parse_properties().unwrap()["email"],
             "test@example.com"
         );
+    }
+
+    #[test]
+    fn compressed_entries_read_back_whole_and_weigh_less() {
+        let key = PersonCacheKey {
+            team_id: 42,
+            person_id: 1,
+        };
+        let mut person = test_person();
+        person.properties = person_properties(10_001);
+        let raw = PersonCache::new(1 << 20, Arc::new(PropertiesCodec::disabled()));
+        let compressed = PersonCache::new(1 << 20, Arc::new(trained_codec()));
+
+        for cache in [&raw, &compressed] {
+            cache.put(key.clone(), person.clone());
+            assert_eq!(cache.get(&key).unwrap().properties, person.properties);
+        }
+        assert!(compressed.usage_bytes() < raw.usage_bytes());
+    }
+
+    #[test]
+    fn an_entry_that_fails_to_decode_reads_as_a_miss_and_leaves_the_cache() {
+        let cache = PersonCache::new(1 << 20, Arc::new(PropertiesCodec::disabled()));
+        let key = PersonCacheKey {
+            team_id: 42,
+            person_id: 1,
+        };
+        let mut person = test_person();
+        person.properties = person_properties(10_001);
+        // A codec without a dictionary cannot decode a compressed frame, which stands in for a corrupt entry.
+        cache
+            .inner
+            .insert(key.clone(), StoredPerson::new(person, &trained_codec()));
+
+        assert!(cache.get(&key).is_none());
+        assert!(cache.peek(&key).is_none());
     }
 
     #[test]

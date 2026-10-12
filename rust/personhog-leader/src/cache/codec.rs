@@ -257,10 +257,10 @@ fn new_compressor() -> CCtx<'static> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
-    fn person_properties(seed: usize) -> Vec<u8> {
+    pub(in crate::cache) fn person_properties(seed: usize) -> Vec<u8> {
         let browsers = ["Chrome", "Safari", "Firefox", "Microsoft Edge"];
         let systems = ["Mac OS X", "Windows", "iOS", "Android", "Linux"];
         let countries = [("US", "United States"), ("DE", "Germany"), ("BR", "Brazil")];
@@ -293,7 +293,7 @@ mod tests {
         .unwrap()
     }
 
-    fn trained_codec() -> PropertiesCodec {
+    pub(in crate::cache) fn trained_codec() -> PropertiesCodec {
         let mut samples = Samples::default();
         for seed in 0..4_000 {
             let document = person_properties(seed);
