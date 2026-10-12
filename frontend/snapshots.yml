@@ -2885,25 +2885,29 @@ snapshots:
     data-quality-check-runs-table--every-check-type--light:
         hash: v1.k794b7964.dcb1f39625722782dbed6ce97b61684a7664c7d08034cefbb72cb32b6e97e3f3.c33MSTfBglNRA-pjdWyRCUxT8tOVGzg5lGO2CxSEyRc
     data-warehouse-destinationlist--both-selected--dark:
-        hash: v1.k794b7964.5da0169833ea8b87e6d903cb4fc0f4d629a1b1db09149c5fb7c450ef312641a0.MH4OyaTjM18a4cpxtpCHPVm1QWWajZL5cz4NlzbJag0
+        hash: v1.k794b7964.d648b7c9407d9f313e7dcffb5c56de3c517be9316e63596a9036eafbb7c226ec.Ycc98FBC8pZoyR-dZmRDz4909xDSaTV0OGoYe1jK8_8
     data-warehouse-destinationlist--both-selected--light:
-        hash: v1.k794b7964.a04d9a8cba7e3e7a4b16d0fd133b56d13252bbfde561fed7f83a1c1250c0fe3a.QLsXpO4tjZq831U9SXfJZXkcyn-XAcB3nbUbTS-1bMk
+        hash: v1.k794b7964.326d315afac64096786cc8354bda907e342bc8717344d246c83e35dd5b3bd03b.lDj0tjVWz6uiEPUUumPPn0iJQR9tN1mTlstLWPFTBgI
     data-warehouse-destinationlist--empty--dark:
-        hash: v1.k794b7964.5b25d5e8ff014a4cb34ffcbfc7568fba8c19aadd692de77f37ec0970151d1eff.GE7T2nmnyyFVA1ZACg7wjJRx7eVZW5Ci4hK_P_iRC_o
+        hash: v1.k794b7964.f1debcbee5fe364a6a46dd39bea2bfea7d64db7d7d29a703c1b7551382cd2b50.LZ4jLPpmTG4ehmyccsDPT-oMMI-Mx7CzoZJiseQXrLs
     data-warehouse-destinationlist--empty--light:
-        hash: v1.k794b7964.8241ee0362b2f6e0073de7f30f5c68afa47f4f23e313276d671bbf78ba91ae16.cRck4PSG75RYtojOnzBPN6f9aOLZ83w_l85Ej5iyHts
+        hash: v1.k794b7964.f80fb45986e3063aeb5698c1f7695274a783200fd13d5456e730e4d6b07da7c5.WvYKontgHi-tzcGJSZSoLsjw4SfQLUtehaJK4c76Obs
+    data-warehouse-destinationlist--failing-and-paused--dark:
+        hash: v1.k794b7964.7a572b92a88627cb9fb2aeb9179677072d9825c581c6b8d9c471a628a991e1f9.0s2eVfPNwjQBpAOHNFctF0mAgAC2Eu4vpuyzkYVdLlU
+    data-warehouse-destinationlist--failing-and-paused--light:
+        hash: v1.k794b7964.303a48fd553d4722fa998241f3fcf11f840af648801863d54dc098dfd5ae01a4.hF7crAYfdMF91PIZD7vtU6Uu3pYdC4Jq-BXNHrAc5S4
     data-warehouse-destinationlist--inherited-from-source--dark:
-        hash: v1.k794b7964.c44f001cbc728edba036e401f6e284d3771a19a953c51a7aae1124096515f739.7BBFxPH7l4SOWD9KSIzfxgZFC_L4DOphrRTO0x-CP3o
+        hash: v1.k794b7964.d0caf80b9098ff7dfb5aafa4cd832fbc0aa798fa83c72b7907634a87d2ff8f8e.l9jtP2BIZBRDddnLjVr0yyAg9fwX8D4JDvYqJdeWbKg
     data-warehouse-destinationlist--inherited-from-source--light:
-        hash: v1.k794b7964.8ea1a2db6498c4a2231dab1588b6aa597ce0ca5397d3d0ed4046992470aba010.EJx53hPzMGFBUAmL36EmpGmdU0DGn4c4sZwOfF-r0FQ
+        hash: v1.k794b7964.3088c8bdf847a99b038864ad6ae14959ef1220234139cc83686eff75de3f1fbd.LXZDZrofinLxHkPX0-HDLO9diEO2jEVjoRO8EiOLoWc
     data-warehouse-destinationlist--loading--dark:
-        hash: v1.k794b7964.4c547e76477fd7c16c982f60a56ccda8227f3e879a4ca085c219547eb57dd47b.ZUTg5YvL_d_0vftz7fV8wEwsKx6gJKBfEsocNyW_MiE
+        hash: v1.k794b7964.659ef1676e6edd45b4ae6b8b627247d5cb5491f431e6ca77520b48a393d51114._NuI7mGnixai_oFaQ9oLtRzf8hzeTb2BdKq5TXBQM44
     data-warehouse-destinationlist--loading--light:
-        hash: v1.k794b7964.478218b655fde7084770f8fdddc604238523e073c3f55fc1d32082794e4a8b51.U7PeVHVYl24e9YeBMAZq_B6WuJHPqJc2gY9xzjvdpI0
+        hash: v1.k794b7964.c39fdf7b1941eb8ae8787a8058539b9102209721f83fe028fe5203ca41c7651f.OSwdcM3zZqg3nNjtCIG5mzpz0YwIBRxe67psRopg6I0
     data-warehouse-destinationlist--only-one-left--dark:
-        hash: v1.k794b7964.9b522de92c0ec0977626e3e694a64ceceda80fa691f50c490c906a06b012d0dd.ai1KpccNrHIv4qosfkQoeeTHQ1hkIw2rvoNF7Q3Yriw
+        hash: v1.k794b7964.2d479ebd1c383eb672bcb74c6796fc2cf69aa268e0fe6053fde76f4c0a6eadfe.nNKov9e5SycI4zwdu-l78YbtMy59knjaA-rg1WIedq0
     data-warehouse-destinationlist--only-one-left--light:
-        hash: v1.k794b7964.e73d80636fa8aec2163ca81b6615ab5ae432296f391a74623cda19d1ab34f542.RCgSTjXC1oN6_ir0V3CST_szMCiJdf6beKhAr2rg4wA
+        hash: v1.k794b7964.2f70feb2e05f2129de0d19e6bdf5a81d8433b42edb432aa07859134b7c4f38c2.poFAm0KBjGn277ZpXuTVser9G-m00hU1-Fa28NmuwlQ
     data-warehouse-destinationmodal--azure-blob--dark:
         hash: v1.k794b7964.59e2fab0e54439f87a02d90e578b6fc21984cfc817f576ad58ec2d941cdb224b.A4nwKDTtbyovK35VoGF_AGLHAF5LjiPQ6z4H8-22DVc
     data-warehouse-destinationmodal--azure-blob--light:
@@ -2932,6 +2936,10 @@ snapshots:
         hash: v1.k794b7964.7850b437d0b757b20409473a16858b9ef875f35021e592521bdf94b2876e85c5.ix5aXJkl2sMIrSYeEmiT_OgH7Eb94qxUEEAt_DvutJk
     data-warehouse-jobdestinations--destination-since-deleted--light:
         hash: v1.k794b7964.1006a4fb83ff9f0134af7e919f30ca873aac4f04b8dfd068eb631717a884d43d.tkCjdAFZpkv34Y6e9vv--B5P7ZPcYHIGZJl6wb26oVc
+    data-warehouse-jobdestinations--failed-destination--dark:
+        hash: v1.k794b7964.17c2c5e8b85a6af4d417f818f3c077e9862a64338e171c6b8e02978adf86a993.w4amGcAYmsd7N-Ay6xMdpJxOFld_UbYTx2nHh4iSFGI
+    data-warehouse-jobdestinations--failed-destination--light:
+        hash: v1.k794b7964.73e9ac3026278e9f1b32cc431a87afc74c837a47c3af524fd97277d61bad02b1.NXNH61CJt-weLa-WNHbrlPWcVkQ62HPq-Nu7D694fkw
     data-warehouse-jobdestinations--still-loading--dark:
         hash: v1.k794b7964.dea76b53ba18d6bfe40ecb75b1a64fab690266a082624956d99f67a6e0b6ebf8.xA22JNcrso3fgiZdWGiwIW94beEQN4ka7hHIwybKxSo
     data-warehouse-jobdestinations--still-loading--light:
@@ -9914,6 +9922,18 @@ snapshots:
         hash: v1.k794b7964.29db22c3b08716e199dd09fcfe32c7c924d4333c23bcbc3469e474f9352e74fd.tTXVCBk9y3Ra_laJOUeUKRXcwuzKWb5FIL1sQ4DEBP8
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--without-sunset-date--light:
         hash: v1.k794b7964.5538a3b913cdaf075ffa11b124181028792db175d494b4ddfc464b7c136abad1.lRLOGn7WM05iOpm8oCLLc5FkYge6teK_L_hm0JgjlLE
+    scenes-app-data-warehouse-settings-failing-destinations--failing--dark:
+        hash: v1.k794b7964.a651994f6cd70bc511e6fba3bdd4c78c15645b00976629e0bbc4c5adfa2afc15.vOV5UFp5NoRhaH55e7JHcrFTB9AEDgC55uSvQSZmw5A
+    scenes-app-data-warehouse-settings-failing-destinations--failing--light:
+        hash: v1.k794b7964.340eb07d7104bbcc935d852f2e36e316c3e6cd2e4e452cb66cc8600b0d89b9fb.J-QMiEKZrFdW7aSWLOJ8EtIlNI3mbQiB7WzCP6XsxVY
+    scenes-app-data-warehouse-settings-failing-destinations--failing-and-paused--dark:
+        hash: v1.k794b7964.14e7d94f4b4e90f88eecffd71df505932db9101ad4eaf48191b4fefbfa540577.4v_pI4tzZqr0OTiibkrdqZmT0niWJ6Ruey1SnkJeH4U
+    scenes-app-data-warehouse-settings-failing-destinations--failing-and-paused--light:
+        hash: v1.k794b7964.e0605c560a64a89ad334131ba40d07641ec1bc61d370452177a49ba494c83889.82lARqhfzYriD2Ybd-kaWw_VOqeIvicyK4DSsRHIEiM
+    scenes-app-data-warehouse-settings-failing-destinations--paused--dark:
+        hash: v1.k794b7964.f9f8fa8cc5110f61d298be468c1297dec857277af660fe9a2e1eced57dbf4f51.4akPWjaPOB4FuYiqYbuhoIvDyVBbS5_HP-WJfzarEjw
+    scenes-app-data-warehouse-settings-failing-destinations--paused--light:
+        hash: v1.k794b7964.97ea2ed405206dc8d86b16af69c4168b60bba272ed4927cd17b1da68b5ff9985._-h3M823TnnKmaHHOpaKaf1i2yM7T922YzMMRhestso
     scenes-app-data-warehouse-settings-schemas--default--dark:
         hash: v1.k794b7964.2731d66d7ae4e5a789e0fc6f8a331b259cbcb3ec25416c79fe3a1ce3e583fdbc.Dgzs4lWk8hphWWfySWhK75GKpeq4fzL3Z9KAkrVVl80
     scenes-app-data-warehouse-settings-schemas--default--light:
@@ -13093,7 +13113,7 @@ snapshots:
     scenes-app-posthog-ai--thread-scrolls-to-bottom-on-new-messages--dark:
         hash: v1.k794b7964.6308f9e71b7f609897baee5c5fe5af1deb321882ecb0761fbf22051bb6531999.YXmikTdEmed3mJWRiglAFw66r284ajZbdJI5sT8kUAI
     scenes-app-posthog-ai--thread-scrolls-to-bottom-on-new-messages--light:
-        hash: v1.k794b7964.13bce2f4f6ed0899909ef5a6261c72f409fe30a7ec4c6a1c02e7c4eb090374d4.kbYsuacysknHFSd2MtkTXvrnkzsH-OsDPL3pVHUwBuU
+        hash: v1.k794b7964.190ad314871531acde732e698d8da8e63e9251c0798a1ccf70f2b45ddadd8018.MmIUN_Gb-WT6cHpmMOCW9VjzM4jWjgTB_fIP1ztNsM0
     scenes-app-posthog-ai--thread-with-billing-limit-exceeded--dark:
         hash: v1.k794b7964.a0d21c8c69c049c37c367b855ea3dd19101d1194a9acf37dfa02fc3207be2351.L7hSSTjk8fML5gmTu4hX60CZJZ1S6pbMxZ_kefFURNs
     scenes-app-posthog-ai--thread-with-billing-limit-exceeded--light:
