@@ -981,7 +981,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         ]
     )
     def test_secret_dictionary_restores_masked_entries(self, _name, sent, expected):
-        serializer = MappingsSerializer(
+        serializer = FunctionInputsSerializer(
             data={
                 "inputs_schema": [
                     {"key": "secret_headers", "type": "dictionary", "required": False, "secret": True},
