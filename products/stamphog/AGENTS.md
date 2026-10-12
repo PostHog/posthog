@@ -187,14 +187,14 @@ The requester's own GitHub access is not checked; the `stamphog:write` scope and
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
-## Automated review status (PostHog Review)
+## External review evidence
 
-- `facade/review_status.py` is a provider contract that stamphog owns. ReviewHog registers the provider at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports review_hog.
-- The provider answers per head (`pending`, `completed`, `failed`, or None). `list_in_flight_reviewer_bots` reads it on every wait poll and stores it as `run.output["review_status"]`. A pending review keeps the workflow waiting within the bot-wait budget. After any wait, `refresh_review_evidence` reads the reviews, the discussion and the threads again, because the context fetch ran before the wait.
-- In the engine, a review still pending for the head is a WAIT, never an approval. A completed review of the current head counts as current-head assurance in `_cap_assurance_facts` and shows in the assurance line and the posted verdict. Its published findings are review threads, so the unresolved-thread rule still applies to them.
-- An unregistered provider, a provider error, a status for another head, and `failed` all read as "no automated review": stamphog reviews as it would without the provider. An error must never read as a clean review.
+- `facade/review_evidence.py` is a registry of providers that stamphog owns. A product that reviews PRs and depends on stamphog (today review_hog, as PostHog Review) registers one at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports a provider's product.
+- Each provider answers per head (`pending`, `completed`, `failed`, or None). `list_in_flight_reviewer_bots` asks every provider on every wait poll and stores the answers as `run.output["review_evidence"]`. Any pending review keeps the workflow waiting within the bot-wait budget. After any wait, `refresh_review_evidence` reads the reviews, the discussion and the threads again, because the context fetch ran before the wait.
+- In the engine, any review still pending for the head is a WAIT, never an approval. Each completed review of the current head counts as current-head assurance in `_cap_assurance_facts` and gets its own line in the assurance summary and the posted verdict. Its published findings are review threads, so the unresolved-thread rule still applies to them.
+- A provider error is logged and skipped without affecting the other providers. An error, an answer for another head, and `failed` add no evidence, so stamphog reviews as it would without that provider. An error must never read as a clean review.
 - A WAIT has no automatic retry, and a Deep review outlasts the wait budget. So ReviewHog calls `facade/tasks.py::request_rereview_after_external_review` when a turn on a head completes or fails. The Celery task re-reviews only when the PR's latest run is COMPLETED with a WAIT verdict at that head, the head is still current, the run is not an inbox run, and every webhook gate passes again (open, payload pre-filters, trigger label unless the run was manual, author write access). It passes `replacing_run_id` to `_queue_review_at_head`, so the head dedupe ignores the WAIT run but still collapses repeated nudges into one run.
-- `posthog[bot]` is deliberately not a trusted reactor. Its 👀 is a cue for people, and the backend status replaces it for stamphog.
+- `posthog[bot]` is deliberately not a trusted reactor. Its 👀 is a cue for people, and the review evidence replaces it for stamphog.
 
 ## Trust boundaries
 

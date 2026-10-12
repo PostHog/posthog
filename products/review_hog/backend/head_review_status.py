@@ -1,8 +1,4 @@
-"""Where PostHog Review's review of one PR head stands, for stamphog.
-
-Stamphog waits for a pending review of the head it judges, and counts a completed one as
-independent assurance. It cannot import ReviewHog, so `receivers.connect()` registers
-`review_status_for_head` through the stamphog facade, importing this module only on first use.
+"""Where PostHog Review's review of one PR head stands. Read through `facade/review_status.py`.
 
 The answer is per head, unlike `pr_status.PRStatusLookup`, which reports "queued" for the whole PR.
 The database answers for turns that started: a running turn keeps the report ACTIVE on its head
@@ -13,8 +9,8 @@ workflow, so the workflow's `requested_heads` query answers for it.
 
 from datetime import timedelta
 
+from products.review_hog.backend.facade.contracts import HeadReviewState, HeadReviewStatus
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.ownership import RepositoryOwnership
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import load_turn_findings
 from products.review_hog.backend.reviewer.progress import (
@@ -28,11 +24,9 @@ from products.review_hog.backend.reviewer.progress import (
 from products.review_hog.backend.reviewer.review_state import turn_review_mode
 from products.review_hog.backend.temporal.client import queued_review_heads
 from products.review_hog.backend.temporal.types import review_pr_workflow_id
-from products.stamphog.backend.facade.review_status import ReviewStatus, ReviewStatusState
 
-REVIEWER_NAME = "PostHog Review"
 _KIND_NAMES = {REVIEW_MODE_FLASH: "Standard", REVIEW_MODE_FULL: "Deep"}
-# Stamphog polls every 30 seconds, so a slow queue answer must not hold its activity.
+# Callers poll, for example stamphog every 30 seconds, so a slow queue answer must not hold them.
 _QUERY_RPC_TIMEOUT = timedelta(seconds=2)
 
 
@@ -49,11 +43,10 @@ class HeadReviewStatusLookup:
         self.report_id = str(self.report.id) if self.report is not None else ""
 
     def _status(
-        self, state: ReviewStatusState, *, review_kind: str = "", findings_count: int = 0, published: bool = False
-    ) -> ReviewStatus:
-        return ReviewStatus(
+        self, state: HeadReviewState, *, review_kind: str = "", findings_count: int = 0, published: bool = False
+    ) -> HeadReviewStatus:
+        return HeadReviewStatus(
             state=state,
-            reviewer=REVIEWER_NAME,
             review_kind=review_kind,
             findings_count=findings_count,
             published=published,
@@ -79,7 +72,7 @@ class HeadReviewStatusLookup:
         # another head, that request is most likely the running turn itself.
         return None in heads and running_head is None
 
-    def _finished(self) -> ReviewStatus | None:
+    def _finished(self) -> HeadReviewStatus | None:
         report = self.report
         if report is None:
             return None
@@ -100,32 +93,24 @@ class HeadReviewStatusLookup:
             and marker.head_sha == self.head_sha
         }
         if not completed_runs:
-            return self._status(ReviewStatusState.FAILED) if failed_runs else None
+            return self._status(HeadReviewState.FAILED) if failed_runs else None
         run_index = max(completed_runs)
         # Finalize counts a turn before it publishes, so a failed publish marks a counted turn failed.
         if run_index in failed_runs:
-            return self._status(ReviewStatusState.FAILED)
+            return self._status(HeadReviewState.FAILED)
         pairs = load_turn_findings(team_id=self.team_id, report_id=self.report_id, run_index=run_index)
         counts, _ = finding_counts(pairs)
         marker = markers.get((self.report_id, run_index))
         review_mode = marker.review_mode if marker is not None else turn_review_mode(pairs)
         return self._status(
-            ReviewStatusState.COMPLETED,
+            HeadReviewState.COMPLETED,
             review_kind=_KIND_NAMES.get(review_mode, ""),
             findings_count=sum(counts.values()),
             published=(report.published_head_shas or {}).get(str(run_index)) == self.head_sha,
         )
 
-    def status(self) -> ReviewStatus | None:
+    def status(self) -> HeadReviewStatus | None:
         running_head = self._running_head()
         if running_head == self.head_sha or self._queued(running_head):
-            return self._status(ReviewStatusState.PENDING)
+            return self._status(HeadReviewState.PENDING)
         return self._finished()
-
-
-def review_status_for_head(repository: str, pr_number: int, head_sha: str) -> ReviewStatus | None:
-    """Stamphog's review status provider. None when no project reviews the repository."""
-    owner = RepositoryOwnership.find_by_name(repository)
-    if owner is None:
-        return None
-    return HeadReviewStatusLookup(owner.team_id, repository, pr_number, head_sha).status()

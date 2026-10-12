@@ -5,8 +5,10 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.review_hog.backend.facade.contracts import HeadReviewState
 from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
 from products.review_hog.backend.models import ReviewInstallationClaim, ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.receivers import review_evidence_for_stamphog
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
     TurnMarkerArtefact,
@@ -16,7 +18,7 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, RE
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.stamphog.backend.facade.review_status import ReviewStatusState, get_review_status_provider
+from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
 
 REPOSITORY = "PostHog/posthog"
 HEAD = "sha1"
@@ -122,23 +124,23 @@ class TestHeadReviewStatus(BaseTest):
 
     @parameterized.expand(
         [
-            ("queued_request_for_the_head", "_nothing", [HEAD], (ReviewStatusState.PENDING, "", 0, False)),
-            ("queued_request_for_the_live_head", "_nothing", [None], (ReviewStatusState.PENDING, "", 0, False)),
+            ("queued_request_for_the_head", "_nothing", [HEAD], (HeadReviewState.PENDING, "", 0, False)),
+            ("queued_request_for_the_live_head", "_nothing", [None], (HeadReviewState.PENDING, "", 0, False)),
             ("queued_request_for_another_head", "_nothing", [OLDER_HEAD], None),
-            ("running_turn", "_running_turn", [], (ReviewStatusState.PENDING, "", 0, False)),
-            ("publish_window", "_publish_window", [], (ReviewStatusState.PENDING, "", 0, False)),
+            ("running_turn", "_running_turn", [], (HeadReviewState.PENDING, "", 0, False)),
+            ("publish_window", "_publish_window", [], (HeadReviewState.PENDING, "", 0, False)),
             # A request without a head belongs to the turn that runs on the older head.
             ("headless_request_of_a_turn_on_another_head", "_turn_running_on_older_head", [None], None),
-            ("clean_standard_turn", "_clean_standard_turn", [], (ReviewStatusState.COMPLETED, "Standard", 0, False)),
+            ("clean_standard_turn", "_clean_standard_turn", [], (HeadReviewState.COMPLETED, "Standard", 0, False)),
             (
                 "deep_turn_with_published_findings",
                 "_deep_turn_with_published_findings",
                 [],
-                (ReviewStatusState.COMPLETED, "Deep", 2, True),
+                (HeadReviewState.COMPLETED, "Deep", 2, True),
             ),
             ("turn_on_an_older_head", "_turn_on_older_head", [], None),
-            ("failed_turn", "_failed_first_turn", [], (ReviewStatusState.FAILED, "", 0, False)),
-            ("failed_publish", "_failed_publish", [], (ReviewStatusState.FAILED, "", 0, False)),
+            ("failed_turn", "_failed_first_turn", [], (HeadReviewState.FAILED, "", 0, False)),
+            ("failed_publish", "_failed_publish", [], (HeadReviewState.FAILED, "", 0, False)),
         ]
     )
     def test_status_of_the_head(
@@ -146,7 +148,7 @@ class TestHeadReviewStatus(BaseTest):
         _name: str,
         scenario: str,
         queued_heads: list[str | None],
-        expected: tuple[ReviewStatusState, str, int, bool] | None,
+        expected: tuple[HeadReviewState, str, int, bool] | None,
     ) -> None:
         getattr(self, scenario)()
 
@@ -158,13 +160,12 @@ class TestHeadReviewStatus(BaseTest):
             return
         assert status is not None
         assert (status.state, status.review_kind, status.findings_count, status.published) == expected
-        assert (status.reviewer, status.head_sha) == ("PostHog Review", HEAD)
+        assert status.head_sha == HEAD
 
     @parameterized.expand([("owned", True), ("not_owned", False)])
     def test_provider_answers_only_for_a_repository_a_project_reviews(self, _name: str, owned: bool) -> None:
-        # Called through stamphog's registry, so a lost registration in AppConfig.ready() fails here too.
-        provider = get_review_status_provider()
-        assert provider is not None
+        # A lost registration in AppConfig.ready() would leave stamphog without this reviewer, silently.
+        assert review_evidence_for_stamphog in get_review_evidence_providers()
         Integration.objects.create(
             team=self.team, kind="github", integration_id="1001", config={"account": {"name": "PostHog"}}
         )
@@ -175,6 +176,14 @@ class TestHeadReviewStatus(BaseTest):
         self._clean_standard_turn()
 
         with patch(_QUEUE, return_value=[]):
-            status = provider(REPOSITORY, 5, HEAD)
+            evidence = review_evidence_for_stamphog(REPOSITORY, 5, HEAD)
 
-        assert (status.state if status else None) == (ReviewStatusState.COMPLETED if owned else None)
+        if owned:
+            assert evidence is not None
+            assert (evidence.state, evidence.reviewer, evidence.review_kind) == (
+                ReviewEvidenceState.COMPLETED,
+                "PostHog Review",
+                "Standard",
+            )
+        else:
+            assert evidence is None

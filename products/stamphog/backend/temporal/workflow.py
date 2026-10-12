@@ -133,7 +133,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     workflow.logger.warning(f"stamphog pre-gates failed for run {input.review_run_id}")
 
             if not refused_on_pre_gates:
-                # Wait out in-flight reviewers (fresh trusted-bot 👀, or a pending PostHog Review of
+                # Wait out in-flight reviewers (fresh trusted-bot 👀, or a pending external review of
                 # this head) before the review: the sandbox holds no token to poll GitHub with, so the
                 # Action's wait-and-poll lives here as durable timers. Each poll refreshes the stored
                 # reactions and review status; if the budget expires with a reviewer still in flight,

@@ -27,7 +27,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
-from products.stamphog.backend.facade.review_status import ReviewStatus, ReviewStatusState
+from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceState
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -1651,10 +1651,10 @@ def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stam
     assert result["in_flight"] == ["greptile-apps[bot]"]
 
 
-def _posthog_review(state: ReviewStatusState, head_sha: str) -> ReviewStatus:
-    return ReviewStatus(
+def _evidence(state: ReviewEvidenceState, head_sha: str, reviewer: str = "Reviewer A") -> ReviewEvidence:
+    return ReviewEvidence(
         state=state,
-        reviewer="PostHog Review",
+        reviewer=reviewer,
         review_kind="Standard",
         findings_count=0,
         published=False,
@@ -1662,41 +1662,49 @@ def _posthog_review(state: ReviewStatusState, head_sha: str) -> ReviewStatus:
     )
 
 
-def _failing_provider(repository: str, pr_number: int, head_sha: str) -> ReviewStatus | None:
-    raise RuntimeError("review status unavailable")
+def _failing_provider(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence | None:
+    raise RuntimeError("review evidence unavailable")
+
+
+def _pending_a(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence:
+    return _evidence(ReviewEvidenceState.PENDING, head_sha)
+
+
+def _completed_b(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence:
+    return _evidence(ReviewEvidenceState.COMPLETED, head_sha, reviewer="Reviewer B")
+
+
+def _pending_on_older_head(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence:
+    return _evidence(ReviewEvidenceState.PENDING, "sha-older")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "provider, in_flight, stored_state",
+    "providers, in_flight, stored",
     [
+        pytest.param((_pending_a,), ["Reviewer A"], [("Reviewer A", "pending")], id="pending-on-the-head-waits"),
+        pytest.param((_completed_b,), [], [("Reviewer B", "completed")], id="completed-is-stored-for-the-engine"),
         pytest.param(
-            lambda repo, number, head: _posthog_review(ReviewStatusState.PENDING, head),
-            ["PostHog Review"],
-            "pending",
-            id="pending-on-the-head-waits",
+            (_pending_a, _completed_b),
+            ["Reviewer A"],
+            [("Reviewer A", "pending"), ("Reviewer B", "completed")],
+            id="one-pending-keeps-waiting-beside-a-completed-one",
         ),
         pytest.param(
-            lambda repo, number, head: _posthog_review(ReviewStatusState.COMPLETED, head),
+            (_failing_provider, _completed_b),
             [],
-            "completed",
-            id="completed-is-stored-for-the-engine",
+            [("Reviewer B", "completed")],
+            id="a-failing-provider-does-not-hide-another",
         ),
-        pytest.param(
-            lambda repo, number, head: _posthog_review(ReviewStatusState.PENDING, "sha-older"),
-            [],
-            None,
-            id="another-head-is-ignored",
-        ),
-        pytest.param(_failing_provider, [], None, id="provider-error-reads-as-no-review"),
-        pytest.param(None, [], None, id="no-provider"),
+        pytest.param((_pending_on_older_head,), [], [], id="another-head-is-ignored"),
+        pytest.param((), [], [], id="no-provider"),
     ],
 )
-def test_review_status_provider_drives_the_reviewer_wait(
-    team, stamphog_chain: StamphogChain, provider, in_flight: list[str], stored_state: str | None
+def test_review_evidence_providers_drive_the_reviewer_wait(
+    team, stamphog_chain: StamphogChain, providers: tuple, in_flight: list[str], stored: list[tuple[str, str]]
 ) -> None:
-    # A provider error must read as "no review known", never as a finished one: a stored completed
-    # status is assurance the engine trusts without asking the model.
+    # A provider error must read as "no review known", never as a finished one: stored completed
+    # evidence is assurance the engine trusts without asking the model.
     repo_config = _repo_config(team.id)
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=121, author_login="devex-dev"
@@ -1705,15 +1713,14 @@ def test_review_status_provider_drives_the_reviewer_wait(
         team_id=team.id, pull_request=pull_request, head_sha="sha121a", status=ReviewRunStatus.QUEUED
     )
 
-    with patch.object(activities, "get_review_status_provider", return_value=provider):
+    with patch.object(activities, "get_review_evidence_providers", return_value=providers):
         result = _run_activity(
             list_in_flight_reviewer_bots, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
         )
 
     assert result["in_flight"] == in_flight
     run.refresh_from_db()
-    stored = run.output["review_status"]
-    assert (stored["state"] if stored else None) == stored_state
+    assert [(item["reviewer"], item["state"]) for item in run.output["review_evidence"]] == stored
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1736,15 +1743,14 @@ def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, s
     recorder.pr_reviews[(REPO, 122)] = [
         {"id": 7171, "state": "COMMENTED", "commit_id": head_sha, "user": {"login": "posthog[bot]", "type": "Bot"}}
     ]
-    completed = _posthog_review(ReviewStatusState.COMPLETED, head_sha)
-    with patch.object(activities, "get_review_status_provider", return_value=lambda *args: completed):
+    with patch.object(activities, "get_review_evidence_providers", return_value=(_completed_b,)):
         _run_activity(list_in_flight_reviewer_bots, inp)
     _run_activity(refresh_review_evidence, inp)
 
     run.refresh_from_db()
     context = json.loads(activities._review_invocation(run, None).context_json)
     assert [review["id"] for review in context["reviews"]] == [7171]
-    assert context["review_status"]["state"] == "completed"
+    assert [item["state"] for item in context["review_evidence"]] == ["completed"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

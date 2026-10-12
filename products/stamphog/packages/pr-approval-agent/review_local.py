@@ -251,9 +251,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
                 }
             )
 
-    review_status = context.get("review_status")
-    if not isinstance(review_status, dict):
-        review_status = None
+    review_evidence = [item for item in context.get("review_evidence") or [] if isinstance(item, dict)]
 
     return PRData(
         number=int(pr.get("number") or 0),
@@ -278,7 +276,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
-        review_status=review_status,
+        review_evidence=review_evidence,
     )
 
 
@@ -664,16 +662,17 @@ def run(context: dict) -> dict:
             }
             return pipeline.to_dict()
 
-        # The server waited for this review too, so a review still pending here outlasted the
+        # The server waited for these reviews too, so a review still pending here outlasted the
         # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
-        if gate_verdict != "DENIED" and (pending := pipeline.pr.head_review_status("pending")):
-            reviewer = pending.get("reviewer")
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.head_review_evidence("pending")):
+            reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
+            verb = "are" if len(pending) > 1 else "is"
             pipeline.final_verdict = "WAIT"
             pipeline.reviewer_output = {
                 "verdict": "WAIT",
                 "reasoning": (
-                    f"{reviewer} is still reviewing this commit, so stamphog does not approve yet. "
-                    f"The review runs again on the next push, or you can re-request it once {reviewer} finishes."
+                    f"{reviewers} {verb} still reviewing this commit, so stamphog does not approve yet. "
+                    "The review runs again on the next push, or you can re-request it once that review finishes."
                 ),
                 "risk": "unknown",
                 "issues": [],

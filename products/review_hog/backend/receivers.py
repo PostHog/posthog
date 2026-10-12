@@ -49,7 +49,11 @@ from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
-from products.stamphog.backend.facade.review_status import ReviewStatus, register_review_status_provider
+from products.stamphog.backend.facade.review_evidence import (
+    ReviewEvidence,
+    ReviewEvidenceState,
+    register_review_evidence_provider,
+)
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
 # posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
@@ -57,6 +61,9 @@ from products.stamphog.backend.facade.review_status import ReviewStatus, registe
 # function-local in _start_review / _start_stamphog_review per the budget test's own prescription.
 
 logger = logging.getLogger(__name__)
+
+# The name stamphog shows for these reviews, the same name the reviews carry on GitHub.
+REVIEWER_NAME = "PostHog Review"
 
 
 def connect() -> None:
@@ -71,14 +78,25 @@ def connect() -> None:
     register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)
     # Stamphog waits for a pending review of the head it judges and counts a completed one as
     # assurance. The same dependency cycle rules out a direct import.
-    register_review_status_provider(_review_status_for_head)
+    register_review_evidence_provider(review_evidence_for_stamphog)
 
 
-def _review_status_for_head(repository: str, pr_number: int, head_sha: str) -> ReviewStatus | None:
+def review_evidence_for_stamphog(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence | None:
+    """Map review_hog's own head status onto stamphog's evidence contract."""
     # The lookup reads the review pipeline's modules, which reach openai, anthropic and temporalio.
-    from products.review_hog.backend.head_review_status import review_status_for_head  # noqa: PLC0415
+    from products.review_hog.backend.facade.review_status import review_status_for_head  # noqa: PLC0415
 
-    return review_status_for_head(repository, pr_number, head_sha)
+    status = review_status_for_head(repository, pr_number, head_sha)
+    if status is None:
+        return None
+    return ReviewEvidence(
+        state=ReviewEvidenceState(status.state.value),
+        reviewer=REVIEWER_NAME,
+        review_kind=status.review_kind,
+        findings_count=status.findings_count,
+        published=status.published,
+        head_sha=status.head_sha,
+    )
 
 
 def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

@@ -177,7 +177,7 @@ _COMPLETED_REVIEW = {
                 "head_commented": 0,
                 "unresolved_threads": 2,
                 "discussion": 0,
-                "head_review_status": {**_COMPLETED_REVIEW, "findings_count": 2, "published": True},
+                "head_review_evidence": [{**_COMPLETED_REVIEW, "findings_count": 2, "published": True}],
             },
             "Assurance: PostHog Review (Deep) reviewed the current head: 2 findings, posted on the PR; "
             "2 unresolved inline threads",
@@ -268,7 +268,7 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
         ),
         pytest.param(
             _RISKY_FACTS,
-            {"assurance": {"head_review_status": _COMPLETED_REVIEW}},
+            {"assurance": {"head_review_evidence": [_COMPLETED_REVIEW]}},
             False,
             "APPROVE",
             id="completed-automated-review-assures",

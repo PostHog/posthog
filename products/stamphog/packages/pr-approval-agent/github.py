@@ -48,17 +48,18 @@ class PRData:
     # Every path the diff touches, unquoted: a rename's old and new name both. `files` names a
     # rename once, so a deny pattern would miss code moved out of a protected directory.
     touched_paths: list[str] = field(default_factory=list)
-    # Set by the hosted server from its own records of an automated review (PostHog Review): state,
+    # Set by the hosted server from the external reviewers it asked: one dict per reviewer with state,
     # reviewer, review_kind, findings_count, published and head_sha. Trusted metadata, never PR text.
-    # None for the Action, which has no such source.
-    review_status: dict | None = None
+    # Empty for the Action, which has no such source.
+    review_evidence: list[dict] = field(default_factory=list)
 
-    def head_review_status(self, state: str) -> dict | None:
-        """The automated review status when it is in ``state`` for the current head, else None."""
-        status = self.review_status
-        if status is None or status.get("head_sha") != self.head_sha or status.get("state") != state:
-            return None
-        return status
+    def head_review_evidence(self, state: str) -> list[dict]:
+        """The external reviews in ``state`` for the current head."""
+        return [
+            item
+            for item in self.review_evidence
+            if item.get("head_sha") == self.head_sha and item.get("state") == state
+        ]
 
     @property
     def stacked(self) -> bool:
@@ -91,16 +92,19 @@ class PRData:
         return any(f.get("status") == "A" for f in self.files)
 
 
-def describe_review_status(status: dict) -> str:
-    """One line on a completed automated review of the current head, for the prompt and the verdict."""
-    count = int(status.get("findings_count") or 0)
+def describe_review_evidence(evidence: dict) -> str:
+    """One line on a completed external review of the current head, for the prompt and the verdict."""
+    count = int(evidence.get("findings_count") or 0)
     if count == 0:
         findings = "no findings"
-    elif status.get("published"):
+    elif evidence.get("published"):
         findings = f"{count} finding{'' if count == 1 else 's'}, posted on the PR"
     else:
         findings = f"{count} finding{'' if count == 1 else 's'}, not posted on the PR"
-    return f"{status.get('reviewer')} ({status.get('review_kind')}) reviewed the current head: {findings}"
+    reviewer = evidence.get("reviewer")
+    kind = evidence.get("review_kind")
+    name = f"{reviewer} ({kind})" if kind else str(reviewer)
+    return f"{name} reviewed the current head: {findings}"
 
 
 _TRUSTED_ASSOCIATIONS = {"MEMBER", "OWNER", "COLLABORATOR"}

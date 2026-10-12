@@ -1773,3 +1773,13 @@ def rereview_after_external_review(repository: str, pr_number: int, head_sha: st
     )
     for repo_config in repo_configs:
         _rereview_waiting_run(repo_config, pr_number, head_sha)
+
+
+def request_rereview_after_external_review(*, repository: str, pr_number: int, head_sha: str) -> None:
+    """Tell stamphog that an automated review of ``head_sha`` finished, without waiting.
+
+    Called by review_hog when a review turn ends, completed or failed. Stamphog decides whether
+    anything happens: it re-reviews only a PR whose latest verdict is a WAIT at that head, while the
+    head is still current. Any other call is a no-op, so a caller may call it for every turn.
+    """
+    rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
