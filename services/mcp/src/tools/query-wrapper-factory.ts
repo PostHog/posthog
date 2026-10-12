@@ -59,6 +59,28 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     urlPrefix?: string
 }
 
+// The data schema tools list this label as a wildcard that matches all events, but the
+// query engine reads `event` as a literal name. An `EventsNode` with a `null` event is the
+// all-events representation, so the label is mapped to `null` before the query is sent.
+const ALL_EVENTS_LABEL = 'All events'
+
+function normalizeAllEventsLabel(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(normalizeAllEventsLabel)
+    }
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    const normalized: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value)) {
+        normalized[key] = normalizeAllEventsLabel(item)
+    }
+    if (normalized.kind === 'EventsNode' && normalized.event === ALL_EVENTS_LABEL) {
+        normalized.event = null
+    }
+    return normalized
+}
+
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
 
 function hasTestAccountFilterField(schema: ZodObjectAny): schema is z.ZodObject<z.ZodRawShape> {
@@ -180,7 +202,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 delete traceDetailParams[TRACE_DETAIL_FIELD]
             }
             const query: Record<string, unknown> = {
-                ...queryParams,
+                ...(normalizeAllEventsLabel(queryParams) as Record<string, unknown>),
                 kind: config.kind,
             }
             if (hasTestAccountFilterField(schema) && query[TEST_ACCOUNT_FILTER_FIELD] === undefined) {
