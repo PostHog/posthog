@@ -11,6 +11,7 @@ import warnings
 from pathlib import Path
 
 from parameterized import parameterized
+from repo_invariant_scan_scope import ScanScope
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "database_free_test_classes_baseline.txt"
@@ -141,7 +142,9 @@ def collect_candidates() -> list[str]:
     # so limiting it to test paths knows a fraction of the names and reports those bases.
     inherited: set[str] = set()
     found: list[tuple[str, str]] = []
-    for root in SCANNED_ROOTS:
+    # A scoped walk gathers the inherited names only inside the scope. That can only report more
+    # classes, never fewer, because no code outside a vendor imports its test classes.
+    for root in ScanScope.from_environment().roots(SCANNED_ROOTS):
         for path in (REPO_ROOT / root).rglob("*.py"):
             if SKIPPED_DIRS.intersection(path.parts):
                 continue
@@ -284,7 +287,8 @@ def write_baseline(candidates: list[str]) -> None:
 
 def test_database_free_test_classes_match_the_baseline() -> None:
     scanned = collect_candidates()
-    recorded = read_baseline()
+    scope = ScanScope.from_environment()
+    recorded = [line for line in read_baseline() if scope.covers(line.split("::")[0])]
     if scanned == recorded:
         return
 

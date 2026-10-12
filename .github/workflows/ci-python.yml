@@ -222,6 +222,8 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/actions/setup-python-cached/**
                         - .github/actions/setup-uv/**
+                        - tools/warehouse_sources_vendor_selection.py
+                        - tools/test_warehouse_sources_vendor_selection.py
 
     code-quality:
         needs: changes
@@ -597,37 +599,27 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            # A diff that stays inside vendor directories runs only those vendors. A vendor
-            # cannot import another vendor (tach and import-linter enforce that), so the tests
-            # of the other vendors cannot change. Any other file (the SDK, sources/conftest.py,
-            # the product, a manifest, this workflow) runs every vendor. A deleted vendor has
-            # no tests left to run.
-            - name: Select vendor tests
+            # A broken selector must fail here, before it narrows a run.
+            - name: Test the vendor selector
+              run: python tools/test_warehouse_sources_vendor_selection.py
+
+            # A pull request diff that stays inside vendor directories runs only those vendors.
+            # A vendor cannot import another vendor (tach and import-linter enforce that), so the
+            # other vendors cannot change. Any other file (the SDK, sources/conftest.py, the
+            # product, a manifest, this workflow) selects the full run. The merge queue, the
+            # hourly run and a manual run have no pull request diff to narrow by, so they also
+            # take the full run.
+            - name: Select vendors
               id: select
               env:
                   EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REF: ${{ github.head_ref }}
               run: |
-                  if [ "$EVENT_NAME" != "pull_request" ]; then
-                      echo "targets=sources/" >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
-                  run_all=false
-                  vendors=()
-                  while IFS= read -r file; do
-                      vendor=$(echo "$file" | sed -nE 's#^sources/([^/]+)/.+#\1#p')
-                      if [ -z "$vendor" ] || [ "$vendor" = "sdk" ]; then
-                          run_all=true
-                      elif [ -d "sources/$vendor" ]; then
-                          vendors+=("sources/$vendor")
-                      fi
-                  done < <(git diff --name-only HEAD^1 HEAD)
-                  if [ "$run_all" = "true" ]; then
-                      targets="sources/"
+                  if [ "$EVENT_NAME" != "pull_request" ] || [[ "$HEAD_REF" == trunk-merge/* ]]; then
+                      python tools/warehouse_sources_vendor_selection.py --full
                   else
-                      targets=$(printf '%s\n' "${vendors[@]}" | sort -u | tr '\n' ' ')
-                  fi
-                  echo "Vendor tests: ${targets:-none}"
-                  echo "targets=$targets" >> "$GITHUB_OUTPUT"
+                      git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
+                  fi | tee -a "$GITHUB_OUTPUT"
 
             - name: Check module boundaries (tach)
               run: ./bin/hogli lint:tach
@@ -637,12 +629,31 @@ jobs:
             - name: Check vendor imports (import-linter)
               run: lint-imports
 
-            # The repo invariants that walk the sources/ tree name it as a scan root. The
-            # Django matrix runs all of them, but it does not start for a vendor-only diff.
+            # The full run takes every repo invariant that names sources/ as a scan root. The
+            # Django matrix runs all of them, but it does not start for a sources-only diff.
+            # A vendors run takes the invariants that check code a vendor writes, and scopes their
+            # walk to the changed vendor directories. The others look for calls into posthog/,
+            # products/ or DRF, which a vendor cannot import, so a vendor diff cannot break them.
             - name: Run repo invariants that scan sources/
-              # An empty list would make pytest collect the whole repo, so it fails instead.
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  SCAN_SCOPE: ${{ steps.select.outputs.scan_scope }}
               run: |
+                  if [ "$MODE" = "vendors" ]; then
+                      invariants=(
+                          test_warehouse_source_static_contract.py
+                          test_warehouse_source_test_shapes.py
+                          test_resume_state_staged_before_yield.py
+                          test_resume_state_saved_by_the_source_generator.py
+                          test_dataclass_defaults.py
+                          test_dataclass_secret_fields.py
+                          test_database_free_test_classes.py
+                      )
+                      REPO_INVARIANTS_SCAN_SCOPE="$SCAN_SCOPE" pytest -p no:cacheprovider "${invariants[@]/#/posthog/test/repo_invariants/}"
+                      exit 0
+                  fi
                   mapfile -t invariants < <(grep -lE '"sources"' posthog/test/repo_invariants/test_*.py)
+                  # An empty list would make pytest collect the whole repo, so it fails instead.
                   if [ "${#invariants[@]}" -eq 0 ]; then
                       echo "::error::No repo invariant names the sources/ root."
                       exit 1
@@ -650,15 +661,30 @@ jobs:
                   pytest -p no:cacheprovider -n auto "${invariants[@]}"
 
             # These tests load the full vendor catalog, so a change to one vendor can fail them.
+            # A vendors run keeps the tests of the whole catalog and runs the tests that check one
+            # source at a time only for the selected vendors.
             - name: Run vendor catalog tests
-              run: pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  VENDORS: ${{ steps.select.outputs.vendors }}
+              run: |
+                  narrow=()
+                  if [ "$MODE" = "vendors" ]; then
+                      narrow=("--source-vendors=${VENDORS// /,}")
+                  fi
+                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
 
             - name: Run vendor tests
-              if: steps.select.outputs.targets != ''
+              if: steps.select.outputs.mode == 'full' || steps.select.outputs.vendors != ''
               env:
-                  TARGETS: ${{ steps.select.outputs.targets }}
+                  MODE: ${{ steps.select.outputs.mode }}
+                  VENDORS: ${{ steps.select.outputs.vendors }}
               run: |
-                  read -ra targets <<< "$TARGETS"
+                  targets=(sources/)
+                  if [ "$MODE" = "vendors" ]; then
+                      read -ra vendors <<< "$VENDORS"
+                      targets=("${vendors[@]/#/sources/}")
+                  fi
                   pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short
 
     # Collate job - single required status check for branch protection.
