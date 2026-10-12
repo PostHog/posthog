@@ -209,6 +209,7 @@ the row lists both.
 | cloudability                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudinary                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cloudzero                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| clover                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coassemble                       | HTTP                        | requests                                                        | ✅                          |
 | coda                             | HTTP                        | requests                                                        | ✅                          |
 | codacy                           | HTTP                        | requests                                                        | ✅                          |
@@ -1064,7 +1065,6 @@ doesn't conflict with concurrent PRs.
 - clevertap
 - clio
 - cloudbeds
-- clover
 - coassemble
 - cockroachdb
 - codacy
