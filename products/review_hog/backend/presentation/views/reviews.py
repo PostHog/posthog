@@ -132,10 +132,16 @@ class ReviewProgressSerializer(serializers.Serializer):
     )
 
 
+class ResolutionStatus(models.TextChoices):
+    # Labels equal the values, so the schema keeps the descriptions the plain list produced.
+    RESOLVING = RESOLUTION_RESOLVING, RESOLUTION_RESOLVING
+    STOPPED = RESOLUTION_STOPPED, RESOLUTION_STOPPED
+
+
 class ReviewResolutionStatusSerializer(serializers.Serializer):
     resolution_status = serializers.ChoiceField(
         source="status",
-        choices=[RESOLUTION_RESOLVING, RESOLUTION_STOPPED],
+        choices=ResolutionStatus.choices,
         help_text="Where the run stands: `resolving` while threads are being settled, `stopped` when the "
         "run died partway (went quiet with no closing summary).",
     )

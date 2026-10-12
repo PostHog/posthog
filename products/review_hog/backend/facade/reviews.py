@@ -6,6 +6,7 @@ the webhook enqueue in ``github.py`` must not load.
 
 from datetime import datetime
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -39,12 +40,19 @@ __all__ = [
 _FEATURE_FLAG = "review-hog"
 
 
-def _parse_pr_url(pr_url: str) -> tuple[str, str, int]:
-    try:
-        pr_info = PRParser().parse_github_pr_url(pr_url)
-    except ValueError as e:
-        raise InvalidPullRequestURLError(str(e)) from e
-    return str(pr_info["owner"]), str(pr_info["repo"]), int(pr_info["pr_number"])
+@frozen
+class _PullRequestURL:
+    owner: str
+    repo: str
+    pr_number: int
+
+    @classmethod
+    def parse(cls, pr_url: str) -> "_PullRequestURL":
+        try:
+            pr_info = PRParser().parse_github_pr_url(pr_url)
+        except ValueError as e:
+            raise InvalidPullRequestURLError(str(e)) from e
+        return cls(owner=str(pr_info["owner"]), repo=str(pr_info["repo"]), pr_number=int(pr_info["pr_number"]))
 
 
 def request_pr_review(
@@ -87,13 +95,13 @@ def request_pr_review_by_url(*, team_id: int, requester_id: int, pr_url: str, ru
     `InvalidPullRequestURLError` when `pr_url` is not a pull request URL, and `GitHubRateLimitError`
     when GitHub rate-limits the App's token.
     """
-    owner, repo, pr_number = _parse_pr_url(pr_url)
+    pull_request = _PullRequestURL.parse(pr_url)
     return _request_pr_review(
         team_id=team_id,
         requester_id=requester_id,
-        owner=owner,
-        repo=repo,
-        pr_number=pr_number,
+        owner=pull_request.owner,
+        repo=pull_request.repo,
+        pr_number=pull_request.pr_number,
         run_mode=run_mode,
         trigger_source=TRIGGER_UI,
     )
@@ -107,5 +115,7 @@ def get_pr_review_status(
     `team_id` is the root project id. Raises `InvalidPullRequestURLError` when `pr_url` is not a pull
     request URL.
     """
-    owner, repo, pr_number = _parse_pr_url(pr_url)
-    return PRStatusLookup(team_id, owner=owner, repo=repo, pr_number=pr_number).status(requested_at, run_mode, head_sha)
+    pull_request = _PullRequestURL.parse(pr_url)
+    return PRStatusLookup(
+        team_id, owner=pull_request.owner, repo=pull_request.repo, pr_number=pull_request.pr_number
+    ).status(requested_at, run_mode, head_sha)
