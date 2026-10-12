@@ -22,6 +22,7 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'no_metric'
     | 'forced_variant_release_condition'
+    | 'flag_variants_mismatch'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
