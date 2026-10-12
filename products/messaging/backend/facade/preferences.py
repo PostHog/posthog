@@ -13,6 +13,7 @@ from products.messaging.backend.models.message_preferences import MessageRecipie
 from products.messaging.backend.services import (
     customerio_sync_service,
     preferences as preferences_service,
+    unsubscribe_metrics,
 )
 from products.messaging.backend.services.lazy_list import LazyList
 from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, UnknownCategoryError
@@ -177,3 +178,10 @@ def replace_preferences(team_id: int, identifier: str, preferences: dict[str, An
 def sync_to_customerio(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
     """Push the preferences to Customer.io now, when the team has track sync enabled."""
     customerio_sync_service.sync_preferences_to_customerio(team_id, identifier, preferences)
+
+
+def record_unsubscribe_metric(team_id: int, token_data: dict[str, Any], opted_out_category_ids: list[str]) -> None:
+    """Count an opt-out against the workflow email whose preferences token it came through."""
+    unsubscribe_metrics.record_email_unsubscribed_metric(
+        team_id, unsubscribe_metrics.parse_unsubscribe_source(token_data), opted_out_category_ids
+    )
