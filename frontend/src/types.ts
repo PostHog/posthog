@@ -945,6 +945,9 @@ export interface WorkflowsConfig {
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
+    // Null on either disables the marketing frequency cap.
+    marketing_frequency_cap_max_messages?: number | null
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -3670,7 +3673,6 @@ export interface FunnelConversionWindow {
     funnelWindowInterval?: number
 }
 
-// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
     Second = 'second',
     Minute = 'minute',

@@ -36,8 +36,9 @@ from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 LOGGER = get_logger(__name__)
 
-# Hard cap on how long a terminal-workflow holder can block takeover on queue
-# activity alone — the backstop when the staleness heuristic is being fooled.
+# A live loader past this hold still keeps the lock, because taking over lets the new run's
+# batch 0 overwrite the table while the old loader is still writing to it. Past the cap the
+# skip is logged as a warning, so a schema stuck behind a long load is visible.
 TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 
 # Must outlast the healthy startup tail (SET NX → job-row commit, minutes under
@@ -178,10 +179,10 @@ def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, toke
        assumed (no workflow_id anywhere), a young holder fails closed instead.
     3. Holder workflow terminal + job terminal -> take over.
     4. Holder workflow terminal + job RUNNING -> consult queue DB:
-       - no batches, all-terminal, no recent loader progress, or the job has
-         exceeded the max hold -> fail its leftover batches, mark job FAILED,
-         take over.
-       - non-terminal batches with recent loader progress -> fail closed.
+       - no batches, all-terminal, or no recent loader progress -> fail its
+         leftover batches, mark job FAILED, take over.
+       - non-terminal batches with recent loader progress -> fail closed,
+         whatever the hold time.
     5. Describe error / queue DB error -> fail closed.
     """
     holder = get_v3_pipeline_lock_holder(inputs.team_id, str(inputs.schema_id))
@@ -376,18 +377,20 @@ def _take_over_stale_running_job(
             capture_exception(e)
             return False
 
-        # Backstop for a fooled staleness heuristic: a terminal-workflow holder
-        # cannot block takeover on queue activity alone past the max hold.
         hold_seconds = (datetime.now(UTC) - holder_job.created_at).total_seconds()
-        max_hold_exceeded = hold_seconds > TAKEOVER_MAX_HOLD_SECONDS
 
-        if summary.has_non_terminal and not summary.is_stale and not max_hold_exceeded:
-            # The loader is making progress on this run's batches - don't steal
-            logger.info(
+        if summary.has_non_terminal and not summary.is_stale:
+            # The loader is making progress on this run's batches - don't steal. Failing its
+            # batches does not stop a merge already in flight, so a takeover here lets two
+            # runs write the same table.
+            max_hold_exceeded = hold_seconds > TAKEOVER_MAX_HOLD_SECONDS
+            log = logger.warning if max_hold_exceeded else logger.info
+            log(
                 "v3_pipeline_lock_takeover_skipped",
                 schema_id=str(inputs.schema_id),
                 holder_token=holder,
-                reason="active_consumer",
+                reason="max_hold_exceeded_live_holder" if max_hold_exceeded else "active_consumer",
+                holder_job_id=str(holder_job.id),
                 last_status_write_age_seconds=summary.last_status_write_age_seconds,
                 oldest_unclaimed_age_seconds=summary.oldest_unclaimed_age_seconds,
                 hold_seconds=round(hold_seconds, 1),
@@ -441,7 +444,7 @@ def _take_over_stale_running_job(
         "v3_pipeline_lock_taking_over",
         schema_id=str(inputs.schema_id),
         holder_token=holder,
-        reason="max_hold_exceeded" if (max_hold_exceeded and not summary.is_stale) else "stale_running_job",
+        reason="stale_running_job",
         holder_job_id=str(holder_job.id),
         has_batches=summary.has_batches,
         is_stale=summary.is_stale,
