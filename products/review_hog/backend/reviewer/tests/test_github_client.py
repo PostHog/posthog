@@ -1,8 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
-
 from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.reviewer.tools.github_client import (
@@ -33,7 +31,6 @@ def test_add_pr_reaction_fails_open() -> None:
         assert add_pr_reaction("o/r", 7, "eyes", token="t") is None
 
 
-@override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]")
 def test_remove_own_pr_reactions_deletes_only_the_apps_reactions_and_fails_open() -> None:
     reactions = [
         {"id": 1, "content": "+1", "user": {"login": "octocat", "type": "User"}},
@@ -43,6 +40,7 @@ def test_remove_own_pr_reactions_deletes_only_the_apps_reactions_and_fails_open(
     ]
     with (
         patch(f"{_MODULE}.github_api_get_paginated", return_value=iter(reactions)) as mock_paginated,
+        patch(f"{_MODULE}.posthog_app_login", return_value="posthog[bot]"),
         patch(f"{_MODULE}.github_api_request", side_effect=[GitHubAPIError("boom", status=500), None]) as mock_request,
     ):
         remove_own_pr_reactions("o/r", 7, "+1", token="t")
