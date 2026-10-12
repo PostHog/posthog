@@ -50,6 +50,7 @@ class RecordWizardScanRequestSerializer(serializers.Serializer):
     wizard_version = serializers.CharField(max_length=32, help_text="Version of the wizard that made the scan.")
     workspace_fingerprint = serializers.RegexField(
         r"^[0-9a-f]{64}$",
+        max_length=64,
         help_text="sha256 hex digest that identifies the scanned repository without naming it.",
     )
     scanned_at = serializers.DateTimeField(help_text="When the wizard scanned the codebase.")

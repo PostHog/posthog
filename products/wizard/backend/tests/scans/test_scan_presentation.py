@@ -2,9 +2,6 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
-
 
 class TestWizardScanViewSet(APIBaseTest):
     def _payload(self) -> dict:
@@ -27,10 +24,7 @@ class TestWizardScanViewSet(APIBaseTest):
         assert self._post() == status.HTTP_200_OK
 
     def test_requires_wizard_session_write_scope(self) -> None:
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Wizard test key", user=self.user, secure_value=hash_key_value(token), scopes=["wizard_session:read"]
-        )
+        token = self.create_personal_api_key_with_scopes(["wizard_session:read"])
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 

@@ -4,7 +4,7 @@ from django.db import connection, transaction
 
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
-from products.wizard.backend.tool_catalog.catalog import get_tool
+from products.wizard.backend.tool_catalog.catalog import classify_tool
 
 
 def _signals_json(tool: WizardScanTool) -> list[dict[str, str | None]]:
@@ -12,11 +12,9 @@ def _signals_json(tool: WizardScanTool) -> list[dict[str, str | None]]:
 
 
 def _classify(row: WizardDetectedTool) -> None:
-    catalog_tool = get_tool(row.kind)
-    row.warehouse_source_type = (
-        catalog_tool.warehouse_source_type.value if catalog_tool and catalog_tool.warehouse_source_type else None
-    )
-    row.competes_with = [product.value for product in catalog_tool.competes_with] if catalog_tool else []
+    classification = classify_tool(row.kind)
+    row.warehouse_source_type = classification.warehouse_source_type if classification else None
+    row.competes_with = list(classification.competes_with) if classification else []
 
 
 def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
@@ -83,22 +81,18 @@ def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: di
                 team_id=scan.team_id,
                 workspace_fingerprint=scan.workspace_fingerprint,
                 kind=kind,
-                signals=_signals_json(tool),
                 first_seen_scan=scan,
                 first_seen_at=scanned_at,
-                last_seen_scan=scan,
-                last_seen_at=scanned_at,
             )
-            _classify(row)
             to_create.append(row)
         else:
-            row.signals = _signals_json(tool)
-            row.last_seen_scan = scan
-            row.last_seen_at = scanned_at
-            row.removed_in_scan = None
-            row.removed_at = None
-            _classify(row)
             to_update.append(row)
+        row.signals = _signals_json(tool)
+        row.last_seen_scan = scan
+        row.last_seen_at = scanned_at
+        row.removed_in_scan = None
+        row.removed_at = None
+        _classify(row)
 
     for kind, row in existing.items():
         if kind not in tools and row.removed_at is None:

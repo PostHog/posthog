@@ -246,6 +246,10 @@ class WizardScan(UUIDModel, TeamScopedRootMixin):
 
     class Meta(TeamScopedRootMixin.Meta):
         constraints = [models.UniqueConstraint(fields=["team", "session_id"], name="unique_wizard_scan_per_session")]
+        indexes = [
+            # Recording a scan checks for a newer scan of the same workspace.
+            models.Index(fields=["team", "workspace_fingerprint", "scanned_at"], name="wizard_scan_workspace_idx")
+        ]
 
 
 # The current state of one tool in one workspace. Each scan of that workspace updates it.
