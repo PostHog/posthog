@@ -157,6 +157,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
         selectedCategory,
         selectedCategoryLabel,
         hasCrossCategoryMatches,
+        customSourceItem,
         registeredInterestSources,
         sourceRequestModalOpen,
         sourceRequestText,
@@ -232,6 +233,19 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                                     Clear filters
                                 </Link>{' '}
                                 or request one below.
+                            </div>
+                        )}
+                        {customSourceItem && !accessDisabledReason && (
+                            <div className="text-muted text-sm">
+                                If the tool has a REST API, you can connect it with a{' '}
+                                <Link
+                                    to={customSourceItem.url}
+                                    onClick={() => selectSourceType(customSourceItem)}
+                                    data-attr="catalog-empty-custom-source"
+                                >
+                                    {customSourceItem.label}
+                                </Link>
+                                .
                             </div>
                         )}
                         {/* Sources bring data into PostHog; users after an export (e.g. searching
