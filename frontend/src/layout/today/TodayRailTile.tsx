@@ -9,18 +9,9 @@ export interface TodayRailTileProps {
     to: string | undefined
     onClick: () => void
     dataAttr: string
-    hoverIcon?: JSX.Element
 }
 
-export function TodayRailTile({
-    label,
-    icon,
-    active,
-    to,
-    onClick,
-    dataAttr,
-    hoverIcon,
-}: TodayRailTileProps): JSX.Element {
+export function TodayRailTile({ label, icon, active, to, onClick, dataAttr }: TodayRailTileProps): JSX.Element {
     return (
         <LinkPrimitive
             to={to}
@@ -44,14 +35,7 @@ export function TodayRailTile({
                     active ? 'bg-[var(--fill-selected)]' : 'group-hover:bg-[var(--fill-hover)]'
                 )}
             >
-                {hoverIcon ? (
-                    <>
-                        <span className="contents group-hover:hidden">{icon}</span>
-                        <span className="hidden group-hover:contents">{hoverIcon}</span>
-                    </>
-                ) : (
-                    icon
-                )}
+                {icon}
             </span>
             <span className="max-w-full truncate px-0.5 text-[10px] leading-3 font-medium">{label}</span>
         </LinkPrimitive>

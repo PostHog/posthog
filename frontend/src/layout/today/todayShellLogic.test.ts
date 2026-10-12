@@ -131,15 +131,21 @@ describe('todayShellLogic', () => {
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
     })
 
-    it('hides the docked sidebar after a row opens a page, and a rail pick shows it again', () => {
+    it('keeps the pinned sidebar open on a page change, and hides it once unpinned unless the rail picked the page', () => {
         const logic = todayShellLogic()
         logic.mount()
 
         logic.actions.setSidebarOpen(true)
-        logic.actions.collapseSidebarAfterPick()
+        router.actions.push('/project/1/insights')
+        expect(logic.values.sidebarVisible).toBe(true)
+
+        logic.actions.toggleSidebarPinned()
+        router.actions.push('/project/1/insights?tab=all')
+        expect(logic.values.sidebarVisible).toBe(true)
+        router.actions.push('/project/1/cohorts')
         expect(logic.values.sidebarVisible).toBe(false)
 
-        logic.actions.pickPane('products')
+        logic.actions.pickPane('home')
         expect(logic.values.sidebarVisible).toBe(true)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {

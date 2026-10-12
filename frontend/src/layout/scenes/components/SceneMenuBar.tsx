@@ -37,7 +37,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
 import { SceneContentContext } from './SceneContent'
-import { useSceneMenuBarSlot } from './sceneMenuBarSlot'
+import { useSceneMenuBarSlot } from './SceneMenuBarSlotProvider'
 import { getSceneSettingsUrl } from './sceneSettingsUrl'
 
 /**
@@ -88,16 +88,19 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                 data-scene-layout={layout}
                 className={cn(
                     'scene-menu-bar px-0.5 py-0.5 border-b border-primary flex items-center justify-between',
-                    // Below `lg` the navigation toggle floats over the top-left corner of the scene.
-                    !slot && 'max-lg:pl-10',
-                    // Bleed past the scene container's padding so the bar feels full-width — only
-                    // safe when the layout actually has padding to cancel. Unpadded layouts
-                    // (app-raw, plain, etc.) would overflow.
-                    !slot && isPaddedLayout && '-mx-4 -mt-4',
-                    // When LemonTabs is the immediately preceding sibling it already bleeds with
-                    // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
-                    // bar up so they sit flush.
-                    !slot && '[.LemonTabs+&]:-mt-6',
+                    // The title slot places the bar itself. These offsets only fit the bar inline at the scene top.
+                    !slot && [
+                        // Below `lg` the navigation toggle floats over the top-left corner of the scene.
+                        'max-lg:pl-10',
+                        // Bleed past the scene container's padding so the bar feels full-width — only
+                        // safe when the layout actually has padding to cancel. Unpadded layouts
+                        // (app-raw, plain, etc.) would overflow.
+                        isPaddedLayout && '-mx-4 -mt-4',
+                        // When LemonTabs is the immediately preceding sibling it already bleeds with
+                        // its own -mt-6, leaving the menu bar floating in the flex `gap-y-*`. Pull the
+                        // bar up so they sit flush.
+                        '[.LemonTabs+&]:-mt-6',
+                    ],
                     className
                 )}
             >

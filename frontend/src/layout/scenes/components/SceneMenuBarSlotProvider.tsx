@@ -1,43 +1,35 @@
-import { useLayoutEffect, useState, useSyncExternalStore } from 'react'
+import { PropsWithChildren, createContext, useContext, useLayoutEffect, useState } from 'react'
 
 /**
  * Under the Today layout the scene title section exposes a slot below its header, and the scene menu bar portals into
- * it. Scenes render the bar and the title as unrelated siblings, so the slot element goes through this store.
+ * it. Scenes render the bar and the title as unrelated siblings, so each scene shares the slot element through this
+ * context.
  */
-let slotElement: HTMLElement | null = null
-const listeners = new Set<() => void>()
-
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener)
-    return () => listeners.delete(listener)
+interface SceneMenuBarSlotContextValue {
+    slot: HTMLElement | null
+    setSlot: (slot: HTMLElement | null) => void
 }
 
-function getSnapshot(): HTMLElement | null {
-    return slotElement
-}
+const SceneMenuBarSlotContext = createContext<SceneMenuBarSlotContextValue>({ slot: null, setSlot: () => {} })
 
-function notify(): void {
-    listeners.forEach((listener) => listener())
+export function SceneMenuBarSlotProvider({ children }: PropsWithChildren): JSX.Element {
+    const [slot, setSlot] = useState<HTMLElement | null>(null)
+    return <SceneMenuBarSlotContext.Provider value={{ slot, setSlot }}>{children}</SceneMenuBarSlotContext.Provider>
 }
 
 export function useRegisterSceneMenuBarSlot(element: HTMLElement | null): void {
+    const { setSlot } = useContext(SceneMenuBarSlotContext)
     useLayoutEffect(() => {
         if (!element) {
             return
         }
-        slotElement = element
-        notify()
-        return () => {
-            if (slotElement === element) {
-                slotElement = null
-                notify()
-            }
-        }
-    }, [element])
+        setSlot(element)
+        return () => setSlot(null)
+    }, [element, setSlot])
 }
 
 export function useSceneMenuBarSlot(): HTMLElement | null {
-    return useSyncExternalStore(subscribe, getSnapshot)
+    return useContext(SceneMenuBarSlotContext).slot
 }
 
 /**

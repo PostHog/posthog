@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
 import { IconSearch } from '@posthog/icons'
-import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
@@ -11,14 +11,14 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { IconHideSidebar, IconShowSidebar, TODAY_RAIL_ITEMS, todaySidebarShortcutLabel } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 const RailUtility = forwardRef<
     HTMLButtonElement,
-    { label: string; children: JSX.Element; shortcut?: string } & ComponentPropsWithoutRef<typeof Button>
->(function RailUtility({ label, children, shortcut, ...props }, ref): JSX.Element {
+    { label: string; children: JSX.Element } & ComponentPropsWithoutRef<typeof Button>
+>(function RailUtility({ label, children, ...props }, ref): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger
@@ -36,17 +36,14 @@ const RailUtility = forwardRef<
             >
                 {children}
             </TooltipTrigger>
-            <TooltipContent side="right">
-                {label}
-                {shortcut && <Kbd>{shortcut}</Kbd>}
-            </TooltipContent>
+            <TooltipContent side="right">{label}</TooltipContent>
         </Tooltip>
     )
 })
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
-    const { clickRailPane, toggleSidebarFrom } = useActions(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
@@ -58,16 +55,15 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
+            {TODAY_RAIL_PANES.map((pane) => (
                 <TodayRailTile
                     key={pane}
-                    label={label}
-                    icon={icon}
+                    label={TODAY_PANES[pane].label}
+                    icon={TODAY_PANES[pane].icon}
                     active={activePane === pane}
                     to={railPaneHref(pane)}
                     onClick={() => clickRailPane(pane)}
                     dataAttr={`today-rail-${pane}`}
-                    hoverIcon={activePane === pane && sidebarVisible ? <IconHideSidebar /> : undefined}
                 />
             ))}
             <div className="mt-auto flex flex-col items-center gap-1">
@@ -98,14 +94,6 @@ export function TodayRail(): JSX.Element {
                     onClick={() => toggleCommand('nav-search-button')}
                 >
                     <IconSearch />
-                </RailUtility>
-                <RailUtility
-                    label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    shortcut={todaySidebarShortcutLabel()}
-                    data-attr="today-rail-toggle-sidebar"
-                    onClick={() => toggleSidebarFrom('rail')}
-                >
-                    {sidebarVisible ? <IconHideSidebar /> : <IconShowSidebar />}
                 </RailUtility>
             </div>
         </nav>

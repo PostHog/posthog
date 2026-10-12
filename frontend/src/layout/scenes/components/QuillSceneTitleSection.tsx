@@ -11,13 +11,14 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
 import { QuillSceneName } from './QuillSceneName'
 import { QuillSceneTrail } from './QuillSceneTrail'
 import { SceneDescription } from './SceneDescription'
-import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotMarginTop } from './sceneMenuBarSlot'
+import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotMarginTop } from './SceneMenuBarSlotProvider'
 import { sceneResourceIcon } from './sceneResourceIcon'
 import { SceneTitlePanelButton } from './SceneTitlePanelButton'
 import type { SceneMainTitleProps } from './SceneTitleSection'
@@ -53,7 +54,7 @@ export function QuillSceneTitleSection({
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
-    const { phoneHeaderShown } = useValues(todayShellLogic)
+    const { phoneHeaderShown, sidebarBreadcrumbShown } = useValues(todayShellLogic)
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
     const releaseStageSceneId = sceneId ?? activeSceneId
@@ -76,14 +77,17 @@ export function QuillSceneTitleSection({
             <QuillSceneHeader
                 className={cn(
                     'z-30 bg-[var(--scene-layout-background)] @2xl/main-content:sticky -top-[calc(var(--spacing)*4)]',
-                    !noPadding && '-mx-4 -mt-4',
+                    !noPadding && '-mx-4',
                     titleInPhoneHeader && 'hidden has-[>div>*]:flex',
                     className,
-                    // Last, so a caller's padding cannot move the row. The sidebar toggle must sit on the same spot in every scene.
-                    'px-4'
+                    // Last, so a caller's spacing cannot move the row. The sidebar toggle must sit on the same spot in
+                    // every scene. The menu bar portals below the row, so callers that make room for it above need not.
+                    'px-4',
+                    !noPadding && '-mt-4'
                 )}
                 back={
                     <QuillSceneTrail
+                        lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />}
                         parent={backTo && backPath ? { name: backTo.name, path: backPath } : undefined}
                         icon={resourceIcon}
                     />

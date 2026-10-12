@@ -1,12 +1,8 @@
-import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 
 export interface QuillSceneTrailParent {
     name: ReactNode
@@ -21,14 +17,19 @@ const SLASH_BEFORE_NAME = cn(SLASH, '-ms-1 -me-[3px]')
 const TITLE_ICON = '-me-1.5 flex size-4 shrink-0 items-center justify-center text-sm [&_svg]:size-4'
 const LINK_ICON = '-me-[3px] flex size-4 shrink-0 items-center justify-center [&_svg]:size-4'
 
-export function QuillSceneTrail({ parent, icon }: { parent?: QuillSceneTrailParent; icon?: ReactNode }): JSX.Element {
-    const { sidebarBreadcrumbShown } = useValues(todayShellLogic)
+export interface QuillSceneTrailProps {
+    /** A crumb before the parent, such as the hidden sidebar's pane. It must render as a link-sized button. */
+    lead?: ReactNode
+    parent?: QuillSceneTrailParent
+    icon?: ReactNode
+}
 
+export function QuillSceneTrail({ lead, parent, icon }: QuillSceneTrailProps): JSX.Element {
     return (
         <>
-            {sidebarBreadcrumbShown && (
+            {lead && (
                 <>
-                    <TodaySidebarBreadcrumb />
+                    {lead}
                     <span className={SLASH_AFTER_LINK} aria-hidden>
                         /
                     </span>

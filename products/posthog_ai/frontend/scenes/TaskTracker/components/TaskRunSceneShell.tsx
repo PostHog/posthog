@@ -24,6 +24,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 import { sessionIconFields } from '~/layout/today/todayWorkItems'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -77,7 +78,7 @@ export function TaskRunSceneShell({
     children,
 }: TaskRunSceneShellProps): JSX.Element {
     const skin = useThreadSkin()
-    const { todayRailEnabled, phoneLayout, phoneHeaderHidden } = useValues(todayShellLogic)
+    const { todayRailEnabled, phoneLayout, phoneHeaderHidden, sidebarBreadcrumbShown } = useValues(todayShellLogic)
     const { goBackOnPhone } = useActions(todayShellLogic)
     const todayPhone = todayRailEnabled && phoneLayout
     return (
@@ -154,7 +155,7 @@ export function TaskRunSceneShell({
                             className={cn(taskError && 'mt-4')}
                             back={
                                 <>
-                                    <QuillSceneTrail />
+                                    <QuillSceneTrail lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />} />
                                     {isMobile && !todayPhone ? (
                                         <Button
                                             variant="default"

@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { IconShowSidebar, TODAY_PANE_TITLES, todaySidebarShortcutLabel } from './todayRailItems'
+import { IconShowSidebar, TODAY_PANES, todaySidebarShortcutLabel } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
 /** The hidden sidebar's pane title as a button that opens the sidebar again. `QuillSceneTrail` decides when it shows. */
 export function TodaySidebarBreadcrumb(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
-    const { toggleSidebarFrom } = useActions(todayShellLogic)
-    const title = TODAY_PANE_TITLES[activePane]
+    const { toggleSidebar } = useActions(todayShellLogic)
+    const { title } = TODAY_PANES[activePane]
 
     return (
         <Tooltip>
@@ -20,7 +20,7 @@ export function TodaySidebarBreadcrumb(): JSX.Element {
                         className="-ms-2 shrink-0 text-muted-foreground"
                         aria-label={`Show ${title} sidebar`}
                         data-attr="today-scene-show-sidebar"
-                        onClick={() => toggleSidebarFrom('scene_breadcrumb')}
+                        onClick={() => toggleSidebar('scene_breadcrumb')}
                     />
                 }
             >

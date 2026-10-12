@@ -5,7 +5,7 @@ import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
-import { TODAY_RAIL_ITEMS } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
 const TAB_CLASS =
@@ -19,7 +19,8 @@ export function TodayTabBar(): JSX.Element {
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => {
+                {TODAY_RAIL_PANES.map((pane) => {
+                    const { label, icon } = TODAY_PANES[pane]
                     const active = activePane === pane
                     return (
                         <button
