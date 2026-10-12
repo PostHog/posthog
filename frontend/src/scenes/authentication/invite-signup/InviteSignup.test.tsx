@@ -41,13 +41,15 @@ describe('InviteSignup', () => {
         cleanup()
     })
 
-    it('points a submit with no role at the role dropdown', async () => {
-        await userEvent.type(await screen.findByPlaceholderText('••••••••••'), 'a-long-and-unusual-passphrase-42')
+    it('points a submit with no password at the password input', async () => {
+        const passwordInput = await screen.findByPlaceholderText('••••••••••')
         await userEvent.click(await screen.findByText(/Join Example/))
 
-        const roleSelect = screen.getByText('Select your role').closest('button')
-        expect(roleSelect).toHaveFocus()
-        expect(roleSelect).toHaveClass('LemonButton--status-danger')
-        expect(screen.getByText('Please select your role to continue')).toBeInTheDocument()
+        expect(passwordInput).toHaveFocus()
+        expect(screen.getByText('Please enter your password to continue')).toBeInTheDocument()
+    })
+
+    it('marks the role as optional, because this form submits without one', async () => {
+        expect((await screen.findByText('What is your role?')).closest('label')).toHaveTextContent('(optional)')
     })
 })

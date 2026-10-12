@@ -27,24 +27,20 @@ describe('inviteSignupLogic', () => {
         }).toDispatchActions(['prevalidateInviteSuccess'])
     })
 
-    it('shows the role error on touch, before any submit', () => {
+    it('shows the name error on touch, before any submit', () => {
         expect(logic.values.signupErrors).toEqual({})
 
-        logic.actions.touchSignupField('role_at_organization')
-        expect(logic.values.signupErrors).toEqual({ role_at_organization: 'Please select your role to continue' })
+        logic.actions.touchSignupField('first_name')
+        expect(logic.values.signupErrors).toEqual({ first_name: 'Please enter your name' })
 
-        logic.actions.setSignupValue('role_at_organization', 'engineering')
+        logic.actions.setSignupValue('first_name', 'Jane')
         expect(logic.values.signupErrors).toEqual({})
     })
 
-    it('sends the next attempt after the API rejects one', async () => {
+    it('submits without a role, and sends the next attempt after the API rejects one', async () => {
         const signupRequest = jest.fn(() => [400, { code: 'invalid_input', detail: 'Something went wrong.' }])
         useMocks({ post: { [`/api/signup/${INVITE_ID}/`]: signupRequest } })
-        logic.actions.setSignupValues({
-            first_name: 'Jane',
-            password: 'a-long-and-unusual-passphrase-42',
-            role_at_organization: 'engineering',
-        })
+        logic.actions.setSignupValues({ first_name: 'Jane', password: 'a-long-and-unusual-passphrase-42' })
 
         await expectLogic(logic, () => {
             logic.actions.submitSignup()

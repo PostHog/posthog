@@ -33,7 +33,7 @@ export default function SignupRoleSelect({
     showOptional,
 }: {
     className?: string
-    // Only the organization confirmation form lets people submit without a role
+    // Only the invite signup form lets people submit without a role
     showOptional?: boolean
 }): JSX.Element {
     return (

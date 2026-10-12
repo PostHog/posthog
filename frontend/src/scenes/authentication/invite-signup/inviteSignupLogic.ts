@@ -36,11 +36,7 @@ const LOGIC_PATH = ['scenes', 'authentication', 'invite-signup', 'inviteSignupLo
 const FORM_KEY = 'signup'
 
 // In the order the form renders them, so a failed submit lands on the first field to fix
-const FIELDS_IN_RENDER_ORDER: (keyof AcceptInvitePayloadInterface)[] = [
-    'password',
-    'first_name',
-    'role_at_organization',
-]
+const FIELDS_IN_RENDER_ORDER: (keyof AcceptInvitePayloadInterface)[] = ['password', 'first_name']
 
 // kea-forms ids each field input `<logic path>.<form key>.<field>`
 const fieldInputId = (field: keyof AcceptInvitePayloadInterface): string => [...LOGIC_PATH, FORM_KEY, field].join('.')
@@ -303,7 +299,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                 showErrorsOnTouch: true,
             },
             defaults: { role_at_organization: '' } as AcceptInvitePayloadInterface,
-            errors: ({ password, first_name, role_at_organization }) => ({
+            errors: ({ password, first_name }) => ({
                 password:
                     !values.passkeyRegistered && !password
                         ? 'Please enter your password to continue'
@@ -311,7 +307,6 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                           ? values.validatedPassword.feedback || undefined
                           : undefined,
                 first_name: !first_name ? 'Please enter your name' : undefined,
-                role_at_organization: !role_at_organization ? 'Please select your role to continue' : undefined,
             }),
             // A manual error from a rejected attempt counts as a validation error, and nothing touches
             // `generic` to clear it. Without this, every later submit fails without a request.
