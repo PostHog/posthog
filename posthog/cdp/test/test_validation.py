@@ -1197,6 +1197,11 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("wrong_argument_count", "{lower()}", "lower needs at least 1 argument(s), got 0"),
             ("core_async_function", "{fetch('https://example.com')}", "fetch is not a function"),
             ("product_async_function", "{postHogGetTicket('1')}", "postHogGetTicket is not a function"),
+            (
+                "method_call_on_a_value",
+                "{person.properties.email.isNotNull() ? person.properties.email : 'none'}",
+                "person.properties.email.isNotNull is a value, not a function",
+            ),
         ]
     )
     def test_destination_templates_refuse_calls_the_node_vm_cannot_make(self, _name, template, message):
