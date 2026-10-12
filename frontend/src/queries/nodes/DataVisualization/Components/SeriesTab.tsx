@@ -606,6 +606,48 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                             )}
                         </LemonField>
                     )}
+                    {!selectedSeriesBreakdownColumn && (
+                        <>
+                            <LemonField name="excludeFromTotal" label="Exclude from total row">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={value}
+                                        onChange={(newValue) => {
+                                            onChange(newValue)
+                                            updateSeriesIndex(
+                                                ySeriesLogicProps.seriesIndex,
+                                                ySeriesLogicProps.series.column.name,
+                                                {
+                                                    display: {
+                                                        excludeFromTotal: newValue,
+                                                    },
+                                                }
+                                            )
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
+                            <LemonField name="hideValueLabel" label="Hide values on series">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={value}
+                                        onChange={(newValue) => {
+                                            onChange(newValue)
+                                            updateSeriesIndex(
+                                                ySeriesLogicProps.seriesIndex,
+                                                ySeriesLogicProps.series.column.name,
+                                                {
+                                                    display: {
+                                                        hideValueLabel: newValue,
+                                                    },
+                                                }
+                                            )
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
+                        </>
+                    )}
                     <LemonField name="yAxisPosition" label="Y-axis position">
                         {({ value, onChange }) => (
                             <LemonSegmentedButton

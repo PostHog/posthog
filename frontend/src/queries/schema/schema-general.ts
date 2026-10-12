@@ -1456,6 +1456,10 @@ export interface ChartSettingsDisplay {
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean
+    /** Hide this series' labels when "Show values on series" is on. */
+    hideValueLabel?: boolean
 }
 
 export interface HeatmapGradientStop {

@@ -17808,6 +17808,14 @@
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
+                "excludeFromTotal": {
+                    "description": "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.",
+                    "type": "boolean"
+                },
+                "hideValueLabel": {
+                    "description": "Hide this series' labels when \"Show values on series\" is on.",
+                    "type": "boolean"
+                },
                 "label": {
                     "type": "string"
                 },

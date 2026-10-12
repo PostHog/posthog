@@ -8174,6 +8174,10 @@ export const YAxisPositionApi = {
 export interface ChartSettingsDisplayApi {
     color?: string | null
     displayType?: DisplayTypeApi | null
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean | null
+    /** Hide this series' labels when "Show values on series" is on. */
+    hideValueLabel?: boolean | null
     label?: string | null
     trendLine?: boolean | null
     yAxisPosition?: YAxisPositionApi | null

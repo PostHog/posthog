@@ -343,6 +343,29 @@ describe('SqlLineGraph', () => {
 
             expect(tooltip.total()).toBe(expectedTotal)
         })
+
+        it('leaves a series excluded from the total out of the sum', async () => {
+            renderLine(
+                {
+                    yAxis: [
+                        { column: 'a' },
+                        { column: 'b' },
+                        { column: 'target', settings: { display: { excludeFromTotal: true } } },
+                    ],
+                },
+                lineFixture([
+                    { name: 'a', valueAt: (i) => (i + 1) * 100 },
+                    { name: 'b', valueAt: (i) => (i + 1) * 10 },
+                    { name: 'target', valueAt: () => 5000 },
+                ])
+            )
+
+            await screen.findByLabelText(/chart with 3 data series/i)
+            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+
+            expect(tooltip.value('target')).toBe('5000')
+            expect(tooltip.total()).toBe('330')
+        })
     })
 
     describe('per-series color', () => {
