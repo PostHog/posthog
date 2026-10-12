@@ -38,7 +38,7 @@ export function LogErrorCount({ logicProps, surface, onOpenRelatedErrors }: LogE
     if (!issuesLoading && !issuesFailed && errorCount === 0) {
         return (
             <span className="text-xs text-secondary" data-attr={`logs-${surface}-context-no-errors`}>
-                No errors {where}
+                {`No errors ${where}`}
             </span>
         )
     }

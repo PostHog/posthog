@@ -59,8 +59,7 @@ interface LogDetailsModalProps {
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
     const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId, relatedErrorsInitialScope } =
         useValues(logDetailsModalLogic)
-    const { closeLogDetails, setJsonParseAllFields, setActiveTab, setRelatedErrorsInitialScope } =
-        useActions(logDetailsModalLogic)
+    const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
     const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
 
     const handleApplyFilter = (key: string, value: string, attributeType: 'log' | 'resource'): void => {
@@ -139,10 +138,10 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                         <LogContextLinks
                             surface="drawer"
                             log={selectedLog}
-                            onOpenRelatedErrors={(scope) => {
-                                setRelatedErrorsInitialScope(scope)
-                                setActiveTab('related-errors')
-                            }}
+                            // The count and the tab share one logic instance, so the counted scope is already
+                            // selected. Passing it as the initial scope would reapply it each time the tab
+                            // remounts and overwrite a scope the user picked in the tab.
+                            onOpenRelatedErrors={() => setActiveTab('related-errors')}
                         />
                     </div>
                 </LemonDrawer.Header>

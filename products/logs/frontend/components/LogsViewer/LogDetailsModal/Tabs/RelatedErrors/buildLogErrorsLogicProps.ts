@@ -5,7 +5,6 @@ import { TraceErrorsLogicProps } from 'products/tracing/frontend/components/Trac
 // Every logs surface that counts or lists a log's errors builds its props here, so they all bind
 // the same keyed logic instance and share one query. The initial scope stays null because it is
 // not part of the logic key: two callers that disagreed on it would overwrite each other's props.
-// A caller that wants a scope selects it with `setScope` instead.
 export function buildLogErrorsLogicProps(log: ParsedLogMessage, sessionId: string | null): TraceErrorsLogicProps {
     // Some pipelines send epoch timestamps, which the logic's window would read as an invalid date.
     const timestamp = parseLogTimestamp(log.timestamp)
