@@ -273,6 +273,7 @@ def _session_events(
             resume = LogrocketResumeConfig(cursor=str(next_state["cursor"])) if next_state else resume
             manager.safe_point()
         manager.save_state(LogrocketResumeConfig(finished=True))
+        manager.safe_point()
     finally:
         client.session.close()
 
