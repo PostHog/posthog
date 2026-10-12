@@ -247,6 +247,12 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.\n\n\* `follow` - Let each repository decide\n\* `flash` - On everywhere\n\* `off` - Off everywhere"
         ),
+    review_drafts: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts."
+        ),
     resolve_comments: zod
         .boolean()
         .optional()

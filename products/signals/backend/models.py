@@ -2754,8 +2754,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
     # No rows, or a single false value, skips the run, so a scout that watches something rare can
     # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
-    # bound as HogQL placeholders. Null turns the pre-check off.
+    # bound as HogQL placeholders, and `{interval_minutes}` is the scout's schedule interval. Null
+    # falls back to the default its canonical skill ships, if any (`scout-precheck-query`).
     precheck_query = models.TextField(null=True, blank=True)
+    # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
+    precheck_disabled = models.BooleanField(default=False, db_default=False)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)

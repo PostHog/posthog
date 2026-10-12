@@ -1128,7 +1128,7 @@ class LoopScopeAPITest(LoopsAPITestCase):
         [
             (None, "GET", status.HTTP_403_FORBIDDEN),
             # Loops deliberately use their own scope object rather than reusing `task`, so a
-            # task-scoped key must never grant loop access (see products/tasks/docs/LOOPS.md).
+            # task-scoped key must never grant loop access.
             ("task:write", "GET", status.HTTP_403_FORBIDDEN),
             ("loop:read", "GET", status.HTTP_200_OK),
             ("loop:read", "POST", status.HTTP_403_FORBIDDEN),

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0118_drop_replayobservationmedia_clip_columns"),
+        ("replay_vision", "0120_replayobservationrequest_wait_for_session_end"),
     ]
 
     operations = [

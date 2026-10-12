@@ -215,15 +215,52 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         self._make_pipeline(name="Untrained")
         champion = AutoresearchModel.objects.get(pipeline=validated, role=AutoresearchModel.Role.CHAMPION)
         finished = AutoresearchTrainingRun.objects.create(pipeline=validated, status="completed", iteration_budget=5)
-        AutoresearchIteration.objects.create(
-            pipeline=validated,
-            training_run=finished,
-            iteration_number=0,
-            recipe_hash="a",
-            recipe_snapshot={},
-            status="kept",
-        )
+        for number, holdout in [(0, None), (1, 0.7), (2, 0.65), (3, 0.8)]:
+            AutoresearchIteration.objects.create(
+                pipeline=validated,
+                training_run=finished,
+                iteration_number=number,
+                recipe_hash=f"a{number}",
+                recipe_snapshot={},
+                holdout_score=holdout,
+                status="kept",
+            )
+        champion.source_training_run = finished
+        champion.save(update_fields=["source_training_run"])
+        archived = AutoresearchModel.objects.get(pipeline=validated, role=AutoresearchModel.Role.ARCHIVED)
+        preliminary_champion = AutoresearchModel.objects.get(pipeline=preliminary)
         now = django_timezone.now()
+        # The newest run with a Likely count belongs to the archived model, so the champion keeps its own.
+        for model, minutes_ago, count in [(champion, 90, 10), (champion, 70, 12), (archived, 65, 99)]:
+            AutoresearchRun.objects.create(
+                pipeline=validated,
+                model=model,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status="completed",
+                rows_scored=100,
+                completed_at=now - timedelta(minutes=minutes_ago),
+                metrics={
+                    "prediction_date": "2026-01-01",
+                    "horizon_days": 7,
+                    "likely_count": count,
+                    "likely_threshold": 0.6,
+                },
+            )
+        # The earliest date that emitted rows sets the first check, whatever order the runs completed in.
+        for prediction_date, horizon_days, rows_scored, minutes_ago in [
+            ("2026-01-05", 7, 40, 30),
+            ("2026-01-03", 7, 30, 20),
+            ("2026-01-01", 7, 0, 10),
+        ]:
+            AutoresearchRun.objects.create(
+                pipeline=preliminary,
+                model=preliminary_champion,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status="completed",
+                rows_scored=rows_scored,
+                completed_at=now - timedelta(minutes=minutes_ago),
+                metrics={"prediction_date": prediction_date, "horizon_days": horizon_days},
+            )
         coverage = {
             "population": 400,
             "with_score": 300,
@@ -288,7 +325,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "Validated": (
                 250,
                 1,
-                1,
+                4,
                 [
                     {"prediction_date": "2026-01-01", "realized_auc": 0.6},
                     {"prediction_date": "2026-01-02", "realized_auc": 0.75},
@@ -296,7 +333,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 None,
             ),
             "Preliminary": (
-                None,
+                0,
                 1,
                 2,
                 [],
@@ -345,6 +382,31 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "No positives": (0.81, 0.78, None, False),
             "Zero lift": (0.81, 0.78, 0.0, False),
             "Untrained": (None, None, None, None),
+        }
+
+        assert {
+            name: (
+                row["champion_training_trend"],
+                row["likely_count"],
+                row["likely_threshold"],
+                row["first_check_expected_at"],
+            )
+            for name, row in by_name.items()
+        } == {
+            "Validated": (
+                [
+                    {"iteration_number": 1, "best_holdout_score": 0.7},
+                    {"iteration_number": 2, "best_holdout_score": 0.7},
+                    {"iteration_number": 3, "best_holdout_score": 0.8},
+                ],
+                12,
+                0.6,
+                None,
+            ),
+            "Preliminary": ([], None, None, "2026-01-10T01:00:00Z"),
+            "No positives": ([], None, None, None),
+            "Zero lift": ([], None, None, None),
+            "Untrained": ([], None, None, None),
         }
 
     def test_archived_pipelines_excluded_from_list(self):

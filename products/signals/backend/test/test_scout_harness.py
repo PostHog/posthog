@@ -108,6 +108,7 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
     RunSignalsScoutWorkflow,
+    cancel_failed_scout_trial_activity,
     evaluate_signals_scout_precheck_activity,
     run_signals_scout_activity,
     start_trial_signals_scout_run,
@@ -1694,7 +1695,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
                 return_value="env-id",
             ),
             patch(
-                "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+                "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
                 return_value=42,
             ),
         ):
@@ -1979,7 +1980,7 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2021,7 +2022,7 @@ async def test_run_acts_as_the_skill_creator_when_one_resolves(ateam, aorganizat
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2063,7 +2064,7 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2118,7 +2119,7 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch(
@@ -2198,11 +2199,11 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_scout_acting_user_id",
+            "products.signals.backend.scout_harness.acting_user.resolve_scout_acting_user_id",
             return_value=42 if acting_user_resolves else None,
         ),
     ):
@@ -2256,7 +2257,7 @@ async def test_catalog_nudge_follows_the_projects_approved_metrics(ateam, aerror
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=acting_user.id,
         ),
     ):
@@ -2306,7 +2307,7 @@ async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, r
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2359,7 +2360,7 @@ async def test_sandbox_env_matches_config_network_access(
         ),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2574,7 +2575,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2637,7 +2638,7 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2666,7 +2667,7 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2710,7 +2711,7 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2788,7 +2789,7 @@ async def test_failed_run_captures_run_finished_event(
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2820,7 +2821,7 @@ def _stubbed_spawn_dependencies():
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2922,7 +2923,7 @@ async def test_run_skipped_when_no_acting_user(ateam, aerrors_skill):
     # lacking GitHub is NOT this case — it resolves an org member and runs; see the resolver tests.)
     with (
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=None,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2947,7 +2948,7 @@ async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
         raise asyncio.CancelledError("worker is shutting down")
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
@@ -3054,7 +3055,7 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
         return "ok"
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
@@ -3098,7 +3099,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
         return "ok", str(task_run.id)
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
@@ -3224,7 +3225,7 @@ async def test_cancelled_run_re_raises(ateam, aerrors_skill):
         raise asyncio.CancelledError("worker is shutting down")
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
     ):
         with pytest.raises(asyncio.CancelledError):
@@ -3639,7 +3640,10 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", ["completed", "preflight_error", "timeout", "cancelled"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["completed", "returned_failed", "preflight_error", "timeout", "cancelled", "cleanup_error", "old_history"],
+)
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
     [("job:step:1", None, 16), (None, None, 16), (None, "11111111-1111-1111-1111-111111111111", 36)],
@@ -3650,7 +3654,7 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
     output = RunSignalsScoutOutput(
         run_id="abc",
         task_run_id="def",
-        status="completed",
+        status="failed" if outcome == "returned_failed" else "completed",
         runtime_s=1.5,
         skill_name="signals-scout-errors",
         skill_version=2,
@@ -3670,6 +3674,8 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         if outcome == "timeout"
         else RuntimeError("Preflight failed")
     )
+    cancellation = asyncio.CancelledError()
+    cleanup_inputs: list[RunSignalsScoutInput] = []
 
     async def execute_activity(activity_function, input=None, **kwargs):
         if activity_function is evaluate_signals_scout_precheck_activity:
@@ -3677,21 +3683,38 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         if activity_function is run_signals_scout_activity:
             assert kwargs["start_to_close_timeout"] == timedelta(minutes=timeout_minutes)
             if outcome == "cancelled":
-                raise asyncio.CancelledError()
-            if outcome != "completed":
+                raise cancellation
+            if outcome not in {"completed", "returned_failed"}:
                 raise error
             return output
+        if activity_function is cancel_failed_scout_trial_activity:
+            cleanup_inputs.append(input)
+            assert kwargs["retry_policy"].maximum_attempts == 3
+            assert kwargs["schedule_to_close_timeout"] == timedelta(minutes=3)
+            if outcome == "cleanup_error":
+                raise ActivityError(
+                    "Cleanup failed",
+                    scheduled_event_id=3,
+                    started_event_id=4,
+                    identity="worker",
+                    activity_type="cancel_failed_scout_trial_activity",
+                    activity_id="cleanup",
+                    retry_state=None,
+                )
+            return None
         return ActivityEnvironment().run(activity_function, *kwargs["args"])
 
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched",
+            side_effect=lambda name: name != "cancel-failed-scout-trial" or outcome != "old_history",
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
             side_effect=execute_activity,
         ),
         patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.logger"),
     ):
         workflow = RunSignalsScoutWorkflow()
         input = RunSignalsScoutInput(
@@ -3700,12 +3723,15 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
             workflow_origin_key=workflow_origin_key,
             trial_launch_id=trial_launch_id,
         )
-        if outcome == "completed":
+        if outcome in {"completed", "returned_failed"}:
             assert await workflow.run(input) == output
         else:
-            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError):
+            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError) as raised:
                 await workflow.run(input)
+            assert raised.value is (cancellation if outcome == "cancelled" else error)
 
+    cleans_up = trial_launch_id is not None and outcome not in {"completed", "returned_failed", "old_history"}
+    assert cleanup_inputs == ([input] if cleans_up else [])
     if workflow_origin_key is None:
         resume.assert_not_called()
     else:

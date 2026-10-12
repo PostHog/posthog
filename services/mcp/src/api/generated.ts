@@ -3222,6 +3222,13 @@ export namespace Schemas {
       breakdowns?: Breakdown[] | null;
     }
 
+    export interface CompareFilter {
+      /** Whether to compare the current date range to a previous date range. */
+      compare?: boolean | null;
+      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+      compare_to?: string | null;
+    }
+
     export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
 
 
@@ -3536,6 +3543,8 @@ export namespace Schemas {
 
     export interface DashboardFilter {
       breakdown_filter?: BreakdownFilter | null;
+      /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+      compareFilter?: CompareFilter | null;
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
@@ -5050,13 +5059,6 @@ export namespace Schemas {
     export interface CalendarHeatmapFilter {
       /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
       bucketBySessionStart?: boolean | null;
-    }
-
-    export interface CompareFilter {
-      /** Whether to compare the current date range to a previous date range. */
-      compare?: boolean | null;
-      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-      compare_to?: string | null;
     }
 
     export interface CustomEventConversionGoal {
@@ -11073,6 +11075,7 @@ export namespace Schemas {
 
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
+      compareFilter?: CompareFilter | null;
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
@@ -13934,6 +13937,13 @@ export namespace Schemas {
       readonly realized_auc: number;
     }
 
+    export interface AutoresearchTrainingTrendPoint {
+      /** Iteration number inside the training run. */
+      readonly iteration_number: number;
+      /** Best holdout AUC of the run up to and including this iteration. */
+      readonly best_holdout_score: number;
+    }
+
     export interface AutoresearchPredictionCoverage {
       /** People in the inference population at the run's cutoff. */
       readonly population: number;
@@ -14067,11 +14077,28 @@ export namespace Schemas {
       readonly champion_is_preliminary: boolean | null;
       /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
       readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPoint[];
+      /** Best-so-far holdout AUC per iteration of the training run that produced the current champion, oldest first. Iterations before the first holdout score are left out. Empty when the pipeline has no champion. */
+      readonly champion_training_trend: readonly AutoresearchTrainingTrendPoint[];
       /**
          * People scored by the most recent completed inference run. Null before the first scoring run.
          * @nullable
          */
       readonly people_scored: number | null;
+      /**
+         * People the newest completed live run of the current champion scored at or above likely_threshold. Null before such a run, and for runs that did not record it.
+         * @nullable
+         */
+      readonly likely_count: number | null;
+      /**
+         * The Likely cut point that likely_count used, as it was when that run scored. It is the fixed cut point until enough predictions are checked. Null when likely_count is null.
+         * @nullable
+         */
+      readonly likely_threshold: number | null;
+      /**
+         * When online validation can first check the current champion against real outcomes: its earliest prediction date plus the horizon plus the ingestion grace. Null before the champion's first scoring run, and once a validation has checked it.
+         * @nullable
+         */
+      readonly first_check_expected_at: string | null;
       /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
       readonly coverage: AutoresearchPredictionCoverage | null;
       /** Training runs started for this pipeline. */
@@ -26202,6 +26229,93 @@ export namespace Schemas {
     }
 
     /**
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+      Experiment: 'experiment',
+    } as const;
+
+    /**
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini35FlashLite: 'gemini-3.5-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini38Flash: 'gemini-3.8-flash',
+    } as const;
+
+    /**
+     * A question asked inline, without saving a scanner first.
+     */
+    export interface InlineScanConfig {
+      /**
+         * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
+         * @maxLength 20000
+         */
+      prompt: string;
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
+      scanner_type?: ScannerTypeEnum;
+      /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+      scanner_config?: unknown;
+      /** Model to scan with. Determines what each observation costs in credits.
+       *
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+      model?: ScannerModelEnum;
+    }
+
+    /**
+     * Body of POST /vision/requests/ - the sessions plus a saved scanner or an inline question.
+     */
+    export interface CreateObservationRequest {
+      /**
+         * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.
+         * @maxItems 200
+         * @items.maxLength 128
+         */
+      session_ids: string[];
+      /** A saved scanner to apply to the sessions. Pass this or `inline`, not both. */
+      scanner_id?: string;
+      /** A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both. */
+      inline?: InlineScanConfig;
+      /**
+         * Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.
+         * @maxLength 200
+         */
+      idempotency_key?: string;
+      /**
+         * Your own id for this request, such as a ticket or job id. Returned unchanged.
+         * @maxLength 200
+         */
+      reference?: string;
+      /** Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are. */
+      wait_for_session_end?: boolean;
+    }
+
+    /**
      * Typed output for view set `create`.
      */
     export interface CreateOutput {
@@ -37588,24 +37702,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     * * `experiment` - Experiment
-     */
-    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
-
-
-    export const ScannerTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-      Experiment: 'experiment',
-    } as const;
-
-    /**
      * * `focused` - Focused
      * * `balanced` - Balanced
      * * `comprehensive` - Comprehensive
@@ -37617,20 +37713,6 @@ export namespace Schemas {
       Focused: 'focused',
       Balanced: 'balanced',
       Comprehensive: 'comprehensive',
-    } as const;
-
-    /**
-     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.8-flash` - Gemini 3.8 Flash
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini35FlashLite: 'gemini-3.5-flash-lite',
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini38Flash: 'gemini-3.8-flash',
     } as const;
 
     /**
@@ -54511,9 +54593,32 @@ export namespace Schemas {
       readonly suggestions_enabled: boolean | null;
     }
 
+    /**
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running
+     */
+    export type SuggestionsScoutStatusEnum = typeof SuggestionsScoutStatusEnum[keyof typeof SuggestionsScoutStatusEnum];
+
+
+    export const SuggestionsScoutStatusEnum = {
+      Running: 'running',
+      PausedByUser: 'paused_by_user',
+      PausedBySystem: 'paused_by_system',
+      NotRunning: 'not_running',
+    } as const;
+
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
+      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+       *
+       * * `running` - Running
+       * * `paused_by_user` - Paused By User
+       * * `paused_by_system` - Paused By System
+       * * `not_running` - Not Running */
+      readonly scout_status: SuggestionsScoutStatusEnum;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -58767,12 +58872,6 @@ export namespace Schemas {
      */
     export interface InlineScanRequest {
       /**
-         * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
-         * @maxItems 200
-         * @items.maxLength 128
-         */
-      session_ids: string[];
-      /**
          * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
          * @maxLength 20000
          */
@@ -58793,6 +58892,12 @@ export namespace Schemas {
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.8-flash` - Gemini 3.8 Flash */
       model?: ScannerModelEnum;
+      /**
+         * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+         * @maxItems 200
+         * @items.maxLength 128
+         */
+      session_ids: string[];
     }
 
     /**
@@ -66971,6 +67076,99 @@ export namespace Schemas {
       version_markers: ObservationVersionMarker[];
     }
 
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     */
+    export type ObservationRequestStatusEnum = typeof ObservationRequestStatusEnum[keyof typeof ObservationRequestStatusEnum];
+
+
+    export const ObservationRequestStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     * * `skipped` - Skipped
+     * * `lost` - Lost
+     */
+    export type RequestSessionStateEnum = typeof RequestSessionStateEnum[keyof typeof RequestSessionStateEnum];
+
+
+    export const RequestSessionStateEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+      Skipped: 'skipped',
+      Lost: 'lost',
+    } as const;
+
+    /**
+     * One session of a request: how it started and where it stands now.
+     */
+    export interface ObservationRequestSession {
+      /** The session recording this outcome is for. */
+      session_id: string;
+      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
+       *
+       * * `started` - Started
+       * * `already_running` - Already running
+       * * `already_scanned` - Already scanned
+       * * `skipped_limit` - Skipped, in-flight limit reached
+       * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+       * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+       * * `failed` - Failed to start */
+      scan_outcome: ScanOutcomeEnum;
+      /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `ineligible` - Ineligible
+       * * `skipped` - Skipped
+       * * `lost` - Lost */
+      state: RequestSessionStateEnum;
+      /**
+         * The observation for this session, once one exists. Null before that.
+         * @nullable
+         */
+      readonly observation_id: string | null;
+      /** The scanner's answer for this session. Null until the session succeeds. */
+      readonly scanner_result: ScannerResult | null;
+    }
+
+    /**
+     * A scan request and the current state of each of its sessions.
+     */
+    export interface ObservationRequest {
+      /** Request ID. Poll `GET /vision/requests/{id}/` with it. */
+      id: string;
+      /** 'completed' once every session has settled, whether or not it produced a result.
+       *
+       * * `running` - Running
+       * * `completed` - Completed */
+      status: ObservationRequestStatusEnum;
+      /**
+         * The scanner the sessions were scanned with. For an inline question this is a hidden scanner, shared by every request that asks the same question. Null when nothing could start.
+         * @nullable
+         */
+      scanner_id: string | null;
+      /** The `reference` sent with the request. */
+      reference: string;
+      /** When the request was made. */
+      created_at: string;
+      /** One entry per session, in request order. */
+      sessions: ObservationRequestSession[];
+    }
+
     export interface ObservationSearchResult {
       /** The matching observation. */
       observation: ReplayObservation;
@@ -73564,6 +73762,40 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Subscription[];
+    }
+
+    export interface SubscriptionSummary {
+      /** ID of the delivery that included this summary. */
+      readonly id: string;
+      /** ID of the subscription that generated this summary. */
+      readonly subscription: number;
+      /**
+         * Title of the subscription that generated this summary. Null when the subscription has no title.
+         * @nullable
+         */
+      readonly subscription_title: string | null;
+      /** Channel the summary was sent to: email, slack, or teams. */
+      readonly target_type: string;
+      /**
+         * AI-generated summary text included in the delivery.
+         * @nullable
+         */
+      readonly change_summary: string | null;
+      /**
+         * Start of the period this summary covers: the time of the previous completed delivery of the same subscription. Null for the first delivery, which has no earlier data to compare with.
+         * @nullable
+         */
+      readonly period_start: string | null;
+      /** When the delivery started. This is also the end of the covered period. */
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSubscriptionSummaryList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SubscriptionSummary[];
     }
 
     /**
@@ -83200,6 +83432,12 @@ export namespace Schemas {
        * * `project` - Project default
        * * `default` - Built-in default */
       default_review_mode: PreferenceSourceEnum;
+      /** Where the effective review_drafts comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      review_drafts: PreferenceSourceEnum;
       /** Where the effective resolve_comments comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
        *
        * * `user` - Set by the user
@@ -83250,6 +83488,8 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts. */
+      review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
       /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
@@ -83765,11 +84005,13 @@ export namespace Schemas {
          */
       write_scopes?: string[];
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @maxLength 10000
          * @nullable
          */
       precheck_query?: string | null;
+      /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+      precheck_disabled?: boolean;
       /**
          * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
          * @maxLength 64
@@ -96510,6 +96752,8 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts. */
+      review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
       /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
@@ -97221,7 +97465,7 @@ export namespace Schemas {
        * * `support_notes` - Support notes */
       tool_preset?: ToolPresetEnum;
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @maxLength 10000
          * @nullable
          */
@@ -97382,6 +97626,15 @@ export namespace Schemas {
       Background: 'background',
     } as const;
 
+    export type ScoutPrecheckQuerySourceEnum = typeof ScoutPrecheckQuerySourceEnum[keyof typeof ScoutPrecheckQuerySourceEnum];
+
+
+    export const ScoutPrecheckQuerySourceEnum = {
+      Config: 'config',
+      SkillDefault: 'skill_default',
+      Off: 'off',
+    } as const;
+
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -97494,10 +97747,19 @@ export namespace Schemas {
          */
       readonly tool_preset: string | null;
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @nullable
          */
       readonly precheck_query: string | null;
+      /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+      readonly precheck_disabled: boolean;
+      /**
+         * The pre-check query the next scheduled run uses: `precheck_query`, or the default the scout's skill ships. Null when no pre-check runs.
+         * @nullable
+         */
+      readonly effective_precheck_query: string | null;
+      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+      readonly precheck_query_source: ScoutPrecheckQuerySourceEnum;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -100403,7 +100665,7 @@ export namespace Schemas {
        * * `support_notes` - Support notes */
       tool_preset?: ToolPresetEnum;
       /**
-         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
          * @maxLength 10000
          * @nullable
          */
@@ -100566,6 +100828,8 @@ export namespace Schemas {
       since: string;
       /** The value bound to `{now}`. */
       now: string;
+      /** The value bound to `{interval_minutes}`: the scout's rolling interval, or for a cron schedule the gap in minutes between the fire times around now. */
+      interval_minutes: number;
       /** How many rows the query returned, at most 50. */
       row_count: number;
       /** The column names of the result, in order. */
@@ -100577,11 +100841,13 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** The member scheduled runs check the query as, when that is not you. The test runs with your access, so a table you can read can still fail on a scheduled run, and the run then starts as if there were no pre-check. Null when scheduled runs check it as you. */
+      readonly acting_user: UserBasic | null;
     }
 
     export interface SignalScoutPrecheckTestRequest {
       /**
-         * HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.
+         * HogQL `SELECT` to try, with the same `{since}`, `{now}` and `{interval_minutes}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the scout's effective query: its own `precheck_query`, or the default its skill ships.
          * @maxLength 10000
          * @nullable
          */
@@ -100595,10 +100861,11 @@ export namespace Schemas {
       has_chart: boolean;
       has_self_validation: boolean;
       has_structured_output: boolean;
+      has_not_in_use_closeout: boolean;
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunDetailMetadata = {
       harness_prompt_version?: string;
@@ -100683,7 +100950,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
@@ -100694,10 +100961,11 @@ export namespace Schemas {
       has_chart: boolean;
       has_self_validation: boolean;
       has_structured_output: boolean;
+      has_not_in_use_closeout: boolean;
     };
 
     /**
-     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
     export type SignalScoutRunSummaryMetadata = {
       harness_prompt_version?: string;
@@ -100782,7 +101050,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -128008,6 +128276,23 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
+
+    export type SubscriptionsSummariesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.
+     * @minimum 1
+     */
+    dashboard?: number;
+    /**
+     * Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.
+     * @minimum 1
+     */
+    insight?: number;
+    };
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;

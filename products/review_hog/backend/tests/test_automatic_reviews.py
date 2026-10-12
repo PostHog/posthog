@@ -57,7 +57,12 @@ def _dispatch_count(outcome: str) -> float:
 
 
 def _payload(
-    *, action: str = "opened", draft: bool = False, repository: str = "PostHog/posthog", login: str = "OctoCat"
+    *,
+    action: str = "opened",
+    draft: bool = False,
+    repository: str = "PostHog/posthog",
+    login: str = "OctoCat",
+    labels: tuple[str, ...] = (),
 ) -> dict[str, object]:
     return {
         "action": action,
@@ -67,6 +72,7 @@ def _payload(
             "number": 42,
             "state": "open",
             "draft": draft,
+            "labels": [{"name": label} for label in labels],
             "merged": False,
             "user": {"login": login},
             "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
@@ -129,6 +135,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             ("opened", True, "PostHog/posthog"),
             ("synchronize", False, "PostHog/posthog"),
             ("synchronize", True, "PostHog/posthog"),
+            ("ready_for_review", False, "PostHog/posthog"),
         ]
     )
     @patch(_QUEUE)
@@ -147,6 +154,8 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             pr_number=42,
             head_sha=_HEAD_SHA,
             github_repo_id=_REPO_ID,
+            draft=draft,
+            skip_agent_review=False,
         )
 
     @parameterized.expand(
@@ -256,7 +265,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("ready_for_review", ("action",), "ready_for_review"),
+            ("edited", ("action",), "edited"),
             ("closed", ("pull_request", "state"), "closed"),
             ("merged", ("pull_request", "merged"), True),
             ("fork", ("pull_request", "head", "repo", "full_name"), "octocat/posthog"),
@@ -308,9 +317,11 @@ class TestAuthoredPRReviewTask(BaseTest):
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
         )
 
-    def _queued_event(self, login: str = "OctoCat") -> Mapping[str, object]:
+    def _queued_event(
+        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = ()
+    ) -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            accept_pull_request_event(_payload(login=login))
+            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
@@ -329,10 +340,12 @@ class TestAuthoredPRReviewTask(BaseTest):
             "github_repo_id": _REPO_ID,
         }
 
-    @parameterized.expand([("own_flash_default",), ("listed_by_the_project",), ("repository_exception",)])
+    @parameterized.expand(
+        [("own_flash_default",), ("listed_by_the_project",), ("repository_exception",), ("draft_by_default",)]
+    )
     @patch(_START)
     def test_eligible_author_schedules_flash_in_the_owning_project(self, setup: str, start: MagicMock) -> None:
-        if setup != "own_flash_default":
+        if setup not in ("own_flash_default", "draft_by_default"):
             self.preferences.preferences = {}
             self.preferences.save(update_fields=["preferences"])
         if setup == "listed_by_the_project":
@@ -345,7 +358,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             self.repository.save()
         started_before = _dispatch_count("started")
 
-        process_authored_pr_event.run(**self._queued_event())
+        process_authored_pr_event.run(**self._queued_event(draft=setup == "draft_by_default"))
 
         start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
         assert _dispatch_count("started") - started_before == 1.0
@@ -362,14 +375,22 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("unmapped", "bot_skipped"),
             ("missing_installation", "installation_mismatch"),
             ("full_review_published", "full_review_published"),
+            ("draft_with_drafts_off", "draft_skipped"),
+            ("skip_agent_review_label", "label_skipped"),
         ]
     )
     @patch(_START)
     def test_queued_events_recheck_ownership_consent_and_membership(
         self, change: str, expected_outcome: str, start: MagicMock
     ) -> None:
-        queued = self._queued_event()
-        if change == "opted_out":
+        queued = self._queued_event(
+            draft=change == "draft_with_drafts_off",
+            labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
+        )
+        if change == "draft_with_drafts_off":
+            self.preferences.preferences = {"default_review_mode": "flash", "review_drafts": False}
+            self.preferences.save(update_fields=["preferences"])
+        elif change == "opted_out":
             self.preferences.preferences = {"default_review_mode": "off"}
             self.preferences.save(update_fields=["preferences"])
         elif change == "repository_removed":
@@ -390,7 +411,7 @@ class TestAuthoredPRReviewTask(BaseTest):
                 base_branch="master",
                 published_heads_by_mode={"full": _HEAD_SHA},
             )
-        else:
+        elif change == "unmapped":
             self.github_identity.delete()
         outcome_before = _dispatch_count(expected_outcome)
 
