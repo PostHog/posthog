@@ -41,6 +41,8 @@ describe('isDashboardFilterOverrideEmpty', () => {
         ['filterTestAccounts forced on', { filterTestAccounts: true }],
         ['filterTestAccounts forced off', { filterTestAccounts: false }],
         ['filterTestAccounts explicitly cleared', { filterTestAccounts: null }],
+        ['compareFilter set', { compareFilter: { compare: true } }],
+        ['compareFilter explicitly cleared', { compareFilter: null }],
         ['ignoreDashboardFilters set', { ignoreDashboardFilters: true }],
     ]
 

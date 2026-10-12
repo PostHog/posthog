@@ -85,6 +85,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
+    CompareFilter,
     DashboardFilter,
     DataVisualizationNode,
     HogQLVariable,
@@ -861,6 +862,9 @@ export interface dashboardLogicActions {
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
     }
+    setCompareFilter: (compareFilter: CompareFilter | null) => {
+        compareFilter: CompareFilter | null
+    }
     setDashboardCustomizeMenuOpen: (open: boolean) => {
         open: boolean
     }
@@ -1523,6 +1527,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setInterval: (interval: IntervalType | null) => ({ interval }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
+        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
         setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => ({ metricFilters }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
@@ -2115,6 +2120,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setBreakdownFilter: () => false,
                 setInterval: () => false,
                 setFilterTestAccounts: () => false,
+                setCompareFilter: () => false,
                 setMetricFilters: () => false,
                 overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
@@ -5078,6 +5084,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setCompareFilter: ({ compareFilter }) => {
+            actions.setDashboardSettingsDraft({
+                ...values.currentDashboardSettings,
+                filters: { ...values.currentDashboardSettings.filters, compareFilter },
+            })
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'compare', {
+                compare: compareFilter?.compare ?? null,
+                compare_to: compareFilter?.compare_to ?? null,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                    previewUnsavedFilters: true,
+                })
+            }
+        },
         setMetricFilters: ({ metricFilters }) => {
             actions.setDashboardSettingsDraft({
                 ...values.currentDashboardSettings,
@@ -5346,6 +5370,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
                 filterTestAccounts,
+            }
+
+            return [
+                currentLocation.pathname,
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
+                currentLocation.hashParams,
+            ]
+        },
+        setCompareFilter: ({ compareFilter }) => {
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                compareFilter,
             }
 
             return [
