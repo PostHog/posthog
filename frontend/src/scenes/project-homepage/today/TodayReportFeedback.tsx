@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent } from 'react'
+import { type ChangeEvent, type MouseEvent } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { Button, Text, Textarea } from '@posthog/quill'
 
+import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
@@ -19,6 +20,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
     const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
     const { feedbackNoteFocused } = useValues(todayReportLogic({ reportId: report.id }))
     const { focusFeedbackNote } = useActions(todayReportLogic({ reportId: report.id }))
+    const { celebrate, celebration } = useReportFeedbackCelebration()
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
     const canAddNote = !!feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent
@@ -34,7 +36,12 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     aria-label="This report was useful"
                     aria-pressed={isPositive}
                     tooltip="Yes, this was useful"
-                    onClick={() => !isPositive && rateReport('positive', 'today')}
+                    onClick={(event: MouseEvent<HTMLElement>) => {
+                        if (!isPositive) {
+                            rateReport('positive', 'today')
+                            celebrate(event.currentTarget)
+                        }
+                    }}
                     data-attr="today-report-feedback-up"
                 >
                     {isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
@@ -68,6 +75,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     </Text>
                 )}
             </div>
+            {celebration}
             {feedbackNoteOpen && (
                 <div className="flex flex-col items-start gap-2">
                     <Textarea

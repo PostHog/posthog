@@ -11,7 +11,7 @@ import { initKeaTests } from '~/test/init'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
 import { captureInboxReportFeedback } from '../../inboxAnalytics'
-import { BANG_DURATION_MS } from './ReportFeedbackBang'
+import { CELEBRATION_DURATION_MS } from './ReportFeedbackCelebration'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 
 jest.mock('../../inboxAnalytics', () => ({
@@ -19,9 +19,9 @@ jest.mock('../../inboxAnalytics', () => ({
     captureInboxReportFeedback: jest.fn(),
 }))
 
-const BANG_SELECTOR = '[data-attr="inbox-report-feedback-bang"]'
+const CELEBRATION_SELECTOR = '[data-attr="inbox-report-feedback-celebration"]'
 
-function setBangFlag(enabled: boolean): void {
+function setCelebrationFlag(enabled: boolean): void {
     featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORT_FEEDBACK_BANG], {
         [FEATURE_FLAGS.INBOX_REPORT_FEEDBACK_BANG]: enabled,
     })
@@ -62,7 +62,7 @@ describe('ReportFeedbackFooter', () => {
         featureFlagLogic.mount()
         setReducedMotion(false)
         jest.mocked(captureInboxReportFeedback).mockClear()
-        render(<ReportFeedbackFooter report={makeReport({ id: 'report-bang' })} />)
+        render(<ReportFeedbackFooter report={makeReport({ id: 'report-celebration' })} />)
     })
 
     afterEach(() => {
@@ -70,46 +70,46 @@ describe('ReportFeedbackFooter', () => {
         jest.useRealTimers()
     })
 
-    it('pops the burst once on thumbs-up and removes it when the animation ends', async () => {
-        setBangFlag(true)
+    it('pops the hog once on thumbs-up and removes it when the animation ends', async () => {
+        setCelebrationFlag(true)
         const thumbsUp = screen.getByLabelText('This report was useful')
 
         await user.click(thumbsUp)
 
-        expect(document.querySelector(BANG_SELECTOR)).toBeInTheDocument()
+        expect(document.querySelector(CELEBRATION_SELECTOR)).toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
         expect(captureInboxReportFeedback).toHaveBeenCalledWith(expect.objectContaining({ sentiment: 'positive' }))
 
         act(() => {
-            jest.advanceTimersByTime(BANG_DURATION_MS)
+            jest.advanceTimersByTime(CELEBRATION_DURATION_MS)
         })
-        expect(document.querySelector(BANG_SELECTOR)).not.toBeInTheDocument()
+        expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
 
-        // A re-click is a no-op for feedback, so it earns no second burst either.
+        // A re-click is a no-op for feedback, so it earns no second pop either.
         await user.click(thumbsUp)
-        expect(document.querySelector(BANG_SELECTOR)).not.toBeInTheDocument()
+        expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
     })
 
     it('does not pop on thumbs-down', async () => {
-        setBangFlag(true)
+        setCelebrationFlag(true)
 
         await user.click(screen.getByLabelText('This report was not useful'))
 
-        expect(document.querySelector(BANG_SELECTOR)).not.toBeInTheDocument()
+        expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledWith(expect.objectContaining({ sentiment: 'negative' }))
     })
 
     it.each([
         ['the flag is off', false, false],
         ['the reader prefers reduced motion', true, true],
-    ])('records the rating without a burst when %s', async (_, flagEnabled, reducedMotion) => {
-        setBangFlag(flagEnabled)
+    ])('records the rating without a pop when %s', async (_, flagEnabled, reducedMotion) => {
+        setCelebrationFlag(flagEnabled)
         setReducedMotion(reducedMotion)
 
         await user.click(screen.getByLabelText('This report was useful'))
 
-        expect(document.querySelector(BANG_SELECTOR)).not.toBeInTheDocument()
+        expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
         expect(screen.getByText('Thanks for the feedback')).toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
     })
