@@ -799,6 +799,7 @@ describe('llmPlaygroundLogic', () => {
                     isRecommended: false,
                     providerKeyId: 'key-1',
                     supportsDecisions: false,
+                    supportsChat: true,
                 }))
             )
         })
