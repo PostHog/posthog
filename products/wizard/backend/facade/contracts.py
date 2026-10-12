@@ -270,3 +270,36 @@ class WizardRunPullRequestArtifactDTO:
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
+
+
+@frozen
+class WizardScanSignal:
+    # Free-form so the wizard can add a signal type without a backend change.
+    source: str
+    name: str
+    file: str | None
+
+
+@frozen
+class WizardScanTool:
+    kind: str
+    signals: tuple[WizardScanSignal, ...]
+
+
+@frozen
+class RecordWizardScanInput:
+    team_id: int
+    created_by_id: int | None
+    session_id: str
+    program: str
+    wizard_version: str
+    workspace_fingerprint: str
+    scanned_at: datetime
+    tools: tuple[WizardScanTool, ...]
+
+
+@frozen
+class WizardScanResult:
+    id: UUID
+    # False when the session already reported this scan, so nothing was written.
+    created: bool

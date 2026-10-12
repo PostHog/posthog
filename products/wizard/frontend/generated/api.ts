@@ -14,6 +14,7 @@ import type {
     PaginatedWizardRunListApi,
     PaginatedWizardSessionDTOListApi,
     PatchedWizardRunStatusUpdateRequestApi,
+    RecordWizardScanRequestApi,
     UpdateWizardRunTaskListApi,
     UpsertWizardSessionRequestApi,
     WizardRegistryListParams,
@@ -22,6 +23,7 @@ import type {
     WizardRunTaskListApi,
     WizardRunsArtifactsListParams,
     WizardRunsListParams,
+    WizardScanResultApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
@@ -259,6 +261,26 @@ export const wizardRunsTasksUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(updateWizardRunTaskListApi),
+    })
+}
+
+export const getWizardScansCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/scans/`
+}
+
+/**
+ * @summary Record the tools a wizard scan found in a codebase
+ */
+export const wizardScansCreate = async (
+    projectId: string,
+    recordWizardScanRequestApi: RecordWizardScanRequestApi,
+    options?: RequestInit
+): Promise<WizardScanResultApi> => {
+    return apiMutator<WizardScanResultApi>(getWizardScansCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordWizardScanRequestApi),
     })
 }
 
