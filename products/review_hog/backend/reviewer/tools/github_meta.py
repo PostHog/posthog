@@ -248,6 +248,15 @@ class PRParser:
 
 
 @frozen
+class FetchedFiles:
+    """The PR's reviewable files, their point-in-time diff, and the files the filter left out."""
+
+    pr_files: list[PRFile]
+    diff: str
+    skipped_paths: tuple[str, ...]
+
+
+@frozen
 class FetchedPR:
     """Everything the review pipeline needs from one fetched review target."""
 
@@ -474,10 +483,10 @@ class PRFetcher:
             logger.warning(f"Could not fetch review comments: {e}")
         return pr_comments
 
-    def fetch_pr_files(self, pr_filter: PRFilter, pr_parser: PRParser) -> tuple[list[PRFile], str, list[str]]:
+    def fetch_pr_files(self, pr_filter: PRFilter, pr_parser: PRParser) -> FetchedFiles:
         """Fetch the PR's reviewable files and the point-in-time unified diff snapshot.
 
-        Returns ``(pr_files, diff, skipped_paths)``, where ``skipped_paths`` are the files the filter left out. The raw per-file patch is captured here — the only place with
+        ``skipped_paths`` are the files the filter left out. The raw per-file patch is captured here — the only place with
         the file's ``patch`` — into the ``diff`` snapshot, kept out of ``PRFile`` so it doesn't bloat
         the prompts that dump ``pr_files``. The snapshot is the source for the durable per-turn
         `commit` artefact (it anchors a finding to the exact reviewed code even after later
@@ -509,7 +518,7 @@ class PRFetcher:
                 diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
         except (GitHubAPIError, GitHubRateLimitError) as e:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
-        return pr_files, "\n\n".join(diff_sections), skipped_paths
+        return FetchedFiles(pr_files=pr_files, diff="\n\n".join(diff_sections), skipped_paths=tuple(skipped_paths))
 
     def fetch_merge_base_sha(self, *, base_branch: str, head_sha: str) -> str | None:
         """The commit GitHub computes the PR's diff against, or None when the compare call fails.
@@ -549,7 +558,7 @@ class PRFetcher:
         pr_parser = PRParser()
         pr_metadata = self.fetch_pr_metadata(pr)
         pr_comments = self.fetch_pr_comments(pr_filter)
-        pr_files, diff, skipped_paths = self.fetch_pr_files(pr_filter, pr_parser)
+        files = self.fetch_pr_files(pr_filter, pr_parser)
         merge_base_sha = (
             self.fetch_merge_base_sha(base_branch=pr_metadata.base_branch, head_sha=pr_metadata.head_sha)
             if with_merge_base and pr_metadata.head_sha
@@ -559,8 +568,8 @@ class PRFetcher:
         return FetchedPR(
             pr_metadata=pr_metadata,
             pr_comments=pr_comments,
-            pr_files=pr_files,
-            diff=diff,
+            pr_files=files.pr_files,
+            diff=files.diff,
             merge_base_sha=merge_base_sha,
-            skipped_paths=tuple(skipped_paths),
+            skipped_paths=files.skipped_paths,
         )
