@@ -619,5 +619,49 @@ describe('ApiClient', () => {
             expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
+
+        const stubStalledFetch = (): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn(
+                (_url: string, init?: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                    })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            return mockFetch
+        }
+
+        it.each([
+            { method: 'GET' as const, retryable: true, advice: 'safe to retry' },
+            { method: 'POST' as const, retryable: false, advice: 'may have been applied upstream' },
+        ])('ends a $method request that never answers', async ({ method, retryable, advice }) => {
+            const mockFetch = stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const error = await settle(client.request({ method, path: '/api/projects/17/signals/scout/notes/' }))
+
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            expect(error).toMatchObject({ retryable, timedOut: true, attempts: 1 })
+            expect((error as PostHogTransportError).message).toContain(advice)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives a query request more time than the default deadline', async () => {
+            stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            let settled = false
+            const pending = client
+                .request({ method: 'POST', path: '/api/environments/17/query/' })
+                .finally(() => {
+                    settled = true
+                })
+                .catch((error) => error)
+
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+            expect(settled).toBe(false)
+
+            await vi.runAllTimersAsync()
+            expect(await pending).toMatchObject({ timedOut: true })
+        })
     })
 })

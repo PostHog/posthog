@@ -57,7 +57,22 @@ const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
  *  would only wait for a deadline that has already passed. Everything else
  *  thrown out of `fetch` or a body read is a transport fault. */
 function isAbortError(error: unknown): boolean {
-    return error instanceof Error && error.name === 'AbortError'
+    return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+}
+
+// Per-attempt deadline for a JSON API request. Without it, an upstream request that
+// never answers holds the tool call open until the MCP client gives up, and a batch
+// waits on its slowest call. A timeout returns an error that says whether a retry is
+// safe, so the agent does not have to guess if a write applied.
+const API_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
+
+// Endpoints that run analytics queries can legitimately take minutes, so they keep a
+// wide bound. It still ends a request that never answers.
+const LONG_RUNNING_API_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
+const LONG_RUNNING_API_PATH = /\/(query|run_insights)\/$|\/(max_tools|autoresearch)\//
+
+function apiRequestTimeoutMs(url: string): number {
+    return LONG_RUNNING_API_PATH.test(url.split('?')[0]!) ? LONG_RUNNING_API_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS
 }
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
@@ -624,12 +639,22 @@ export class ApiClient {
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
+        const timeoutMs = apiRequestTimeoutMs(url)
 
         for (;;) {
             let response: Response
             let bodyText: string
+            const deadline = new AbortController()
+            const timer = setTimeout(
+                () =>
+                    deadline.abort(
+                        new DOMException(`No response within ${Math.round(timeoutMs / 1000)} seconds`, 'TimeoutError')
+                    ),
+                timeoutMs
+            )
+            const signal = options?.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal
             try {
-                response = await this.fetch(url, options)
+                response = await this.fetch(url, { ...options, signal })
                 // Read the body inside the same guard as the connection: a stream cut
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
@@ -657,6 +682,8 @@ export class ApiClient {
                 )
                 await new Promise((resolve) => setTimeout(resolve, delayMs))
                 continue
+            } finally {
+                clearTimeout(timer)
             }
 
             if (response.status === 429) {

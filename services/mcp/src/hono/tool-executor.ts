@@ -16,6 +16,7 @@ import {
     MissingProjectContextError,
     PinnedContextSwitchError,
     PostHogApiError,
+    PostHogTransportError,
     PostHogValidationError,
     ToolInputValidationError,
     MCPToolResultError,
@@ -978,7 +979,10 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (
+        (error instanceof Error && error.name === 'TimeoutError') ||
+        (error instanceof PostHogTransportError && error.timedOut)
+    ) {
         return { errorType: 'timeout' }
     }
 
