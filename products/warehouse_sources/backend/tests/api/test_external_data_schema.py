@@ -879,6 +879,56 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config["incremental_field"] == "updated_at"
 
+    @parameterized.expand(
+        [
+            ("enabled_creates_schedule", True, {}, True),
+            ("disabled_skips_trigger", False, {}, False),
+            ("enabling_does_not_trigger_twice", False, {"should_sync": True}, True),
+        ]
+    )
+    def test_update_incremental_field_without_schedule(self, _name, should_sync, extra_data, expect_create):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=should_sync,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+            table=DataWarehouseTable.objects.create(team=self.team),
+        )
+
+        with (
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=None),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
+                side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+            ) as mock_trigger,
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "updated_at", **extra_data},
+            )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config["reset_pipeline"] is True
+        assert mock_sync.call_count == (1 if expect_create else 0)
+        if extra_data:
+            mock_trigger.assert_not_called()
+
     def test_update_incremental_field_on_non_incremental_schema_errors(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -3546,7 +3596,7 @@ class TestUpdateExternalDataSchema:
             ) as mock_trigger,
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow",
-            ),
+            ) as mock_sync,
         ):
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
@@ -3559,7 +3609,9 @@ class TestUpdateExternalDataSchema:
         schema.refresh_from_db()
         assert schema.should_sync is True
         assert schema.sync_type_config.get("reset_pipeline") is True
-        mock_trigger.assert_called_once()
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.kwargs["create"] is True
+        mock_trigger.assert_not_called()
 
     def test_update_webhook_schema_reenable_skips_reset_if_never_synced(self, team, user, client: HttpClient, temporal):
         source = ExternalDataSource.objects.create(
