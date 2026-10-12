@@ -47,7 +47,7 @@ export interface experimentHealthDebugLogicMeta {
         pageMetricCounts: (experiment: Experiment) => HealthDebugInput['pageMetricCounts']
         healthDebugChecks: (
             experiment: Experiment,
-            experimentHealth: any,
+            experimentHealth: ExperimentHealthApi | null,
             healthFindings: HealthPanelFinding[] | null,
             browserExperimentWarning: ExperimentWarning | null,
             browserNoMetricsWarning: boolean,
@@ -62,7 +62,7 @@ export interface experimentHealthDebugLogicMeta {
         ) => HealthDebugCheck[]
         healthDebugFacts: (
             experiment: Experiment,
-            experimentHealth: any,
+            experimentHealth: ExperimentHealthApi | null,
             healthFindings: HealthPanelFinding[] | null,
             pageMetricCounts: {
                 primary: number

@@ -2550,12 +2550,18 @@ describe('experimentLogic', () => {
             }
         )
 
-        it('loads the health with each experiment load and again after a write, comparing only once', async () => {
-            const health: ExperimentHealthApi = { findings: [] }
-            useMocks({ get: { '/api/projects/:team/experiments/7/health/': health } })
-            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const healthUrl = '/api/projects/:team/experiments/7/health/'
+        const mountKeyedLogic = (): ReturnType<typeof experimentLogic.build> => {
             const keyedLogic = experimentLogic({ experimentId: 7 })
             keyedLogic.mount()
+            return keyedLogic
+        }
+
+        it('loads the health with each experiment load and after a changed input, comparing only once', async () => {
+            const health: ExperimentHealthApi = { findings: [] }
+            useMocks({ get: { [healthUrl]: () => [200, health] } })
+            const keyedLogic = mountKeyedLogic()
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             const draft = createExperiment({
                 id: 7,
                 start_date: undefined,
@@ -2569,12 +2575,68 @@ describe('experimentLogic', () => {
                 .toMatchValues({ experimentHealth: health })
 
             await expectLogic(keyedLogic, () => {
+                keyedLogic.actions.setExperiment({ ...draft, name: 'Renamed' })
+            }).toNotHaveDispatchedActions(['loadExperimentHealth'])
+
+            await expectLogic(keyedLogic, () => {
                 keyedLogic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
             }).toDispatchActions(['loadExperimentHealth', 'loadExperimentHealthSuccess'])
 
             const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
             expect(checkedEvents).toHaveLength(1)
-            keyedLogic.unmount()
+        })
+
+        it('shows a reader with the flag neither warnings nor findings until the health answers', async () => {
+            setHealthFindingsFlag(true)
+            let release: () => void = () => {}
+            const released = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            useMocks({
+                get: {
+                    [healthUrl]: async () => {
+                        await released
+                        return [200, { findings: [healthFinding('flag_off_while_running', 'running_but_no_rollout')] }]
+                    },
+                },
+            })
+            const keyedLogic = mountKeyedLogic()
+            keyedLogic.actions.setExperiment(
+                createExperiment({
+                    id: 7,
+                    ...running,
+                    ...newEngineMetrics,
+                    feature_flag: flag(false, multivariantFilters),
+                })
+            )
+
+            keyedLogic.actions.loadExperimentHealth('experiment_load')
+
+            expect(keyedLogic.values).toMatchObject({ experimentWarning: null, healthFindings: [], healthUi: 'panel' })
+            release()
+            await expectLogic(keyedLogic).toDispatchActions(['loadExperimentHealthSuccess'])
+            expect(keyedLogic.values.experimentWarning).toEqual({ key: 'running_but_no_rollout' })
+        })
+
+        it('applies the local rules without an error when the health request fails', async () => {
+            setHealthFindingsFlag(true)
+            useMocks({ get: { [healthUrl]: () => [500, { detail: 'Server error' }] } })
+            const keyedLogic = mountKeyedLogic()
+            keyedLogic.actions.setExperiment(
+                createExperiment({
+                    id: 7,
+                    ...running,
+                    ...newEngineMetrics,
+                    feature_flag: flag(false, multivariantFilters),
+                })
+            )
+
+            await expectLogic(keyedLogic, () => {
+                keyedLogic.actions.loadExperimentHealth('experiment_load')
+            })
+                .toDispatchActions(['loadExperimentHealthSuccess'])
+                .toNotHaveDispatchedActions(['loadExperimentHealthFailure'])
+                .toMatchValues({ experimentHealth: null, experimentWarning: { key: 'running_but_flag_disabled' } })
         })
     })
 

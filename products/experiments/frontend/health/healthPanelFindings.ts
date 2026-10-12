@@ -23,7 +23,7 @@ export function hoursSinceStart(startDate: string | null | undefined): number | 
  * separate warnings instead of the panel.
  */
 export function healthPanelFindings(
-    health: ExperimentHealthApi | null | undefined,
+    health: ExperimentHealthApi | null,
     exposures: ExperimentExposureQueryResponse | null | undefined,
     isExperimentDraft: boolean
 ): HealthPanelFinding[] | null {

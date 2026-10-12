@@ -234,7 +234,8 @@ export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null
     }
 }
 
-// The fields the server's health checks read. A write to one of them makes the loaded findings stale.
+// The fields the server's health checks read, so a change to one of them makes the loaded findings stale.
+// Keep in step with `load_health_context` in products/experiments/backend/health/context.py.
 const HEALTH_CHECK_INPUTS = [
     'feature_flag',
     'metrics',
@@ -244,6 +245,10 @@ const HEALTH_CHECK_INPUTS = [
     'end_date',
     'archived',
 ] as const satisfies readonly (keyof Experiment)[]
+
+function healthCheckInputs(experiment: Experiment): Partial<Experiment> {
+    return Object.fromEntries(HEALTH_CHECK_INPUTS.map((field) => [field, experiment[field]]))
+}
 
 type ExperimentHealthLoadTrigger = 'experiment_load' | 'experiment_update'
 
@@ -409,6 +414,7 @@ export interface experimentLogicValues {
     hasMetrics: boolean
     hasMinimumExposureForResults: boolean
     healthFindings: HealthPanelFinding[] | null
+    healthPending: boolean
     healthUi: ExperimentHealthUi
     hogfettiTrigger: (() => void) | null
     isCreatingExperimentDashboard: boolean
@@ -679,7 +685,7 @@ export interface experimentLogicActions {
         error: string
         errorObject?: any
     }
-    loadExperimentHealth: (_trigger: ExperimentHealthLoadTrigger) => ExperimentHealthLoadTrigger
+    loadExperimentHealth: (trigger: ExperimentHealthLoadTrigger) => ExperimentHealthLoadTrigger
     loadExperimentHealthFailure: (
         error: string,
         errorObject?: any
@@ -1111,13 +1117,24 @@ export interface experimentLogicMeta {
             experimentHealth: ExperimentHealthApi | null,
             featureFlags: FeatureFlagsSet
         ) => ExperimentHealthApi | null
-        healthUi: (experiment: Experiment, shownHealth: ExperimentHealthApi | null) => ExperimentHealthUi
+        healthPending: (
+            featureFlags: FeatureFlagsSet,
+            experimentHealth: ExperimentHealthApi | null,
+            experimentHealthLoading: boolean
+        ) => boolean
+        healthUi: (
+            experiment: Experiment,
+            shownHealth: ExperimentHealthApi | null,
+            healthPending: boolean
+        ) => ExperimentHealthUi
         experimentWarning: (
             shownHealth: ExperimentHealthApi | null,
+            healthPending: boolean,
             browserExperimentWarning: ExperimentWarning | null
         ) => ExperimentWarning | null
         healthFindings: (
             shownHealth: ExperimentHealthApi | null,
+            healthPending: boolean,
             exposures: any,
             isExperimentDraft: boolean
         ) => HealthPanelFinding[] | null
@@ -1922,8 +1939,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             }
         },
-        setExperiment: ({ experiment }) => {
-            if (values.experimentHealth && HEALTH_CHECK_INPUTS.some((field) => field in experiment)) {
+        setExperiment: () => {
+            // A save returns the whole experiment, so compare values: only a changed input makes the findings stale.
+            if (
+                (values.experimentHealth || values.experimentHealthLoading) &&
+                !objectsEqual(healthCheckInputs(values.experiment), cache.healthCheckInputs)
+            ) {
                 actions.loadExperimentHealth('experiment_update')
             }
         },
@@ -2795,10 +2816,15 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentHealth: [
             null as ExperimentHealthApi | null,
             {
-                loadExperimentHealth: async (_trigger: ExperimentHealthLoadTrigger, breakpoint) => {
+                loadExperimentHealth: async (trigger: ExperimentHealthLoadTrigger, breakpoint) => {
                     if (typeof values.experimentId !== 'number' || values.currentProjectId === null) {
                         return null
                     }
+                    if (trigger === 'experiment_update') {
+                        // A metric edit and its save follow each other closely, and one request covers both.
+                        await breakpoint(300)
+                    }
+                    cache.healthCheckInputs = healthCheckInputs(values.experiment)
                     try {
                         const health = await experimentsHealthRetrieve(
                             String(values.currentProjectId),
@@ -3209,26 +3235,50 @@ export const experimentLogic = kea<experimentLogicType>([
                 // everyone else.
                 featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] ? experimentHealth : null,
         ],
+        healthPending: [
+            (s) => [s.featureFlags, s.experimentHealth, s.experimentHealthLoading],
+            (
+                featureFlags: FeatureFlagsSet,
+                experimentHealth: ExperimentHealthApi | null,
+                experimentHealthLoading: boolean
+            ): boolean =>
+                // Until the first answer, a reader with the flag sees neither the browser's warnings nor the panel,
+                // so the page never shows a warning that the server then contradicts. A failed request ends the
+                // wait, and the browser's rules apply.
+                !!featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] &&
+                experimentHealthLoading &&
+                experimentHealth === null,
+        ],
         healthUi: [
-            (s) => [s.experiment, s.shownHealth],
-            (experiment: Experiment, shownHealth: ExperimentHealthApi | null): ExperimentHealthUi =>
-                experimentHealthUi(experiment, shownHealth !== null),
+            (s) => [s.experiment, s.shownHealth, s.healthPending],
+            (
+                experiment: Experiment,
+                shownHealth: ExperimentHealthApi | null,
+                healthPending: boolean
+            ): ExperimentHealthUi => experimentHealthUi(experiment, shownHealth !== null || healthPending),
         ],
         experimentWarning: [
-            (s) => [s.shownHealth, s.browserExperimentWarning],
+            (s) => [s.shownHealth, s.healthPending, s.browserExperimentWarning],
             (
                 shownHealth: ExperimentHealthApi | null,
+                healthPending: boolean,
                 browserExperimentWarning: ExperimentWarning | null
-            ): ExperimentWarning | null =>
-                shownHealth ? experimentWarningFromHealth(shownHealth) : browserExperimentWarning,
+            ): ExperimentWarning | null => {
+                if (healthPending) {
+                    return null
+                }
+                return shownHealth ? experimentWarningFromHealth(shownHealth) : browserExperimentWarning
+            },
         ],
         healthFindings: [
-            (s) => [s.shownHealth, s.exposures, s.isExperimentDraft],
+            (s) => [s.shownHealth, s.healthPending, s.exposures, s.isExperimentDraft],
             (
                 shownHealth: ExperimentHealthApi | null,
+                healthPending: boolean,
                 exposures: any,
                 isExperimentDraft: boolean
-            ): HealthPanelFinding[] | null => healthPanelFindings(shownHealth, exposures, isExperimentDraft),
+            ): HealthPanelFinding[] | null =>
+                healthPending ? [] : healthPanelFindings(shownHealth, exposures, isExperimentDraft),
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],

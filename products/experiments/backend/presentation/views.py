@@ -68,16 +68,12 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.api import get_experiment_health_findings
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
 )
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
-from products.experiments.backend.health.context import load_health_context
-from products.experiments.backend.health.registry import (
-    EXPERIMENT_HEALTH_CHECKS,
-    evaluate as evaluate_health,
-)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -524,6 +520,10 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
+        if self.action == "health":
+            # The facade reads the experiment again with the joins its checks need, so the object lookup
+            # here only checks access.
+            queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
@@ -905,7 +905,7 @@ class EnterpriseExperimentsViewSet(
         exposures come with the exposure query.
         """
         experiment: Experiment = self.get_object()
-        findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
+        findings = get_experiment_health_findings(team_id=self.team_id, experiment_id=experiment.id)
         return Response(ExperimentHealthSerializer({"findings": findings}).data)
 
     @validated_request(
