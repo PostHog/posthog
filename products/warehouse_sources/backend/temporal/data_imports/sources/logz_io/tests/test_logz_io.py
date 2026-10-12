@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -172,6 +173,90 @@ class TestPagedEndpoints:
         mock_session.return_value.request.return_value = _resp({"results": []})
         manager = _make_manager()
         assert list(get_rows("token", "us", "triggered_alerts", mock.MagicMock(), manager)) == []
+
+
+class TestOffsetEndpoints:
+    @mock.patch(f"{TRANSPORT}.make_tracked_session")
+    def test_audit_trail_walks_offsets_and_derives_distinct_ids(self, mock_session: mock.MagicMock) -> None:
+        full_page = [{"date": 1_700_000_000_000 + i, "auditEventTypeTitle": "Login"} for i in range(500)]
+        mock_session.return_value.request.side_effect = [
+            _resp({"results": full_page}),
+            _resp({"results": [{"date": 1_700_000_001_000, "auditEventTypeTitle": "Login"}]}),
+        ]
+
+        manager = _make_manager()
+        rows = [r for batch in get_rows("token", "us", "audit_trail", mock.MagicMock(), manager) for r in batch]
+
+        assert len({r["audit_event_id"] for r in rows}) == 501
+        offsets = [c.kwargs["json"]["from"] for c in mock_session.return_value.request.call_args_list]
+        assert offsets == [0, 500]
+
+
+class TestIncrementalRequestShaping:
+    @pytest.mark.parametrize(
+        "endpoint, use_incremental, last_value, expected_fields",
+        [
+            (
+                "security_events",
+                True,
+                1_780_000_000,
+                {
+                    "filter": {
+                        "includeMutedEvents": True,
+                        "timeRange": {"fromDate": 1_780_000_000, "toDate": 1_790_000_000},
+                    },
+                    "sort": [{"field": "DATE", "descending": False}],
+                },
+            ),
+            (
+                "security_events",
+                False,
+                None,
+                {"filter": {"includeMutedEvents": True}, "sort": [{"field": "DATE", "descending": False}]},
+            ),
+            (
+                "audit_trail",
+                True,
+                1_780_000_000_000,
+                {"fromDate": 1_780_000_000_000, "toDate": 1_790_000_000_000, "sortDescending": False},
+            ),
+            # A watermark stored in seconds still reaches the API in milliseconds.
+            (
+                "audit_trail",
+                True,
+                1_780_000_000,
+                {"fromDate": 1_780_000_000_000, "toDate": 1_790_000_000_000, "sortDescending": False},
+            ),
+        ],
+    )
+    @time_machine.travel(datetime.fromtimestamp(1_790_000_000, tz=UTC), tick=False)
+    @mock.patch(f"{TRANSPORT}.make_tracked_session")
+    def test_time_range_in_request_body(
+        self,
+        mock_session: mock.MagicMock,
+        endpoint: str,
+        use_incremental: bool,
+        last_value: int | None,
+        expected_fields: dict[str, Any],
+    ) -> None:
+        mock_session.return_value.request.return_value = _resp({"results": []})
+        manager = _make_manager()
+        list(
+            get_rows(
+                "token",
+                "us",
+                endpoint,
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=use_incremental,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        body = mock_session.return_value.request.call_args.kwargs["json"]
+        assert {key: body.get(key) for key in expected_fields} == expected_fields
+        if not use_incremental:
+            assert "timeRange" not in body["filter"]
 
 
 class TestListEndpoints:

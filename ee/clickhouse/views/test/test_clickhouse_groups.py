@@ -784,6 +784,45 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_group_property_update_reuses_definition_from_another_environment(self, mock_capture):
+        group_type_mapping = create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        existing = PropertyDefinition.objects.create(
+            team=sibling_team,
+            project=self.team.project,
+            name="industry",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            property_type="Numeric",
+            is_numerical=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        definitions = PropertyDefinition.objects.filter(
+            project=self.team.project, name="industry", type=PropertyDefinition.Type.GROUP
+        )
+        self.assertEqual(
+            [(d.pk, d.team_id, d.group_type_index, d.property_type, d.is_numerical) for d in definitions],
+            [(existing.pk, sibling_team.pk, 0, "String", False)],
+        )
+
     @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_update_missing_key(self):
         group_type_mapping = create_group_type_mapping_without_created_at(

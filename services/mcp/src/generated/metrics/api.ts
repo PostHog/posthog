@@ -187,13 +187,22 @@ export const MetricsQueryCreateBody = () => zod.object({
                     "Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.\n\n\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary"
                 ),
             aggregation: zod
-                .enum(['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                .enum(['none', 'sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase', 'histogram_quantile'])
                 .describe(
-                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                    '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                 )
                 .default(metricsQueryCreateBodyQueryOneAggregationDefault)
                 .describe(
-                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                ),
+            rangeFunction: zod
+                .union([
+                    zod.enum(['rate', 'increase']).describe('\* `rate` - rate\n\* `increase` - increase'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n\* `rate` - rate\n\* `increase` - increase"
                 ),
             quantile: zod
                 .number()
@@ -302,6 +311,7 @@ export const MetricsQueryCreateBody = () => zod.object({
                             ),
                         aggregation: zod
                             .enum([
+                                'none',
                                 'sum',
                                 'avg',
                                 'count',
@@ -313,11 +323,20 @@ export const MetricsQueryCreateBody = () => zod.object({
                                 'histogram_quantile',
                             ])
                             .describe(
-                                '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                             )
                             .default(metricsQueryCreateBodyQueryOneClausesItemAggregationDefault)
                             .describe(
-                                'Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                                'Aggregation applied per time bucket; same semantics as the top-level aggregation.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                            ),
+                        rangeFunction: zod
+                            .union([
+                                zod.enum(['rate', 'increase']).describe('\* `rate` - rate\n\* `increase` - increase'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.\n\n\* `rate` - rate\n\* `increase` - increase"
                             ),
                         quantile: zod
                             .number()

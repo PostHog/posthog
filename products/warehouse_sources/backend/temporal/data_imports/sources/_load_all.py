@@ -1026,6 +1026,7 @@ from .retently.source import RetentlySource
 from .revenuecat.source import RevenueCatSource
 from .reverb.source import ReverbSource
 from .revolut_merchant.source import RevolutMerchantSource
+from .rewardful.source import RewardfulSource
 from .ringcentral.source import RingCentralSource
 from .rippling.source import RipplingSource
 from .rki_covid.source import RKICovidSource
@@ -1241,6 +1242,7 @@ from .together_ai.source import TogetherAISource
 from .toggl.source import TogglSource
 from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
+from .tracklution.source import TracklutionSource
 from .tradable_bits.source import TradableBitsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
@@ -1283,6 +1285,7 @@ from .us_census.source import USCensusSource
 from .us_eia.source import UsEiaSource
 from .us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
 from .user_com.source import UserComSource
+from .userback.source import UserbackSource
 from .usersnap.source import UsersnapSource
 from .uservoice.source import UservoiceSource
 from .vanta.source import VantaSource

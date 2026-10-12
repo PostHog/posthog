@@ -223,6 +223,7 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
                 result.indexOf('`call docs-search')
             )
+            expect(result).toContain('Code or doc misses')
             expect(result.length).toBeLessThanOrEqual(2048)
         })
     })

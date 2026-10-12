@@ -4,6 +4,9 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
@@ -229,6 +232,40 @@ class TestBingAdsSource:
         # Assert through the same case-insensitive matcher production classification uses.
         assert error_message_matches(error_message, self.source.get_retryable_errors())
         assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "error_message,expected_fragment,unexpected_fragment",
+        [
+            (
+                "Failed to fetch customer ID: Exception: Server raised fault: 'Invalid client data. "
+                "Check the SOAP fault details for more information. TrackingId: abc-123.'",
+                "cannot access a Microsoft Advertising account",
+                "Account ID",
+            ),
+            (
+                "Failed to fetch customer ID: Exception: Server raised fault: 'Invalid client data.' "
+                "(AuthenticationTokenExpired: token expired)",
+                "could not authenticate",
+                "Invalid client data",
+            ),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.integration_secrets.get_secret",
+        return_value="dev-token",
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.BingAdsClient")
+    @mock.patch.object(BingAdsSource, "get_oauth_integration")
+    def test_get_oauth_accounts_listing_errors(
+        self, mock_get_oauth, mock_client_cls, _mock_secret, error_message, expected_fragment, unexpected_fragment
+    ):
+        mock_client_cls.return_value.list_accounts.side_effect = ValueError(error_message)
+
+        with pytest.raises(IntegrationAccountListingError) as exc_info:
+            self.source.get_oauth_accounts(integration_id=1, team_id=self.team_id)
+
+        assert expected_fragment in str(exc_info.value)
+        assert unexpected_fragment not in str(exc_info.value)
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""

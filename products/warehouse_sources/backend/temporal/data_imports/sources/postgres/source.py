@@ -130,6 +130,13 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# The role exists but has NOLOGIN, the default for a role made with CREATE ROLE. libpq prefixes
+# the refusal with the customer's host and port, so the raw text names nothing they can act on.
+_ROLE_CANNOT_LOG_IN_ERROR = (
+    "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a different "
+    "user, then re-enable the sync."
+)
+
 # A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
 # name") or the raw socket wording ("Name or service not known" / "No address associated with
 # hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
@@ -161,6 +168,13 @@ _DNS_RESOLUTION_VALIDATION_ERROR = (
 _HOST_UNREACHABLE_VALIDATION_ERROR = (
     "Could not connect to the database on the host and port given. Check the host and port are "
     "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
+_CONNECT_TIMEOUT_VALIDATION_ERROR = "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option."
+
+_DATABASE_NOT_FOUND_VALIDATION_ERROR = (
+    "The database named in your connection details doesn't exist on this server. Check the database name is "
+    "correct and try again."
 )
 
 PostgresErrors = {
@@ -284,8 +298,8 @@ PostgresErrors = {
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
-    'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
-    "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
+    'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
@@ -480,6 +494,13 @@ class PostgresSource(
     def get_implementation(self) -> PostgresImplementation:
         return _POSTGRES_IMPLEMENTATION
 
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        return error in (
+            _CONNECT_TIMEOUT_VALIDATION_ERROR,
+            _HOST_UNREACHABLE_ERROR,
+            _HOST_UNREACHABLE_VALIDATION_ERROR,
+        )
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.POSTGRES
@@ -582,7 +603,7 @@ class PostgresSource(
             "XminUnsupportedError": None,
             "xmin replication": None,
             "NoSuchTableError": None,
-            "is not permitted to log in": None,
+            "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
             # Newer Supabase/Supavisor poolers report a missing tenant/user with a different

@@ -30,6 +30,27 @@ conservative (follow `links.next`, yield rows verbatim, merge on `id`).
 | forms_promotion | /forms/promotion | page number | id          | created_at    |
 | webhooks        | /webhooks        | page number | id          | created_at    |
 
+### Fan-out endpoints
+
+Each child is fetched once per parent row from the parent list, so the parent id is part of the
+primary key. A 404 on a child (parent deleted mid-sync) is skipped.
+
+| Schema                       | Path                                                 | Parent                    | Pagination  | Primary key       | Partition key |
+| ---------------------------- | ---------------------------------------------------- | ------------------------- | ----------- | ----------------- | ------------- |
+| campaign_subscriber_activity | /campaigns/{campaign_id}/reports/subscriber-activity | campaigns (status `sent`) | page number | campaign_id, id   | (none)        |
+| group_subscribers            | /groups/{group_id}/subscribers                       | groups                    | cursor      | group_id, id      | created_at    |
+| segment_subscribers          | /segments/{segment_id}/subscribers                   | segments                  | cursor      | segment_id, id    | created_at    |
+| automation_activity          | /automations/{automation_id}/activity                | automations × status      | page number | automation_id, id | (none)        |
+
+- `campaign_subscriber_activity` sends `include=subscriber`; without it a row carries only its
+  counts. Reports exist only for sent campaigns, so the parent list is filtered to `sent`.
+- The membership endpoints default `filter[status]` to `active`, so they hold active members only.
+- `automation_activity` requires `filter[status]` and takes one value per request, so each
+  automation is fetched four times (`active`, `completed`, `canceled`, `failed`). Its `date`
+  field moves as a run progresses, so the table is not partitioned.
+- The `filter[date_from]` / `filter[date_to]` filters on automation activity don't apply to the
+  `active` status, so the table stays full refresh like the rest of the source.
+
 ## Pagination
 
 All list endpoints wrap rows in `{"data": [...], "links": {...}, "meta": {...}}`. Both the

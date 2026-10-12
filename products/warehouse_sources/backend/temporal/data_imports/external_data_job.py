@@ -31,8 +31,11 @@ from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
+    SyncAlertEvent,
+    SyncAlertKind,
     a_unpause_external_data_schedule,
     create_warehouse_templates_for_source,
+    emit_sync_alert,
     update_external_job_status,
 )
 from products.managed_warehouse.backend.facade.temporal import (
@@ -393,6 +396,12 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "again on its next schedule."
 )
 
+# The marker hand-rolled source transports raise once their own backoff on a 429 or 5xx runs out:
+# "<Vendor> API error (retryable): status=<code>, url=<url>". Unlike `RESTClientRetryableError`
+# it reaches the finalizer as plain message text, which carries the vendor URL and, for a
+# self-hosted source, the customer's own host.
+RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -639,13 +648,23 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
             # consulted first; the source's own exhaustion messages cover the classes it does not
             # name. Retryability is untouched: the schema is not disabled and the next scheduled
             # run still tries.
-            transient_message = _transient_error_message(internal_error_normalized) or next(
-                (
-                    message
-                    for error, message in source_cls.get_retry_exhausted_errors().items()
-                    if error_message_matches(internal_error_normalized, [error])
-                ),
-                None,
+            # The retryable-status marker comes last, so a source that names its own vendor in
+            # `get_retry_exhausted_errors` keeps that copy.
+            transient_message = (
+                _transient_error_message(internal_error_normalized)
+                or next(
+                    (
+                        message
+                        for error, message in source_cls.get_retry_exhausted_errors().items()
+                        if error_message_matches(internal_error_normalized, [error])
+                    ),
+                    None,
+                )
+                or (
+                    TRANSIENT_SOURCE_ERROR_MESSAGE
+                    if error_message_matches(internal_error_normalized, [RETRYABLE_STATUS_ERROR_MARKER])
+                    else None
+                )
             )
             if transient_message is not None:
                 inputs.latest_error = transient_message
@@ -666,6 +685,18 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         team_id=inputs.team_id,
         counts_as_source_failure=counts_as_source_failure,
     )
+
+    if has_non_retryable_error:
+        # A non-retryable failure does not count toward the failure streak, so the status write
+        # above sends no failed alert for it. The schema stops syncing until a person turns it back
+        # on, which is the failure a destination most needs to hear about.
+        await database_sync_to_async_pool(emit_sync_alert)(
+            team_id=inputs.team_id,
+            schema_id=inputs.schema_id,
+            event=SyncAlertEvent.FAILED,
+            kind=SyncAlertKind.SCHEMA_PAUSED,
+            job_id=job_id,
+        )
 
     if inputs.internal_error and source is not None:
         # This activity runs once the workflow has given up, so every error reaching here has

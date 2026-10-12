@@ -208,6 +208,8 @@ class ScoutCheckSummary:
     status: str
     next_run_at: datetime
     last_outcome: str | None
+    # Set only when `last_outcome` is `inconclusive`.
+    last_outcome_reason: str | None
     # Where the check is in its run cycle. See `_run_state`.
     run_state: str
     # True while an `agent` check waits on a dispatched run to record its verdict.
@@ -253,6 +255,7 @@ def _summarize(
         # Provisional on a pending check, whose clock the report's resolve starts.
         next_run_at=check.next_run_at,
         last_outcome=check.last_outcome,
+        last_outcome_reason=check.last_outcome_reason,
         run_state=_run_state(check, report_status, dispatched_run_id, now or timezone.now()),
         # Cancel and expiry leave `dispatched_at` set, so only an open check can still owe a run.
         waiting_on_run=check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None,

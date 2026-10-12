@@ -58,6 +58,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
     PolicyStatement,
+    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
     s3_client,
@@ -310,7 +311,10 @@ class S3DestinationWriter:
         if self._ctx.integration_id is None:
             raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        except S3IntegrationNotFoundError as error:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from error
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None

@@ -1,3 +1,4 @@
+import re
 import logging
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -6,7 +7,7 @@ from typing import TYPE_CHECKING, Final
 
 from posthog.dataclasses import frozen
 
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, ReportedPriority
 from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_PIPELINE,
     REVIEW_DESIGN_REASON_DEFAULT,
@@ -111,14 +112,14 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 # Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
-    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 0),
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-0`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -149,6 +150,16 @@ SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
 
+# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
+# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
+# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
+# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
+
+# A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
+# reviewers already raised, and counts the rest.
+ALREADY_RAISED_SHOWN = 10
+
 # The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
 # PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
 FLASH_MAX_FINDINGS_BASE = 4
@@ -157,6 +168,8 @@ FLASH_MAX_FINDINGS_CEILING = 10
 # Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
 # marks everything P0 or P1 cannot flood the PR.
 FLASH_MUST_FIX_CAP_MULTIPLIER = 2
+# A finding on a line next to a change is often about that change.
+FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES = 3
 
 
 def flash_max_findings(lens_part_count: int) -> int:
@@ -273,13 +286,13 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
-# CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
-# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
+# CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
+# tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
+# and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui"})
+HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui", "comment"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
@@ -377,10 +390,11 @@ def validation_arm_for_mode(
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
-# The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
+# The validator's model at high effort: xhigh gave the same outcomes on clear fixes at a higher cost
+# per turn (see the 2026-10-09 entry in DECISIONS.md).
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
 RESOLUTION_MODEL: str | None = "claude-opus-5-5"
-RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.HIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
 # A resolution run handles at most this many threads, priority-ordered; the binding constraint is
@@ -425,6 +439,10 @@ MAX_CONCURRENT_SANDBOXES = 10
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
 FAN_OUT_FAILURE_FLOOR = 0.70
 
+NON_RETRYABLE_UNIT_FAILURE_CATEGORIES = frozenset(
+    {"upstream_request_rejected", "task_spend_limit", "subscription_usage_limit", "content_block_rejection"}
+)
+
 # Attempts for a chunk's warm validation session. Retries are cheap — skip-resume re-validates only
 # issues without a persisted verdict. On the final attempt a failed turn is skipped, not raised.
 VALIDATION_MAX_ATTEMPTS = 2
@@ -445,6 +463,61 @@ PRIORITY_LABELS = {
     IssuePriority.SHOULD_FIX: "should fix",
     IssuePriority.CONSIDER: "consider",
 }
+
+
+STORED_PRIORITY_BY_REPORTED: dict[ReportedPriority, IssuePriority] = {
+    "P0": IssuePriority.MUST_FIX,
+    "P1": IssuePriority.MUST_FIX,
+    "P2": IssuePriority.SHOULD_FIX,
+    "P3": IssuePriority.CONSIDER,
+}
+
+_DISPLAY_LEVEL_BY_PRIORITY: dict[IssuePriority, ReportedPriority] = {
+    IssuePriority.MUST_FIX: "P1",
+    IssuePriority.SHOULD_FIX: "P2",
+    IssuePriority.CONSIDER: "P3",
+}
+
+# Most severe first. Storage folds P0 and P1 into `must_fix`, so only the reported level ranks them apart.
+REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
+
+
+def display_level(priority: IssuePriority, reported: ReportedPriority | None) -> ReportedPriority:
+    """The P0-P3 level a published finding leads with, for its effective `priority`.
+
+    The reviewer's own level applies only while it still folds into `priority`. A validator override
+    or a dedup survivor that absorbed a more severe duplicate changes the priority, and then the
+    reported level would show a severity that the finding no longer has.
+    """
+    if reported is not None and STORED_PRIORITY_BY_REPORTED[reported] == priority:
+        return reported
+    return _DISPLAY_LEVEL_BY_PRIORITY[priority]
+
+
+def finding_heading(title: str, level: ReportedPriority) -> str:
+    """The first line of a published finding.
+
+    The outcome sweep (`find_finding_comment`) matches a finding to its inline comment by this line.
+    """
+    return f"**{level} · {title}**"
+
+
+_MARKDOWN_BLOCK_START = re.compile(r"^\s*(```|~~~|[-*+] |\d+[.)] |>|#|\|)")
+
+
+def finding_text(body: str, suggestion: str) -> str:
+    """The issue and its fix as one paragraph. A single-agent finding has no suggestion text, because its
+    body already ends with the fix.
+
+    A pipeline issue or fix can be Markdown with code blocks or lists, which a space would run into the
+    other text, so those keep a paragraph break.
+    """
+    body, suggestion = body.strip(), suggestion.strip()
+    if not suggestion:
+        return body
+    if "\n" in body or "\n" in suggestion or _MARKDOWN_BLOCK_START.match(suggestion):
+        return f"{body}\n\n{suggestion}"
+    return f"{body} {suggestion}"
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
@@ -524,6 +597,11 @@ OUTCOME_MAX_REPORTS_PER_SWEEP = 50
 # whole report is decided, the retry and every later sweep would replay the same calls and never
 # finish it. Candidates past this ceiling settle without a judge call so the report always completes.
 OUTCOME_MAX_JUDGE_CALLS_PER_REPORT = 30
+# Ceiling on reaction reads for one report: each finding comment with a reaction costs one GitHub read
+# to see who left it. Outcomes persist only once the whole report is decided, so a report that spends
+# the installation's budget stops the team's sweep and replays the same reads on every retry. Comments
+# past the ceiling go to the line check and judge, which under-counts `reacted` rather than inventing it.
+OUTCOME_MAX_REACTION_READS_PER_REPORT = 30
 # A judge call that fails settles its finding as `judge_failed` rather than throwing away the whole
 # report's completed judgments and replaying them next sweep. These two bound that tolerance, because
 # an outcome is written once and never re-decided: recording a report's worth of `judge_failed` during

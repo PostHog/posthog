@@ -11,10 +11,12 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
-    PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    display_level,
     effective_priority,
+    finding_heading,
+    finding_text,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
@@ -27,6 +29,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
+    is_transient_github_error,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -35,9 +38,6 @@ logger = logging.getLogger(__name__)
 
 # GitHub rejects a review body over 65,536 characters; the margin covers the closing line.
 FALLBACK_BODY_MAX_CHARS = 60_000
-# The reviewer only writes replacement code for a small fix, so a longer suggestion is a rewrite that
-# does not belong in a one-click suggestion. It also keeps the comment far below GitHub's 65,536 characters.
-SUGGESTION_CODE_MAX_CHARS = 4_000
 
 
 class ReviewComment(TypedDict, total=False):
@@ -263,59 +263,27 @@ def publish_review(
     return PublishOutcome(posted=True, review_url=review_url)
 
 
-def _finding_meta_line(priority: IssuePriority, category: str | None) -> str:
-    """The severity (+ optional category) line under the title, in plain text so it reads the same
-    in the PR, in email notifications, and with images blocked."""
-    meta = f"**{PRIORITY_LABELS[priority].capitalize()}**"
-    if category:
-        meta += f" · {category.replace('_', ' ')}"
-    return meta
+def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
+    """Format a finding + its verdict as an inline comment body: the P level and title, then the issue
+    and its fix in one paragraph.
 
-
-def _suggestion_block(code: str) -> str:
-    """A GitHub suggestion block with a fence longer than any backtick run in the code.
-
-    A run of three or more backticks in the code would otherwise close the block early, and GitHub would
-    offer only the code before it as the replacement.
-    """
-    longest_run = max((len(run) for run in re.findall(r"`+", code)), default=0)
-    fence = "`" * max(3, longest_run + 1)
-    return f"{fence}suggestion\n{code}\n{fence}"
-
-
-def _format_issue_comment(
-    finding: ReviewIssueFinding, verdict: ValidationVerdict, *, with_suggestion_code: bool = False
-) -> str:
-    """Format a finding + its verdict as an inline comment body: title, severity, issue, fix.
-
+    The comment is plain text, so it reads the same in the PR and in email notifications.
     The validator's argumentation stays out of the comment. It is stored on the verdict and the
-    reviews API returns it as `validator_note`. The title must stay the first line, because the
+    reviews API returns it as `validator_note`. The heading must stay the first line, because the
     outcome sweep (`find_finding_comment`) matches a finding to its comment by that line.
-    A single-agent finding has no suggestion text, and may carry replacement code instead, which
-    `with_suggestion_code` posts as a GitHub suggestion block up to `SUGGESTION_CODE_MAX_CHARS`.
+    The finding's `suggestion_code` is not posted, because the readers apply the fix from the wording.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
-    lines = [f"### {finding.title}", "", _finding_meta_line(priority, verdict.category), "", finding.body, ""]
-    if finding.suggestion.strip():
-        lines.extend(["**Suggested fix**", "", finding.suggestion, ""])
-    code = finding.suggestion_code
-    if with_suggestion_code and code is not None and len(code) <= SUGGESTION_CODE_MAX_CHARS:
-        lines.extend([_suggestion_block(code), ""])
-    # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
-    lines.append(REVIEW_HOG_FINDING_MARKER)
+    level = display_level(priority, finding.reported_priority)
+    lines = [
+        finding_heading(finding.title, level),
+        "",
+        finding_text(finding.body, finding.suggestion),
+        "",
+        # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
+        REVIEW_HOG_FINDING_MARKER,
+    ]
     return "\n".join(lines)
-
-
-def _covers_whole_range(finding: ReviewIssueFinding, start_line: int, end_line: int | None) -> bool:
-    """Whether the inline comment spans exactly the finding's single line range.
-
-    GitHub applies a suggestion block to the commented lines, so replacement code written for the
-    finding's range is only safe to post when the comment covers that same range.
-    """
-    if len(finding.lines) != 1:
-        return False
-    line_range = finding.lines[0]
-    return start_line == line_range.start and (end_line or start_line) == (line_range.end or line_range.start)
 
 
 def _build_inline_comments(
@@ -339,9 +307,7 @@ def _build_inline_comments(
         start_line, end_line = position
         comment = ReviewComment(
             path=finding.file,
-            body=_format_issue_comment(
-                finding, verdict, with_suggestion_code=_covers_whole_range(finding, start_line, end_line)
-            ),
+            body=_format_issue_comment(finding, verdict),
             side="RIGHT",
         )
 
@@ -370,8 +336,9 @@ def _review_already_posted(
 ) -> bool:
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
-    Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    Best-effort idempotency backstop: a transient readback failure raises, because an earlier attempt
+    may have posted already and the activity retries. Any other readback failure proceeds to post rather
+    than silently drop the review — the `published_head_sha` watermark still guards the common retry path. Only
     our own app-bot's reviews count (`is_app_bot_author`, shared with the status comment's marker
     scan): on a public repo anyone can paste the marker, and a spoofed match would silently
     suppress the publish.
@@ -396,6 +363,8 @@ def _review_already_posted(
             )
         )
     except (GitHubAPIError, GitHubRateLimitError) as e:
+        if is_transient_github_error(e):
+            raise
         logger.warning(f"Could not read existing reviews to check publish idempotency: {e}. Proceeding to post.")
         return False
 

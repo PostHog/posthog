@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterator
 
 import pytest
 from unittest import mock
@@ -14,12 +15,18 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError
 
+from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
 from products.batch_exports.backend.models.batch_export import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
-from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
+from products.batch_exports.backend.tests.api.fixtures import (
+    create_destination,
+    create_organization,
+    create_team,
+    create_user,
+)
 from products.batch_exports.backend.tests.api.operations import start_test_worker
 
 
@@ -96,6 +103,26 @@ def team(organization):
 @pytest.fixture
 def user(organization):
     return create_user("test@user.com", "Test User", organization)
+
+
+@pytest.fixture
+def grandfathered_batch_export(team: Team, request: pytest.FixtureRequest) -> Iterator[BatchExport]:
+    export_team = team if getattr(request, "param", True) else create_team(team.organization)
+    destination = create_destination()
+    batch_export = BatchExport.objects.create(
+        team=export_team,
+        name="Legacy custom schema export",
+        destination=destination,
+        interval="hour",
+        schema={
+            "fields": [{"expression": "events.uuid", "alias": "uuid"}],
+            "values": {},
+            "hogql_query": "SELECT uuid FROM events",
+        },
+    )
+    yield batch_export
+    batch_export.delete()
+    destination.delete()
 
 
 @pytest.fixture

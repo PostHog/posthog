@@ -966,13 +966,6 @@ export class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(
-        dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
-    ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
-    }
-
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
@@ -1003,14 +996,6 @@ export class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
-    }
-
-    public dashboardCollaboratorsDetail(
-        dashboardId: DashboardType['id'],
-        userUuid: UserType['uuid'],
-        projectId?: ProjectType['id']
-    ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -3431,7 +3416,7 @@ const api = {
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
-            onError: (error: any) => void
+            onError: (error: any, willRetry?: boolean) => void
         ): Promise<() => void> {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
@@ -3447,12 +3432,12 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            const handleConnectionError = (error: any): void => {
-                if (isAbortError(error)) {
+            const handleConnectionError = (error: any, willRetry = false): void => {
+                if (abortController.signal.aborted || isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                onError(error)
+                onError(error, willRetry)
             }
 
             fetchEventSource(url, {
@@ -3477,16 +3462,18 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
+                            abortController.abort()
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
                         }
                     } catch (error) {
+                        abortController.abort()
                         onError(error)
                     }
                 },
                 onerror: (error) => {
-                    handleConnectionError(error)
+                    handleConnectionError(error, true)
                 },
             }).then(() => {
                 if (!abortController.signal.aborted && !streamFinished) {

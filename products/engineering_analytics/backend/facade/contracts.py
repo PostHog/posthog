@@ -23,7 +23,6 @@ intentionally absent until the warehouse data that backs them lands.
 
 from dataclasses import field
 from datetime import date, datetime
-from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
 
@@ -62,10 +61,12 @@ ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
 
 
-class CISignalsSyncStatus(StrEnum):
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+# The default labels would equal the choices of data_warehouse's backfill lifecycle state. Two classes with
+# identical choices get no class-derived OpenAPI name, so these labels must stay distinct.
+class CISignalsSyncStatus(LabeledStrEnum):
+    RUNNING = "running", "Sync Running"
+    COMPLETED = "completed", "Sync Completed"
+    FAILED = "failed", "Sync Failed"
 
 
 @dataclass(frozen=True)
@@ -96,13 +97,13 @@ class UnknownDoraEnvironmentError(Exception):
         self.environments = environments
 
 
-class PRState(StrEnum):
+class PRState(LabeledStrEnum):
     OPEN = "open"
     CLOSED = "closed"
     MERGED = "merged"
 
 
-class WorkflowConclusion(StrEnum):
+class WorkflowConclusion(LabeledStrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
     CANCELLED = "cancelled"
@@ -111,7 +112,7 @@ class WorkflowConclusion(StrEnum):
     NEUTRAL = "neutral"
 
 
-class MetricQuality(StrEnum):
+class MetricQuality(LabeledStrEnum):
     """How much to trust a metric, surfaced on a deep-tool return so an
     autonomous caller can act on the result without paraphrasing a caveat.
 
@@ -128,7 +129,7 @@ class MetricQuality(StrEnum):
     PARTIAL = "partial"
 
 
-class WorkflowHealthRunScope(StrEnum):
+class WorkflowHealthRunScope(LabeledStrEnum):
     """Which population of runs a workflow surface reports on.
 
     - ``all``: every run in the window.
@@ -149,7 +150,7 @@ class WorkflowHealthRunScope(StrEnum):
     MERGE_QUEUE = "merge_queue"
 
 
-class BrokenTestState(StrEnum):
+class BrokenTestState(LabeledStrEnum):
     """How a live CI-failure fingerprint is behaving right now — the broken-tests classifier's
     verdict, ordered by triage urgency (``breaking_master`` on top, ``pr_only`` last). Inferred
     from the failure fingerprints and the latest default-branch job status; see
@@ -175,37 +176,37 @@ class BrokenTestState(StrEnum):
     NOVEL_BURST = "novel_burst"
     POTENTIALLY_RESOLVED = "potentially_resolved"
     FLAKY = "flaky"
-    PR_ONLY = "pr_only"
+    PR_ONLY = "pr_only", "PR Only"
 
 
-class PRLifecycleEventKind(StrEnum):
+class PRLifecycleEventKind(LabeledStrEnum):
     OPENED = "opened"
     READY_FOR_REVIEW = "ready_for_review"
     CONVERTED_TO_DRAFT = "converted_to_draft"
-    CI_STARTED = "ci_started"
-    CI_FINISHED = "ci_finished"
+    CI_STARTED = "ci_started", "CI Started"
+    CI_FINISHED = "ci_finished", "CI Finished"
     MERGED = "merged"
     CLOSED = "closed"
 
 
-class QuarantineMode(StrEnum):
+class QuarantineMode(LabeledStrEnum):
     # "run": the test still executes but cannot fail the suite. "skip": not run at all.
     RUN = "run"
     SKIP = "skip"
 
 
-class CITestRunner(StrEnum):
+class CITestRunner(LabeledStrEnum):
     PYTEST = "pytest"
     JEST = "jest"
 
 
-class QuarantineRunner(StrEnum):
+class QuarantineRunner(LabeledStrEnum):
     PYTEST = "pytest"
     JEST = "jest"
     PLAYWRIGHT = "playwright"
 
 
-class QuarantineLifecycle(StrEnum):
+class QuarantineLifecycle(LabeledStrEnum):
     """Where an entry sits relative to its expiry: ``active`` (more than 7 days
     left), ``expiring_soon`` (7 days or fewer left), ``in_grace`` (expired up to
     7 days ago — inert, but its removal is not yet mandatory), ``overdue``
@@ -218,14 +219,14 @@ class QuarantineLifecycle(StrEnum):
     OVERDUE = "overdue"
 
 
-class QuarantineSelectorKind(StrEnum):
+class QuarantineSelectorKind(LabeledStrEnum):
     PRODUCT = "product"
     FILE = "file"
     DIRECTORY = "directory"
     TEST = "test"
 
 
-class QuarantineRequestAction(StrEnum):
+class QuarantineRequestAction(LabeledStrEnum):
     """What a write to the quarantine file does. ``quarantine`` adds (or replaces) an
     entry and files a fresh tracking issue; ``extend`` re-stamps an existing entry's
     expiry, reusing its issue; ``remove`` deletes the entry. All three open a PR.
@@ -394,6 +395,11 @@ class WorkflowRunDetail:
     ci_engine: CIEngine | None = None
     native_run_id: str | None = None
     native_workflow_run_id: str | None = None
+    # GitHub's numeric workflow id, which a rename of the workflow keeps. None for a Depot CI run and
+    # for a run whose source table does not carry the id.
+    workflow_id: int | None = None
+    # The event that triggered the run ('push', 'pull_request', 'schedule', ...). None when unknown.
+    event: str | None = None
 
 
 @dataclass(frozen=True)
@@ -436,6 +442,20 @@ class WorkflowRunActivity:
 
 
 @dataclass(frozen=True)
+class WorkflowJobStep:
+    """One step of a job, in the order the job ran it."""
+
+    number: int
+    name: str
+    # Raw status / conclusion passthrough; conclusion is None until the step finishes.
+    status: str
+    conclusion: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration_seconds: int | None
+
+
+@dataclass(frozen=True)
 class WorkflowJob:
     """One job within a workflow run, for the run's expandable job breakdown. ``estimated_cost_usd``
     is derived from the runner tier (parsed from ``runner_label``) and the job's elapsed time via the
@@ -463,6 +483,140 @@ class WorkflowJob:
     native_workflow_run_id: str | None = None
     native_job_id: str | None = None
     native_attempt_id: str | None = None
+    # Empty when the source reports no steps for the job, as for a Depot CI job.
+    steps: list[WorkflowJobStep] = field(default_factory=list)
+
+
+class JobLogBadgeKind(LabeledStrEnum):
+    CACHE = "cache", "Cache"
+    MIGRATIONS = "migrations", "Migrations"
+
+
+class JobLogBadgeState(LabeledStrEnum):
+    HIT = "hit", "Cache hit"
+    PARTIAL = "partial", "Older cache"
+    MISS = "miss", "Cache miss"
+    FAILED = "failed", "Cache restore failed"
+    NONE = "none", "No migrations"
+    APPLIED = "applied", "Migrations applied"
+
+
+@dataclass(frozen=True)
+class JobLogBadge:
+    """One thing a job's log says happened, with how often. ``detail`` names each occurrence
+    (a cache key, a migration), capped, and may hold fewer entries than ``count``."""
+
+    kind: JobLogBadgeKind
+    state: JobLogBadgeState
+    count: int
+    detail: list[str]
+
+
+@dataclass(frozen=True)
+class JobStepLogBadges:
+    number: int
+    badges: list[JobLogBadge]
+
+
+@dataclass(frozen=True)
+class JobLogInsights:
+    """What one job's log says it did with caches and migrations.
+
+    ``log_read`` is False when there is no log to read: a Depot CI job, an unknown job, or a failed
+    fetch. ``attributed_to_steps`` is False when the log's step markers did not match the job's steps,
+    and then ``steps`` is empty and ``job`` alone carries the badges. ``log_truncated`` is True when
+    only part of the log was parsed, so an outcome in the missing part is not reported.
+    """
+
+    log_read: bool
+    attributed_to_steps: bool
+    job: list[JobLogBadge]
+    steps: list[JobStepLogBadges]
+    log_truncated: bool = False
+
+
+@dataclass(frozen=True)
+class CIDataFreshness:
+    """When the stored CI data was last synced from its source.
+
+    Each time is when the last completed sync of the table started, so every stored row is at least
+    that fresh. For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot
+    time. None when a table never synced, or when the jobs table is not synced at all.
+    """
+
+    runs_synced_at: datetime | None
+    jobs_synced_at: datetime | None
+
+
+# A matrix selection names its jobs one by one, and the largest matrices hold fewer jobs than this.
+CI_TIMING_MAX_JOB_IDS = 200
+
+
+class CITimingKind(LabeledStrEnum):
+    WORKFLOW = "workflow", "Workflow"
+    MATRIX = "matrix", "Matrix"
+    JOB = "job", "Job"
+    STEP = "step", "Step"
+
+
+class CITimingIdentity(LabeledStrEnum):
+    WORKFLOW_ID = "workflow_id", "Workflow id"
+    WORKFLOW_NAME = "workflow_name", "Workflow name"
+
+
+class CITimingSampleStatus(LabeledStrEnum):
+    SUCCESS = "success", "Success"
+    FAILURE = "failure", "Failure"
+
+
+class CITimingUnavailableReason(LabeledStrEnum):
+    DEFAULT_BRANCH_UNKNOWN = "default_branch_unknown", "Default branch unknown"
+    JOBS_NOT_SYNCED = "jobs_not_synced", "Jobs not synced"
+    NOT_EXECUTED = "not_executed", "Not executed"
+
+
+@dataclass(frozen=True)
+class CITimingSample:
+    """One default-branch run that ran the same work as the selection, and how long that work took."""
+
+    run_id: int
+    run_attempt: int
+    # None for a workflow or matrix selection, which spans several jobs.
+    job_id: int | None
+    # None unless the selection is a step. Steps match by name, so this can differ from the selected number.
+    step_number: int | None
+    ci_engine: CIEngine
+    native_run_id: str | None
+    native_workflow_run_id: str | None
+    native_job_id: str | None
+    native_attempt_id: str | None
+    status: CITimingSampleStatus
+    duration_seconds: float
+    completed_at: datetime
+    head_sha: str
+
+
+@dataclass(frozen=True)
+class CITimingContext:
+    """How long a selected workflow, matrix, job or step took on the default branch in the last days.
+
+    ``sample_count`` and ``average_seconds`` cover the successful samples only. ``recent`` holds the
+    newest matched samples of any status. No sample is ever taken from a different workflow, job or
+    runner, so sparse history reads as a null average and never as a looser comparison.
+    """
+
+    default_branch: str | None
+    window_days: int
+    identity: CITimingIdentity
+    runs_scanned: int
+    # True when more eligible runs existed in the window than were scanned.
+    sampled: bool
+    sample_count: int
+    average_seconds: float | None
+    recent: list[CITimingSample]
+    runs_synced_at: datetime | None
+    jobs_synced_at: datetime | None
+    unavailable_reason: CITimingUnavailableReason | None
 
 
 @dataclass(frozen=True)
@@ -643,7 +797,7 @@ FLAKY_TEST_SIGNAL_CAVEAT = (
 )
 
 
-class FlakyTestClassification(StrEnum):
+class FlakyTestClassification(LabeledStrEnum):
     # One commit both failed and passed the test: a re-run attempt going green, or an in-job retry.
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
@@ -1230,7 +1384,7 @@ class ReadyToMergeBucket:
     p50_seconds: float | None
 
 
-class DeliveryStage(StrEnum):
+class DeliveryStage(LabeledStrEnum):
     """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
 
     - ``OPEN_TO_GATE``: ``created_at`` to the PR's first merge-queue gate run starting; review,
@@ -1636,12 +1790,12 @@ class WorkflowJobAggregate:
     estimated_cost_usd: float | None
 
 
-class DeliveryScopeKind(StrEnum):
+class DeliveryScopeKind(LabeledStrEnum):
     """Which pull requests a delivery read covers. A scope is always exactly one author, one GitHub
     team, or one pull request, so no delivery read puts people side by side (SPEC §2)."""
 
     AUTHOR = "author"
-    GITHUB_TEAM = "github_team"
+    GITHUB_TEAM = "github_team", "GitHub Team"
     PULL_REQUEST = "pull_request"
 
 
@@ -1742,7 +1896,7 @@ class DeliverySummary:
     lead_time: DeliveryLeadTime
 
 
-class ComparisonTeamBasis(StrEnum):
+class ComparisonTeamBasis(LabeledStrEnum):
     """Why a delivery comparison shows the teams it shows. The candidates are the author's GitHub teams
     with evidence of owning code (the ownership census or a review request), or every team of an author
     without such a team."""
@@ -1793,10 +1947,10 @@ class TeamReadyToMergeMedians:
     medians: ReadyToMergeMedians | None
 
 
-class FrictionGroup(StrEnum):
+class FrictionGroup(LabeledStrEnum):
     """The kinds of friction an author meets, each a share of the friction score."""
 
-    CI = "ci"
+    CI = "ci", "CI"
     REVIEW = "review"
     QUEUE = "queue"
     REWORK = "rework"
@@ -1928,7 +2082,7 @@ class DeliveryComparison:
     pull_request: PullRequestReadyToMerge | None
 
 
-class PRTimelineSegmentKind(StrEnum):
+class PRTimelineSegmentKind(LabeledStrEnum):
     """What a pull request was waiting on during one stretch of its timeline. The red variants name
     what turned the check green, which is evidence about the cause, not proof of it.
     ``logic/pr_timeline.py`` defines the precedence."""
@@ -1940,7 +2094,7 @@ class PRTimelineSegmentKind(StrEnum):
     # Review state without review data: the stretch is neither CI nor the queue, but who it waits on
     # is unknown.
     REVIEW_STATE_UNKNOWN = "review_state_unknown"
-    CI_RUNNING = "ci_running"
+    CI_RUNNING = "ci_running", "CI Running"
     RED_PASSED_ON_RERUN = "red_passed_on_rerun"
     RED_MASTER_BROKEN = "red_master_broken"
     RED_FIXED_BY_PUSH = "red_fixed_by_push"

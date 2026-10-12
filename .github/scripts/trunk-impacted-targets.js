@@ -531,8 +531,9 @@ const TRIPWIRE_RULES = [
     ['tsconfig.*.json', JAVASCRIPT],
     ['babel.config.js', JAVASCRIPT],
     ['webpack.config.js', JAVASCRIPT],
-    ['.oxlintrc.json', JAVASCRIPT],
-    ['.oxfmtrc*', JAVASCRIPT],
+    // Both ignore nodejs/, which has its own toolchain; a lane test guards that.
+    ['.oxlintrc.json', FRONTEND_SUITE],
+    ['.oxfmtrc*', FRONTEND_SUITE],
     // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
     // its ignore file is a JS toolchain setting like the two above.
     ['.prettierignore', JAVASCRIPT],
@@ -2934,6 +2935,11 @@ function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
     }
 }
 
+// The change list carries deleted paths too; the tree no longer does.
+function findDeletedFiles(changedFiles) {
+    return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
@@ -2969,6 +2975,7 @@ module.exports = {
     buildContext,
     compileContractMatcher,
     compileWorkspaceMatcher,
+    findDeletedFiles,
     globToRegExp,
     isProductDirectory,
     isTripwire,
@@ -3012,9 +3019,10 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            // The change list carries deleted paths too; the tree no longer does.
-            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
-            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
+            result = computeTargets(changedFiles, {
+                ...buildContext(REPO_ROOT),
+                deletedFiles: findDeletedFiles(changedFiles),
+            })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a
