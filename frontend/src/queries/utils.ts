@@ -94,14 +94,23 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
     )
 }
 
-export function isNodeWithSource(
-    node?: Record<string, any> | null
-): node is DataTableNode | VisualizationNode | InsightVizNode {
+/** The node kinds that wrap another query: they carry the query that runs in `source`. */
+export function isWrapperNode(node?: Record<string, any> | null): boolean {
     if (!node) {
         return false
     }
 
     return isDataTableNode(node) || isDataVisualizationNode(node) || isInsightVizNode(node)
+}
+
+/**
+ * Callers read `node.source.kind` right after this guard, so a wrapper that lost its source must not
+ * pass. Use `isWrapperNode` when you only need the kind and do not read `source`.
+ */
+export function isNodeWithSource(
+    node?: Record<string, any> | null
+): node is DataTableNode | VisualizationNode | InsightVizNode {
+    return isWrapperNode(node) && typeof node?.source?.kind === 'string'
 }
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
@@ -601,7 +610,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
 
 export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
-        return query.series
+        // A query read back from storage or a URL carries whatever shape was stored, and callers
+        // iterate the result, so a series of another shape must read as no series at all.
+        return Array.isArray(query.series) ? query.series : undefined
     }
     return undefined
 }

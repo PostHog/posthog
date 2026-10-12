@@ -1,6 +1,8 @@
 import { dayjs } from 'lib/dayjs'
+import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 
-import { Node } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { isInsightQueryWithSeries, isNodeWithSource, isWrapperNode } from '~/queries/utils'
 import { AccessControlLevel, InsightShortId, UserBasicType, UserType } from '~/types'
 
 import type { SavedInsightListItem } from './savedInsightsLogic'
@@ -14,18 +16,59 @@ export interface DraftInsightQuery {
 /** Sentinel id for the local draft row in the saved insights table. Real insight ids are positive. */
 export const DRAFT_INSIGHT_ROW_ID = -1
 
-/** Storage can hold anything — a non-numeric timestamp would throw in draftInsightListItem and crash the list. */
+const KNOWN_NODE_KINDS = new Set<string>(Object.values(NodeKind))
+
+/**
+ * Whether a stored query is complete enough for the scenes that render and restore a draft.
+ * Nothing schema checks local storage, so this is the boundary that screens three shapes: an
+ * unknown kind, which no reader can render or restore; a wrapper node that lost the `source`
+ * holding the query that runs; and a `series` that the readers cannot iterate, which throws.
+ * The editor and the readers share this, so the editor cannot persist a value the readers
+ * would throw away.
+ */
+export function isRestorableDraftQuery(query: unknown): query is Node<Record<string, any>> {
+    const node = query as Node<Record<string, any>> | null
+    if (!node || typeof node !== 'object' || !KNOWN_NODE_KINDS.has(node.kind)) {
+        return false
+    }
+    if (isWrapperNode(node) && !(isNodeWithSource(node) && KNOWN_NODE_KINDS.has(node.source.kind))) {
+        return false
+    }
+    const source = isNodeWithSource(node) ? node.source : node
+    return !isInsightQueryWithSeries(source) || Array.isArray(source.series)
+}
+
+/** Storage can hold anything, and a non-numeric timestamp would throw in draftInsightListItem. */
 export function isValidDraftInsightQuery(value: unknown): value is DraftInsightQuery {
     const draft = value as DraftInsightQuery | null
     return (
         !!draft &&
         typeof draft === 'object' &&
-        !!draft.query &&
-        typeof draft.query === 'object' &&
-        typeof draft.query.kind === 'string' &&
+        isRestorableDraftQuery(draft.query) &&
         typeof draft.timestamp === 'number' &&
         Number.isFinite(draft.timestamp)
     )
+}
+
+/**
+ * Reads the stored draft and deletes a malformed value. Every scene that reads the draft goes
+ * through this, so a stuck value cannot survive on a scene that skipped the check.
+ */
+export function readStoredDraftInsightQuery(teamId: number | null): DraftInsightQuery | null {
+    if (!teamId) {
+        return null
+    }
+    const storageKey = `draft-query-${teamId}`
+    const stored = localStorage.getItem(storageKey)
+    if (!stored) {
+        return null
+    }
+    const parsed = parseDraftQueryFromLocalStorage(stored)
+    if (!isValidDraftInsightQuery(parsed)) {
+        localStorage.removeItem(storageKey)
+        return null
+    }
+    return parsed
 }
 
 export function isDraftInsightRow(item: SavedInsightListItem): boolean {

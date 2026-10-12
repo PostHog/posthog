@@ -11,6 +11,7 @@ import {
     isDataTableNode,
     isInsightQueryNode,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 
 import { InsightFreshness } from './InsightFreshness'
@@ -18,7 +19,8 @@ import { IgnoresDashboardFiltersNotice, TileOverridesWarning } from './TileOverr
 
 function getInsightType(query: Node | null): InsightTypeMetadata {
     if (query?.kind) {
-        if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
+        const usesWrappedKind = (isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)
+        if (usesWrappedKind && isNodeWithSource(query)) {
             return QUERY_TYPES_METADATA[query.source.kind]
         }
         return QUERY_TYPES_METADATA[query.kind]

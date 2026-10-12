@@ -20,6 +20,7 @@ import {
     getShowLegend,
     hogql,
     isMetricInsightQuery,
+    isNodeWithSource,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
@@ -457,6 +458,10 @@ describe('queryUsesDataWarehouse', () => {
         expect(queryUsesDataWarehouse(null)).toBe(false)
         expect(queryUsesDataWarehouse(undefined)).toBe(false)
     })
+
+    it('returns false for a stored query whose series is not a list', () => {
+        expect(queryUsesDataWarehouse({ kind: NodeKind.TrendsQuery, series: {} } as any)).toBe(false)
+    })
 })
 
 describe('dataWarehouseSourcesFromResponse', () => {
@@ -535,5 +540,32 @@ describe('isMetricInsightQuery', () => {
         ],
     ])('identifies a %s', (_label, query, expected) => {
         expect(isMetricInsightQuery(query as Node)).toBe(expected)
+    })
+})
+
+describe('isNodeWithSource', () => {
+    it.each([
+        ['an insight viz node', { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery } }, true],
+        [
+            'a data visualization node',
+            { kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
+            true,
+        ],
+        [
+            'a data table node',
+            { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: [] } },
+            true,
+        ],
+        ['a wrapper node without a source', { kind: NodeKind.DataVisualizationNode, chartSettings: {} }, false],
+        ['a wrapper node with an empty source', { kind: NodeKind.InsightVizNode, source: {} }, false],
+        [
+            'a wrapper node whose source has no kind',
+            { kind: NodeKind.InsightVizNode, source: { dateRange: { date_from: '-7d' } } },
+            false,
+        ],
+        ['a source node', { kind: NodeKind.TrendsQuery, series: [] }, false],
+        ['no node', null, false],
+    ])('only promises a source it can see, for %s', (_label, query, expected) => {
+        expect(isNodeWithSource(query)).toBe(expected)
     })
 })

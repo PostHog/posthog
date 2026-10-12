@@ -881,7 +881,8 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
     }
 
     let nodeKind: NodeKind
-    if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
+    const usesWrappedKind = (isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)
+    if (usesWrappedKind && isNodeWithSource(query)) {
         nodeKind = query.source.kind
     } else {
         nodeKind = query.kind
