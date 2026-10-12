@@ -436,6 +436,22 @@ const getIconUrl = (id: string, slug: string | undefined) => {
     }`
 }
 
+// hide all destinations for now
+const APPROVED_DESTINATIONS: string[] = [
+    'segment-actions-mixpanel',
+    'segment-actions-amplitude',
+    'segment-actions-launchdarkly',
+    'segment-actions-canny',
+    'segment-actions-fullstory-cloud',
+    'segment-actions-drip',
+    'segment-actions-pipedrive',
+    'segment-inleads-ai',
+    'segment-actions-koala-cloud',
+    'segment-actions-pushwoosh',
+    'segment-actions-schematic',
+    'segment-actions-usermotion',
+]
+
 const HIDDEN_DESTINATIONS = [
     // duplicate destinations
     'segment-actions-accoil-analytics',
@@ -503,7 +519,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             destination,
             template: {
                 free: false,
-                status: 'stable',
+                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
                 type: 'destination',
                 id,
                 name,

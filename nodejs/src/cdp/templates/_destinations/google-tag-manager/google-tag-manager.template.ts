@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'stable',
+    status: 'alpha',
     type: 'site_destination',
     id: 'template-google-tag-manager',
     name: 'Google Tag Manager',

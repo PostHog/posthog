@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'stable',
+    status: 'beta',
     type: 'destination',
     id: 'template-hubspot-company',
     name: 'Hubspot',

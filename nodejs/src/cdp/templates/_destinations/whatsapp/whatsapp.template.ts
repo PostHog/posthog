@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'stable',
+    status: 'beta',
     type: 'destination',
     id: 'template-whatsapp',
     name: 'WhatsApp',
