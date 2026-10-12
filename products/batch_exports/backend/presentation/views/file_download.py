@@ -5,7 +5,14 @@ from typing import Any, cast
 from django.db import models
 from django.http import HttpResponseRedirect
 
-from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -29,13 +36,16 @@ from products.batch_exports.backend.facade import (
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
-    FacadeIdPathParamSchema,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
 )
 
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
 DEFAULT_MAX_SIZE_MB = 1024
+# The viewset declares no queryset, so drf-spectacular cannot read the type of the id from a model.
+RUN_ID_PARAMETER = OpenApiParameter(
+    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export run."
+)
 
 
 class FileFormat(models.TextChoices):
@@ -368,10 +378,9 @@ def _to_file_download_request(validated_data: dict[str, Any]) -> contracts.FileD
 
 
 @extend_schema(tags=["batch_exports"])
+@extend_schema_view(logs=extend_schema(parameters=[RUN_ID_PARAMETER]))
 class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
     scope_object = "batch_export"
-    schema = FacadeIdPathParamSchema()
-    id_path_parameter_description = "A UUID string identifying this batch export run."
     serializer_class = FileDownloadBatchExportOnDemandSerializer
     log_source = "batch_exports"
 
@@ -456,6 +465,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return response.Response({"id": run_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
+        parameters=[RUN_ID_PARAMETER],
         responses={
             200: PolymorphicProxySerializer(
                 component_name="RetrieveFileDownloadResponse",
@@ -492,6 +502,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
 
         return response.Response(body)
 
+    @extend_schema(parameters=[RUN_ID_PARAMETER])
     @action(
         methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]
     )
@@ -520,7 +531,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
 
         return response
 
-    @extend_schema(request=None)
+    @extend_schema(request=None, parameters=[RUN_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, request, *args, **kwargs) -> response.Response:
         """Cancel an ongoing file-download batch export."""
