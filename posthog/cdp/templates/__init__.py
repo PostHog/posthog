@@ -1,48 +1,49 @@
-from ._internal.template_blank import blank_site_app, blank_site_destination
+from products.cdp.backend.templates._internal.template_blank import blank_site_app, blank_site_destination
+from products.cdp.backend.templates.activecampaign.template_activecampaign import template as activecampaign
+from products.cdp.backend.templates.airtable.template_airtable import template as airtable
+from products.cdp.backend.templates.attio.template_attio import template as attio
+from products.cdp.backend.templates.avo.template_avo import (
+    TemplateAvoMigrator,
+    template as avo,
+)
+from products.cdp.backend.templates.aws_kinesis.template_aws_kinesis import template as aws_kinesis
+from products.cdp.backend.templates.braze.template_braze import template as braze
+from products.cdp.backend.templates.brevo.template_brevo import template as brevo
+from products.cdp.backend.templates.clearbit.template_clearbit import template as clearbit
+from products.cdp.backend.templates.customerio.template_customerio import (
+    TemplateCustomerioMigrator,
+    template as customerio,
+)
+from products.cdp.backend.templates.discord.template_discord import template as discord
+from products.cdp.backend.templates.engage.template_engage import (
+    TemplateEngageMigrator,
+    template as engage,
+)
+from products.cdp.backend.templates.gleap.template_gleap import template as gleap
+from products.cdp.backend.templates.google_cloud_storage.template_google_cloud_storage import (
+    TemplateGoogleCloudStorageMigrator,
+    template as google_cloud_storage,
+)
+from products.cdp.backend.templates.google_pubsub.template_google_pubsub import (
+    TemplateGooglePubSubMigrator,
+    template as google_pubsub,
+)
+from products.cdp.backend.templates.hubspot.template_hubspot import (
+    TemplateHubspotMigrator,
+    template as hubspot,
+    template_event as hubspot_event,
+)
+from products.cdp.backend.templates.intercom.template_intercom import (
+    template as intercom,
+    template_send_event as intercom_send_event,
+)
+from products.cdp.backend.templates.june.template_june import template as june
+
 from ._siteapps.template_debug_posthog import template as debug_posthog
 from ._siteapps.template_early_access_features import template as early_access_features
 from ._siteapps.template_hogdesk import template as hogdesk
 from ._siteapps.template_notification_bar import template as notification_bar
 from ._siteapps.template_pineapple_mode import template as pineapple_mode
-from .activecampaign.template_activecampaign import template as activecampaign
-from .airtable.template_airtable import template as airtable
-from .attio.template_attio import template as attio
-from .avo.template_avo import (
-    TemplateAvoMigrator,
-    template as avo,
-)
-from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
-from .braze.template_braze import template as braze
-from .brevo.template_brevo import template as brevo
-from .clearbit.template_clearbit import template as clearbit
-from .customerio.template_customerio import (
-    TemplateCustomerioMigrator,
-    template as customerio,
-)
-from .discord.template_discord import template as discord
-from .engage.template_engage import (
-    TemplateEngageMigrator,
-    template as engage,
-)
-from .gleap.template_gleap import template as gleap
-from .google_cloud_storage.template_google_cloud_storage import (
-    TemplateGoogleCloudStorageMigrator,
-    template as google_cloud_storage,
-)
-from .google_pubsub.template_google_pubsub import (
-    TemplateGooglePubSubMigrator,
-    template as google_pubsub,
-)
-from .hubspot.template_hubspot import (
-    TemplateHubspotMigrator,
-    template as hubspot,
-    template_event as hubspot_event,
-)
-from .intercom.template_intercom import (
-    template as intercom,
-    template_send_event as intercom_send_event,
-)
-from .june.template_june import template as june
 from .klaviyo.template_klaviyo import (
     template_event as klaviyo_event,
     template_user as klaviyo_user,
