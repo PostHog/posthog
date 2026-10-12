@@ -2,12 +2,14 @@ import typing
 
 import pydantic
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.plumbing import build_parameter_type
+from drf_spectacular.utils import OpenApiParameter, extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.models import Team
 
 from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
@@ -82,3 +84,28 @@ class HogQLModifiersField(serializers.JSONField):
         if isinstance(value, dict):
             value = drop_unknown_hogql_modifiers(value)
         return super().to_representation(value)
+
+
+class FacadeIdPathParamSchema(PostHogAutoSchema):
+    """Types the ``id`` path parameter of a viewset that reads through the facade.
+
+    drf-spectacular reads a path parameter's type and description off the viewset's queryset
+    model. A facade-backed viewset declares no queryset, so the viewset names the description
+    in ``id_path_parameter_description`` and this hook types the parameter as a UUID.
+    """
+
+    def _resolve_path_parameters(self, variables: list[str]) -> list[dict[str, typing.Any]]:
+        parameters: list[dict[str, typing.Any]] = []
+        for variable in variables:
+            if variable == "id":
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        schema={"type": "string", "format": "uuid"},
+                        description=self.view.id_path_parameter_description,
+                    )
+                )
+            else:
+                parameters.extend(super()._resolve_path_parameters([variable]))
+        return parameters
