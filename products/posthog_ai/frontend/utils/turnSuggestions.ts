@@ -1,3 +1,5 @@
+import { isValidWorkflowBrief } from 'lib/utils/workflowDraftHandoff'
+
 import {
     ALERT_DIRECTIONS,
     type AlertSuggestionDirection,
@@ -161,7 +163,9 @@ export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | nul
     switch (kind) {
         case 'workflow': {
             const prompt = drafts.workflow?.prompt
-            return nonEmptyString(prompt) && prompt.length <= 4000 ? { ...base, kind, workflow: { prompt } } : null
+            return typeof prompt === 'string' && isValidWorkflowBrief(prompt)
+                ? { ...base, kind, workflow: { prompt } }
+                : null
         }
         case 'scout': {
             const scout = parseScoutDraft(drafts.scout)

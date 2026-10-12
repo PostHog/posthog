@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { turnSuggestionsResolveCreate } from '../generated/api'
 import type { StoredLogEntry } from '../types/wireTypes'
 import { acceptSuggestion } from '../utils/acceptSuggestion'
+import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { runStreamLogic } from './runStreamLogic'
 import { suggestionActionLogic } from './suggestionActionLogic'
 import { turnSuggestionLogic } from './turnSuggestionLogic'
@@ -145,4 +146,21 @@ describe('turnSuggestionLogic', () => {
             resolution: 'accepted',
         })
     })
+
+    it.each([true, false])(
+        'shows a workflow offer only when the AI workflow builder can open: available=%s',
+        async (workflowBuilderAvailable) => {
+            await mountStreamWithSuggestion({ ...SUGGESTION_FRAMES.workflow, turnIndex: 1 })
+            const logic = turnSuggestionLogic({
+                streamKey: STREAM_KEY,
+                turnIndex: 1,
+                sessionId: 'task',
+                revealDelayMs: 0,
+                workflowBuilderAvailable,
+            })
+            logic.mount()
+
+            expect(logic.values.visible).toBe(workflowBuilderAvailable)
+        }
+    )
 })
