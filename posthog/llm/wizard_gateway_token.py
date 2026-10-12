@@ -11,6 +11,7 @@ attempt fast instead of retrying into the CLI's timeout.
 """
 
 import json
+import hashlib
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -50,27 +51,6 @@ WIZARD_PRODUCT = "wizard"
 # The gateway's effort vocabulary, in order; the pin sent at mint is a subset.
 WIZARD_EFFORT_LEVELS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
-# What the CLI can ask for, not what it was measured asking for: a flag payload
-# or a remote prompt's frontmatter can name any of these with no deploy here,
-# while widening this needs one. "none" is a call with no effort parameter,
-# which is also the CLI's "off". "max" is absent because the CLI cannot send it,
-# so the pin refuses it and the escalation stays out of reach.
-WIZARD_DECLARABLE_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
-
-# Every (model, effort) pair the wizard CLI dispatches; "none" is a request with
-# no effort parameter. Wizard-wide rather than per program: the CLI picks models
-# per switchboard flag. The keys mirror the CLI's own model constants (wizard
-# src/lib/constants.ts, the *_MODEL exports), so widen here when one is added.
-WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "claude-sonnet-5": ("none", "high"),
-    "claude-haiku-4-5": ("none",),
-    "gpt-5.6-luna": ("low",),
-    "gpt-5.6-sol": ("medium",),
-    "gpt-5.6-terra": ("low", "medium", "high"),
-    "gpt-6-luna": ("low", "medium"),
-    "gpt-6-sol": ("low", "medium", "high"),
-}
-
 # pi sends the provider-prefixed id for OpenAI models; the gateway pins the bare model.
 _STRIPPED_MODEL_PREFIXES = ("openai/",)
 
@@ -81,17 +61,6 @@ def normalize_model(model: str) -> str:
         if normalized.startswith(prefix):
             return normalized[len(prefix) :]
     return normalized
-
-
-def allowed_models() -> list[str]:
-    """The allowlist's models as the gateway spells them, deduplicated, in table order."""
-    return list(dict.fromkeys(normalize_model(model) for model in WIZARD_MODEL_ALLOWLIST))
-
-
-def allowed_efforts() -> list[str]:
-    """Every effort the CLI can declare, in vocabulary order. Flat per token: a
-    per-model pin is a gateway follow-up."""
-    return [level for level in WIZARD_EFFORT_LEVELS if level in WIZARD_DECLARABLE_EFFORTS]
 
 
 # An organization's standing at mint time, which picks its tier of limits.
@@ -178,6 +147,97 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
         )
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="mints_per_week").inc()
     return cap, mints
+
+
+# Remote-config flags in the PostHog internal project. The prompt payload is
+# {"version": 4, "text": "..."}; the allowlist payload is
+# {"models": [...], "efforts": [...], "programs": [...]}. Neither has an in-code
+# fallback: a mint with no readable policy is refused.
+WIZARD_SYSTEM_PROMPT_FLAG = "wizard-ai-gateway-system-prompt"
+WIZARD_GATEWAY_ALLOWLIST_FLAG = "wizard-gateway-allowlist"
+
+# The gateway refuses a run whose prompt lacks the abort marker, so a prompt
+# without it would pin every token to a prompt the gateway cannot use.
+_ABORT_MARKER = "[posthog:abort]"
+_MAX_PROMPT_BYTES = 4000
+
+
+class WizardPolicyUnavailable(Exception):
+    """A policy flag could not be read, or its payload broke the contract."""
+
+
+@frozen
+class WizardGatewayPolicy:
+    """What one mint pins, read from the two flags. `prompt_sha256` is the digest
+    of the exact UTF-8 bytes of `prompt_text`, with no trimming, and `prompt_bytes`
+    is the length of those same bytes."""
+
+    models: tuple[str, ...]
+    efforts: tuple[str, ...]
+    programs: tuple[str, ...]
+    prompt_text: str
+    prompt_version: int
+    prompt_sha256: str
+    prompt_bytes: int
+
+
+def wizard_gateway_policy(*, distinct_id: str) -> WizardGatewayPolicy:
+    """Read both policy flags once. Raises WizardPolicyUnavailable when either is
+    unreadable or invalid, so the caller refuses the mint instead of falling back."""
+    prompt = _policy_payload(WIZARD_SYSTEM_PROMPT_FLAG, distinct_id)
+    allowlist = _policy_payload(WIZARD_GATEWAY_ALLOWLIST_FLAG, distinct_id)
+
+    version = prompt.get("version")
+    text = prompt.get("text")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise WizardPolicyUnavailable(f"{WIZARD_SYSTEM_PROMPT_FLAG}: version must be an integer of 1 or more")
+    if not isinstance(text, str) or not text or _ABORT_MARKER not in text:
+        raise WizardPolicyUnavailable(f"{WIZARD_SYSTEM_PROMPT_FLAG}: text must be non-empty and hold the abort marker")
+    encoded = text.encode("utf-8")
+    if len(encoded) > _MAX_PROMPT_BYTES:
+        raise WizardPolicyUnavailable(f"{WIZARD_SYSTEM_PROMPT_FLAG}: text is over {_MAX_PROMPT_BYTES} bytes")
+
+    models = _string_list(allowlist, "models")
+    efforts = _string_list(allowlist, "efforts")
+    programs = _string_list(allowlist, "programs")
+    if not set(efforts) <= set(WIZARD_EFFORT_LEVELS):
+        raise WizardPolicyUnavailable(f"{WIZARD_GATEWAY_ALLOWLIST_FLAG}: efforts outside the gateway vocabulary")
+    return WizardGatewayPolicy(
+        models=models,
+        # Vocabulary order, so the pin reads the same whatever order the payload used.
+        efforts=tuple(level for level in WIZARD_EFFORT_LEVELS if level in efforts),
+        programs=programs,
+        prompt_text=text,
+        prompt_version=version,
+        prompt_sha256=hashlib.sha256(encoded).hexdigest(),
+        prompt_bytes=len(encoded),
+    )
+
+
+def _policy_payload(flag: str, distinct_id: str) -> dict:
+    try:
+        raw = posthoganalytics.get_feature_flag_payload(
+            flag, distinct_id, only_evaluate_locally=False, send_feature_flag_events=False
+        )
+    except Exception as e:
+        raise WizardPolicyUnavailable(f"{flag}: flag unreadable") from e
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError as e:
+            raise WizardPolicyUnavailable(f"{flag}: payload is not JSON") from e
+    if not isinstance(raw, dict):
+        raise WizardPolicyUnavailable(f"{flag}: payload is missing or not an object")
+    return raw
+
+
+def _string_list(payload: dict, key: str) -> tuple[str, ...]:
+    values = payload.get(key)
+    if not isinstance(values, list) or not values:
+        raise WizardPolicyUnavailable(f"{WIZARD_GATEWAY_ALLOWLIST_FLAG}: {key} must be a non-empty list")
+    if not all(isinstance(value, str) and value.strip() for value in values):
+        raise WizardPolicyUnavailable(f"{WIZARD_GATEWAY_ALLOWLIST_FLAG}: {key} must hold only non-empty strings")
+    return tuple(dict.fromkeys(values))
 
 
 @frozen
@@ -318,22 +378,20 @@ def _parse_mints_per_week(raw: object) -> int | None:
     return raw
 
 
-def wizard_product_node(program: str | None) -> str | None:
+def wizard_product_node(program: object, policy: WizardGatewayPolicy) -> str | None:
     """The product node to pin for a run, or None when this is not a program
-    Django knows.
+    the allowlist flag lists.
 
-    The setting is authoritative: an unrecognized program is refused rather than
+    The flag is authoritative: an unrecognized program is refused rather than
     folded into a generic node. Gateway budgets match a node value exactly, so
     folding would report a new program's spend as plain wizard spend and leave the
     program itself with no budget of its own, and the drift would be silent.
     A refusal ends the run with an upgrade message and shows in the mint outcome
-    counter as `program_unknown`; a new program is registered in the CLI, this
-    setting, and a budget row.
+    counter as `program_unknown`; a new program is registered in the CLI, the
+    allowlist flag, and a budget row.
     """
-    # isinstance first: the value is caller JSON, and an unhashable one (a list
-    # or object) raises on the set membership below, inside a throttle that runs
-    # before authentication.
-    if isinstance(program, str) and program in set(settings.WIZARD_GATEWAY_PROGRAM_IDS):
+    # isinstance first: the value is caller JSON, and a list or object is not a program id.
+    if isinstance(program, str) and program in policy.programs:
         return f"{WIZARD_PRODUCT}:{program}"
     return None
 
@@ -367,19 +425,9 @@ class WizardGatewayMintError(Exception):
 
 
 def wizard_gateway_configured() -> bool:
-    """Every one of the four is required; any missing piece refuses every mint
-    as `unconfigured`.
-
-    The program list is a hard requirement, not a refinement: an empty one
-    refuses every program, so without it the deploy would report itself
-    configured and 400 every request as though the callers were at fault.
-    """
-    return bool(
-        settings.WIZARD_GATEWAY_MINT_KEY
-        and settings.WIZARD_GATEWAY_URL
-        and settings.WIZARD_GATEWAY_CLIENT_IDS
-        and settings.WIZARD_GATEWAY_PROGRAM_IDS
-    )
+    """Every one of the three is required; any missing piece refuses every mint
+    as `unconfigured`."""
+    return bool(settings.WIZARD_GATEWAY_MINT_KEY and settings.WIZARD_GATEWAY_URL and settings.WIZARD_GATEWAY_CLIENT_IDS)
 
 
 def wizard_gateway_base_url() -> str:
@@ -391,6 +439,7 @@ def mint_wizard_gateway_token(
     *,
     obo: str,
     user: str,
+    policy: WizardGatewayPolicy,
     product: str = WIZARD_PRODUCT,
     cap_usd: Decimal | None = None,
     program: object = None,
@@ -410,9 +459,11 @@ def mint_wizard_gateway_token(
         "product": product,
         "obo": obo,
         "user": user,
-        # A gateway that predates either field ignores it and mints unpinned.
-        "allowed_models": allowed_models(),
-        "allowed_efforts": allowed_efforts(),
+        # A gateway that predates a pin ignores it and mints unpinned.
+        "allowed_models": list(dict.fromkeys(normalize_model(model) for model in policy.models)),
+        "allowed_efforts": list(policy.efforts),
+        "allowed_system_prompt_sha256": policy.prompt_sha256,
+        "allowed_system_prompt_bytes": policy.prompt_bytes,
     }
     try:
         response = requests.post(

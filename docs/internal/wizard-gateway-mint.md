@@ -15,21 +15,30 @@ Code: `posthog/api/wizard/http.py` (the endpoint and its gates),
 Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 `Authorization: Bearer {WIZARD_GATEWAY_MINT_KEY}`:
 
-| Field             | Meaning                                     |
-| ----------------- | ------------------------------------------- |
-| `cap_usd`         | Fixed-point spend ceiling for this token    |
-| `ttl_seconds`     | Token lifetime, clamped to 1800-86400       |
-| `product`         | Product node, `wizard:<program id>`         |
-| `obo`             | The organization the spend is attributed to |
-| `user`            | The user the run belongs to                 |
-| `allowed_models`  | Models this token may reach                 |
-| `allowed_efforts` | Reasoning efforts this token may declare    |
+| Field                          | Meaning                                                        |
+| ------------------------------ | -------------------------------------------------------------- |
+| `cap_usd`                      | Fixed-point spend ceiling for this token                       |
+| `ttl_seconds`                  | Token lifetime, clamped to 1800-86400                          |
+| `product`                      | Product node, `wizard:<program id>`                            |
+| `obo`                          | The organization the spend is attributed to                    |
+| `user`                         | The user the run belongs to                                    |
+| `allowed_models`               | Models this token may reach                                    |
+| `allowed_efforts`              | Reasoning efforts this token may declare                       |
+| `allowed_system_prompt_sha256` | Digest of the operator system prompt every call must lead with |
 
-`allowed_models` and `allowed_efforts` come from `WIZARD_MODEL_ALLOWLIST`, which
-is the canonical table. The wizard CLI's own model constants follow that table
-rather than the other way round. A gateway that predates either field ignores it
-and mints an unpinned token, so Django can send both before the gateway enforces
-them.
+The pins come from two remote-config flags in the PostHog internal project,
+read once per mint request after authentication:
+
+- `wizard-ai-gateway-system-prompt`: `{"version": <int>, "text": "<prompt>"}`. The text is at most 4000 bytes
+  and contains `[posthog:abort]`. The digest is the lowercase hex SHA-256 of the exact UTF-8 bytes of `text`.
+- `wizard-gateway-allowlist`: `{"models": [...], "efforts": [...], "programs": [...]}`. All three lists are
+  non-empty, and `efforts` come from the gateway's effort vocabulary.
+
+The mint response hands the wizard the prompt as `system_prompt`, with `system_prompt_version`.
+There is no in-code fallback: if either flag is unreadable or invalid, the mint is refused with
+a 503 and counted as `policy_unavailable`. No mint slot is reserved at that point.
+A gateway that predates a pin ignores it and mints an unpinned token.
+The `programs` list is authoritative: a program absent from it is refused as `program_unknown`.
 
 ## Limits
 
@@ -59,7 +68,7 @@ The endpoint answers one outcome per request, counted on
 `posthog_wizard_gateway_token_requests_total{outcome}`: `unconfigured`,
 `invalid_token`, `not_wizard_app`, `scope_missing`, `team_ambiguous`,
 `team_missing`, `unauthorized`, `blocked`, `not_rolled_out`, `program_unknown`,
-`throttled`, `mint_failed`, or `minted`.
+`policy_unavailable`, `throttled`, `mint_failed`, or `minted`.
 
 Refusals that an older CLI absorbed by falling back to the legacy gateway
 (`unconfigured`, `not_rolled_out`, `program_unknown`) answer 403 with a reason
