@@ -171,7 +171,7 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
-- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `reviewhog`
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `posthog-review`
   label) **only** for these runs. A human author reads their own refusal and decides what comes next.
   A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
   In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.

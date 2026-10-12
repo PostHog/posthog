@@ -1082,7 +1082,6 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
-        docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
     ScoutTrials: { name: 'Scout trials', projectBased: true },
     Inbox: {

@@ -74,7 +74,7 @@ export function ModelBarChart({
             hoverEffect={false}
         >
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-                <h3 className="mb-0 text-sm font-medium">Share of calls by model</h3>
+                <h3 className="mb-0 text-sm font-bold">Share of calls by model</h3>
                 <div className="flex items-center gap-1">
                     {expanded || sortedRows.some((row) => row.model === 'Other') ? (
                         <LemonButton

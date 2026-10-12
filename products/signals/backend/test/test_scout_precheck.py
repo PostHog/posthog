@@ -18,7 +18,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.scoping import team_scope
 
+from products.customer_analytics.backend.facade.testing import create_account
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
@@ -217,11 +219,122 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         assert properties["query_source"] == "skill_default"
         assert properties["rollout_bucket"] is not None
 
+    @parameterized.expand(
+        [
+            ("ai_observability_active", "signals-scout-ai-observability", "$ai_span", 24 * 6, "run"),
+            ("ai_observability_quiet", "signals-scout-ai-observability", "$ai_span", 24 * 8, "skip"),
+            ("csp_active", "signals-scout-csp-violations", "$csp_violation", 24 * 6, "run"),
+            ("csp_quiet", "signals-scout-csp-violations", "$csp_violation", 24 * 8, "skip"),
+            ("mcp_active", "signals-scout-mcp-tool-calls", "$mcp_tool_call", 24 * 6, "run"),
+            ("mcp_quiet", "signals-scout-mcp-tool-calls", "$mcp_tool_call", 24 * 8, "skip"),
+            ("conversations_active", "signals-scout-conversations", "$conversation_message_sent", 24 * 29, "run"),
+            ("conversations_quiet", "signals-scout-conversations", "$conversation_ticket_created", 24 * 31, "skip"),
+            ("conversations_widget_event", "signals-scout-conversations", "$conversations_widget_opened", 1, "skip"),
+            ("web_vitals_active", "signals-scout-web-vitals", "$web_vitals", 24 * 6, "run"),
+            ("web_vitals_quiet", "signals-scout-web-vitals", "$web_vitals", 24 * 8, "skip"),
+            ("web_analytics_active", "signals-scout-web-analytics", "$pageview", 24 * 6, "run"),
+            ("web_analytics_quiet", "signals-scout-web-analytics", "$pageview", 24 * 8, "skip"),
+        ]
+    )
+    def test_product_presence_defaults_skip_only_on_absence(self, _name, skill, event, hours_ago, outcome) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+        _create_event(team=self.team, event=event, distinct_id="d1", timestamp=NOW - timedelta(hours=hours_ago))
+        flush_persons_and_events()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, skill)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+
     def test_project_outside_the_rollout_runs_as_before(self) -> None:
         result, capture = self._evaluate(rollout_percent=0)
 
         assert result is None
         capture.assert_not_called()
+
+
+# Non-atomic: ClickHouse reads `system.*` tables over its own Postgres connection, so rows must be committed.
+@time_machine.travel(NOW, tick=False)
+class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _seed_task_run(self, origin_product: str) -> None:
+        Channel = apps.get_model("tasks", "Channel")
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name=f"space_{origin_product}")
+        task = Task.objects.create(
+            team=self.team, channel=channel, title="t", description="", origin_product=origin_product
+        )
+        TaskRun.objects.create(task=task, team=self.team)
+
+    def _seed_experiment(self, *, started: bool, days_since_update: int) -> None:
+        FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
+        Experiment = apps.get_model("experiments", "Experiment")
+        flag = FeatureFlag.objects.create(team=self.team, key=f"exp_flag_{started}_{days_since_update}")
+        experiment = Experiment.objects.create(
+            team=self.team, name="e", feature_flag=flag, start_date=NOW - timedelta(days=60) if started else None
+        )
+        Experiment.objects.filter(pk=experiment.pk).update(updated_at=NOW - timedelta(days=days_since_update))
+
+    @parameterized.expand(
+        [
+            ("customer_analytics_no_accounts", "signals-scout-customer-analytics", None, "skip"),
+            ("customer_analytics_accounts", "signals-scout-customer-analytics", "account", "run"),
+            ("feature_flags_absent", "signals-scout-feature-flags", None, "skip"),
+            ("feature_flags_roster", "signals-scout-feature-flags", "flag", "run"),
+            ("feature_flags_calls_only", "signals-scout-feature-flags", "flag_call", "run"),
+            ("experiments_absent", "signals-scout-experiments", None, "skip"),
+            ("experiments_old_draft", "signals-scout-experiments", "old_draft", "skip"),
+            ("experiments_recent_draft", "signals-scout-experiments", "recent_draft", "run"),
+            ("experiments_running", "signals-scout-experiments", "running", "run"),
+            ("tasks_absent", "signals-scout-tasks", None, "skip"),
+            ("tasks_scout_runs_only", "signals-scout-tasks", "scout_run", "skip"),
+            ("tasks_user_runs", "signals-scout-tasks", "user_run", "run"),
+        ]
+    )
+    def test_system_table_defaults_skip_only_on_absence(self, _name, skill, seed, outcome) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+        if seed == "account":
+            create_account(team_id=self.team.pk, name="a", external_id="a")
+        elif seed == "flag":
+            apps.get_model("feature_flags", "FeatureFlag").objects.create(team=self.team, key="f")
+        elif seed == "flag_call":
+            _create_event(
+                team=self.team, event="$feature_flag_called", distinct_id="d1", timestamp=NOW - timedelta(days=6)
+            )
+            flush_persons_and_events()
+        elif seed == "old_draft":
+            self._seed_experiment(started=False, days_since_update=31)
+        elif seed == "recent_draft":
+            self._seed_experiment(started=False, days_since_update=29)
+        elif seed == "running":
+            self._seed_experiment(started=True, days_since_update=90)
+        elif seed == "scout_run":
+            self._seed_task_run("signals_scout")
+        elif seed == "user_run":
+            self._seed_task_run("user_created")
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
+        ):
+            result = evaluate_scout_precheck(self.team.pk, skill)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+        assert capture.call_args.kwargs["properties"].get("error_type") is None
 
 
 @time_machine.travel(NOW, tick=False)

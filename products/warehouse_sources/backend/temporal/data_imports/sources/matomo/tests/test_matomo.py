@@ -1,9 +1,15 @@
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qsl
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.matomo import MatomoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo import (
     VISITS_PAGE_SIZE,
     MatomoResumeConfig,
@@ -16,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.set
     REPORT_LOOKBACK_DAYS,
     VISIT_FINALITY_WINDOW_SECONDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo"
 
@@ -210,6 +217,62 @@ class TestReports:
                     _make_manager(MatomoResumeConfig(next_date=datetime.now(tz=UTC).date().isoformat())),
                 )
             )
+
+
+@mock.patch(f"{_MODULE}.time.sleep")
+@mock.patch.object(MatomoSource, "is_database_host_valid", return_value=(True, None))
+class TestDrivenEndpoints:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(
+            MatomoSource(), MatomoSourceConfig(host="https://m.example.com", site_id="1", api_token="token")
+        )
+
+    @staticmethod
+    def _form(request: Any) -> dict[str, str]:
+        return dict(parse_qsl((request.body or b"").decode()))
+
+    @pytest.mark.parametrize(
+        "endpoint,method,expected_flat",
+        [
+            # Without flat=1 page URLs come back as folder rows whose pages hide in subtables.
+            ("pages", "Actions.getPageUrls", "1"),
+            ("event_names", "Events.getName", None),
+        ],
+    )
+    def test_report_request_params(self, mock_host_valid, mock_sleep, endpoint, method, expected_flat):
+        today = datetime.now(tz=UTC).date().isoformat()
+
+        result = self._driver().run(
+            endpoint,
+            [ScriptedResponse(json=[{"label": "/pricing"}])],
+            resume_state=MatomoResumeConfig(next_date=today),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"label": "/pricing", "_date": today}]
+        [request] = result.requests
+        body = self._form(request)
+        assert (body["method"], body["period"], body["date"], body["filter_limit"]) == (method, "day", today, "-1")
+        assert body.get("flat") == expected_flat
+
+    @pytest.mark.parametrize(
+        "goals",
+        [
+            [{"idgoal": 1, "name": "Signup"}, {"idgoal": 2, "name": "Purchase"}],
+            # Older Matomo releases key the goals by id instead of returning a list.
+            {"1": {"idgoal": "1", "name": "Signup"}, "2": {"idgoal": "2", "name": "Purchase"}},
+        ],
+    )
+    def test_goals_fetched_in_one_undated_call(self, mock_host_valid, mock_sleep, goals):
+        result = self._driver().run("goals", [ScriptedResponse(json=goals)])
+
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["Signup", "Purchase"]
+        [request] = result.requests
+        body = self._form(request)
+        assert body["method"] == "Goals.getGoals"
+        assert "period" not in body and "date" not in body
 
 
 class TestMatomoSourceResponse:

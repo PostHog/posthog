@@ -14,9 +14,10 @@ import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError, is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError, is_cancelled_exception
 
 from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
+from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -156,6 +157,39 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     if not input.workflow_managed_resume:
         await database_sync_to_async(_resume_workflow_step, thread_sensitive=False)(input, output)
     return output
+
+
+@temporalio.activity.defn
+@close_db_connections
+def cancel_failed_scout_trial_activity(input: RunSignalsScoutInput) -> None:
+    # Deferred because the trial harness and Tasks cancellation import the workflow registry.
+    from products.signals.backend.scout_harness.trial_evaluation import _bound_run  # noqa: PLC0415
+    from products.signals.backend.scout_harness.trial_launch import read_trial_launch  # noqa: PLC0415
+    from products.tasks.backend.facade.cancellation import cancel_task_run  # noqa: PLC0415
+
+    if input.trial_launch_id is None:
+        return
+    with private_capture_context():
+        launch = read_trial_launch(input.team_id, input.trial_launch_id)
+        if launch.skill_name != input.skill_name or (
+            input.skill_version is not None and launch.skill_version != input.skill_version
+        ):
+            raise ApplicationError("The trial launch does not match this scout workflow.", non_retryable=True)
+        run = _bound_run(launch)
+        if run is None:
+            return
+        outcome, _ = cancel_task_run(
+            run.task_run_id,
+            run.task_run.task_id,
+            input.team_id,
+            reason="The scout trial worker stopped before the run finished.",
+            source="scout_trial_worker_failure",
+        )
+        if outcome not in {"accepted", "already_terminal", "not_found"}:
+            raise ApplicationError(
+                "The failed scout trial's task could not be stopped.",
+                non_retryable=outcome != "unavailable",
+            )
 
 
 async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
@@ -318,6 +352,22 @@ class RunSignalsScoutWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except (ActivityError, asyncio.CancelledError) as error:
+            if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
+                try:
+                    await asyncio.shield(
+                        temporalio.workflow.execute_activity(
+                            cancel_failed_scout_trial_activity,
+                            input,
+                            start_to_close_timeout=timedelta(minutes=1),
+                            schedule_to_close_timeout=timedelta(minutes=3),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                    )
+                except (ActivityError, asyncio.CancelledError):
+                    temporalio.workflow.logger.exception(
+                        "Failed to stop the task after its scout trial worker failed",
+                        extra={"team_id": input.team_id, "trial_launch_id": input.trial_launch_id},
+                    )
             if managed_resume:
                 output = RunSignalsScoutOutput(
                     run_id=None,

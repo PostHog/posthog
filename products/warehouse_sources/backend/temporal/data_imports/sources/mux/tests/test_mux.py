@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux im
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import (
     AGGREGATE_LOOKBACK,
+    DIMENSION_VALUES_MAX_PAGES,
     MUX_ENDPOINTS,
 )
 
@@ -58,7 +59,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
+        return mock.MagicMock(url=request.url)
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
@@ -213,7 +214,7 @@ class TestRetryableErrors:
     def test_retryable_status_eventually_raises(self, MockSession, _sleep) -> None:
         session = MockSession.return_value
         session.headers = {}
-        session.prepare_request.side_effect = lambda request: mock.MagicMock()
+        session.prepare_request.side_effect = lambda request: mock.MagicMock(url=request.url)
         session.send.return_value = _response(None, status=500, reason="err")
 
         with pytest.raises(Exception):
@@ -280,3 +281,181 @@ class TestMuxDataEndpoints:
         assert session.send.call_count == 1
         assert "timeframe[]" in params[0]
         assert "page" not in params[0]
+
+
+def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    session.headers = {}
+    requests_sent: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        requests_sent.append((request.url, dict(request.params or {})))
+        return mock.MagicMock(url=request.url)
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return requests_sent
+
+
+class TestMuxDataFanOut:
+    @mock.patch.object(mux, "DATA_METRICS", ("views", "rebuffer_percentage"))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metric_timeseries_explodes_points_per_metric(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire_urls(
+            session,
+            [
+                _response(
+                    {
+                        "data": [["2024-01-01T00:00:00Z", "10", "10"], ["2024-01-02T00:00:00Z", 12, None]],
+                        "meta": {"granularity": "day", "aggregation": "view_end"},
+                    }
+                ),
+                _response({"data": [["2024-01-01T00:00:00Z", "0.25", "40"]], "meta": {"granularity": "day"}}),
+            ],
+        )
+
+        rows = _run("metric_timeseries", _make_manager())
+
+        assert [url for url, _ in sent] == [
+            "https://api.mux.com/data/v1/metrics/views/timeseries",
+            "https://api.mux.com/data/v1/metrics/rebuffer_percentage/timeseries",
+        ]
+        assert sent[0][1]["group_by"] == "day"
+        assert "timeframe[]" in sent[0][1]
+        assert rows == [
+            {
+                "metric": "views",
+                "interval_start": "2024-01-01T00:00:00Z",
+                "value": 10.0,
+                "views": 10,
+                "granularity": "day",
+                "aggregation": "view_end",
+            },
+            {
+                "metric": "views",
+                "interval_start": "2024-01-02T00:00:00Z",
+                "value": 12.0,
+                "views": None,
+                "granularity": "day",
+                "aggregation": "view_end",
+            },
+            {
+                "metric": "rebuffer_percentage",
+                "interval_start": "2024-01-01T00:00:00Z",
+                "value": 0.25,
+                "views": 40,
+                "granularity": "day",
+                "aggregation": None,
+            },
+        ]
+
+    @mock.patch.object(mux, "DATA_METRICS", ("views",))
+    @mock.patch.object(mux, "BREAKDOWN_DIMENSIONS", ("country", "cdn"))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metric_breakdowns_walk_pages_per_metric_and_dimension(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"field": f"c{i}", "value": 1, "views": 1} for i in range(100)]
+        sent = _wire_urls(
+            session,
+            [
+                _response({"data": full_page}),
+                _response({"data": [{"field": "US", "value": 2, "views": 5}]}),
+                _response({"data": [{"field": "fastly", "value": 3, "views": 7}]}),
+            ],
+        )
+
+        rows = _run("metric_breakdowns", _make_manager())
+
+        assert [(url, params["page"]) for url, params in sent] == [
+            ("https://api.mux.com/data/v1/metrics/views/breakdown?group_by=country", 1),
+            ("https://api.mux.com/data/v1/metrics/views/breakdown?group_by=country", 2),
+            ("https://api.mux.com/data/v1/metrics/views/breakdown?group_by=cdn", 1),
+        ]
+        assert sent[0][1]["order_by"] == "field"
+        assert len(rows) == 102
+        assert rows[100] == {"field": "US", "value": 2, "views": 5, "metric": "views", "dimension": "country"}
+        assert rows[101] == {"field": "fastly", "value": 3, "views": 7, "metric": "views", "dimension": "cdn"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_dimension_values_fan_out_routes_trace_dimensions_to_elements(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire_urls(
+            session,
+            [
+                _response({"data": {"basic": ["country"], "advanced": ["country", "video_cdn_trace"]}}),
+                _response({"data": [{"value": "US", "total_count": 9}]}),
+                _response({"data": [{"value": "fastly", "total_count": 4}]}),
+            ],
+        )
+
+        rows = _run("dimension_values", _make_manager())
+
+        assert [url for url, _ in sent] == [
+            "https://api.mux.com/data/v1/dimensions",
+            "https://api.mux.com/data/v1/dimensions/country",
+            "https://api.mux.com/data/v1/dimensions/video_cdn_trace/elements",
+        ]
+        assert rows == [
+            {"value": "US", "total_count": 9, "dimension": "country"},
+            {"value": "fastly", "total_count": 4, "dimension": "video_cdn_trace"},
+        ]
+
+    def test_dimension_parent_rows_percent_encode_names_from_the_response(self) -> None:
+        rows = mux._dimension_parent_rows(
+            {"basic": ["https://attacker.example/x", "//attacker.example/x"], "advanced": ["video_cdn_trace"]}
+        )
+
+        assert [row["values_path"] for row in rows] == [
+            "https%3A%2F%2Fattacker.example%2Fx",
+            "%2F%2Fattacker.example%2Fx",
+            "video_cdn_trace/elements",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_dimension_values_stop_at_page_cap(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = {"data": [{"value": str(i), "total_count": 1} for i in range(100)]}
+        _wire_urls(
+            session,
+            [_response({"data": {"basic": ["view_session_id"], "advanced": []}})]
+            + [_response(full_page) for _ in range(DIMENSION_VALUES_MAX_PAGES + 1)],
+        )
+
+        rows = _run("dimension_values", _make_manager())
+
+        assert len(rows) == DIMENSION_VALUES_MAX_PAGES * 100
+        assert session.send.call_count == DIMENSION_VALUES_MAX_PAGES + 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_dimensions_flatten_tiers(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire_urls(session, [_response({"data": {"basic": ["browser", "country"], "advanced": ["country", "asn"]}})])
+
+        rows = _run("dimensions", _make_manager())
+
+        assert rows == [
+            {"name": "browser", "tier": "basic"},
+            {"name": "country", "tier": "basic"},
+            {"name": "asn", "tier": "advanced"},
+        ]
+
+    @mock.patch.object(mux, "DATA_METRICS", ("views", "rebuffer_percentage"))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_resumes_past_completed_metrics(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire_urls(session, [_response({"data": [["2024-01-01T00:00:00Z", "0.5", "2"]]})])
+        manager = _make_manager(
+            MuxResumeConfig(
+                fan_out={"completed": ["/data/v1/metrics/views/timeseries"], "current": None, "child_state": None}
+            )
+        )
+
+        rows = _run("metric_timeseries", manager)
+
+        assert [url for url, _ in sent] == ["https://api.mux.com/data/v1/metrics/rebuffer_percentage/timeseries"]
+        assert [row["metric"] for row in rows] == ["rebuffer_percentage"]
+        saved = manager.save_state.call_args.args[0]
+        assert saved.fan_out["completed"] == [
+            "/data/v1/metrics/rebuffer_percentage/timeseries",
+            "/data/v1/metrics/views/timeseries",
+        ]
