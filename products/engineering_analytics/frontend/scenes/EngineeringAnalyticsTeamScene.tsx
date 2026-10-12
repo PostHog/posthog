@@ -17,6 +17,7 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { EntityHeader } from '../components/EntityHeader'
+import { ProductNav } from '../components/ProductNav'
 import { RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
@@ -211,115 +212,123 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
     return (
         <SceneContent className="pb-16">
             <SceneTitleSection name="Team" resourceType={{ type: 'health' }} />
-            <ScopeBar
-                repoSlot={<RepoScopeChip label={repository ?? 'repository'} to={hubUrl} />}
-                crumbs={[{ label: 'teams', to: teamsUrl }, { label: isUnowned ? 'unowned' : ownerTeam }]}
-                showDate={false}
-            />
-            <EntityHeader
-                icon={<IconPeople />}
-                title={isUnowned ? 'Unowned surfaces' : ownerTeam}
-                titleSuffix={
-                    isUnowned ? (
-                        <Tooltip title="Tests whose CI spans carry no ownership stamp. An ownership gap to close, not a real team.">
-                            <LemonTag type="warning">ownership gap</LemonTag>
-                        </Tooltip>
-                    ) : undefined
-                }
-                slug={null}
-            />
+            <ProductNav activeTab="teams" repo={repo} sourceId={sourceId}>
+                <div className="flex flex-col gap-4">
+                    <ScopeBar
+                        repoSlot={<RepoScopeChip label={repository ?? 'repository'} to={hubUrl} />}
+                        crumbs={[{ label: 'Teams', to: teamsUrl }, { label: isUnowned ? 'unowned' : ownerTeam }]}
+                        showDate={false}
+                    />
+                    <EntityHeader
+                        icon={<IconPeople />}
+                        title={isUnowned ? 'Unowned surfaces' : ownerTeam}
+                        titleSuffix={
+                            isUnowned ? (
+                                <Tooltip title="Tests whose CI spans carry no ownership stamp. An ownership gap to close, not a real team.">
+                                    <LemonTag type="warning">ownership gap</LemonTag>
+                                </Tooltip>
+                            ) : undefined
+                        }
+                        slug={null}
+                    />
 
-            {mainDataNotConnected ? (
-                <ConnectGitHubSource />
-            ) : (
-                <>
-                    {/* Friction reads a fixed window, so it sits above the panel the date picker governs, as on the
-                        author page. */}
-                    {!isUnowned && <TeamFrictionSection githubTeam={ownerTeam} />}
-
-                    {deliveryScope ? (
-                        <TeamDeliveryPanel
-                            scope={deliveryScope}
-                            sourceId={sourceId}
-                            repo={repo}
-                            busy={windowBusy}
-                            controls={windowControls}
-                        >
-                            {windowedSections}
-                        </TeamDeliveryPanel>
+                    {mainDataNotConnected ? (
+                        <ConnectGitHubSource />
                     ) : (
-                        <ScopePanel busy={windowBusy} controls={windowControls}>
-                            {windowedSections}
-                        </ScopePanel>
-                    )}
+                        <>
+                            {/* Friction reads a fixed window, so it sits above the panel the date picker governs, as on the
+                        author page. */}
+                            {!isUnowned && <TeamFrictionSection githubTeam={ownerTeam} />}
 
-                    <Section id="team-tests" title="Owned tests with signal" busy={activityLoading && !!activity}>
-                        {activityStatus === 'error' ? (
-                            <CIAnalyticsLoadError onRetry={loadActivity} loading={activityLoading} />
-                        ) : (
-                            <LemonTable
-                                data-attr="engineering-analytics-team-tests-table"
-                                size="small"
-                                columns={testColumns}
-                                dataSource={activity?.tests ?? []}
-                                rowKey={(row) => `${row.runner}:${row.nodeid}`}
-                                loading={activityLoading}
-                                pagination={{ pageSize: 25 }}
-                                useURLForSorting={false}
-                                emptyState="No owned tests with signal."
-                                nouns={['test', 'tests']}
-                            />
-                        )}
-                        {activity?.truncatedTests && (
-                            <div className="mt-2 text-xs text-tertiary">
-                                Showing the strongest signals. More owned tests had signal.
-                            </div>
-                        )}
-                    </Section>
+                            {deliveryScope ? (
+                                <TeamDeliveryPanel
+                                    scope={deliveryScope}
+                                    sourceId={sourceId}
+                                    repo={repo}
+                                    busy={windowBusy}
+                                    controls={windowControls}
+                                >
+                                    {windowedSections}
+                                </TeamDeliveryPanel>
+                            ) : (
+                                <ScopePanel busy={windowBusy} controls={windowControls}>
+                                    {windowedSections}
+                                </ScopePanel>
+                            )}
 
-                    <Section
-                        id="team-quarantined-tests"
-                        title="Quarantined tests"
-                        busy={trunkQuarantineLoading && !!trunkQuarantine}
-                    >
-                        {trunkQuarantineStatus === 'error' ? (
-                            <CIAnalyticsLoadError
-                                title="Couldn't load quarantined tests"
-                                description="Loading Trunk quarantine data failed. Retry, or check the source's sync status."
-                                onRetry={loadTrunkQuarantine}
-                                loading={trunkQuarantineLoading}
-                            />
-                        ) : trunkQuarantineLoading && !trunkQuarantine ? (
-                            <LemonSkeleton className="h-32 w-full" />
-                        ) : trunkQuarantineStatus === 'notConnected' || !trunkQuarantine?.available ? (
-                            <div className="py-8 text-center text-sm text-secondary">
-                                No Trunk source is connected. Connect the Trunk.io data warehouse source to see this
-                                team's quarantined tests.
-                            </div>
-                        ) : !trunkQuarantine.ownersResolved ? (
-                            <LemonBanner type="warning">
-                                We could not read {trunkQuarantine.repository}'s ownership files, so quarantined tests
-                                can't be matched to teams. Try again in a few minutes.
-                            </LemonBanner>
-                        ) : (
-                            <>
-                                <TeamQuarantinedTestsTable
-                                    tests={quarantinedTests}
-                                    ttlDays={trunkQuarantine.ttlDays}
-                                    repository={trunkQuarantine.repository}
-                                    loading={trunkQuarantineLoading}
-                                />
-                                {trunkQuarantine.truncated && (
+                            <Section
+                                id="team-tests"
+                                title="Owned tests with signal"
+                                busy={activityLoading && !!activity}
+                            >
+                                {activityStatus === 'error' ? (
+                                    <CIAnalyticsLoadError onRetry={loadActivity} loading={activityLoading} />
+                                ) : (
+                                    <LemonTable
+                                        data-attr="engineering-analytics-team-tests-table"
+                                        size="small"
+                                        columns={testColumns}
+                                        dataSource={activity?.tests ?? []}
+                                        rowKey={(row) => `${row.runner}:${row.nodeid}`}
+                                        loading={activityLoading}
+                                        pagination={{ pageSize: 25 }}
+                                        useURLForSorting={false}
+                                        emptyState="No owned tests with signal."
+                                        nouns={['test', 'tests']}
+                                    />
+                                )}
+                                {activity?.truncatedTests && (
                                     <div className="mt-2 text-xs text-tertiary">
-                                        Showing quarantined tests from the oldest {trunkQuarantine.limit} in the
-                                        repository. This team may have more.
+                                        Showing the strongest signals. More owned tests had signal.
                                     </div>
                                 )}
-                            </>
-                        )}
-                    </Section>
-                </>
-            )}
+                            </Section>
+
+                            <Section
+                                id="team-quarantined-tests"
+                                title="Quarantined tests"
+                                busy={trunkQuarantineLoading && !!trunkQuarantine}
+                            >
+                                {trunkQuarantineStatus === 'error' ? (
+                                    <CIAnalyticsLoadError
+                                        title="Couldn't load quarantined tests"
+                                        description="Loading Trunk quarantine data failed. Retry, or check the source's sync status."
+                                        onRetry={loadTrunkQuarantine}
+                                        loading={trunkQuarantineLoading}
+                                    />
+                                ) : trunkQuarantineLoading && !trunkQuarantine ? (
+                                    <LemonSkeleton className="h-32 w-full" />
+                                ) : trunkQuarantineStatus === 'notConnected' || !trunkQuarantine?.available ? (
+                                    <div className="py-8 text-center text-sm text-secondary">
+                                        No Trunk source is connected. Connect the Trunk.io data warehouse source to see
+                                        this team's quarantined tests.
+                                    </div>
+                                ) : !trunkQuarantine.ownersResolved ? (
+                                    <LemonBanner type="warning">
+                                        We could not read {trunkQuarantine.repository}'s ownership files, so quarantined
+                                        tests can't be matched to teams. Try again in a few minutes.
+                                    </LemonBanner>
+                                ) : (
+                                    <>
+                                        <TeamQuarantinedTestsTable
+                                            tests={quarantinedTests}
+                                            ttlDays={trunkQuarantine.ttlDays}
+                                            repository={trunkQuarantine.repository}
+                                            loading={trunkQuarantineLoading}
+                                        />
+                                        {trunkQuarantine.truncated && (
+                                            <div className="mt-2 text-xs text-tertiary">
+                                                Showing quarantined tests from the oldest {trunkQuarantine.limit} in the
+                                                repository. This team may have more.
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </Section>
+                        </>
+                    )}
+                </div>
+            </ProductNav>
         </SceneContent>
     )
 }

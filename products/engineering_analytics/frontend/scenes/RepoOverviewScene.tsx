@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
@@ -91,8 +90,6 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
-
             {/* The PR backlog below the panel is current-state, not windowed. */}
             <ScopePanel busy={hubReloading}>
                 {/* The windowed headline metrics: each card compares this window against the previous

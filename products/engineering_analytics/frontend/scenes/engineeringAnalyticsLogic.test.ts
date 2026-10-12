@@ -370,7 +370,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
-    it('lists one option per (source, repo) pair and scopes to the picked repo', async () => {
+    it('lists one option per (source, repo) pair and switches to the picked repo', async () => {
         // The option value encodes (source, repo) so a multi-repo source's repos stay distinct;
         // two distinct sources and one source syncing two repos produce the same option shape.
         mockSources.mockResolvedValue([
@@ -389,10 +389,13 @@ describe('engineeringAnalyticsLogic', () => {
             { value: 'src-other::posthog/posthog.js', label: 'posthog/posthog.js' },
         ])
 
-        logic.actions.setScope('src-multi', 'posthog/posthog.com')
+        // One source syncs that repository, so the path alone names it and no `?source` rides along.
+        logic.actions.switchRepo('src-multi::posthog/posthog.com')
         await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
+        expect(routedPath()).toBe(urls.engineeringAnalytics('posthog/posthog.com'))
+        expect(router.values.searchParams).toEqual({})
         expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-multi', repo: 'posthog/posthog.com' })
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: 'posthog/posthog.com' })
     })
 
     it('hides the picker when the team has a single source', async () => {

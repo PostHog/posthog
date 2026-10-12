@@ -7,15 +7,7 @@ import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
 
 import { IconChevronDown, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDropdown,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    Link,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, LemonSegmentedButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { cn } from 'lib/utils/css-classes'
@@ -24,13 +16,12 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
 
-import { scopeFromValue, withScope } from '../lib/scope'
+import { withScope } from '../lib/scope'
 import {
     RUN_SCOPE_OPTIONS,
     SHARED_DEFAULT_DATE_FROM,
     engineeringAnalyticsFiltersLogic,
 } from '../scenes/engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
 
 // The endpoints require a window start (no "all time"), so offer relative windows and Custom only.
@@ -67,41 +58,6 @@ export interface LensChip {
 
 const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
-
-/** A repo picker on multi-repo teams (multiple sources, or one source syncing several repos), otherwise
- *  the repo name. `pickerOnly` skips the static chip on pages that already state the repo elsewhere (the
- *  hub's entity header). */
-export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }): JSX.Element | null {
-    const { hasMultipleSources, sourceOptions, selectedScope, activeSource } = useValues(engineeringAnalyticsLogic)
-    const { setScope } = useActions(engineeringAnalyticsLogic)
-    const repoLabel = activeSource?.repo
-    if (hasMultipleSources) {
-        return (
-            <LemonSelect
-                size="small"
-                value={selectedScope}
-                onChange={(value) => {
-                    const { sourceId, repo } = value ? scopeFromValue(value) : { sourceId: null, repo: null }
-                    setScope(sourceId, repo)
-                }}
-                options={sourceOptions}
-                placeholder={repoLabel || 'Repository'}
-                allowClear
-                dropdownMatchSelectWidth={false}
-                data-attr="engineering-analytics-source-select"
-            />
-        )
-    }
-    // No repo name yet: render nothing rather than a dead "Repository" pill.
-    if (pickerOnly || !repoLabel) {
-        return null
-    }
-    return (
-        <span className={CHIP_CLASS}>
-            <strong className="font-semibold text-primary">{repoLabel}</strong>
-        </span>
-    )
-}
 
 /** Repo chip on detail pages: links back to the hub without mounting the hub's loaders. */
 export function RepoScopeChip({ label, to }: { label: string; to: string }): JSX.Element {
@@ -275,7 +231,7 @@ export function ScopeBar({
     showDate = true,
     extra,
 }: {
-    /** The repo chip: <SourceScopeChip /> on hub/list pages, <RepoScopeChip /> on detail pages. */
+    /** The repo chip on detail pages: <RepoScopeChip />. */
     repoSlot: ReactNode
     /** Hierarchy below the repo (workflow › run); empty on the repo hub itself. */
     crumbs?: ScopeCrumb[]

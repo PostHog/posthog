@@ -8,7 +8,6 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { StatCard } from '../components/StatCard'
 import { TeamQuarantinedTestsTable } from '../components/TeamQuarantinedTestsTable'
@@ -192,7 +191,6 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
 export function EngineeringAnalyticsTests(): JSX.Element {
     return (
         <div className="flex flex-col gap-8">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <TrunkQuarantineDebtBoard />
         </div>
     )
