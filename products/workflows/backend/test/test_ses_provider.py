@@ -252,7 +252,9 @@ class TestSESProvider(TestCase):
             }
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
             mock_mail_from_attrs.return_value = {
-                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
+                "MailFromDomainAttributes": {
+                    TEST_DOMAIN: {"MailFromDomainStatus": "Success", "MailFromDomain": f"mail.{TEST_DOMAIN}"}
+                }
             }
             mock_list_tenants.return_value = {"ResourceTenants": [{"TenantName": "team-1"}]}
 
@@ -276,7 +278,9 @@ class TestSESProvider(TestCase):
             mock_verif_attrs.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Success"}}}
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
             mock_mail_from_attrs.return_value = {
-                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
+                "MailFromDomainAttributes": {
+                    TEST_DOMAIN: {"MailFromDomainStatus": "Success", "MailFromDomain": f"mail.{TEST_DOMAIN}"}
+                }
             }
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
