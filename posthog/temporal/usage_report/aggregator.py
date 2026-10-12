@@ -3,16 +3,16 @@
 Most of this module is pure logic — turning S3-backed query results into the
 legacy `all_data` shape, fanning multi-key queries back out into their
 destination keys, and shaping per-organization JSONL lines for the chunked
-output. The Temporal-local replacement for the legacy `build_org_reports`
-also lives here so the activity can drive aggregation without touching the
-Celery code path; that one bulk-fetches `OrganizationMembership` counts so
-the per-org `count()` N+1 in the legacy helper never fires for Temporal.
-Activities import from here.
+output. `iter_org_reports` streams one report per organization without
+touching the Celery code path. It reads `OrganizationMembership` counts from
+one bulk query, so the per-org `count()` N+1 in the legacy helper never fires
+for Temporal. Activities import from here.
 """
 
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
+from itertools import chain, groupby, islice
 from typing import Any
 
 from django.conf import settings
@@ -30,8 +30,15 @@ from posthog.tasks.usage_report import (
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
-from posthog.temporal.usage_report.storage import bucket, read_json
-from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.storage import (
+    bucket,
+    chunk_key,
+    manifest_key,
+    read_json,
+    write_json,
+    write_jsonl_chunk_gzip,
+)
+from posthog.temporal.usage_report.types import AggregateResult, Manifest, RunQueryToS3Result, WorkflowContext
 
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
@@ -76,8 +83,8 @@ def iter_chunk_lines(
 ) -> Iterator[dict[str, Any]]:
     """Yield the JSONL line dict billing consumes for each org report.
 
-    Filtering by `has_non_zero_usage` happens upstream in the activity, so
-    everything yielded here is expected to have usage.
+    `write_org_report_chunks` drops reports without usage before this step,
+    so every report here has usage.
     """
     for org_report in org_reports:
         report_dict = serialize_full_org_report(org_report, instance_metadata)
@@ -85,18 +92,6 @@ def iter_chunk_lines(
             "organization_id": org_report.organization_id,
             "usage_report": report_dict,
         }
-
-
-def filter_orgs_with_usage(org_reports: dict[str, OrgReport]) -> dict[str, OrgReport]:
-    """Drop org reports with no billable usage before serialization. Reuses
-    the legacy `has_non_zero_usage` directly on `OrgReport`s — every field
-    it checks lives on `UsageReportCounters`, the base class shared by
-    `OrgReport` and `FullUsageReport`, so we skip the
-    `dataclasses.asdict(FullUsageReport)` round-trip the legacy path forces.
-    Skipping that on the >99% of orgs without usage is the dominant CPU
-    win in the aggregation activity.
-    """
-    return {oid: report for oid, report in org_reports.items() if has_non_zero_usage(report)}
 
 
 def build_manifest(
@@ -126,22 +121,6 @@ def build_manifest(
     )
 
 
-def filter_org_reports(
-    org_reports: dict[str, OrgReport],
-    organization_ids: list[str] | None,
-) -> dict[str, OrgReport]:
-    """Apply the optional `organization_ids` filter from workflow inputs."""
-    if not organization_ids:
-        return org_reports
-    wanted = set(organization_ids)
-    return {oid: report for oid, report in org_reports.items() if oid in wanted}
-
-
-def sort_org_reports(org_reports: dict[str, OrgReport]) -> list[OrgReport]:
-    """Deterministic ordering so chunk contents are stable across retries."""
-    return sorted(org_reports.values(), key=lambda r: r.organization_id)
-
-
 def get_org_user_counts() -> dict[str, int]:
     """Bulk membership count per organization, keyed by `str(org_id)`.
 
@@ -162,26 +141,6 @@ def get_org_user_counts() -> dict[str, int]:
         .annotate(count=Count("id"))
         .iterator(chunk_size=10_000)
     }
-
-
-def build_org_reports(
-    all_data: dict[str, Any],
-    period_start: datetime,
-    org_user_counts: dict[str, int],
-) -> dict[str, OrgReport]:
-    """Temporal-local replacement for `posthog.tasks.usage_report.build_org_reports`.
-
-    Same shape and semantics as the legacy facade, but takes a pre-fetched
-    `org_user_counts` dict instead of issuing one Postgres `count()` per
-    organization. The legacy facade is intentionally left untouched so the
-    Celery flow's behavior is preserved — the parity tests pin both paths
-    against each other.
-    """
-    org_reports: dict[str, OrgReport] = {}
-    for team in _get_teams_for_usage_reports():
-        team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start, org_user_counts)
-    return org_reports
 
 
 def _add_team_report_to_org_reports(
@@ -220,3 +179,66 @@ def _add_team_report_to_org_reports(
                     field.name,
                     getattr(org_report, field.name) + getattr(team_report, field.name),
                 )
+
+
+def iter_org_reports(
+    all_data: dict[str, dict[int, int]],
+    ctx: WorkflowContext,
+    org_user_counts: dict[str, int],
+) -> Iterator[OrgReport]:
+    teams = _get_teams_for_usage_reports(organization_ids=ctx.organization_ids)
+    for organization_id, org_teams in groupby(teams, key=lambda team: team.organization_id):
+        org_id = str(organization_id)
+        org_reports: dict[str, OrgReport] = {}
+        for team in org_teams:
+            team_report = _get_team_report(all_data, team)
+            _add_team_report_to_org_reports(org_reports, team, team_report, ctx.period_start, org_user_counts)
+        yield org_reports[org_id]
+
+
+def write_org_report_chunks(
+    ctx: WorkflowContext,
+    org_reports: Iterable[OrgReport],
+    instance_metadata: InstanceMetadata,
+    *,
+    chunk_size: int,
+    version: int,
+    region: str,
+    check_cancelled: Callable[[], None],
+) -> AggregateResult:
+    total_orgs = 0
+    total_orgs_with_usage = 0
+
+    def reports_with_usage() -> Iterator[OrgReport]:
+        nonlocal total_orgs, total_orgs_with_usage
+        for report in org_reports:
+            check_cancelled()
+            total_orgs += 1
+            if has_non_zero_usage(report):
+                total_orgs_with_usage += 1
+                yield report
+
+    lines = iter_chunk_lines(reports_with_usage(), instance_metadata)
+    chunk_keys: list[str] = []
+    while (first_line := next(lines, None)) is not None:
+        key = chunk_key(ctx, len(chunk_keys))
+        write_jsonl_chunk_gzip(key, chain((first_line,), islice(lines, chunk_size - 1)))
+        chunk_keys.append(key)
+
+    check_cancelled()
+    manifest = build_manifest(
+        ctx,
+        chunk_keys=chunk_keys,
+        total_orgs=total_orgs,
+        total_orgs_with_usage=total_orgs_with_usage,
+        region=region,
+        version=version,
+    )
+    m_key = manifest_key(ctx)
+    write_json(m_key, manifest.model_dump(mode="json"))
+    return AggregateResult(
+        chunk_keys=chunk_keys,
+        manifest_key=m_key,
+        total_orgs=total_orgs,
+        total_orgs_with_usage=total_orgs_with_usage,
+    )

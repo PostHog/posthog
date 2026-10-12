@@ -9,7 +9,8 @@ elsewhere so these stay easy to read and mock in tests.
 import json
 import time
 import asyncio
-from itertools import batched
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from typing import Any
 
 from django.conf import settings
@@ -18,20 +19,16 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.sync import database_sync_to_async_pool
 from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
-    build_manifest,
-    build_org_reports,
-    filter_org_reports,
-    filter_orgs_with_usage,
     get_org_user_counts,
-    iter_chunk_lines,
+    iter_org_reports,
     load_all_data,
-    sort_org_reports,
+    write_org_report_chunks,
 )
 from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_AGGREGATE_LATENCY,
@@ -42,16 +39,7 @@ from posthog.temporal.usage_report.metrics import (
     record_pointer_sent_timestamp,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
-from posthog.temporal.usage_report.storage import (
-    bucket,
-    chunk_key,
-    chunks_prefix,
-    delete_keys,
-    manifest_key,
-    queries_key,
-    write_json,
-    write_jsonl_chunk_gzip,
-)
+from posthog.temporal.usage_report.storage import bucket, chunks_prefix, delete_keys, queries_key, write_json
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
     AggregateResult,
@@ -66,6 +54,11 @@ logger = structlog.get_logger(__name__)
 
 CHUNK_SIZE_ORGS = 50_000
 SQS_POINTER_VERSION = 2
+
+# One aggregation runs at a time in each worker process. Each run holds every query result and
+# all membership counts in memory, so parallel runs multiply peak memory. The executor is also
+# separate from the shared thread that quota limiting uses.
+_AGGREGATION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="usage-report-aggregation")
 
 # Separate SQS queue for v2 messages so the existing per-org `usage_reports`
 # stream and the new pointer stream don't clash while both flows run side by
@@ -107,7 +100,7 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
             duration_ms = int((time.monotonic() - started) * 1000)
 
             key = queries_key(inputs.ctx, inputs.query_name)
-            await sync_to_async(write_json)(key, result)
+            await sync_to_async(write_json, thread_sensitive=False)(key, result)
 
             return RunQueryToS3Result(
                 query_name=inputs.query_name,
@@ -129,72 +122,45 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
             USAGE_REPORTS_AGGREGATE_LATENCY,
             description="Aggregate per-query S3 results into org-report chunks.",
         ):
-            all_data = await sync_to_async(load_all_data)(inputs.query_results)
-            add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
+            cancelled = Event()
 
-            @database_sync_to_async
-            def aggregate_per_org() -> dict[str, Any]:
-                # Bulk-fetch membership counts once instead of letting the org
-                # builder issue a Postgres count() per organization. See
-                # `aggregator.build_org_reports` for the rationale.
+            def check_cancelled() -> None:
+                if cancelled.is_set() or activity.is_cancelled():
+                    raise asyncio.CancelledError()
+
+            @database_sync_to_async_pool(executor=_AGGREGATION_EXECUTOR)
+            def aggregate() -> AggregateResult:
+                check_cancelled()
+                all_data = load_all_data(inputs.query_results)
+                add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
+                check_cancelled()
                 org_user_counts = get_org_user_counts()
-                org_reports = build_org_reports(all_data, inputs.ctx.period_start, org_user_counts)
-                org_reports = filter_org_reports(org_reports, inputs.ctx.organization_ids)
-                return org_reports
+                instance_metadata = get_instance_metadata(
+                    DayRange(start=inputs.ctx.period_start, end=inputs.ctx.period_end)
+                )
 
-            org_reports = await aggregate_per_org()
+                # TODO(usage-reports-v2): re-enable PostHog product-analytics
+                # `capture_report` per organization once the billing path is validated.
+                # That call updates organization group properties (member/project/dashboard
+                # counts) used by customer.io segmentation and emits the
+                # "organization usage report" event consumed for internal analytics.
 
-            instance_metadata = await database_sync_to_async(get_instance_metadata)(
-                DayRange(start=inputs.ctx.period_start, end=inputs.ctx.period_end)
-            )
+                return write_org_report_chunks(
+                    inputs.ctx,
+                    iter_org_reports(all_data, inputs.ctx, org_user_counts),
+                    instance_metadata,
+                    chunk_size=CHUNK_SIZE_ORGS,
+                    version=SQS_POINTER_VERSION,
+                    region=get_instance_region() or "",
+                    check_cancelled=check_cancelled,
+                )
 
-            # TODO(usage-reports-v2): re-enable PostHog product-analytics
-            # `capture_report` per organization once the billing path is validated.
-            # That call updates organization group properties (member/project/dashboard
-            # counts) used by customer.io segmentation and emits the
-            # "organization usage report" event consumed for internal analytics.
-
-            total_orgs = len(org_reports)
-            orgs_with_usage = filter_orgs_with_usage(org_reports)
-            total_orgs_with_usage = len(orgs_with_usage)
-
-            sorted_reports = sort_org_reports(orgs_with_usage)
-            batches = list(enumerate([list(batch) for batch in batched(sorted_reports, CHUNK_SIZE_ORGS, strict=False)]))
-            chunk_keys: list[str] = [chunk_key(inputs.ctx, index) for index, _ in batches]
-
-            # Each chunk is an independent S3 object, so fan the encode+gzip+PUT
-            # out across the thread pool. `thread_sensitive=False` opts out of
-            # the shared-thread default so the PUTs run concurrently — boto3
-            # releases the GIL during the network call, so they genuinely
-            # overlap on the wire. Using `asyncio.TaskGroup` (over
-            # `asyncio.gather`) means a single failed upload doesn't cancel
-            # in-flight peer uploads mid-PUT; the group waits for every
-            # started task to finish or fail before re-raising, so Temporal
-            # retries from a clean state.
-            def write_chunk(key: str, batch: list[Any]) -> None:
-                write_jsonl_chunk_gzip(key, iter_chunk_lines(batch, instance_metadata))
-
-            async with asyncio.TaskGroup() as tg:
-                for index, batch in batches:
-                    tg.create_task(sync_to_async(write_chunk, thread_sensitive=False)(chunk_keys[index], batch))
-
-            manifest = build_manifest(
-                inputs.ctx,
-                chunk_keys=chunk_keys,
-                total_orgs=total_orgs,
-                total_orgs_with_usage=total_orgs_with_usage,
-                region=get_instance_region() or "",
-                version=SQS_POINTER_VERSION,
-            )
-            m_key = manifest_key(inputs.ctx)
-            await sync_to_async(write_json)(m_key, manifest.model_dump(mode="json"))
-
-            return AggregateResult(
-                chunk_keys=chunk_keys,
-                manifest_key=m_key,
-                total_orgs=total_orgs,
-                total_orgs_with_usage=total_orgs_with_usage,
-            )
+            try:
+                return await aggregate()
+            except asyncio.CancelledError:
+                # Cancelling an await cannot stop a running executor thread.
+                cancelled.set()
+                raise
 
 
 @activity.defn(name="usage-reports-enqueue-pointer-message")
@@ -240,7 +206,7 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
         if inputs.ctx.workflow_started_at is not None:
             pointer["workflow_started_at"] = inputs.ctx.workflow_started_at.isoformat()
 
-        @sync_to_async
+        @sync_to_async(thread_sensitive=False)
         def send() -> None:
             from ee.sqs.SQSProducer import get_sqs_producer
 
@@ -279,4 +245,4 @@ async def cleanup_intermediates(inputs: CleanupInputs) -> int:
     """Delete the per-query S3 intermediates. Chunks and manifest are kept
     so the billing consumer can read them after the SQS pointer arrives.
     """
-    return await sync_to_async(delete_keys)(inputs.query_keys)
+    return await sync_to_async(delete_keys, thread_sensitive=False)(inputs.query_keys)

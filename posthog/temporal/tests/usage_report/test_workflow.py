@@ -65,9 +65,18 @@ def test_build_context_reports_full_day_at_offset(
 
 
 @pytest.mark.asyncio
-async def test_workflow_rejects_negative_day_offset() -> None:
-    # Without the guard, a manual-trigger typo like day_offset=-1 reports a
-    # future empty day and marks it "complete" for billing.
+@pytest.mark.parametrize(
+    "inputs, invalid_field",
+    [
+        # A negative offset reports a future empty day and marks it "complete" for billing.
+        (RunUsageReportsInputs(day_offset=-1), "day_offset"),
+        # A malformed id fails aggregation only after every gather query has run.
+        (RunUsageReportsInputs(organization_ids=["not-a-uuid"]), "organization_ids"),
+    ],
+)
+async def test_workflow_rejects_invalid_inputs_before_running_queries(
+    inputs: RunUsageReportsInputs, invalid_field: str
+) -> None:
     ran_queries: list[str] = []
 
     @activity.defn(name="run-usage-report-query")
@@ -86,7 +95,7 @@ async def test_workflow_rejects_negative_day_offset() -> None:
             with pytest.raises(WorkflowFailureError) as exc_info:
                 await env.client.execute_workflow(
                     RunUsageReportsWorkflow.run,
-                    RunUsageReportsInputs(day_offset=-1),
+                    inputs,
                     id=str(uuid.uuid4()),
                     task_queue=worker.task_queue,
                 )
@@ -94,7 +103,7 @@ async def test_workflow_rejects_negative_day_offset() -> None:
     cause = exc_info.value.cause
     assert isinstance(cause, ApplicationError)
     assert cause.non_retryable
-    assert "day_offset" in str(cause)
+    assert invalid_field in str(cause)
     assert ran_queries == []
 
 

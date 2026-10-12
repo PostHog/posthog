@@ -7,17 +7,60 @@ so we can assert it was *never* called.
 """
 
 import json
+import asyncio
 from datetime import datetime
+from threading import Event
 
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import sync_to_async
+from temporalio.testing import ActivityEnvironment
+
 from posthog.storage import object_storage
+from posthog.temporal.tests.usage_report.test_aggregator import _ctx
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import run_query_to_s3
 from posthog.temporal.usage_report.queries import QuerySpec
 from posthog.temporal.usage_report.storage import queries_key
 from posthog.temporal.usage_report.types import RunQueryToS3Inputs, WorkflowContext
+
+
+@pytest.mark.asyncio
+async def test_query_persists_while_thread_sensitive_executor_is_busy(
+    activity_environment: ActivityEnvironment,
+) -> None:
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    def occupy_shared_thread() -> None:
+        loop.call_soon_threadsafe(started.set)
+        release.wait()
+
+    def query(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+        return [(1, 17)]
+
+    blocker = asyncio.create_task(sync_to_async(occupy_shared_thread)())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        with (
+            patch.dict(
+                "posthog.temporal.usage_report.activities.QUERY_INDEX",
+                {"test_query": QuerySpec(name="test_query", fn=query)},
+            ),
+            patch("posthog.storage.object_storage.write") as write,
+        ):
+            result = await asyncio.wait_for(
+                activity_environment.run(run_query_to_s3, RunQueryToS3Inputs(ctx=_ctx(), query_name="test_query")),
+                timeout=10,
+            )
+        assert result.query_name == "test_query"
+        assert write.call_args.args[0] == result.s3_key
+        assert json.loads(write.call_args.args[1]) == [[1, 17]]
+    finally:
+        release.set()
+        await blocker
 
 
 @pytest.mark.asyncio

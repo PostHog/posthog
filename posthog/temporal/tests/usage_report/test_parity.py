@@ -190,12 +190,17 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     org_a = Organization.objects.create(name="E2E Parity A")
     org_b = Organization.objects.create(name="E2E Parity B")
     team_a1 = Team.objects.create(organization=org_a, name="A1")
-    team_a2 = Team.objects.create(organization=org_a, name="A2")
     team_b = Team.objects.create(organization=org_b, name="B")
+    team_a2 = Team.objects.create(organization=org_a, name="A2")
+    demo_team = Team.objects.create(organization=org_b, name="Demo", is_demo=True)
+    internal_org = Organization.objects.create(name="Internal", for_internal_metrics=True)
+    internal_team = Team.objects.create(organization=internal_org, name="Internal")
 
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
+    seeded["teams_with_event_count_in_period"].update({demo_team.id: 999, internal_team.id: 999})
+    monkeypatch.setattr("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", 1)
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)
@@ -234,6 +239,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         )
     )
     temporal_per_org = _decode_temporal_chunks(s3, result.chunk_keys)
+    assert temporal_per_org.keys() == celery_per_org.keys()
 
     # Both of our test orgs should have non-zero usage, so Celery should
     # have queued them. Sanity-check that before comparing, otherwise a
@@ -274,18 +280,13 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() -> None:
-    """The Temporal-local `aggregator.build_org_reports` must fetch
-    organization membership counts in bulk. The legacy Celery facade still
-    runs one `OrganizationMembership.count()` per organization inside its
-    team loop — that's the cost we lifted out of the
-    `aggregate-and-chunk-org-reports` activity by routing it through the
-    aggregator's own builder instead of the shared one.
+def test_temporal_org_reports_do_not_run_per_org_membership_queries() -> None:
+    """The Temporal `aggregator.iter_org_reports` must fetch organization
+    membership counts in bulk. The legacy Celery facade still runs one
+    `OrganizationMembership.count()` per organization inside its team loop,
+    and the `aggregate-and-chunk-org-reports` activity must not.
     """
-    from posthog.temporal.usage_report.aggregator import (
-        build_org_reports as temporal_build_org_reports,
-        get_org_user_counts,
-    )
+    from posthog.temporal.usage_report.aggregator import get_org_user_counts, iter_org_reports
 
     # Create a meaningful number of fresh orgs/teams so the per-org N+1
     # would have clear daylight from the bulk-fetch path. Without this,
@@ -297,18 +298,24 @@ def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() ->
         fresh_orgs.append(org)
 
     period_start = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
+    ctx = WorkflowContext(
+        run_id="membership-queries",
+        period_start=period_start,
+        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
+        date_str="2026-05-04",
+    )
     all_data: dict[str, dict[int, int]] = {key: {} for key in _all_destination_keys()}
 
     with CaptureQueriesContext(connection) as captured:
         org_user_counts = get_org_user_counts()
-        temporal_build_org_reports(all_data, period_start, org_user_counts)
+        list(iter_org_reports(all_data, ctx, org_user_counts))
 
     # The Temporal path runs ~2 queries (teams + bulk memberships)
     # regardless of org count. The legacy Celery path runs 1 + N. Cap
     # well below `1 + N` so any per-org N+1 here blows the test, while
     # leaving slack for harmless query-count drift (savepoints etc.).
     assert len(captured.captured_queries) <= 5, (
-        f"Temporal build_org_reports issued {len(captured.captured_queries)} "
+        f"Temporal iter_org_reports issued {len(captured.captured_queries)} "
         f"queries — with {len(fresh_orgs)} fresh orgs this looks like a "
         f"per-org N+1, which dominates wall-clock for the aggregation activity."
     )

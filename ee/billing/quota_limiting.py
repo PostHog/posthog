@@ -8,7 +8,6 @@ from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
-from django.db.models import Q
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
@@ -49,6 +48,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
+    iter_billable_teams,
 )
 from posthog.utils import get_current_day
 
@@ -1335,17 +1335,16 @@ def update_all_orgs_billing_quotas(
         progress_callback("queries_done", f"duration={queries_duration_s}s", f"query_count={len(all_data)}")
 
     teams: Sequence[Team] = list(
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only(
-            "id",
-            "api_token",
-            "organization__id",
-            "organization__usage",
-            "organization__created_at",
-            "organization__never_drop_data",
-            "organization__customer_trust_scores",
-            "organization__customer_id",
+        iter_billable_teams(
+            team_fields=("id", "api_token"),
+            organization_fields=(
+                "id",
+                "usage",
+                "created_at",
+                "never_drop_data",
+                "customer_trust_scores",
+                "customer_id",
+            ),
         )
     )
 
