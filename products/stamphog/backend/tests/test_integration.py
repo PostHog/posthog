@@ -1931,12 +1931,13 @@ def test_rereview_after_external_review_restarts_a_rerun_left_queued(team, stamp
         pytest.param(ReviewEvidenceState.COMPLETED, None, 1, id="review-finished-since"),
         pytest.param(ReviewEvidenceState.PENDING, None, 0, id="review-still-pending"),
         pytest.param(ReviewEvidenceState.COMPLETED, RuntimeError("broker unreachable"), 1, id="dispatch-fails"),
+        pytest.param(None, None, 0, id="provider-fails-after-pending"),
     ],
 )
 def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
     team,
     stamphog_chain: StamphogChain,
-    state_now: ReviewEvidenceState,
+    state_now: ReviewEvidenceState | None,
     dispatch_error: Exception | None,
     expected_dispatches: int,
 ) -> None:
@@ -1949,6 +1950,13 @@ def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
         team_id=team.id, repo_config=repo_config, pr_number=125, author_login="devex-dev"
     )
     pending = _evidence(ReviewEvidenceState.PENDING, head_sha)
+    now = _evidence(state_now, head_sha) if state_now is not None else None
+
+    def provider(*_: object) -> ReviewEvidence:
+        if now is None:
+            raise RuntimeError("provider unreachable")
+        return now
+
     run = ReviewRun.objects.for_team(team.id).create(
         team_id=team.id,
         pull_request=pull_request,
@@ -1956,14 +1964,20 @@ def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
         status=ReviewRunStatus.REVIEWING,
         output={
             "reviewer_raw": _waiting_engine_output(),
-            "review_evidence": [{"state": "pending", "reviewer": pending.reviewer, "head_sha": head_sha}],
+            "review_evidence": [
+                {
+                    "provider": f"{provider.__module__}.{provider.__qualname__}",
+                    "state": "pending",
+                    "reviewer": pending.reviewer,
+                    "head_sha": head_sha,
+                }
+            ],
         },
     )
     inp = StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
-    now = _evidence(state_now, head_sha)
 
     with (
-        patch.object(activities, "get_review_evidence_providers", return_value=(lambda *_: now,)),
+        patch.object(activities, "get_review_evidence_providers", return_value=(provider,)),
         patch.object(activities, "request_rereview_after_external_review", side_effect=dispatch_error) as rereview,
     ):
         posted = _run_activity(post_verdict, inp)

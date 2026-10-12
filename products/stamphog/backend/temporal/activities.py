@@ -1645,9 +1645,10 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
     if not _waited_on_external_review(run):
         return {"requested": False}
-    # No earlier evidence here: a provider error then reads as "not pending", and the re-review it
-    # queues checks every condition again.
-    if any(item["state"] == ReviewEvidenceState.PENDING for item in _read_review_evidence(run, [])):
+    # The run's own evidence is the earlier answer, so a provider error keeps the review pending. A
+    # re-review queued on an error would start without that evidence and could approve too early.
+    earlier = (run.output or {}).get("review_evidence") or []
+    if any(item["state"] == ReviewEvidenceState.PENDING for item in _read_review_evidence(run, earlier)):
         return {"requested": False}
     pull_request = run.pull_request
     request_rereview_after_external_review(
