@@ -12,7 +12,6 @@ describe('BatchBudget', () => {
     it('shares one unlimited budget that never exhausts and settles to nothing', () => {
         const budget = BatchBudget.unlimited()
 
-        // One instance, so the default feed() argument allocates nothing.
         expect(budget).toBe(BatchBudget.unlimited())
         expect(budget.softAt).toBe(Infinity)
         expect(budget.exhausted).toBe(false)
@@ -36,8 +35,6 @@ describe('BatchBudget', () => {
     })
 
     it('is exhausted straight away when its deadline has already passed', () => {
-        // A budget spent on the admission wait has checkpoints to answer before
-        // any timer could fire, so construction has to settle this case.
         const budget = BatchBudget.softDeadline(Date.now() - 1)
 
         expect(budget.exhausted).toBe(true)

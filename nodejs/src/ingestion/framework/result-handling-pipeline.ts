@@ -35,9 +35,7 @@ export type PipelineConfig<R extends string = never> = {
  * The redirect type R flows through — redirect results are kept in the output
  * with the redirect side effect attached.
  *
- * A TIMEOUT is counted and nothing else: the message is not acked, so its
- * source redelivers it and producing anything here would duplicate what the
- * redelivery produces.
+ * A TIMEOUT produces nothing, because its redelivery produces it.
  */
 export class ResultHandlingPipeline<
     TInput,

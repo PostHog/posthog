@@ -60,12 +60,7 @@ export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
         return new PipelineBuilder(finalBuilder.build())
     }
 
-    /**
-     * Insert a timeout barrier: from here on the batch budget no longer stops
-     * an element, so everything past this point runs to completion. An element
-     * that arrives with its budget already exhausted is cut here instead.
-     * See {@link TimeoutBarrierPipeline} for where to put one.
-     */
+    /** Past this point the budget no longer stops an element. See {@link TimeoutBarrierPipeline}. */
     timeoutBarrier(): PipelineBuilder<TInput, TOutput, C, R> {
         return new PipelineBuilder(new TimeoutBarrierPipeline(this.pipeline))
     }

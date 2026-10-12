@@ -167,8 +167,7 @@ describe('FanOutFanInChunkPipeline', () => {
     })
 
     it('copies the parent budget onto every sub-element context', async () => {
-        // Sub-elements spend the parent's time, so a sub-element that lost the
-        // budget would run its steps with no checkpoint at all.
+        // Without the parent's budget, sub-elements would run with no checkpoint.
         const budget = BatchBudget.unlimited()
         const subContexts: PipelineContext<FanOutSubContext>[] = []
         let buffered: PipelineResultWithContext<SubItem, FanOutSubContext>[] = []

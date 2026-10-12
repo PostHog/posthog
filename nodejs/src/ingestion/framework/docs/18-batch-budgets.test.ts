@@ -88,8 +88,15 @@
  *
  * The count invariant is untouched: N messages in, N results out, and
  * `afterBatch` still runs, committing the writes of the events that did
- * finish. Within one batch, budget exhaustion is monotone, so a routing key's
- * completed events are always a prefix of its feed order.
+ * finish. Within one batch, budget exhaustion is monotone, so a group that
+ * runs its events one at a time completes a prefix of its feed order.
+ *
+ * The prefix holds per group, not per routing key. One routing key can span
+ * several groups, and then its cut-off events can sit between completed ones,
+ * so the caller must redeliver exactly the cut-off events. Only stages that run
+ * one element at a time keep the prefix: `concurrently` and fan-out/fan-in run
+ * elements in parallel, so a slow early element can be cut while a later one
+ * completes.
  */
 import { BatchBudget } from '~/ingestion/framework/batch-budget'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
@@ -333,11 +340,12 @@ describe('Batch Time Budgets', () => {
 
     /**
      * The prefix property. Within one batch the budget expires once and never
-     * comes back, so a routing key's completed events are always a prefix of
-     * its feed order. That is what makes redelivering the remainder safe: the
-     * redelivery resumes where the batch stopped, with no gap in the middle.
+     * comes back, so a group that runs its events one at a time completes a
+     * prefix of its feed order. That is what makes redelivering the cut-off
+     * events safe: the redelivery resumes where the group stopped, with no gap
+     * in the middle.
      */
-    it('completes a prefix of each key’s feed order', async () => {
+    it('completes a prefix of each group’s feed order', async () => {
         const processed: number[] = []
 
         const pipeline = newBatchingPipeline<Event, Event, NoCtx>(

@@ -43,10 +43,8 @@ export type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) 
  * implementation of chunk-step semantics, shared by {@link BaseChunkPipeline}
  * and the group-level pipeChunk in ConcurrentlyGroupingChunkPipeline.
  *
- * One chunk can hold elements from batches with different budgets, so the
- * soft-deadline checkpoint runs per element: an exhausted element becomes a
- * timeout and passes through the same way a DROP does, and the step runs on
- * the remainder.
+ * The budget checkpoint runs per element, because one chunk can hold elements
+ * from batches with different budgets.
  */
 export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string, RStep extends string, D = unknown>(
     step: ChunkProcessingStep<TIn, TOut, RStep>,
@@ -56,8 +54,7 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
 ): Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]> {
     const successfulItems: PipelineResultWithContext<TIn, C, RPrev>[] = []
     const successfulValues: TIn[] = []
-    // Indices of the elements the budget cut off. Stays null while every
-    // element has time, which is the only case the hot path ever sees.
+    // Stays null unless the budget cuts something off, so the common path allocates nothing.
     let budgetCutOff: Set<number> | null = null
     for (let index = 0; index < items.length; index++) {
         const item = items[index]
@@ -126,8 +123,6 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
     const output: PipelineResultWithContext<TOut, C, RPrev | RStep>[] = []
     for (let index = 0; index < items.length; index++) {
         const resultWithContext = items[index]
-        // Decided in the partition loop before the step ran; this only zips
-        // the timeout into position.
         if (budgetCutOff?.has(index)) {
             output.push({
                 result: timeout(`budget exceeded before ${stepName}`),

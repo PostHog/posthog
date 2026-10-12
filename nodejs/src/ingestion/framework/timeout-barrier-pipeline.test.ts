@@ -19,7 +19,6 @@ describe('TimeoutBarrierPipeline', () => {
     type Value = { value: number }
     type Ctx = { message: Message; budget?: BatchBudget }
 
-    /** Stands in for a step that outlasts what the batch had left. */
     function spendTheBudget() {
         jest.advanceTimersByTime(1000)
     }
@@ -34,8 +33,7 @@ describe('TimeoutBarrierPipeline', () => {
             .timeoutBarrier()
             .pipe(function middleStep(value: Value) {
                 ran.push('middleStep')
-                // The element has already crossed, so without the barrier the
-                // checkpoint would cut lastStep here.
+                // Without the barrier, the next checkpoint would cut the element here.
                 spendTheBudget()
                 return Promise.resolve(ok(value))
             })
@@ -50,7 +48,6 @@ describe('TimeoutBarrierPipeline', () => {
 
         expect(ran).toEqual(['beforeBarrier', 'middleStep', 'lastStep'])
         expect(isOkResult(result.result)).toBe(true)
-        // The unlimited budget is what makes every later checkpoint a no-op.
         expect(result.context.budget).toBe(BatchBudget.unlimited())
     })
 

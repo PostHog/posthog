@@ -61,13 +61,7 @@ export type PipelineContext<C = { message: Message }> = C & {
     debugContext?: unknown
     /** The batch's trace context. Steps parent on it because the pump that runs them is a shared loop. */
     traceContext?: Context
-    /**
-     * The time allowance of the batch this item was fed in, stamped by
-     * {@link BatchingPipeline} next to the messageId. Framework checkpoints
-     * read it here, so they stay generic over the context type. It is absent
-     * only where no batch exists: the beforeBatch and afterBatch hooks, and
-     * pipelines driven directly rather than through a batching pipeline.
-     */
+    /** Absent outside a fed batch, for example in the beforeBatch and afterBatch hooks. */
     budget?: BatchBudget
     /**
      * Work that outlives the step, drained with the batch. A side effect must

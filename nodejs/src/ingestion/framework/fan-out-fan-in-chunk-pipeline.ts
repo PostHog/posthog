@@ -87,9 +87,7 @@ interface PendingParent<TElement, TSubOut, C> {
  *      error via AggregateError) once all of its siblings have drained.
  *      Fanning in anyway could emit an element built for work that never
  *      happened — e.g. a pointer to a blob that was never stored.
- *    - TIMEOUT times the parent out as well: the parent's message is
- *      redelivered whole, so fanning in would emit an element built from
- *      partial work the redelivery repeats.
+ *    - TIMEOUT times the parent out, because its message is redelivered whole.
  *    - REDIRECT contributes nothing but logs a warning: it is almost
  *      certainly misuse, since sub-elements are not Kafka messages — route
  *      the parent before fanning out instead.
@@ -223,8 +221,6 @@ export class FanOutFanInChunkPipeline<
                     // identify the message the sub-element came from.
                     debugContext: element.context.debugContext,
                     traceContext: element.context.traceContext,
-                    // Sub-elements spend the parent's time, so they share its
-                    // budget and the checkpoints inside the subpipeline apply.
                     budget: element.context.budget,
                     sideEffects: [],
                     warnings: [],
@@ -300,10 +296,6 @@ export class FanOutFanInChunkPipeline<
         if (isOkResult(subResult.result)) {
             parent.collected.push(subResult.result.value)
         } else if (isTimeoutResult(subResult.result)) {
-            // The parent's message is redelivered whole, so a sub-element the
-            // budget cut off times the parent out as well. Fanning in would
-            // emit an element built from partial work that the redelivery
-            // repeats.
             parent.timedOut ??= {
                 reason: subResult.result.reason,
                 lastStep: subResult.context.lastStep,
@@ -342,12 +334,6 @@ export class FanOutFanInChunkPipeline<
         }
     }
 
-    /**
-     * Emit the parent as a timeout, so the message is redelivered and the whole
-     * element is processed again. Every sub-result has drained by now, so the
-     * context already carries all sibling side effects and warnings; collected
-     * values are discarded.
-     */
     private timeOutParent(
         parent: PendingParent<TElement, TSubOut, COutput>,
         timedOut: NonNullable<PendingParent<TElement, TSubOut, COutput>['timedOut']>

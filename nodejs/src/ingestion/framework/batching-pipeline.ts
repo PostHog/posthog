@@ -15,7 +15,6 @@ export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; re
 
 export interface BatchingContext {
     messageId: number
-    /** The fed batch's time allowance, shared by every element of that batch. */
     budget: BatchBudget
 }
 
@@ -75,11 +74,7 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
     concurrentBatches: 1,
 }
 
-/**
- * Close out a completed batch's budget: drop the deadline it no longer needs,
- * and record how far it overran. The overrun is the tail the checkpoints cannot
- * cut, because they only stop work from starting.
- */
+// The overrun is the tail the checkpoints cannot cut, because they only stop work from starting.
 function closeBudget(budget: BatchBudget): void {
     budget.settle()
     if (!budget.exhausted || budget.softAt === Infinity) {
@@ -193,11 +188,6 @@ export class BatchingPipeline<
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    /**
-     * Feed one batch. The budget is that batch's whole time allowance, shared
-     * by every element of it; the default leaves the batch unlimited, which is
-     * what a caller with no time policy wants.
-     */
     feed(
         elements: OkResultWithContext<TInput, CInput>[],
         batchContext: CFeed,

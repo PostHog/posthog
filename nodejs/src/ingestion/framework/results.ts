@@ -36,11 +36,7 @@ export type PipelineResultRedirect<R extends string = never> = {
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
 }
-/**
- * The element's own time budget cut it off, either mid-chain or before its
- * first step ran. The message is not acked, so its source redelivers it and
- * the whole chain runs again from the top.
- */
+/** The budget cut the element off. Its message is not acked, so its source redelivers it. */
 export type PipelineResultTimeout = {
     type: PipelineResultType.TIMEOUT
     reason: string

@@ -38,11 +38,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
             }
         }
 
-        // The soft-deadline checkpoint. It runs before every step of every
-        // per-element chain, so one check gives per-step granularity. Later
-        // steps skip on their own through the non-OK short-circuit above.
-        // lastStep keeps naming the step that ran, because that is the step
-        // that spent the time; the reason names the step that never started.
+        // lastStep keeps the step that spent the time; the reason names the step that never started.
         const budget = previousResultWithContext.context.budget
         if (budget?.exhausted) {
             recordBudgetCheckpoint('step', this.stepName)

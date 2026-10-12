@@ -31,8 +31,7 @@ export class IngestionWarningHandlingChunkPipeline<
 
         return results.map((resultWithContext) => {
             if (isTimeoutResult(resultWithContext.result) && resultWithContext.context.warnings?.length) {
-                // Abandoned, not emitted: a timed-out element is unacked, so its
-                // redelivery reprocesses from the top and emits these again.
+                // The redelivery emits these again.
                 return {
                     result: resultWithContext.result,
                     context: {

@@ -37,7 +37,6 @@ export const batchBudgetCheckpointCounter = new Counter({
     labelNames: ['checkpoint', 'step_name'],
 })
 
-/** Where a budget checkpoint sits: before an element step or before a chunk step. */
 export type BudgetCheckpoint = 'step' | 'chunk'
 
 export function recordBudgetCheckpoint(checkpoint: BudgetCheckpoint, stepName: string): void {

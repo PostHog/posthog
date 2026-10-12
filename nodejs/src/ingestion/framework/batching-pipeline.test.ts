@@ -274,8 +274,7 @@ describe('BatchingPipeline', () => {
             const batch = await pendingNext
 
             expect(order).toEqual(['after-start', 'after-end', 'next-resolved'])
-            // The step started for msg-2 before expiry and finished after it: its
-            // ok result stands. Only msg-3, never started, becomes a timeout.
+            // msg-2 started before expiry, so its result stands.
             expect(processed).toEqual(['msg-1', 'msg-2'])
             expect(batch!.elements.map((element) => element.result.type)).toEqual([
                 PipelineResultType.OK,

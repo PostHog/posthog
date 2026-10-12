@@ -126,11 +126,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
-        // Everything above reads or transforms in memory, so a batch that runs
-        // out of time can stop there and let the consumer redeliver. From the
-        // person block on, the event writes person rows, group rows, and the
-        // event itself, and redelivering means repeating or reconciling those
-        // writes — so an event that gets this far finishes.
+        // From here on the event writes persons, groups and itself, so finishing costs less than redelivering.
         .timeoutBarrier()
         .pipe(
             createProcessPersonlessStep(
