@@ -380,6 +380,9 @@ export interface autoresearchPipelineLogicActions {
         viewedArtifact: null
         payload?: any
     }
+    experimentDetailsOpened: (point: SearchPoint) => {
+        point: SearchPoint
+    }
     loadDailyVolume: () => any
     loadDailyVolumeFailure: (
         error: string,
@@ -838,6 +841,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setExperimentLogFilter: (filter: ExperimentLogFilter) => ({ filter }),
         toggleLogRun: (runId: string) => ({ runId }),
         searchPointClicked: (point: SearchPoint) => ({ point }),
+        experimentDetailsOpened: (point: SearchPoint) => ({ point }),
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
         setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
@@ -1632,6 +1636,14 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 run_id: point.runId,
                 iteration_number: point.iterationNumber,
                 status: point.status,
+            })
+        },
+        experimentDetailsOpened: ({ point }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model experiment details opened', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
             })
         },
         submitSuggestionSuccess: ({ suggestionSubmitResult }) => {
