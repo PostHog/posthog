@@ -4,6 +4,7 @@ import {
     TRIGGER_VOLUME_DAYS,
     countAiTaskSteps,
     countScoutSteps,
+    countVisionScanSteps,
     eventTriggerVolumeFilters,
     eventTriggerVolumeQuery,
     exceedsAiTaskLimit,
@@ -56,14 +57,16 @@ describe('triggerVolume', () => {
         // A scout run goes to its own endpoint with its own throttle, so counting it against the
         // task cap would warn a scout-only workflow about a limit it never reaches.
         it.each([
-            ['an AI task step', 'template-posthog-create-task', 1, 0],
-            ['a scout step', 'template-posthog-run-scout', 0, 1],
-            ['a webhook step', 'template-webhook', 0, 0],
-        ])('%s', (_name, templateId, tasks, scouts) => {
+            ['an AI task step', 'template-posthog-create-task', 1, 0, 0],
+            ['a scout step', 'template-posthog-run-scout', 0, 1, 0],
+            ['a Replay vision scan step', 'template-posthog-replay-vision-analyze-sessions', 0, 0, 1],
+            ['a webhook step', 'template-webhook', 0, 0, 0],
+        ])('%s', (_name, templateId, tasks, scouts, scans) => {
             const workflow = { actions: [functionAction(templateId as string)] }
 
             expect(countAiTaskSteps(workflow)).toBe(tasks)
             expect(countScoutSteps(workflow)).toBe(scouts)
+            expect(countVisionScanSteps(workflow)).toBe(scans)
         })
 
         // Each step a run reaches creates its own task, so two steps reach the daily cap at half

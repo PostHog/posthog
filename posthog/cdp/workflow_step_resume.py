@@ -70,10 +70,12 @@ def emit_workflow_step_resume(
     status: WorkflowStepResumeStatus,
     result: Mapping[str, Any] | None = None,
     raise_on_error: bool = False,
-) -> None:
+) -> bool:
     """Wake the step which dispatched `origin_key`: one POST to the engine's API with the key
     provisioned, else the `$workflow_step_resume` internal event. A 409 is a duplicate of a wake
-    already taken, so it is final; `raise_on_error` lets a Temporal activity retry a lost wake."""
+    already taken, so it is final; `raise_on_error` lets a Temporal activity retry a lost wake.
+    Returns whether a wake went out: False on that 409, which also comes back for a step that has
+    not parked yet, and on any failure swallowed because `raise_on_error` is off."""
     capped = cap_value(result or {}, RESULT_BYTE_CAP)
     try:
         if WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
@@ -81,13 +83,15 @@ def emit_workflow_step_resume(
                 response = resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=capped)
                 if response.status_code == 409:
                     logger.info("workflow_step_resume_not_parked", team_id=team_id, origin_key=origin_key)
-                    return
+                    return False
                 response.raise_for_status()
-                return
+                return True
             except requests.RequestException:
                 logger.exception("workflow_step_resume_post_failed", team_id=team_id, origin_key=origin_key)
         produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=capped)
+        return True
     except Exception:
         logger.exception("workflow_step_resume_emit_failed", team_id=team_id, origin_key=origin_key, status=status)
         if raise_on_error:
             raise
+        return False
