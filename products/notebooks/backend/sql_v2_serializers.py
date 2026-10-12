@@ -444,7 +444,8 @@ class NotebookCellStateSerializer(serializers.Serializer):
     code = serializers.CharField(
         allow_blank=True,
         help_text=(
-            "The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown."
+            "The cell's source, truncated with a marker past 8KB, or past a short preview on a compact read. "
+            "For a markdown cell this is the block's markdown."
         ),
     )
     start = serializers.IntegerField(
@@ -497,6 +498,37 @@ class NotebookKernelStateSerializer(serializers.Serializer):
     )
 
 
+class NotebookSQLV2StateDetail(models.TextChoices):
+    FULL = "full", "full"
+    COMPACT = "compact", "compact"
+
+
+class NotebookSQLV2StateQuerySerializer(serializers.Serializer):
+    detail = serializers.ChoiceField(
+        choices=NotebookSQLV2StateDetail.choices,
+        default=NotebookSQLV2StateDetail.FULL,
+        help_text=(
+            "'full' (default) returns the notebook's markdown and every cell's complete source. "
+            "'compact' returns the markdown as null and cuts each cell's source to a short preview, for a cheap "
+            "read of the notebook's structure and cell status."
+        ),
+    )
+    cell_ids = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text=(
+            "Comma-separated node_ids. When set, the response returns the markdown as null and only these "
+            "cells, each with its complete source. An unknown node_id fails the request."
+        ),
+    )
+
+    def validate_cell_ids(self, value: str) -> list[str]:
+        node_ids = list(dict.fromkeys(node_id.strip() for node_id in value.split(",") if node_id.strip()))
+        if not node_ids:
+            raise serializers.ValidationError("Give at least one node_id.")
+        return node_ids
+
+
 class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
     notebook_id = serializers.CharField(help_text="The notebook's short id.")
     title = serializers.CharField(allow_null=True, help_text="The notebook's title.")
@@ -507,7 +539,7 @@ class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The full markdown source — prose and cell tags. Null for legacy rich-text notebooks, "
-            "which carry their document in `content` instead."
+            "which carry their document in `content` instead, and for a compact or selected-cell read."
         ),
     )
     content = serializers.JSONField(
@@ -528,7 +560,10 @@ class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
     )
     cells = NotebookCellStateSerializer(
         many=True,
-        help_text="Every cell in document order, with its dependency edges and derived run state.",
+        help_text=(
+            "Every cell in document order, with its dependency edges and derived run state. "
+            "Only the requested cells when `cell_ids` is set."
+        ),
     )
 
 

@@ -31,6 +31,7 @@ import type {
     NotebookSQLV2RunStatusResponseApi,
     NotebookSQLV2StateResponseApi,
     NotebooksListParams,
+    NotebooksSqlV2StateRetrieveParams,
     NotebooksWidgetFrameParams,
     NotebooksWidgetSnapshotFrameParams,
     NotebooksWidgetSourceParams,
@@ -830,19 +831,36 @@ export const notebooksSqlV2RunsInterruptCreate = async (
     )
 }
 
-export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/state/`
+export const getNotebooksSqlV2StateRetrieveUrl = (
+    projectId: string,
+    shortId: string,
+    params?: NotebooksSqlV2StateRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/state/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/state/`
 }
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. `detail=compact` and `cell_ids` return a smaller view. Flag-gated (revamped-py-notebooks).
  */
 export const notebooksSqlV2StateRetrieve = async (
     projectId: string,
     shortId: string,
+    params?: NotebooksSqlV2StateRetrieveParams,
     options?: RequestInit
 ): Promise<NotebookSQLV2StateResponseApi> => {
-    return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId), {
+    return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId, params), {
         ...options,
         method: 'GET',
     })

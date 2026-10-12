@@ -181,12 +181,16 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2RunRequestSerializer,
     NotebookSQLV2RunResponseSerializer,
     NotebookSQLV2RunStatusResponseSerializer,
+    NotebookSQLV2StateDetail,
+    NotebookSQLV2StateQuerySerializer,
     NotebookSQLV2StateResponseSerializer,
     NotebookVariableSerializer,
 )
 from products.notebooks.backend.sql_v2_state import (
     NotebookCellLimitExceeded,
     build_notebook_cell_state,
+    compact_cells,
+    select_cells,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
@@ -1914,12 +1918,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response(execution.as_dict())
 
     @extend_schema(
+        parameters=[NotebookSQLV2StateQuerySerializer],
         responses={200: NotebookSQLV2StateResponseSerializer},
         description=(
             "The full notebook view for agents: title, document source (markdown, or raw content for "
             "legacy rich-text notebooks), the notebook's declared variables, every cell with its "
             "dependency edges and derived run status (including staleness), and the kernel's runtime "
-            "state and compute config. Flag-gated (revamped-py-notebooks)."
+            "state and compute config. `detail=compact` and `cell_ids` return a smaller view. "
+            "Flag-gated (revamped-py-notebooks)."
         ),
     )
     @action(methods=["GET"], url_path="sql_v2/state", detail=True, required_scopes=["notebook:read", "query:read"])
@@ -1927,12 +1933,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if not (settings.DEBUG or is_sql_v2_enabled(user)):
             raise Http404()
+        query = NotebookSQLV2StateQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
         # Cell code and result metadata derive from the user's data, so the same query
         # gate as run results applies.
         self._require_query_access()
 
         cells = build_notebook_cell_state(self.team_id, notebook)
+        cell_ids = query.validated_data.get("cell_ids")
+        if cell_ids:
+            try:
+                cells = select_cells(cells, cell_ids)
+            except ValueError as error:
+                raise serializers.ValidationError({"cell_ids": str(error)})
+        is_compact = query.validated_data["detail"] == NotebookSQLV2StateDetail.COMPACT
+        if is_compact:
+            compact_cells(cells)
         runtime = (
             KernelRuntime.objects.filter(
                 team_id=self.team_id,
@@ -1948,7 +1965,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "notebook_id": notebook.short_id,
             "title": notebook.title,
             "version": notebook.version,
-            "markdown": markdown,
+            # The markdown repeats every cell's source, so a narrow read leaves it out.
+            "markdown": None if is_compact or cell_ids else markdown,
             # The document rides exactly one field: markdown notebooks would duplicate
             # their whole source if content were included too.
             "content": notebook.content if markdown is None else None,
