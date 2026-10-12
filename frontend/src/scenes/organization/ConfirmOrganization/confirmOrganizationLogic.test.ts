@@ -52,13 +52,14 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('form', () => {
-        it('requires a name and an organization name', async () => {
+        it('requires a name, an organization name and a role', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfirmOrganization()
             }).toMatchValues({
                 confirmOrganizationValidationErrors: {
                     first_name: 'Please enter your name',
                     organization_name: ORGANIZATION_NAME_ERROR,
+                    role_at_organization: 'Please select your role to continue',
                 },
             })
         })
@@ -96,7 +97,11 @@ describe('confirmOrganizationLogic', () => {
                     ],
                 },
             })
-            logic.actions.setConfirmOrganizationValues({ first_name: 'Spike', organization_name: 'Spikes Inc' })
+            logic.actions.setConfirmOrganizationValues({
+                first_name: 'Spike',
+                organization_name: 'Spikes Inc',
+                role_at_organization: 'engineering',
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.submitConfirmOrganization()

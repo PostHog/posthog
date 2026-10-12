@@ -29,11 +29,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
-from posthog.cdp.internal_events import (
-    generic_api_editable_alert_scope,
-    is_managed_alert_internal_event,
-    is_reserved_internal_event,
-)
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -66,6 +61,11 @@ from posthog.scopes import APIScopeObject
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
+from products.cdp.backend.internal_events import (
+    generic_api_editable_alert_scope,
+    is_managed_alert_internal_event,
+    is_reserved_internal_event,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_THAT_CAN_RERUN,

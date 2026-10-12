@@ -6,7 +6,6 @@ from django.utils.dateparse import parse_datetime
 from asgiref.sync import sync_to_async
 from confluent_kafka import KafkaError, KafkaException
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.helpers.tiktoken_encoding import (
     LLM_TOKEN_COUNT_PROXY_MODEL,
     TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL,
@@ -14,6 +13,11 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 
+from products.cdp.backend.internal_events import (
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 from products.error_tracking.backend.logic.assignees import resolve_current_assignee
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
