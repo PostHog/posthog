@@ -243,6 +243,15 @@ class TestDataSuggestions(SimpleTestCase):
         counts = {"query executed": 9000, "page scrolled": 5000, "user_signed_up": 40, "rare_click": 2}
         assert select_prompt_events(counts, limit=2) == [("user_signed_up", 40), ("query executed", 9000)]
 
+    def test_select_prompt_events_does_not_let_one_name_pattern_fill_the_list(self) -> None:
+        counts = {f"upload_{index}_failed": 1000 + index for index in range(40)}
+        counts |= {"user_signed_up": 10, "first_event_ingested": 500}
+
+        selected = [name for name, _ in select_prompt_events(counts, limit=20)]
+
+        assert "user_signed_up" in selected
+        assert "first_event_ingested" in selected
+
     @parameterized.expand(
         [
             ("quiet sign-up beats busy usage", ("signup", 40), ("other", 10_000)),
@@ -272,12 +281,18 @@ class TestDataSuggestions(SimpleTestCase):
             answers={
                 "e0": ChoiceAnswer(choice="signup", confidence=0.9, probabilities={"signup": 0.9}),
                 "e1": ChoiceAnswer(choice="purchase", confidence=0.3, probabilities={"purchase": 0.3}),
+                "e2": ChoiceAnswer(choice="signup", confidence=0.6, probabilities={"signup": 0.6}),
+                "e3": ChoiceAnswer(choice="failure", confidence=0.6, probabilities={"failure": 0.6}),
             },
             input_tokens=10,
         )
-        assert classify_event_stages(team_id=1, event_names=["account_opened", "thing_happened"]) == {
+        assert classify_event_stages(
+            team_id=1, event_names=["account_opened", "thing_happened", "summary_generated", "upload_failed"]
+        ) == {
             "account_opened": "signup",
             "thing_happened": "other",
+            "summary_generated": "other",
+            "upload_failed": "failure",
         }
 
     @parameterized.expand([("jev is not configured", True), ("jev does not answer", False)])

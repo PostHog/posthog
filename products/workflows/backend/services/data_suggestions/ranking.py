@@ -21,6 +21,9 @@ STAGE_WEIGHTS: dict[LifecycleStage, float] = {
 }
 
 MIN_WEEKLY_COUNT = 3
+# A busy project can have hundreds of names that match one pattern, like `error`. The cap stops one pattern from
+# taking every place in the list Jev classifies.
+MAX_GUESSED_PER_STAGE = 15
 
 # Only pick which events Jev gets to classify, so lifecycle-looking names are not cut by the limit. Checked in
 # order. Deletion counts only for accounts and their owners, because most `*_deleted` events are routine product
@@ -64,9 +67,20 @@ def select_prompt_events(
         return sorted(
             eligible, key=lambda item: suggestion_score(stages.get(item[0], "other"), item[1], weights), reverse=True
         )[:limit]
-    lifecycle = [item for item in eligible if guess_stage(item[0]) != "other"]
-    others = [item for item in eligible if guess_stage(item[0]) == "other"]
-    return (lifecycle + others)[:limit]
+    lifecycle: list[tuple[str, int]] = []
+    others: list[tuple[str, int]] = []
+    overflow: list[tuple[str, int]] = []
+    guessed_per_stage: dict[LifecycleStage, int] = {}
+    for item in eligible:
+        stage = guess_stage(item[0])
+        if stage == "other":
+            others.append(item)
+        elif guessed_per_stage.get(stage, 0) < MAX_GUESSED_PER_STAGE:
+            guessed_per_stage[stage] = guessed_per_stage.get(stage, 0) + 1
+            lifecycle.append(item)
+        else:
+            overflow.append(item)
+    return (lifecycle + others + overflow)[:limit]
 
 
 def suggestion_score(

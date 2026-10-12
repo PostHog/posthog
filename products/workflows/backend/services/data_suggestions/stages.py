@@ -19,6 +19,9 @@ logger = structlog.get_logger(__name__)
 STAGE_MODEL = ManagedDecisionModel("workflows-data-suggestion-stages")
 # Below this the answer is a guess, and a wrong high-weight stage would push noise above real moments.
 MIN_CONFIDENCE = 0.5
+# Signup and onboarding carry the highest ranking weight, so a doubtful answer there pushes a routine or internal
+# event above the real moments.
+MIN_CONFIDENCE_BY_STAGE: dict[str, float] = {"signup": 0.7, "onboarding": 0.7}
 MAX_CLASSIFIED_EVENTS = GATEWAY_MAX_QUESTIONS * 3
 _TIMEOUT_SECONDS = 15.0
 
@@ -83,5 +86,6 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
         for index, name in enumerate(chunk):
             answer = result.answers.get(f"e{index}")
             if isinstance(answer, ChoiceAnswer) and answer.choice in valid_stages:
-                stages[name] = cast(LifecycleStage, answer.choice) if answer.confidence >= MIN_CONFIDENCE else "other"
+                required = MIN_CONFIDENCE_BY_STAGE.get(answer.choice, MIN_CONFIDENCE)
+                stages[name] = cast(LifecycleStage, answer.choice) if answer.confidence >= required else "other"
     return stages
