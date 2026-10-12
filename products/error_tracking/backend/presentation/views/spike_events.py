@@ -1,6 +1,8 @@
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import viewsets
+from datetime import datetime
+from uuid import UUID
+
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, viewsets
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -17,58 +19,69 @@ class ErrorTrackingSpikeEventSerializer(DataclassSerializer):
         dataclass = contracts.ErrorTrackingSpikeEvent
 
 
+class _BlankableDateTimeField(serializers.DateTimeField):
+    # A blank query param means the caller sent no bound, not a malformed timestamp.
+    def to_internal_value(self, value: str) -> datetime | None:  # type: ignore[override]
+        if value == "":
+            return None
+        return super().to_internal_value(value)
+
+
+class ErrorTrackingSpikeEventListQuerySerializer(serializers.Serializer):
+    issue_ids = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Comma-separated issue UUIDs to include.",
+    )
+    date_from = _BlankableDateTimeField(
+        required=False,
+        help_text="Include spikes detected at or after this time.",
+    )
+    date_to = _BlankableDateTimeField(
+        required=False,
+        help_text="Include spikes detected at or before this time.",
+    )
+    order_by = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Field to order by. Prefix with a hyphen for descending. An unknown field sorts by newest first.",
+    )
+
+    def validate_issue_ids(self, value: str) -> list[str]:
+        issue_ids = []
+        for candidate in value.split(","):
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            try:
+                issue_ids.append(str(UUID(candidate)))
+            except ValueError:
+                raise serializers.ValidationError("Each issue ID must be a UUID.")
+        return issue_ids
+
+
 class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     serializer_class = ErrorTrackingSpikeEventSerializer
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="issue_ids",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Comma-separated issue UUIDs to include.",
-            ),
-            OpenApiParameter(
-                name="date_from",
-                type=OpenApiTypes.DATETIME,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Include spikes detected at or after this time.",
-            ),
-            OpenApiParameter(
-                name="date_to",
-                type=OpenApiTypes.DATETIME,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Include spikes detected at or before this time.",
-            ),
-            OpenApiParameter(
-                name="order_by",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Field to order by. Prefix with a hyphen for descending.",
-            ),
-        ]
-    )
+    @extend_schema(parameters=[ErrorTrackingSpikeEventListQuerySerializer])
     def list(self, request, *args, **kwargs):
-        issue_ids_param = request.query_params.get("issue_ids")
-        issue_ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None
-        date_from = request.query_params.get("date_from")
-        date_to = request.query_params.get("date_to")
-        order_by = request.query_params.get("order_by")
+        query = ErrorTrackingSpikeEventListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+
+        date_from = params.get("date_from")
+        date_to = params.get("date_to")
 
         return paginate_via_facade(
             self,
             request,
             lambda limit, offset: error_tracking_api.list_spike_events(
                 team_id=self.team.id,
-                issue_ids=issue_ids or None,
-                date_from=date_from,
-                date_to=date_to,
-                order_by=order_by,
+                issue_ids=params.get("issue_ids") or None,
+                date_from=date_from.isoformat() if date_from else None,
+                date_to=date_to.isoformat() if date_to else None,
+                order_by=params.get("order_by") or None,
                 limit=limit,
                 offset=offset,
             ),
