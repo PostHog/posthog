@@ -18,7 +18,6 @@ const overview: FlakinessOverviewApi = {
         broken: 18,
         unstable: 231,
         at_risk: 63,
-        noisy: 604,
         clean: 812,
         quarantined: 47,
         needs_decision: 12,
@@ -59,7 +58,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
                 broken: 18,
                 unstable: 231,
                 at_risk: 63,
-                quiet: 1416,
+                quiet: 812,
                 quarantined: 47,
             })
         })

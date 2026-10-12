@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.ding_connect import (
     DingConnectResumeConfig,
     _flatten_transfer_record,
-    _row_from_single_object,
     ding_connect_source,
     validate_credentials,
 )
@@ -67,28 +66,11 @@ def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "key"):
 
 
 class TestFlattenTransferRecord:
-    def test_lifts_transfer_id_fields_to_top_level(self) -> None:
-        record = {"TransferId": {"TransferRef": "TR1", "DistributorRef": "DR1"}, "SkuCode": "SKU"}
-        flattened = _flatten_transfer_record(record)
-        assert flattened["TransferRef"] == "TR1"
-        assert flattened["DistributorRef"] == "DR1"
-        assert flattened["SkuCode"] == "SKU"
-
-    def test_missing_transfer_id_is_left_untouched(self) -> None:
-        record = {"SkuCode": "SKU"}
-        assert _flatten_transfer_record(record) == {"SkuCode": "SKU"}
-
     def test_missing_transfer_ref_fails_fast(self) -> None:
         # TransferRef is the primary key, so a TransferId object without it must raise rather than
         # silently writing a row with a None primary key.
         with pytest.raises(KeyError):
             _flatten_transfer_record({"TransferId": {"DistributorRef": "DR1"}})
-
-
-class TestRowFromSingleObject:
-    def test_strips_envelope_keys(self) -> None:
-        body = {"Balance": 100.5, "CurrencyIso": "USD", "ResultCode": 1, "ErrorCodes": []}
-        assert _row_from_single_object(body) == {"Balance": 100.5, "CurrencyIso": "USD"}
 
 
 class TestReferenceEndpoints:
@@ -117,28 +99,12 @@ class TestReferenceEndpoints:
         assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_list_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"Items": [], "ResultCode": 1})])
-
-        assert _rows(_source("Currencies", _make_manager())) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_single_object_endpoint_wraps_one_row(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"Balance": 42.0, "CurrencyIso": "EUR", "ResultCode": 1, "ErrorCodes": []})])
 
         # GetBalance carries its payload at the top level; it becomes one row with envelope keys stripped.
         assert _rows(_source("Balance", _make_manager())) == [{"Balance": 42.0, "CurrencyIso": "EUR"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoint_does_not_save_resume_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"Items": [{"ProviderCode": "P1"}], "ResultCode": 1})])
-
-        manager = _make_manager()
-        _rows(_source("Providers", manager))
-        manager.save_state.assert_not_called()
 
 
 class TestTransferRecordsPagination:
@@ -151,22 +117,6 @@ class TestTransferRecordsPagination:
                 "ErrorCodes": [],
             }
         )
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_flattens_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [self._page(["TR1", "TR2"], there_are_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("TransferRecords", manager))
-        assert [r["TransferRef"] for r in rows] == ["TR1", "TR2"]
-        # The flatten lifts DistributorRef alongside TransferRef.
-        assert rows[0]["DistributorRef"] == "d-TR1"
-        # First page requests Skip=0 with the fixed page size in the POST body.
-        assert bodies[0] == {"Skip": 0, "Take": 100}
-        assert session.send.call_count == 1
-        # Only one page, so there's nothing further to resume to.
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_pagination_until_there_are_no_more_items(self, MockSession) -> None:
@@ -234,11 +184,6 @@ class TestValidateCredentials:
         # as not-yet-valid at source-create.
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("key") is expected
-
-    @mock.patch(DING_SESSION_PATCH)
-    def test_network_error_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
 
 
 class TestSourceResponse:

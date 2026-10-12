@@ -141,7 +141,7 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
 
 
 class _SavedMetricLinkOverrides(pydantic.BaseModel):
-    """The link metadata keys that `resolve_saved_metric_definition` applies to the saved query, typed
+    """The link metadata keys that `apply_saved_metric_overrides` applies to the saved query, typed
     as the metric schema types them. Other keys, such as `type`, are not overrides."""
 
     model_config = pydantic.ConfigDict(extra="ignore")

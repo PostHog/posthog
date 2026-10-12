@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)\n        VALUES ($1, 'delete', $2, 'completed', '{\"source\": \"personhog-replica-tombstone\"}'::jsonb, now())\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3958235ea0ab256afb58556c5f7313160896606e08c7817540378491f9e29cd5"
+}

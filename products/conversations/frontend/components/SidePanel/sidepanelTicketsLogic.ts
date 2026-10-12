@@ -83,6 +83,7 @@ function messageToRichContent(message: string): JSONContent {
 export interface sidepanelTicketsLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
+    supportResponseTime: string | null // billingLogic
     isCurrentOrganizationNew: boolean // organizationLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
@@ -97,7 +98,6 @@ export interface sidepanelTicketsLogicValues {
         status: string
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
-    supportResponseTime: string | null // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
     filteredTickets: ConversationTicket[]
@@ -253,16 +253,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab', 'selectedTabOptions'],
             supportLogic,
-            [
-                'isEmailFormOpen',
-                'sendSupportRequest',
-                'pendingViewTicket',
-                'isBillingIssue',
-                'isErrorReport',
-                'supportResponseTime',
-            ],
+            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'isBillingIssue', 'isErrorReport'],
             billingLogic,
-            ['billing', 'billingLoading'],
+            ['billing', 'billingLoading', 'supportResponseTime'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
             preflightLogic,

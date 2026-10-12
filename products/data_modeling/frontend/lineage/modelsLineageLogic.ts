@@ -120,7 +120,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             },
         ],
         legendCollapsed: [
-            false,
+            true,
             {
                 toggleLegendCollapsed: (collapsed) => !collapsed,
             },

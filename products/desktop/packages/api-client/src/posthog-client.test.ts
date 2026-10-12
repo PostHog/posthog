@@ -2699,11 +2699,24 @@ describe("PostHogAPIClient", () => {
               status: "scored",
               roles: ["served"],
               scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+              lifts: { action: 1.3 },
               metadata: {
                 heads: [
-                  { head: "action", readable: true },
-                  { head: "pr_merged", readable: true },
-                  { head: "refund", readable: false },
+                  {
+                    head: "action",
+                    readable: true,
+                    refit_classification_threshold: 0.6,
+                  },
+                  {
+                    head: "pr_merged",
+                    readable: true,
+                    refit_classification_threshold: 0.2,
+                  },
+                  {
+                    head: "refund",
+                    readable: false,
+                    refit_classification_threshold: 0,
+                  },
                 ],
               },
             },
@@ -2735,10 +2748,12 @@ describe("PostHogAPIClient", () => {
           roles: ["served"],
           status: "scored",
           skip_reason: null,
+          // Stored lifts win, older rows derive lift from a positive base rate,
+          // and a head without one sorts last.
           heads: [
-            { name: "action", probability: 0.78, readable: true },
-            { name: "pr_merged", probability: 0.52, readable: true },
-            { name: "refund", probability: 0.04, readable: false },
+            { name: "pr_merged", probability: 0.52, lift: 2.6, readable: true },
+            { name: "action", probability: 0.78, lift: 1.3, readable: true },
+            { name: "refund", probability: 0.04, lift: null, readable: false },
           ],
         },
         challengers: [

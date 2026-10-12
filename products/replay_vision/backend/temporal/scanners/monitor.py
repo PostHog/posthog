@@ -22,7 +22,10 @@ _VERDICT_DESCRIPTION = (
     "Did the condition described in the scanner intent occur during the session? "
     "`yes` if it did, `no` if it didn't, `inconclusive` only when the session genuinely does not provide enough signal to decide."
 )
-_REASONING_DESCRIPTION = "One paragraph grounding the verdict in concrete moments from the video and events."
+_REASONING_DESCRIPTION = (
+    "One or more short paragraphs of two to four sentences, separated by a blank line, grounding the verdict in "
+    "concrete moments from the video and events."
+)
 
 
 class MonitorLlmResponse(BaseModel, frozen=True):

@@ -7,6 +7,7 @@ workflow's activities in `scheduled_recalculation_activities` are thin wrappers 
 from datetime import timedelta
 from typing import Final
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -79,6 +80,8 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
 
     Deliberately applies no metrics filter: an experiment with no metrics gets a run, and the
     recalculation workflow completes it immediately.
+
+    An exposure-frozen experiment stays eligible, because its metric events keep arriving.
     """
     # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
     # activities.py, which imports back into products.experiments.backend.facade.timeseries.
@@ -94,6 +97,9 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
             time_filter,
             deleted=False,
             status=Experiment.Status.RUNNING,
+            # A paused experiment keeps status RUNNING and only deactivates its flag, so the stored
+            # status alone would select one that collects no new data.
+            feature_flag__active=True,
             start_date__gte=now - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
             start_date__lte=now - MIN_EXPERIMENT_AGE,
         )
@@ -121,10 +127,11 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
 
 
 def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecision | None:
-    """Skip when a run is already active, or when one finished inside the freshness window.
+    """Skip when a run is already active, or when one finished inside the freshness window on a
+    window of data that is itself recent.
 
-    `timeseries_sync` rows never count toward freshness. The timeseries workflow publishes one
-    at :00 and this workflow runs at :30, so counting it would skip every experiment forever.
+    `timeseries_sync` rows never count toward freshness: they carry a timeseries run's window, not a
+    full recalculation, and counting one would skip the experiment that needs the real run.
 
     Scopes explicitly with `for_team`: the model is fail-closed and an activity carries no request
     context, so an unscoped read would raise `TeamScopeError`.
@@ -143,12 +150,18 @@ def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecis
     if active is not None:
         return SkipDecision(reason=SKIP_ACTIVE_RUN, detail={"existing_recalculation_id": str(active.id)})
 
+    freshness_cutoff = timezone.now() - MIN_TIME_SINCE_LAST_RECALCULATION
     latest = (
         scoped.filter(
             experiment=experiment,
             completed_at__isnull=False,
-            completed_at__gte=timezone.now() - MIN_TIME_SINCE_LAST_RECALCULATION,
+            completed_at__gte=freshness_cutoff,
         )
+        # A reused window makes a run recent without making its data recent: `_resolve_query_to`
+        # keeps the previous `query_to` for metric_config_change, manual_retry and heal_latest_run,
+        # and the page heals itself on load, so this is a routine shape rather than a rare one. A
+        # null `query_to` still counts, because such a run resolved no window to judge.
+        .filter(Q(query_to__isnull=True) | Q(query_to__gte=freshness_cutoff))
         .exclude(trigger=ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC)
         .order_by("-completed_at")
         .first()

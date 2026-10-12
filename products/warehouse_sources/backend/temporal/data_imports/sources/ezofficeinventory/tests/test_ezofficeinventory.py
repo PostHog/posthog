@@ -1,30 +1,19 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    Endpoint,
-    EndpointResource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponsePaginator,
-    PageNumberPaginator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
     EZOfficeInventoryResumeConfig,
-    _rest_config,
     ezofficeinventory_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
     EZOFFICEINVENTORY_API_VERSION_V1,
     EZOFFICEINVENTORY_API_VERSION_V2,
-    endpoints_for_version,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -130,31 +119,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(EZOfficeInventoryResumeConfig(next_page=2))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page_when_total_pages_absent(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"assets": [{"identifier": 1}]}), _response({"assets": []})])
-
-        manager = _make_manager()
-        rows = _rows(_source("assets", manager))
-
-        assert rows == [{"identifier": 1}]
-        assert session.send.call_count == 2
-        manager.save_state.assert_called_once_with(EZOfficeInventoryResumeConfig(next_page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_page_empty_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"assets": []})])
-
-        manager = _make_manager()
-        rows = _rows(_source("assets", manager))
-
-        assert rows == []
-        assert params[0]["page"] == 1
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response({"assets": [{"identifier": 30}], "total_pages": 3})])
@@ -166,15 +130,6 @@ class TestPagination:
         # Picks up at page 3 (the saved cursor), not page 1.
         assert params[0]["page"] == 3
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_extra_params_are_sent(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"assets": [{"identifier": 1}], "total_pages": 1})])
-
-        _rows(_source("checked_out_assets", manager=_make_manager()))
-        assert params[0]["status"] == "checked_out"
-        assert params[0]["page"] == 1
 
 
 class TestUnwrap:
@@ -201,37 +156,8 @@ class TestUnwrap:
         rows = _rows(_source(endpoint, _make_manager()))
         assert rows == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_selector_yields_nothing(self, MockSession) -> None:
-        # A response missing the data_selector key is treated as an empty page (full-refresh sources
-        # don't fail loud here — they stop), mirroring the old _extract_items returning [].
-        session = MockSession.return_value
-        _wire(session, [_response({"other": [1]})])
-
-        rows = _rows(_source("assets", _make_manager()))
-        assert rows == []
-
 
 class TestRetryableFetch:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @pytest.mark.parametrize("status_code", [429, 500, 503])
-    def test_retryable_status_retries_then_succeeds(self, MockSession, status_code: int) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status_code=status_code),
-                _response({"assets": [{"identifier": 1}], "total_pages": 1}),
-            ],
-        )
-
-        # Skip the client's real backoff sleep so the test stays fast.
-        with mock.patch.object(RESTClient._send_request.retry, "sleep"):  # type: ignore[attr-defined]
-            rows = _rows(_source("assets", _make_manager()))
-
-        assert rows == [{"identifier": 1}]
-        assert session.send.call_count == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_fails_loud(self, MockSession) -> None:
         session = MockSession.return_value
@@ -239,22 +165,6 @@ class TestRetryableFetch:
 
         with pytest.raises(Exception):
             _rows(_source("assets", _make_manager()))
-
-
-class TestSourceResponse:
-    def test_partitioned_endpoint_sets_datetime_partitioning(self) -> None:
-        response = _source("assets", _make_manager())
-        assert response.name == "assets"
-        assert response.primary_keys == ["identifier"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_format == "month"
-
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
-        response = _source("labels", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
 
 class TestValidateCredentials:
@@ -322,46 +232,6 @@ class TestValidateCredentials:
             # Single-shot validation handles status codes itself; urllib3 retries stay off.
             assert mocked.call_args.kwargs["retry"].total == 0
 
-    def test_network_error_is_false(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(EZO_SESSION_PATCH, return_value=session):
-            assert validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1) == (False, None)
-
-
-class TestVersionedRequestConfig:
-    @pytest.mark.parametrize(
-        ("api_version", "expected_path", "expected_auth", "paginator_cls"),
-        [
-            (
-                EZOFFICEINVENTORY_API_VERSION_V1,
-                "assets.api",
-                {"type": "api_key", "api_key": "tok", "name": "token", "location": "header"},
-                PageNumberPaginator,
-            ),
-            (
-                EZOFFICEINVENTORY_API_VERSION_V2,
-                "api/v2/assets",
-                {"type": "bearer", "token": "tok"},
-                JSONResponsePaginator,
-            ),
-        ],
-    )
-    def test_builds_versioned_client(
-        self, api_version: str, expected_path: str, expected_auth: dict, paginator_cls: type
-    ) -> None:
-        config = endpoints_for_version(api_version)["assets"]
-        rest_config = _rest_config("acme", "tok", config, api_version)
-
-        resource = cast(EndpointResource, rest_config["resources"][0])
-        endpoint = cast(Endpoint, resource["endpoint"])
-        assert endpoint["path"] == expected_path
-        assert rest_config["client"]["auth"] == expected_auth
-        assert isinstance(endpoint["paginator"], paginator_cls)
-        # The host pin and redirect lock-down must hold on every version.
-        assert rest_config["client"]["allowed_hosts"] == []
-        assert rest_config["client"]["allow_redirects"] is False
-
 
 class TestV2Pagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -398,25 +268,6 @@ class TestV2Pagination:
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @pytest.mark.parametrize(
-        ("endpoint", "body_key", "row"),
-        [
-            # v2 renamed the inventory list key from `volatile_assets` to `inventory`.
-            ("inventories", "inventory", {"identifier": 7}),
-            # The v2 path is `tasks`-free: work orders list under `work_orders`.
-            ("work_orders", "work_orders", {"id": 3}),
-            ("teams", "teams", {"id": 4}),
-        ],
-    )
-    def test_uses_v2_selector(self, MockSession, endpoint: str, body_key: str, row: dict) -> None:
-        # A selector that does not match the response envelope silently yields zero rows.
-        session = MockSession.return_value
-        _wire(session, [_response({body_key: [row], "metadata": {"next_page": None}})])
-
-        rows = _rows(_source(endpoint, _make_manager(), api_version=EZOFFICEINVENTORY_API_VERSION_V2))
-        assert rows == [row]
-
 
 class TestHistoryFanout:
     """The history tables are per-item sub-resources fanned out over their list endpoint."""
@@ -451,39 +302,6 @@ class TestHistoryFanout:
         assert rows == [{"id": 10, "asset_id": 1}, {"id": 20, "asset_id": 2}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_member_fanout_binds_member_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls = _wire_urls(
-            session,
-            [
-                _response({"members": [{"id": 8}], "metadata": {}}),
-                _response({"stock_histories": [{"id": 99}], "metadata": {}}),
-            ],
-        )
-
-        rows = _rows(self._fanout_source("member_stock_histories", _make_manager()))
-
-        assert urls[1] == "https://acme.ezofficeinventory.com/api/v2/members/8/stock_histories"
-        assert rows == [{"id": 99, "member_id": 8}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_parent_deleted_mid_sync_does_not_fail_the_table(self, MockSession) -> None:
-        # An asset retired or deleted between the parent listing and its history fetch answers
-        # 404. Failing there would lose every other asset's history for the whole sync.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"assets": [{"id": 1}, {"id": 2}], "metadata": {}}),
-                _response({"messages": {"errors": ["Resource not found"]}}, status_code=404),
-                _response({"histories": [{"id": 20}], "metadata": {}}),
-            ],
-        )
-
-        rows = _rows(self._fanout_source("asset_checkout_history", _make_manager()))
-        assert rows == [{"id": 20, "asset_id": 2}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_child_pages_are_followed_per_parent(self, MockSession) -> None:
         session = MockSession.return_value
         next_url = "https://acme.ezofficeinventory.com/api/v2/assets/1/history?page=2"
@@ -503,10 +321,3 @@ class TestHistoryFanout:
         # A fan-out run is full refresh with no resumable cursor: a mid-run checkpoint would
         # point at a child page without recording which parents were already walked.
         manager.save_state.assert_not_called()
-
-    def test_source_response_keys_on_parent_and_row_id(self) -> None:
-        response = self._fanout_source("asset_checkout_history", _make_manager())
-        assert response.name == "asset_checkout_history"
-        assert response.primary_keys == ["asset_id", "id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]

@@ -296,7 +296,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
     selectors({
         breadcrumbs: [
             () => [],
-            (): Breadcrumb[] => [{ key: 'PipelineOverview', name: 'ETL', iconType: 'data_pipeline' }],
+            (): Breadcrumb[] => [{ key: 'PipelineOverview', name: 'ELT', iconType: 'data_pipeline' }],
         ],
         issuesBySeverity: [
             (s: any) => [s.healthIssues],

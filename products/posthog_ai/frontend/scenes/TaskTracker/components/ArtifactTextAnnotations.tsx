@@ -94,9 +94,11 @@ function outermostRects(rects: Iterable<DOMRect>): DOMRect[] {
  */
 export function ArtifactTextAnnotations({
     logicProps,
+    selectable = true,
     children,
 }: {
     logicProps: TaskArtifactCommentsLogicProps
+    selectable?: boolean
     children: ReactNode
 }): JSX.Element {
     const logic = taskArtifactCommentsLogic(logicProps)
@@ -193,6 +195,9 @@ export function ArtifactTextAnnotations({
     }, [activeThreadId])
 
     useEffect(() => {
+        if (!selectable) {
+            return
+        }
         let frame = 0
         const readSelection = (): void => {
             const root = rootRef.current
@@ -248,7 +253,7 @@ export function ArtifactTextAnnotations({
             document.removeEventListener('pointerup', onRelease)
             document.removeEventListener('keyup', onRelease)
         }
-    }, [logic, setPendingAnchor, dismissPending])
+    }, [logic, setPendingAnchor, dismissPending, selectable])
 
     const firstRectIndex = new Map<string, number>()
     rects.forEach((rect, index) => {

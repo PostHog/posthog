@@ -273,6 +273,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsDonut]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsProportionBar]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
 
     // separate: different breakdown limit (250)
@@ -393,6 +394,7 @@ const AGGREGATED_RESULT_DISPLAYS = new Set<ChartDisplayType>([
     ChartDisplayType.BoldNumber,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,

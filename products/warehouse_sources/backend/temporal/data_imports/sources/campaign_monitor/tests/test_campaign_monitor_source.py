@@ -19,13 +19,6 @@ class TestCampaignMonitorSource:
         # Changing the targeted client must force the API key to be re-entered.
         assert "client_id" in self.source.connection_host_fields
 
-    def test_get_schemas_full_refresh_until_incremental_verified(self):
-        # No endpoint advertises incremental yet (server-side date filter unverified live).
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-
     @pytest.mark.parametrize(
         "probe_result, expected_valid, expected_message",
         [

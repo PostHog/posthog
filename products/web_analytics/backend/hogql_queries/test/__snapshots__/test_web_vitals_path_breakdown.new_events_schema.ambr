@@ -9,7 +9,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -30,7 +30,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths[new_events_schema]
@@ -43,7 +44,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -64,7 +65,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data[new_events_schema]
@@ -77,7 +79,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -98,7 +100,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric[new_events_schema]
@@ -111,7 +114,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_LCP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -132,7 +135,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period[new_events_schema]
@@ -145,7 +149,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -166,7 +170,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_path_cleaning_filters[new_events_schema]
@@ -179,7 +184,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT replaceRegexpAll(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))), '\\/cleaned\\/\\d+', '/cleaned/<id>') AS path,
+       (SELECT replaceRegexpAll(if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))), '\\/cleaned\\/\\d+', '/cleaned/<id>') AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -200,7 +205,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied[new_events_schema.1]
@@ -213,7 +219,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.9)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -234,7 +240,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied[new_events_schema.2]
@@ -247,7 +254,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.99)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -268,7 +275,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied[new_events_schema]
@@ -281,7 +289,7 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
@@ -302,7 +310,8 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied[new_events_schema]
@@ -315,10 +324,10 @@
             path AS path,
                     value AS value
      FROM
-       (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
+       (SELECT if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))), '/path1'), 0)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(CAST(events.properties.`$pathname`, 'Nullable(String)'), '/path1'), 0)))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -336,6 +345,7 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0,
-                     json_type_escape_dots_in_keys=1
+                     json_type_escape_dots_in_keys=1,
+                     output_format_json_escape_forward_slashes=0
   '''
 # ---

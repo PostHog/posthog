@@ -63,7 +63,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             <QuillTaskHeaderActions
                 desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
                 prUrl={prUrl}
-                runLabel={canRun ? runButtonText : null}
+                runLabel={canRun && latestRun ? runButtonText : null}
                 onRun={runTask}
                 running={runTaskInFlight}
             />

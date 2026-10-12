@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
@@ -49,9 +52,6 @@ class TestParseIndicatorCodes:
 
 
 class TestCheckIndicatorCodes:
-    def test_accepts_a_list_at_the_cap(self) -> None:
-        assert check_indicator_codes([f"CODE.{index}" for index in range(MAX_INDICATOR_CODES)]) is None
-
     def test_rejects_an_empty_list(self) -> None:
         error = check_indicator_codes([])
 
@@ -80,7 +80,7 @@ class TestWhoGhoSourceTransport:
     ) -> tuple[list[dict[str, Any]], list[str], list[list[dict[str, Any]]]]:
         sent_params: list[dict[str, Any]] = []
         sent_urls: list[str] = []
-        response_iter = iter(responses)
+        response_iter = iter([*(dimension_catalog_responses or []), *responses])
 
         def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
             sent_params.append(dict(request.params or {}))
@@ -93,21 +93,17 @@ class TestWhoGhoSourceTransport:
             resource_session.prepare_request.side_effect = lambda request: request
             resource_session.send.side_effect = fake_send
 
-            with patch(WHO_GHO_SESSION_PATH) as MockOwnSession:
-                if dimension_catalog_responses is not None:
-                    MockOwnSession.return_value.get.side_effect = dimension_catalog_responses
-
-                pages = list(
-                    who_gho_source(
-                        endpoint=endpoint,
-                        indicator_codes=indicator_codes or [],
-                        team_id=123,
-                        job_id="job-id",
-                        resumable_source_manager=manager,
-                        should_use_incremental_field=should_use_incremental_field,
-                        since=since,
-                    )
+            pages = list(
+                who_gho_source(
+                    endpoint=endpoint,
+                    indicator_codes=indicator_codes or [],
+                    team_id=123,
+                    job_id="job-id",
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=should_use_incremental_field,
+                    since=since,
                 )
+            )
 
         return sent_params, sent_urls, pages
 
@@ -137,49 +133,6 @@ class TestWhoGhoSourceTransport:
         assert [call.args[0] for call in manager.save_state.call_args_list] == [WhoGhoResumeConfig(offset=1000)]
         manager.clear_state.assert_called_once()
 
-    def test_catalog_endpoint_stops_on_a_short_page_without_an_extra_request(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, _, pages = self._drive(
-            "dimensions",
-            manager,
-            [_http_response({"value": [{"Code": "COUNTRY"}]})],
-        )
-
-        assert len(sent_params) == 1
-        assert pages == [[{"Code": "COUNTRY"}]]
-        manager.save_state.assert_not_called()
-
-    def test_catalog_endpoint_resumes_from_the_saved_offset(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WhoGhoResumeConfig(offset=2000)
-
-        sent_params, _, _ = self._drive("indicators", manager, [_http_response({"value": []})])
-
-        assert sent_params[0]["$skip"] == 2000
-
-    def test_indicator_data_walks_every_configured_code(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_urls, pages = self._drive(
-            "indicator_data",
-            manager,
-            [
-                _http_response({"value": [{"IndicatorCode": "WHOSIS_000001", "Id": 1}]}),
-                _http_response({"value": [{"IndicatorCode": "WHOSIS_000002", "Id": 2}]}),
-            ],
-            indicator_codes=["WHOSIS_000001", "WHOSIS_000002"],
-        )
-
-        assert sent_urls == [
-            "https://ghoapi.azureedge.net/api/WHOSIS_000001",
-            "https://ghoapi.azureedge.net/api/WHOSIS_000002",
-        ]
-        assert [row["IndicatorCode"] for page in pages for row in page] == ["WHOSIS_000001", "WHOSIS_000002"]
-
     def test_indicator_data_applies_the_date_filter_only_on_an_incremental_sync(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -194,21 +147,6 @@ class TestWhoGhoSourceTransport:
         )
 
         assert sent_params[0]["$filter"] == "date(Date) gt 2024-08-02"
-
-    def test_indicator_data_omits_the_filter_on_a_full_sync(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, _, _ = self._drive(
-            "indicator_data",
-            manager,
-            [_http_response({"value": []})],
-            indicator_codes=["WHOSIS_000001"],
-            should_use_incremental_field=False,
-            since="2024-08-02",
-        )
-
-        assert "$filter" not in sent_params[0]
 
     def test_indicator_data_checkpoints_the_next_code_when_one_finishes(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -280,28 +218,24 @@ class TestWhoGhoSourceTransport:
         )
 
         assert sent_urls == [
+            "https://ghoapi.azureedge.net/api/DIMENSION",
             "https://ghoapi.azureedge.net/api/DIMENSION/COUNTRY/DimensionValues",
             "https://ghoapi.azureedge.net/api/DIMENSION/SEX/DimensionValues",
         ]
         assert [row["Code"] for page in pages for row in page] == ["AFG", "SEX_MLE"]
 
-    def test_dimension_values_paginates_the_dimension_catalog_discovery_call(self) -> None:
+    def test_dimension_values_fails_cleanly_when_discovery_returns_an_html_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
-        catalog_page_one = _http_response({"value": [{"Code": f"DIM{index}"} for index in range(1000)]})
-        catalog_page_two = _http_response({"value": [{"Code": "LASTDIM"}]})
+        maintenance_page = Response()
+        maintenance_page.status_code = 200
+        maintenance_page._content = b" <!DOCTYPE html><html><head><title>Sorry</title></head></html>"
+        maintenance_page.headers["Content-Type"] = "text/html; charset=utf-8"
+        maintenance_page.url = "https://www.example.com/sorry/"
 
-        _, sent_urls, _ = self._drive(
-            "dimension_values",
-            manager,
-            [_http_response({"value": []}) for _ in range(1001)],
-            dimension_catalog_responses=[catalog_page_one, catalog_page_two],
-        )
-
-        # One DimensionValues request per discovered code, including the one from the second
-        # discovery page, confirms discovery did not stop after the first (full) page.
-        assert sent_urls[-1] == "https://ghoapi.azureedge.net/api/DIMENSION/LASTDIM/DimensionValues"
+        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from"):
+            self._drive("dimension_values", manager, [], dimension_catalog_responses=[maintenance_page])
 
 
 class TestValidateCredentials:

@@ -26,7 +26,7 @@ from posthog.models import EventDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from .classify import CACHE_TTL_SECONDS, MAX_QUERY_CHARS, MIN_QUERY_CHARS, SEARCH_INTENT_TIMEOUT_SECONDS, redact_values
-from .contracts import EventMatch, EventMatchRequest
+from .contracts import EventMatch, EventMatchAnswer, EventMatchOutcome, EventMatchRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -160,6 +160,20 @@ def likely_core_events(
     model_query = redact_values(query)
     if model_query is None:
         return []
+    likely, _complete = _likely_core_events(
+        team_id, model_query, use_cache=use_cache, require_complete=require_complete, model=model
+    )
+    return likely
+
+
+def _likely_core_events(
+    team_id: int, model_query: str, *, use_cache: bool, require_complete: bool, model: str | None
+) -> tuple[list[EventMatch], bool]:
+    """Same as `likely_core_events`, plus whether every core event was actually asked about.
+
+    Takes the redacted query, so `match_core_events` can name the `ONLY_VALUES` outcome without redacting twice.
+    A cache hit is always complete, since a partial answer is never cached (see below).
+    """
     model = model or EVENT_MATCH_MODEL.current()
     key = _cache_key(team_id, model_query, model)
     if use_cache:
@@ -167,7 +181,7 @@ def likely_core_events(
         # The Django cache pickles what it stores, so matches go in as JSON text and come out schema-validated.
         if isinstance(cached, str):
             try:
-                return _CACHED_MATCHES.validate_json(cached)
+                return _CACHED_MATCHES.validate_json(cached), True
             except ValidationError:
                 pass
     answers = _probabilities(team_id, model_query, model)
@@ -185,7 +199,7 @@ def likely_core_events(
     # A partial answer is not cached, so the next search asks again for the events that failed.
     if use_cache and answers.complete:
         cache.set(key, _CACHED_MATCHES.dump_json(likely).decode(), CACHE_TTL_SECONDS)
-    return likely
+    return likely, answers.complete
 
 
 def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
@@ -197,17 +211,30 @@ def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
     )
 
 
-def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> list[EventMatch]:
+def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> EventMatchAnswer:
     """The core events the search most likely means, strongest first, limited to events the project has ingested.
 
     Raises the System One errors; the caller decides whether a failed answer matters.
     """
     query = " ".join(request.query.split())
     if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS:
-        return []
-    likely = likely_core_events(request.team_id, query, use_cache=use_cache)
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.WRONG_LENGTH)
+    model_query = redact_values(query)
+    if model_query is None:
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.ONLY_VALUES)
+    likely, complete = _likely_core_events(
+        request.team_id, model_query, use_cache=use_cache, require_complete=False, model=None
+    )
     if not likely:
-        return []
+        # A failed chunk leaves its events unasked, so an empty answer is not conclusive unless every chunk answered.
+        return EventMatchAnswer(
+            matches=[], outcome=EventMatchOutcome.NOTHING_LIKELY if complete else EventMatchOutcome.PARTIAL
+        )
     # A suggestion for an event the project never sent would lead to an empty insight.
     ingested = _ingested(request.project_id, [match.name for match in likely])
-    return [match for match in likely if match.name in ingested]
+    matches = [match for match in likely if match.name in ingested]
+    if matches:
+        return EventMatchAnswer(matches=matches, outcome=EventMatchOutcome.MATCHED)
+    return EventMatchAnswer(
+        matches=[], outcome=EventMatchOutcome.NOT_INGESTED if complete else EventMatchOutcome.PARTIAL
+    )

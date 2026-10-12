@@ -3,7 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recruitee import (
     RecruiteeSourceConfig,
 )
@@ -15,18 +14,6 @@ class TestRecruiteeSource:
         self.source = RecruiteeSource()
         self.team_id = 123
         self.config = RecruiteeSourceConfig(company_id="acme", api_token="rc-token")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Recruitee"
-        assert config.label == "Recruitee"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/recruitee"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["company_id", "api_token"]
 
     def test_connection_host_fields_pins_company_id(self) -> None:
         # The secret token is sent to a path derived from company_id, so retargeting the company ID

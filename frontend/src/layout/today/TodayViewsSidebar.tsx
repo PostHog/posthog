@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useCallback, useEffect, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconGridMasonry } from '@posthog/icons'
 import { Button, Spinner } from '@posthog/quill'
@@ -9,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
@@ -20,12 +22,15 @@ import { TodayViewsFilterMenu } from './TodayViewsFilterMenu'
 import { todayViewsLogic } from './todayViewsLogic'
 import { shortTimeAgo } from './todayWorkItems'
 
+const SCROLL_PREFETCH_MARGIN = '600px 0px'
+
 /** The Views sub-nav: recently viewed views, then the full list, newest first. */
 export function TodayViewsSidebar(): JSX.Element {
     const {
         recentViews,
         recentReady,
         recentItems,
+        recentHasMore,
         recentViewsLoading,
         recentUnavailable,
         recentQuery,
@@ -33,7 +38,28 @@ export function TodayViewsSidebar(): JSX.Element {
         buildingViewIds,
         recentlyViewed: recents,
     } = useValues(todayViewsLogic)
-    const { loadRecentViews, setRecentQuery, clearRecentSearchAndFilters } = useActions(todayViewsLogic)
+    const { loadRecentViews, loadMoreRecentViews, setRecentQuery, clearRecentSearchAndFilters } =
+        useActions(todayViewsLogic)
+    const [scrollRoot, setScrollRoot] = useState<Element | null>(null)
+    const { ref: inViewRef, inView: endInView } = useInView({
+        root: scrollRoot,
+        rootMargin: SCROLL_PREFETCH_MARGIN,
+        skip: !scrollRoot,
+    })
+    const endRef = useCallback(
+        (node: HTMLDivElement | null) => {
+            setScrollRoot(node?.closest('.TodayPaneSearchList') ?? null)
+            inViewRef(node)
+        },
+        [inViewRef]
+    )
+    const loadedCount = recentViews.items.length
+
+    useEffect(() => {
+        if (endInView && recentHasMore) {
+            loadMoreRecentViews()
+        }
+    }, [endInView, recentHasMore, loadedCount, loadMoreRecentViews])
     const narrowed = recentQuery.trim() !== '' || recentFiltersActive
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
@@ -53,7 +79,7 @@ export function TodayViewsSidebar(): JSX.Element {
     )
 
     return (
-        <div className="TodayPane" data-quill>
+        <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
             <TodayPaneSearchList
                 query={recentQuery}
                 onQueryChange={setRecentQuery}
@@ -133,7 +159,15 @@ export function TodayViewsSidebar(): JSX.Element {
                                         key={`${item.type}-${item.id}`}
                                         value={`view:${item.type}-${item.id}`}
                                         label={item.name}
-                                        icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
+                                        icon={
+                                            building ? (
+                                                <Spinner />
+                                            ) : (
+                                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO[item.type].color]}>
+                                                    <ViewTypeIcon type={item.type} />
+                                                </ProductIconWrapper>
+                                            )
+                                        }
                                         meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
                                         to={item.href}
                                         active={path === removeProjectIdIfPresent(item.href)}
@@ -141,6 +175,12 @@ export function TodayViewsSidebar(): JSX.Element {
                                     />
                                 )
                             })}
+                            {recentHasMore && (
+                                <div className="TodayPane__state" aria-busy>
+                                    <Spinner />
+                                </div>
+                            )}
+                            <div ref={endRef} aria-hidden />
                         </>
                     )}
                 </div>

@@ -666,10 +666,6 @@ docker:
         bin_script: docker-worker-celery
         description: Start Celery worker with optional scheduler, gossip, heartbeat, mingle
         hidden: true
-    docker:ai-evals:
-        bin_script: docker-ai-evals
-        description: Set up Docker services and run evaluation scripts with cleanup
-        hidden: true
 migrations:
     db:migrate:
         bin_script: migrate

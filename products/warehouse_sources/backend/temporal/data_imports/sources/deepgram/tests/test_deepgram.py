@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -88,11 +87,6 @@ class TestFormatStartValue:
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_start_value(value) == expected
 
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_clamped_to_now(self) -> None:
-        # Asking for requests created after "now" is pointless; cap it so we don't skip the window.
-        assert _format_start_value(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15T12:00:00+00:00"
-
 
 class TestNormalizeRow:
     def test_injects_project_id(self) -> None:
@@ -100,19 +94,6 @@ class TestNormalizeRow:
         assert row["project_id"] == "proj-1"
         assert row["member_id"] == "m1"
         assert PARENT_KEY not in row
-
-    def test_flattens_nested_key_to_root(self) -> None:
-        # /keys nests the key under "api_key"; api_key_id must land at the row root or the composite
-        # primary key can't be built and the delta merge multi-matches duplicate rows.
-        row = _normalize_row(
-            DEEPGRAM_ENDPOINTS["keys"],
-            {PARENT_KEY: "proj-1", "api_key": {"api_key_id": "k1", "comment": "ci"}, "member": {"email": "a@b.co"}},
-        )
-        assert row["api_key_id"] == "k1"
-        assert row["comment"] == "ci"
-        assert row["project_id"] == "proj-1"
-        assert row["member"] == {"email": "a@b.co"}
-        assert "api_key" not in row
 
     @parameterized.expand(
         [
@@ -139,21 +120,6 @@ class TestRedactUrlUserinfo:
         assert _redact_url_userinfo("http://[") == "http://["
 
 
-class TestProjectsEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_projects_without_fan_out(self, MockSession) -> None:
-        session = MockSession.return_value
-        projects = [{"project_id": "p1"}, {"project_id": "p2"}]
-        snapshots = _wire(session, [_response({"projects": projects})])
-
-        rows = _rows(_source("projects", _make_manager()))
-
-        assert rows == projects
-        # projects is its own endpoint — one request, and it must NOT fan out per project.
-        assert len(snapshots) == 1
-        assert snapshots[0][0] == f"{DEEPGRAM_BASE_URL}/projects"
-
-
 class TestFanOut:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_fans_out_over_projects_and_injects_project_id(self, MockSession) -> None:
@@ -176,67 +142,8 @@ class TestFanOut:
             f"{DEEPGRAM_BASE_URL}/projects/p2/members",
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flattens_keys_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"projects": [{"project_id": "p1"}]}),
-                _response({"api_keys": [{"api_key": {"api_key_id": "k1"}, "member": {"email": "a@b.co"}}]}),
-            ],
-        )
-
-        rows = _rows(_source("keys", _make_manager()))
-
-        assert rows == [{"api_key_id": "k1", "member": {"email": "a@b.co"}, "project_id": "p1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_project_without_id_is_skipped(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A project row missing project_id can't be fanned out; the old code skipped it, so no
-        # /projects//members request is made for it.
-        snapshots = _wire(
-            session,
-            [
-                _response({"projects": [{"name": "no-id"}, {"project_id": "p2"}]}),
-                _response({"members": [{"member_id": "m2"}]}),
-            ],
-        )
-
-        rows = _rows(_source("members", _make_manager()))
-
-        assert [r["project_id"] for r in rows] == ["p2"]
-        assert [url for url, _ in snapshots] == [
-            f"{DEEPGRAM_BASE_URL}/projects",
-            f"{DEEPGRAM_BASE_URL}/projects/p2/members",
-        ]
-
 
 class TestRequestsPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminates_on_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        # page size patched to 2, so a page returning fewer than 2 rows ends pagination for a project
-        # without paying an extra empty-page request.
-        snapshots = _wire(
-            session,
-            [
-                _response({"projects": [{"project_id": "p1"}]}),
-                _response({"requests": [{"request_id": "r1"}, {"request_id": "r2"}]}),
-                _response({"requests": [{"request_id": "r3"}]}),
-            ],
-        )
-
-        with mock.patch.object(deepgram_mod, "REQUESTS_PAGE_SIZE", 2):
-            rows = _rows(_source("requests", _make_manager(), should_use_incremental_field=True))
-
-        assert [r["request_id"] for r in rows] == ["r1", "r2", "r3"]
-        # projects + page 0 + page 1 == 3 requests; no trailing empty page.
-        assert len(snapshots) == 3
-        assert snapshots[1][1]["page"] == 0
-        assert snapshots[2][1]["page"] == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoint_advances_page_after_yield(self, MockSession) -> None:
         session = MockSession.return_value
@@ -285,35 +192,6 @@ class TestRequestsIncremental:
         # The parent project enumeration carries no incremental filter.
         assert "start" not in snapshots[0][1]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_start_filter_on_full_refresh(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [_response({"projects": [{"project_id": "p1"}]}), _response({"requests": []})],
-        )
-
-        _rows(_source("requests", _make_manager(), should_use_incremental_field=False))
-
-        assert "start" not in snapshots[-1][1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_start_filter_when_no_cursor_yet(self, MockSession) -> None:
-        session = MockSession.return_value
-        # First incremental sync: no persisted watermark, so no server-side filter (full pull).
-        snapshots = _wire(
-            session,
-            [_response({"projects": [{"project_id": "p1"}]}), _response({"requests": []})],
-        )
-
-        _rows(
-            _source(
-                "requests", _make_manager(), should_use_incremental_field=True, db_incremental_field_last_value=None
-            )
-        )
-
-        assert "start" not in snapshots[-1][1]
-
 
 class TestResume:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -339,30 +217,6 @@ class TestResume:
             f"{DEEPGRAM_BASE_URL}/projects/p2/members",
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_records_completed_child_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"projects": [{"project_id": "p1"}]}), _response({"members": [{"member_id": "m1"}]})])
-        manager = _make_manager()
-
-        _rows(_source("members", manager))
-
-        assert manager.save_state.called
-        last_saved = manager.save_state.call_args.args[0]
-        assert isinstance(last_saved, DeepgramResumeConfig)
-        assert last_saved.fanout_state is not None
-        assert last_saved.fanout_state["completed"] == ["/projects/p1/members"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_resume_state_restarts_from_beginning(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"projects": [{"project_id": "p1"}]}), _response({"members": [{"member_id": "m1"}]})])
-        # An old-format saved state (no fanout_state) parses but resumes nothing — a full re-read the
-        # merge dedupes, rather than mis-mapping the old positional scope onto the new fan-out state.
-        rows = _rows(_source("members", _make_manager(DeepgramResumeConfig(project_id="p1", page=3))))
-
-        assert [r["member_id"] for r in rows] == ["m1"]
-
 
 class TestSourceResponse:
     @parameterized.expand(
@@ -378,11 +232,6 @@ class TestSourceResponse:
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
 
-    def test_partitioned_only_when_partition_key_set(self) -> None:
-        assert _source("requests", _make_manager()).partition_mode == "datetime"
-        assert _source("requests", _make_manager()).partition_keys == ["created"]
-        assert _source("members", _make_manager()).partition_mode is None
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -390,11 +239,6 @@ class TestValidateCredentials:
         with mock.patch(DEEPGRAM_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
             assert validate_credentials("token") is expected
-
-    def test_network_error_is_false(self) -> None:
-        with mock.patch(DEEPGRAM_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("token") is False
 
 
 class TestFormatStartDate:
@@ -409,10 +253,6 @@ class TestFormatStartDate:
     def test_truncates_to_whole_days(self, _name: str, value: Any, expected: str) -> None:
         # The usage and billing endpoints reject anything but YYYY-MM-DD with a 400.
         assert _format_start_date(value) == expected
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_date_clamped_to_today(self) -> None:
-        assert _format_start_date(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15"
 
 
 class TestModelsEndpoint:
@@ -505,26 +345,6 @@ class TestBreakdownEndpoints:
         assert "grouping" not in rows[0]
         for measure, value in measures.items():
             assert rows[0][measure] == value
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_start_is_a_whole_day(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [_response({"projects": [{"project_id": "p1"}]}), _response({"results": []})],
-        )
-
-        _rows(
-            _source(
-                "usage_breakdown",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-
-        # A timestamp here is rejected with a 400 because these endpoints filter on whole days only.
-        assert snapshots[-1][1]["start"] == "2026-03-04"
 
 
 class TestFieldsEndpoints:

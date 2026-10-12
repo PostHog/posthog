@@ -49,12 +49,12 @@ export function SceneTitlePanelButton({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const { todayRailEnabled } = useValues(todayShellLogic)
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-    if (sidePanelOpen) {
+    if (sidePanelOpen || (todayRailEnabled && phoneLayout)) {
         return null
     }
 

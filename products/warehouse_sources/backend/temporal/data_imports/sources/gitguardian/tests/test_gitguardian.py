@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any, NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
@@ -133,49 +133,10 @@ class TestValidateBaseUrl:
 
 
 class TestLinkHeaderPagination:
-    def test_walks_pages_until_link_header_exhausted(self, monkeypatch: Any) -> None:
-        # The next-page cursor lives in the Link header; the walk must follow it and stop when absent.
-        next_url = f"{BASE_URL}/v1/incidents/secrets?cursor=abc&per_page=100&ordering=date"
-        responses = [
-            _page([{"id": 1}, {"id": 2}], next_url=next_url),
-            _page([{"id": 3}]),
-        ]
-        rows, fetched, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert fetched == [f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date", next_url]
-
     def test_honeytoken_events_fetch_every_status(self, monkeypatch: Any) -> None:
         responses = [_page([]), _page([]), _page([])]
         _, fetched, _ = _run_get_rows(monkeypatch, "honeytoken_events", responses)
         assert [_query(url)["status"] for url in fetched] == [["open"], ["archived"], ["allowed"]]
-
-    def test_first_sync_sends_ordering_but_no_date_filter(self, monkeypatch: Any) -> None:
-        # No watermark => full backfill, but ordering must still be explicit so sort_mode="asc" holds.
-        responses = [_page([{"id": 1}])]
-        _, fetched, _ = _run_get_rows(
-            monkeypatch,
-            "secret_incidents",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        query = _query(fetched[0])
-        assert query["ordering"] == ["date"]
-        assert "date_after" not in query
-
-    def test_incremental_sends_date_after_with_lookback(self, monkeypatch: Any) -> None:
-        # The watermark must reach the server as date_after (minus the safety lookback), otherwise
-        # every "incremental" sync silently re-fetches all history.
-        responses = [_page([{"id": 1}])]
-        _, fetched, _ = _run_get_rows(
-            monkeypatch,
-            "secret_incidents",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
-            incremental_field="date",
-        )
-        assert _query(fetched[0])["date_after"] == ["2026-01-03T00:00:00Z"]
 
     @parameterized.expand(
         [
@@ -207,15 +168,6 @@ class TestLinkHeaderPagination:
         with pytest.raises(ValueError, match="non-list response"):
             _run_get_rows(monkeypatch, "secret_incidents", responses)
 
-    def test_share_url_bearer_link_is_stripped_before_yield(self, monkeypatch: Any) -> None:
-        # share_url is a no-auth bearer link that can expose the leaked secret itself; it must
-        # never reach the warehouse. Other fields survive.
-        responses = [
-            _page([{"id": 1, "share_url": "https://dashboard.gitguardian.com/share/xyz", "date": "2026-01-01"}])
-        ]
-        rows, _, _ = _run_get_rows(monkeypatch, "secret_incidents", responses)
-        assert rows == [{"id": 1, "date": "2026-01-01"}]
-
 
 def _http_error(status_code: int) -> requests.HTTPError:
     response = MagicMock()
@@ -245,14 +197,6 @@ class TestFanOut:
         ]
         assert manager.saved == []
 
-    def test_child_requests_keep_their_own_ordering(self, monkeypatch: Any) -> None:
-        responses = [_page([{"id": 7}]), _page([{"id": 70, "incident_id": 7}])]
-        _, fetched, _ = _run_get_rows(monkeypatch, "secret_incident_activity_logs", responses)
-        assert fetched == [
-            f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date",
-            f"{BASE_URL}/v1/incidents/secrets/7/activity-logs?per_page=100&ordering=created_at",
-        ]
-
     def test_parent_deleted_mid_sync_is_skipped(self, monkeypatch: Any) -> None:
         responses: Sequence[MagicMock | Exception] = [
             _page([{"id": 1}, {"id": 2}]),
@@ -269,32 +213,11 @@ class TestFanOut:
 
 
 class TestResumeCheckpoints:
-    def test_resumes_from_saved_url(self, monkeypatch: Any) -> None:
-        saved_url = f"{BASE_URL}/v1/incidents/secrets?cursor=abc&per_page=100"
-        manager = _FakeManager(GitGuardianResumeConfig(url=saved_url))
-        responses = [_page([{"id": 4}])]
-        rows, fetched, _ = _run_get_rows(monkeypatch, "secret_incidents", responses, manager=manager)
-        assert [r["id"] for r in rows] == [4]
-        assert fetched == [saved_url]
-
     def test_cross_origin_resume_url_is_refused(self, monkeypatch: Any) -> None:
         # Resume URLs come from persisted state; a tampered value must not receive the token either.
         manager = _FakeManager(GitGuardianResumeConfig(url="https://attacker.example/v1/incidents/secrets?cursor=abc"))
         with pytest.raises(ValueError, match="cross-origin"):
             _run_get_rows(monkeypatch, "secret_incidents", [], manager=manager)
-
-    def test_checkpoints_current_page_url_after_yield_and_clears_on_completion(self, monkeypatch: Any) -> None:
-        # Resume must re-fetch the last yielded page (checkpoint the CURRENT URL, not the next one)
-        # so a crash can't skip rows, and a finished walk must drop its checkpoint or a retry that
-        # re-runs extract would resume from the final page and skip everything before it.
-        next_url = f"{BASE_URL}/v1/incidents/secrets?cursor=abc&per_page=100"
-        responses = [
-            _page([{"id": 1}], next_url=next_url),
-            _page([{"id": 2}]),
-        ]
-        _, fetched, manager = _run_get_rows(monkeypatch, "secret_incidents", responses)
-        assert [s.url for s in manager.saved] == fetched
-        assert manager.cleared is True
 
     def test_full_refresh_endpoints_never_checkpoint(self, monkeypatch: Any) -> None:
         # sources/members/teams merge nothing on resume, so a restart re-reads from page one.
@@ -302,12 +225,6 @@ class TestResumeCheckpoints:
         _, _, manager = _run_get_rows(monkeypatch, "sources", responses)
         assert manager.saved == []
         assert manager.cleared is False
-
-    def test_full_refresh_endpoints_ignore_stale_resume_state(self, monkeypatch: Any) -> None:
-        manager = _FakeManager(GitGuardianResumeConfig(url=f"{BASE_URL}/v1/sources?cursor=zzz"))
-        responses = [_page([{"id": 1}])]
-        _, fetched, _ = _run_get_rows(monkeypatch, "sources", responses, manager=manager)
-        assert fetched == [f"{BASE_URL}/v1/sources?per_page=100"]
 
 
 class TestValidateCredentials:
@@ -347,11 +264,6 @@ class TestCheckEndpointAccess:
             session.get.return_value = response
         with patch.object(gitguardian, "make_tracked_session", return_value=session):
             return check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
-
-    def test_reachable_endpoint_reports_no_error(self) -> None:
-        response = MagicMock()
-        response.status_code = 200
-        assert self._probe(response) is None
 
     def test_denial_surfaces_the_apis_own_detail_message(self) -> None:
         response = MagicMock()

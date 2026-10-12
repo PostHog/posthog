@@ -21,7 +21,7 @@ import {
     SignalReportStatus,
     SignalSourceProduct,
 } from '../../types'
-import { dismissalReasonLabel, DismissalFeedback, isResolveReason } from '../../utils/dismissalReasons'
+import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
@@ -199,11 +199,14 @@ function ReportCardRaw({
     // on dismissed rows, and a resolve reason on rows resolved by hand. A report that was dismissed,
     // restored, then resolved by a merged PR keeps its old dismissal artefact, so a resolved row only
     // shows a reason that describes a resolve (see `isResolveReason`). The dedicated billing badge
-    // already marks refunded reports, so skip the duplicate chip there.
+    // already marks refunded reports, so skip the duplicate chip there. A dismissed row that nobody
+    // dismissed was held back by a judge, so it shows that verdict, with its explanation as the tooltip.
     const outcomeLabel =
         !isRefunded && (isDismissed || (isResolved && isResolveReason(report.dismissal_reason)))
-            ? dismissalReasonLabel(report.dismissal_reason)
+            ? (dismissalReasonLabel(report.dismissal_reason) ??
+              (isDismissed ? heldBackLabel(report.suppression_source) : null))
             : null
+    const outcomeTooltip = report.dismissal_note || report.suppression_explanation || undefined
 
     const cardBodyClassName = clsx(
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
@@ -272,13 +275,16 @@ function ReportCardRaw({
                     {!hasPr &&
                         !redesign &&
                         !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                            <SignalReportStatusBadge status={report.status} />
+                            <SignalReportStatusBadge
+                                status={report.status}
+                                suppressionSource={report.suppression_source}
+                            />
                         )}
                     {!hasPr && !redesign && report.actionability && (
                         <SignalReportActionabilityBadge actionability={report.actionability} />
                     )}
                     {outcomeLabel && (
-                        <Tooltip title={report.dismissal_note || undefined}>
+                        <Tooltip title={outcomeTooltip}>
                             <LemonTag
                                 size="small"
                                 icon={

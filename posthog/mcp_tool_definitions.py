@@ -20,8 +20,8 @@ from posthog.settings.base_variables import BASE_DIR
 
 _SCHEMA_DIR = Path(BASE_DIR) / "services" / "mcp" / "schema"
 
-# Hand-written first, generated second, so the generated definition wins on the seven names
-# both files hold. This is the precedence `getToolDefinitions()` in
+# Hand-written first, generated second, so the generated definition wins on any name both
+# files hold. This is the precedence `getToolDefinitions()` in
 # services/mcp/src/tools/toolDefinitions.ts merges with, and a catalogue built the other way
 # round would describe a tool the server does not serve. Both files are needed: some tools
 # exist only as hand-written ones (for example read-data-schema), and they are the only users

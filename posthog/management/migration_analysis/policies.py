@@ -203,6 +203,7 @@ class AtomicFalsePolicy(MigrationPolicy):
         "RemoveIndexConcurrently",
         # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently",
+        "DropFieldIndexesConcurrently",
         "DropIndexConcurrently",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
@@ -386,6 +387,7 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
     # level, so they are explicitly exempt from the static SQL check.
     POSTHOG_SAFE_HELPER_OPS = {
         "CreateIndexConcurrently",
+        "DropFieldIndexesConcurrently",
         "DropIndexConcurrently",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
@@ -1073,17 +1075,21 @@ class GeneratedNameDropPolicy(MigrationPolicy):
     )
 
     def check_operation(self, op) -> list[str]:
-        if op.__class__.__name__ != "RunSQL":
+        # Every op that carries SQL, so the RunSQL subclasses in posthog/migration_helpers count too.
+        sql = getattr(op, "sql", None)
+        if not sql:
             return []
-        sql = _without_sql_comments(str(getattr(op, "sql", "")))
-        names = sorted({name for name in self._DROP.findall(sql) if self._GENERATED.search(name)})
+        names = sorted(
+            {name for name in self._DROP.findall(_without_sql_comments(str(sql))) if self._GENERATED.search(name)}
+        )
         if not names:
             return []
         return [
-            f"❌ BLOCKED: RunSQL drops {', '.join(names)} by a name Django generated. A long-lived database "
+            f"❌ BLOCKED: {op.__class__.__name__} drops {', '.join(names)} by a name Django generated. A long-lived database "
             "can hold the rule under another name, or hold rules no migration names any more, and IF EXISTS "
             "hides the miss. Find it in the catalog: DropColumnConstraints(table, columns=[...]) for the check "
-            "and unique rules on a retiring column, DropForeignKey for a foreign key, or Django's own "
+            "and unique rules on a retiring column, DropForeignKey for a foreign key, "
+            "DropFieldIndexesConcurrently for the index or `_like` companion Django creates for a field, or Django's own "
             "AlterUniqueTogether and RemoveIndex, which resolve the name from state or by column."
         ]
 

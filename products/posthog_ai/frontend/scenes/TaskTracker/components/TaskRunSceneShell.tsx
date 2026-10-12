@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { IconArchive, IconChevronLeft } from '@posthog/icons'
@@ -12,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 import { QuillSceneName } from '~/layout/scenes/components/QuillSceneName'
+import { QuillSceneTrail } from '~/layout/scenes/components/QuillSceneTrail'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -21,6 +23,8 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 import { sessionIconFields } from '~/layout/today/todayWorkItems'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -74,6 +78,9 @@ export function TaskRunSceneShell({
     children,
 }: TaskRunSceneShellProps): JSX.Element {
     const skin = useThreadSkin()
+    const { todayRailEnabled, phoneLayout, phoneHeaderHidden, sidebarBreadcrumbShown } = useValues(todayShellLogic)
+    const { goBackOnPhone } = useActions(todayShellLogic)
+    const todayPhone = todayRailEnabled && phoneLayout
     return (
         <SceneContent className="h-full min-h-0 gap-y-0">
             {/* The quill skin moves the panel's facts and actions into the title's overflow menu (QuillTaskMenu). */}
@@ -147,17 +154,31 @@ export function TaskRunSceneShell({
                         <QuillSceneHeader
                             className={cn(taskError && 'mt-4')}
                             back={
-                                isMobile ? (
-                                    <Button
-                                        variant="default"
-                                        size="icon-sm"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={urls.ai()} />}
-                                        aria-label="Back to PostHog AI"
-                                    >
-                                        <IconChevronLeft />
-                                    </Button>
-                                ) : undefined
+                                <>
+                                    <QuillSceneTrail lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />} />
+                                    {isMobile && !todayPhone ? (
+                                        <Button
+                                            variant="default"
+                                            size="icon"
+                                            nativeButton={false}
+                                            render={<LinkPrimitive to={urls.ai()} />}
+                                            aria-label="Back to PostHog AI"
+                                        >
+                                            <IconChevronLeft />
+                                        </Button>
+                                    ) : phoneHeaderHidden ? (
+                                        <Button
+                                            variant="default"
+                                            size="icon-lg"
+                                            className="-ml-2"
+                                            aria-label="Back"
+                                            onClick={goBackOnPhone}
+                                            data-attr="today-phone-back"
+                                        >
+                                            <IconChevronLeft />
+                                        </Button>
+                                    ) : undefined}
+                                </>
                             }
                             icon={<TodaySessionIcon item={sessionIconFields(task?.latest_run)} />}
                             title={

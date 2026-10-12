@@ -35,7 +35,9 @@ import {
     captureInboxReportOpened,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
+    InboxReportLinkSource,
     InboxReportOpenMethod,
+    parseInboxReportLinkSource,
 } from './inboxAnalytics'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
@@ -145,13 +147,13 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
 }
 
 /**
- * Which pane of the scout detail page is open. The main column holds Reports, Runs and Signals; the
+ * Which pane of the scout detail page is open. The main column holds Reports, Runs, Trials and Signals; the
  * rail holds Told and Learned. One value covers both, because below the detail page's container
  * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
  *
  * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
  */
-export const SCOUT_DETAIL_TABS = ['reports', 'runs', 'signals', 'told', 'learned'] as const
+export const SCOUT_DETAIL_TABS = ['reports', 'runs', 'trials', 'signals', 'told', 'learned'] as const
 export type ScoutDetailTab = (typeof SCOUT_DETAIL_TABS)[number]
 
 function asScoutDetailTab(value: string | undefined): ScoutDetailTab | null {
@@ -234,6 +236,16 @@ function hasVisitedInboxList(): boolean {
     } catch {
         return false
     }
+}
+
+// Not `source`: the inbox filters own that param for the product filter.
+function hasLinkSource(searchParams: Record<string, any>): boolean {
+    return searchParams.link_source !== undefined
+}
+
+function withoutLinkSource(searchParams: Record<string, any>): Record<string, any> {
+    const { link_source: _linkSource, ...rest } = searchParams
+    return rest
 }
 
 function mountedReportLists(): ReturnType<typeof reportListLogic.build>[] {
@@ -338,6 +350,7 @@ function captureOpenWhenRanked(
     cache: Record<string, any>,
     tracking: InboxOpenTracking,
     openMethod: InboxReportOpenMethod,
+    linkSource: InboxReportLinkSource | null,
     flatList: boolean
 ): void {
     const previousReportId = cache.previousReportId ?? null
@@ -350,6 +363,7 @@ function captureOpenWhenRanked(
             {
                 report: tracking.report,
                 openMethod,
+                linkSource,
                 previousReportId,
                 rank: resolved.rank,
                 listSize: resolved.listSize,
@@ -573,7 +587,7 @@ export interface inboxSceneLogicActions {
         open: boolean
     }
     setScoutDetailTab: (tab: ScoutDetailTab | null) => {
-        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | 'trials' | null
     }
     setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
         draft: ScoutCreateInitialValues | null
@@ -583,9 +597,11 @@ export interface inboxSceneLogicActions {
     }
     setSelectedReportId: (
         id: string | null,
-        openMethod?: InboxReportOpenMethod
+        openMethod?: InboxReportOpenMethod,
+        linkSource?: InboxReportLinkSource | null
     ) => {
         id: string | null
+        linkSource: InboxReportLinkSource | null
         openMethod: InboxReportOpenMethod
     }
     setSelectedScoutSkillName: (
@@ -595,7 +611,7 @@ export interface inboxSceneLogicActions {
     ) => {
         findingId: string | null
         skillName: string | null
-        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | 'trials' | null
     }
     setTriageOpen: (open: boolean) => {
         open: boolean
@@ -643,9 +659,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     actions({
-        setSelectedReportId: (id: string | null, openMethod: InboxReportOpenMethod = 'unknown') => ({
+        setSelectedReportId: (
+            id: string | null,
+            openMethod: InboxReportOpenMethod = 'unknown',
+            linkSource: InboxReportLinkSource | null = null
+        ) => ({
             id,
             openMethod,
+            linkSource,
         }),
         // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
         // detail renders without a spinner while the authoritative fetch runs in the background.
@@ -988,7 +1009,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setActiveTab('reports')
             }
         },
-        setSelectedReportId: ({ id, openMethod }) => {
+        setSelectedReportId: ({ id, openMethod, linkSource }) => {
             // Close the previously open report (if any) before opening/clearing. `next_report` when
             // switching straight to another report, `deselected` when returning to the list.
             const open: InboxOpenTracking | undefined = cache.openTracking
@@ -1012,6 +1033,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             clearScratchpadSearch()
             // The open method is resolved once the authoritative record lands in loadSelectedReportSuccess.
             cache.pendingOpenMethod = openMethod
+            cache.pendingLinkSource = linkSource
             // A report and a scout detail are mutually exclusive full-width views.
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
@@ -1049,9 +1071,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 cache,
                 tracking,
                 (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
+                (cache.pendingLinkSource as InboxReportLinkSource | null | undefined) ?? null,
                 values.isRedesign
             )
             cache.pendingOpenMethod = undefined
+            cache.pendingLinkSource = undefined
             // Best-effort server-side view record: consumption evidence that keeps the authoring
             // scout from being auto-paused as ignored. The analytics event above stays the rich
             // record (rank, open method, dwell), so a failure here is swallowed.
@@ -1224,9 +1248,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // queue, which the triage URL carries at this moment.
             openMethod === 'triage'
                 ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
-                : router.values.searchParams,
+                : withoutLinkSource(router.values.searchParams),
             router.values.hashParams,
-            { replace: false },
+            // Replace, so Back does not return to the link URL and its `link_source`.
+            { replace: hasLinkSource(router.values.searchParams) },
         ],
         setSelectedScoutSkillName: ({ findingId }) => [
             inboxSurfaceUrl(values),
@@ -1341,6 +1366,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 closeAllSurfaces()
             },
             [urls.inbox(':tab')]: ({ tab }: { tab?: string }, searchParams, hashParams) => {
+                if (tab === 'scout-trials') {
+                    return
+                }
                 // Tab segments from the other inbox layout still arrive from Slack messages, bookmarks,
                 // and a flag that flipped between visits: send them to the surface that replaced them.
                 const redirectPath = inboxTabRedirectPath(tab, values.isRedesign)
@@ -1372,9 +1400,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 { skillName }: { skillName?: string },
                 searchParams: Record<string, string | undefined>
             ) => {
-                // `/inbox/scouts/scratchpad`, `/inbox/scouts/findings`, and `/inbox/scouts/runs` also match
-                // this pattern; their own handlers own those paths (no real scout skill_name collides —
-                // they're `signals-scout-*`).
+                // Static scout pages also match this pattern and must not select a scout.
                 if (skillName === 'scratchpad' || skillName === 'findings' || skillName === 'runs') {
                     return
                 }
@@ -1446,14 +1472,20 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full
                     // report" link, which navigates by URL rather than through `openCurrent`; attribute
-                    // it to triage so the metric isn't split with plain list clicks. Otherwise: a first
-                    // route before any list URL was seen is a cold deep-link, else an in-app click.
+                    // it to triage so the metric isn't split with plain list clicks. Otherwise: a link
+                    // PostHog wrote, or a first route before any list URL was seen, is a deep-link,
+                    // else an in-app click. A tab that already saw the list can still open a link.
                     const fromTriage =
                         typeof searchParams.back === 'string' && searchParams.back.startsWith(urls.inboxTriage())
+                    const linkSource = fromTriage ? null : parseInboxReportLinkSource(searchParams.link_source)
                     actions.setSelectedReportId(
                         reportId,
-                        fromTriage ? 'triage' : hasVisitedInboxList() ? 'click' : 'deeplink'
+                        fromTriage ? 'triage' : linkSource !== null || !hasVisitedInboxList() ? 'deeplink' : 'click',
+                        linkSource
                     )
+                } else if (hasLinkSource(searchParams)) {
+                    // A copied address bar must not pass the original `link_source` on to the next reader.
+                    router.actions.replace(router.values.location.pathname, withoutLinkSource(searchParams), hashParams)
                 }
             },
         }

@@ -128,7 +128,12 @@ describe('tracingDataLogic', () => {
         it('ignores non-root spans when deriving the range', () => {
             const withChild = [
                 createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-                { ...createMockSpan('child-1', '2024-01-01T05:00:00Z'), parent_span_id: 'root-1', is_root_span: false },
+                {
+                    ...createMockSpan('child-1', '2024-01-01T05:00:00Z'),
+                    trace_id: 'trace-root-1',
+                    parent_span_id: 'root-1',
+                    is_root_span: false,
+                },
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
             logic.actions.fetchSpansSuccess(withChild)
@@ -199,7 +204,12 @@ describe('tracingDataLogic', () => {
     describe('view mode', () => {
         const withChildSpans: Span[] = [
             createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-            { ...createMockSpan('child-1', '2024-01-01T00:00:01Z'), parent_span_id: 'root-1', is_root_span: false },
+            {
+                ...createMockSpan('child-1', '2024-01-01T00:00:01Z'),
+                trace_id: 'trace-root-1',
+                parent_span_id: 'root-1',
+                is_root_span: false,
+            },
             createMockSpan('root-2', '2024-01-01T01:00:00Z'),
         ]
 
@@ -231,7 +241,10 @@ describe('tracingDataLogic', () => {
             const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSpans()
-            expect(listSpansSpy).toHaveBeenCalledWith(expect.objectContaining({ flatSpans: false }), expect.anything())
+            expect(listSpansSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ flatSpans: false, rootSpans: false }),
+                expect.anything()
+            )
             listSpansSpy.mockRestore()
         })
 
@@ -379,6 +392,86 @@ describe('tracingDataLogic', () => {
                 apiSpy.mockRestore()
             }
         )
+    })
+
+    describe('query failures', () => {
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])(
+            'sets the $name error instead of toasting once the retry also fails',
+            async ({ apiMethod, fetch, error }) => {
+                const apiSpy = jest.spyOn(api.tracing, apiMethod).mockRejectedValue(new Error('boom'))
+                logic = mountWithSpans([])
+
+                await fetch(logic).catch(() => {})
+
+                expect(apiSpy).toHaveBeenCalledTimes(2)
+                expect(error(logic)).toBe('boom')
+                expect(toastSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                result: { results: [], hasMore: false },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                result: { results: [] },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])('recovers when the retry of a fast $name failure succeeds', async ({ apiMethod, result, fetch, error }) => {
+            const apiSpy = jest
+                .spyOn(api.tracing, apiMethod)
+                .mockRejectedValueOnce(new Error('boom'))
+                .mockResolvedValueOnce(result as any)
+            logic = mountWithSpans([])
+
+            await fetch(logic)
+
+            expect(apiSpy).toHaveBeenCalledTimes(2)
+            expect(error(logic)).toBeNull()
+        })
+
+        it('clears the spans error when the next query starts', () => {
+            jest.spyOn(api.tracing, 'listSpans').mockReturnValue(new Promise(() => {}) as any)
+            logic = mountWithSpans([])
+            logic.actions.fetchSpansFailure('boom')
+            expect(logic.values.spansError).toBe('boom')
+
+            logic.actions.fetchSpans()
+
+            expect(logic.values.spansError).toBeNull()
+        })
     })
 
     describe('cancelled requests', () => {

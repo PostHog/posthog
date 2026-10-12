@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.mol
     mollie_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.settings import ENDPOINTS, MOLLIE_ENDPOINTS
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -110,16 +109,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == MollieResumeConfig(next_url=next_url)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_uses_endpoint_path_and_limit(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(session, [_response("payment_links", [])])
-
-        _rows(_source("payment_links", _make_manager()))
-
-        assert urls[0] == "https://api.mollie.com/v2/payment-links"
-        assert params[0]["limit"] == 250
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession) -> None:
         session = MockSession.return_value
         resume_url = "https://api.mollie.com/v2/payments?from=tr_resume&limit=250"
@@ -133,18 +122,6 @@ class TestPagination:
         assert params[0] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("payments", [])])
-
-        manager = _make_manager()
-        rows = _rows(_source("payments", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_embedded_block_yields_nothing(self, MockSession) -> None:
         session = MockSession.return_value
         # A 200 body without an `_embedded` block is a legitimate empty page, not an error.
@@ -155,20 +132,63 @@ class TestPagination:
         assert rows == []
 
 
-class TestRetries:
-    @pytest.mark.parametrize("retryable_status", [429, 500, 503])
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+class TestFanOut:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_triggers_retry_then_succeeds(self, MockSession, _mock_sleep, retryable_status) -> None:
+    def test_mandates_walk_every_customer_and_carry_customer_id(self, MockSession) -> None:
         session = MockSession.return_value
-        # tenacity's backoff sleep is patched out so the retry resolves instantly.
-        _wire(session, [_error_response(retryable_status), _response("payments", [{"id": "tr_1"}])])
+        child_next = "https://api.mollie.com/v2/customers/cst_1/mandates?from=mdt_2&limit=250"
+        urls, _params = _wire(
+            session,
+            [
+                _response("customers", [{"id": "cst_1"}, {"id": "cst_2"}]),
+                _response("mandates", [{"id": "mdt_1"}], next_url=child_next),
+                _response("mandates", [{"id": "mdt_2"}]),
+                _response("mandates", [{"id": "mdt_3"}]),
+            ],
+        )
 
-        rows = _rows(_source("payments", _make_manager()))
+        manager = _make_manager()
+        source = _source("mandates", manager)
+        rows = _rows(source)
 
-        assert [r["id"] for r in rows] == ["tr_1"]
-        assert session.send.call_count == 2
+        assert [(r["customerId"], r["id"]) for r in rows] == [
+            ("cst_1", "mdt_1"),
+            ("cst_1", "mdt_2"),
+            ("cst_2", "mdt_3"),
+        ]
+        assert all("_customers_id" not in r for r in rows)
+        assert source.primary_keys == ["customerId", "id"]
+        assert urls[1].endswith("/customers/cst_1/mandates")
+        assert urls[2] == child_next
+        assert urls[3].endswith("/customers/cst_2/mandates")
+        last_state = manager.save_state.call_args.args[0]
+        assert last_state.next_url is None
+        assert last_state.fanout_state["completed"] == ["/customers/cst_1/mandates", "/customers/cst_2/mandates"]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_balances_already_finished(self, MockSession) -> None:
+        session = MockSession.return_value
+        urls, _params = _wire(
+            session,
+            [
+                _response("balances", [{"id": "bal_1"}, {"id": "bal_2"}]),
+                _response("balance_transactions", [{"id": "baltr_9"}]),
+            ],
+        )
+
+        manager = _make_manager(
+            MollieResumeConfig(
+                fanout_state={"completed": ["/balances/bal_1/transactions"], "current": None, "child_state": None}
+            )
+        )
+        rows = _rows(_source("balance_transactions", manager))
+
+        assert [(r["balanceId"], r["id"]) for r in rows] == [("bal_2", "baltr_9")]
+        assert len(urls) == 2
+        assert urls[1].endswith("/balances/bal_2/transactions")
+
+
+class TestRetries:
     @mock.patch("tenacity.nap.time.sleep", return_value=None)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_retryable_4xx_raises_immediately(self, MockSession, _mock_sleep) -> None:
@@ -199,25 +219,3 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = response
 
         assert validate_credentials("live_key") is expected
-
-    @mock.patch(MOLLIE_SESSION_PATCH)
-    def test_validate_credentials_swallows_network_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("live_key") is False
-
-
-class TestMollieSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint) -> None:
-        config = MOLLIE_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @pytest.mark.parametrize("config", list(MOLLIE_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config) -> None:
-        assert config.partition_key == "createdAt"

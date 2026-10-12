@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-cohorts-dark)',
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
+            listHref: () => urls.cohorts(),
             filterKey: 'cohort',
         },
     },

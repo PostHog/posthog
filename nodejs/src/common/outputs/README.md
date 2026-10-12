@@ -82,6 +82,15 @@ Pipeline steps receive `IngestionOutputs<O>` as a dependency and produce message
 
 Each pipeline defines its output and producer config in its own directory (e.g. `analytics/config/`). Shared output constants that appear in multiple pipelines go in `common/outputs.ts`. The server builds the outputs at startup and passes them down.
 
+## Disabling outputs
+
+`INGESTION_OUTPUTS_DISABLED=true` makes the ingestion API server and the general ingestion server discard every output message instead of producing it.
+Use it for a lane that consumes production traffic alongside the main lane to test a change, and must not write to any topic.
+The UPSTREAM and DOWNSTREAM producers become blackhole producers, so every output is affected, including DLQ, overflow and async, and events that would go there are lost too.
+A blackhole producer never connects, so the server needs no output cluster.
+The outputs are built on top of these producers as usual, so the `ingestion_outputs_*` metrics still describe the lane's traffic.
+Each blackhole producer logs a warning at startup, and `kafka_producer_messages_discarded_total{producer_name, topic_name}` counts each discarded message.
+
 ## How to extend
 
 To add a new output:

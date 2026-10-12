@@ -15,14 +15,14 @@ import type { DataWarehouseSavedQuery } from '~/types'
 import { dataCatalogMetricsList } from 'products/data_catalog/frontend/generated/api'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
+import { getSidebarPropertyDefinitionTarget } from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
-    getSidebarPropertyDefinitionTarget,
-    groupDirectConnectionTableNodesBySchema,
     queryDatabaseLogic,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
