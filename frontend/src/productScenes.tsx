@@ -181,6 +181,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
+    TaskCommandCenter: () => import('../../products/tasks/frontend/commandCenter/CommandCenterScene'),
     TaskNewSession: () => import('../../products/tasks/frontend/spaces/NewSessionScene'),
     TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),

@@ -16,6 +16,7 @@ import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayCommandCenterButton } from './TodayCommandCenterButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
@@ -119,7 +120,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         {PANE_LABELS[activePane]}
                     </h2>
                 }
-                actions={activePane === 'spaces' ? <TodayNewChatButton /> : undefined}
+                actions={
+                    activePane === 'spaces' ? (
+                        <>
+                            <TodayCommandCenterButton />
+                            <TodayNewChatButton />
+                        </>
+                    ) : undefined
+                }
             />
             {paneContent}
         </div>
