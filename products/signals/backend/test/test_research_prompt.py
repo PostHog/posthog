@@ -451,6 +451,30 @@ class TestBuildReportPresentationPrompt:
         assert "Errors stay below five" in prompt
         assert "consistent with the metric checks' goals and baselines" in prompt
 
+    @pytest.mark.parametrize(
+        "decision",
+        [
+            {"reviewers": [{"user_uuid": "unknown", "reason": "Owner"}], "reason": "Selection"},
+            {"reason": "No complete selection"},
+        ],
+    )
+    def test_invalid_optional_reviewer_decision_keeps_report_prose(self, decision: dict) -> None:
+        output = ReportPresentationOutput.model_validate(
+            {"title": "Report", "summary": "Summary", "reviewer_decision": decision}
+        )
+        assert output.title == "Report"
+        assert output.summary == "Summary"
+        assert output.reviewer_decision is None
+
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_reviewer_decision_and_lookup_guidance_are_gated(self, enabled: bool) -> None:
+        prompt = build_report_presentation_prompt(1, reviewer_selection_enabled=enabled)
+        assert ('"reviewer_decision"' in prompt) == enabled
+        assert ("scout-members-list" in prompt) == enabled
+        assert ("scout-notes-list" in prompt) == enabled
+        assert ("not a global ban" in prompt) == enabled
+
+
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)
         on = build_report_presentation_prompt(2, metrics_enabled=True)
