@@ -77,9 +77,12 @@ export type TodayWorkSectionId = 'pinned' | 'recent'
 export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter' | 'chat'
 
 /** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
+// These pages sit under `/spaces/` but are not spaces.
+const NON_SPACE_SEGMENTS = new Set(['new', 'command-center'])
+
 export function spaceIdForPath(pathname: string): string | null {
     const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
-    return match && match[1] !== 'new' ? match[1] : null
+    return match && !NON_SPACE_SEGMENTS.has(match[1]) ? match[1] : null
 }
 
 export function recentRefreshIsDue(loadedAt: number | undefined, now: number = Date.now()): boolean {
