@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import {
     DatabaseSchemaMaterializedViewTable,
@@ -23,6 +24,7 @@ import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
+import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -614,10 +616,12 @@ export const BICalculatedMeasureEditor: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const addMeasure = await canvas.findByText('Add calculated measure', {}, { timeout: 15000 })
-        await waitFor(() => expect(addMeasure.closest('button')).toBeEnabled())
+        const addMeasure = await canvas.findByRole('button', { name: 'Add calculated field' }, { timeout: 15000 })
+        await waitFor(() => expect(addMeasure).toBeEnabled())
         await userEvent.click(addMeasure)
         const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByLabelText('Calculated field role'))
+        await userEvent.click(await modal.findByText('Measure · aggregate each group'))
         await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
     },
 }
@@ -1161,6 +1165,18 @@ const BI_ANALYSIS_CONFIG: BIConfig = {
     totals: { rows: true, subtotals: true },
 }
 
+async function stabilizeQueryElapsedTime(): Promise<void> {
+    const { dataNodeKey } = biSceneLogic({ tabId: 'bi-default' }).values
+    const logic = dataNodeLogic.findMounted({ key: dataNodeKey })
+    await waitFor(() => {
+        expect(logic).toBeDefined()
+        expect(logic?.values.responseLoading).toBe(false)
+        expect(logic?.values.response).toBeTruthy()
+    })
+    // MSW fixes the response, but the query timer still measures real browser time.
+    logic!.actions.setElapsedTime(180)
+}
+
 export const BITableAnalysis: Story = {
     ...BIModeWorksheet,
     parameters: {
@@ -1200,6 +1216,7 @@ export const BITableAnalysis: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await waitFor(() => expect(canvas.getAllByText('Total').length).toBeGreaterThan(0))
+        await stabilizeQueryElapsedTime()
     },
 }
 
@@ -1257,6 +1274,7 @@ export const BICombinedMeasures: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await waitFor(() => expect(canvasElement.querySelector('canvas')).not.toBeNull())
+        await stabilizeQueryElapsedTime()
     },
 }
 
@@ -1306,6 +1324,7 @@ export const BIDrilldown: Story = {
         await userEvent.click(await canvas.findByText('120', { exact: true }))
         await userEvent.click(await within(document.body).findByRole('button', { name: 'View underlying rows' }))
         await waitFor(() => expect(within(document.body).getByText('2026-06-01 12:00:00')).toBeVisible())
+        await stabilizeQueryElapsedTime()
     },
 }
 
