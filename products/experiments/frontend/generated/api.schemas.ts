@@ -3775,44 +3775,6 @@ export interface RunningTimeCalculationResultApi {
 }
 
 /**
- * Inputs for checking a warehouse-native metric query before it is saved.
- */
-export interface WarehouseNativeMetricCheckRequestApi {
-    /** Id of the direct-query source the query runs against. */
-    connection_id: string
-    /** Read-only SQL in the warehouse's dialect, returning one row per user with `variant`, `entity_id` and `value` columns. */
-    query: string
-    /** The experiment's variant keys. A variant the query returns that is not listed is reported as unknown. */
-    variant_keys?: string[]
-}
-
-/**
- * Row count per `variant` value the query returns.
- */
-export type WarehouseNativeMetricCheckResponseApiVariantRowCounts = { [key: string]: number }
-
-/**
- * What a capped run of a warehouse-native metric query returned.
- */
-export interface WarehouseNativeMetricCheckResponseApi {
-    /** Columns the query returns. */
-    columns: string[]
-    /** Required columns (`variant`, `entity_id`, `value`) the query does not return. */
-    missing_columns: string[]
-    /** Up to 20 rows from the query, one list per row in column order. */
-    sample_rows: unknown[][]
-    /** Row count per `variant` value the query returns. */
-    variant_row_counts: WarehouseNativeMetricCheckResponseApiVariantRowCounts
-    /** `variant` values the query returns that are not among `variant_keys`. */
-    unknown_variants: string[]
-    /**
-     * The warehouse's error message when the query failed, otherwise null.
-     * @nullable
-     */
-    error: string | null
-}
-
-/**
  * * `cost` - cost
  * * `latency` - latency
  * * `eval_pass_rate` - eval_pass_rate
