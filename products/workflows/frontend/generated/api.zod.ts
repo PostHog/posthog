@@ -488,12 +488,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'ideas'])
+                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
             ),
         trigger_masking: zod
             .union([
@@ -1896,12 +1898,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ),
             origin_product: zod
                 .union([
-                    zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                    zod
+                        .enum(['loops', 'broadcasts', 'ideas'])
+                        .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2778,12 +2782,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'ideas'])
+                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
             ),
         trigger_masking: zod
             .union([
@@ -3168,4 +3174,29 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
         ),
+})
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const WorkflowIdeasAcceptBody = /* @__PURE__ */ zod.object({
+    hog_flow_id: zod
+        .uuid()
+        .describe("The draft workflow created from this idea's definition, with origin_product 'ideas'."),
+})
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const workflowIdeasDismissBodyReasonMax = 2000
+
+export const WorkflowIdeasDismissBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().max(workflowIdeasDismissBodyReasonMax).optional().describe('Optional reason the person gave.'),
+})
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const WorkflowIdeasViewedBody = /* @__PURE__ */ zod.object({
+    ids: zod.array(zod.uuid()).describe('Ideas that were shown on screen.'),
 })

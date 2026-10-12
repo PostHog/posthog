@@ -62,6 +62,11 @@ import type {
     PatchedHogFlowUpdateApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowIdeaAcceptApi,
+    WorkflowIdeaApi,
+    WorkflowIdeaDismissApi,
+    WorkflowIdeaListApi,
+    WorkflowIdeaViewedApi,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
@@ -1310,6 +1315,82 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getWorkflowIdeasListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_ideas/`
+}
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const workflowIdeasList = async (projectId: string, options?: RequestInit): Promise<WorkflowIdeaListApi> => {
+    return apiMutator<WorkflowIdeaListApi>(getWorkflowIdeasListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowIdeasAcceptUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workflow_ideas/${id}/accept/`
+}
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const workflowIdeasAccept = async (
+    projectId: string,
+    id: string,
+    workflowIdeaAcceptApi: WorkflowIdeaAcceptApi,
+    options?: RequestInit
+): Promise<WorkflowIdeaApi> => {
+    return apiMutator<WorkflowIdeaApi>(getWorkflowIdeasAcceptUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowIdeaAcceptApi),
+    })
+}
+
+export const getWorkflowIdeasDismissUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workflow_ideas/${id}/dismiss/`
+}
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const workflowIdeasDismiss = async (
+    projectId: string,
+    id: string,
+    workflowIdeaDismissApi?: WorkflowIdeaDismissApi,
+    options?: RequestInit
+): Promise<WorkflowIdeaApi> => {
+    return apiMutator<WorkflowIdeaApi>(getWorkflowIdeasDismissUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowIdeaDismissApi),
+    })
+}
+
+export const getWorkflowIdeasViewedUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_ideas/viewed/`
+}
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const workflowIdeasViewed = async (
+    projectId: string,
+    workflowIdeaViewedApi: WorkflowIdeaViewedApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWorkflowIdeasViewedUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowIdeaViewedApi),
     })
 }
 

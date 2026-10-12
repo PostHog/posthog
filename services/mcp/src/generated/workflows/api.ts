@@ -36,7 +36,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
-        .enum(['broadcasts', 'loops'])
+        .enum(['broadcasts', 'ideas', 'loops'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -106,12 +106,14 @@ export const HogFlowsCreateBody = () => zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'ideas'])
+                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
             ),
         trigger_masking: zod
             .union([
