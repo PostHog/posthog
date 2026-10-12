@@ -8,10 +8,11 @@ import {
 } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { type Photo, uploadStagedPhotos } from "@/lib/attachments";
-import { useAuth } from "@/lib/auth";
+import { type Session, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
+import type { PhotoRef } from "@/lib/transcript";
 
 const TERMINAL: ReadonlySet<string> = new Set([
   "completed",
@@ -25,7 +26,15 @@ export const keys = {
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
+  insight: (shortId: string) => ["insights", shortId] as const,
+  runArtifacts: (taskId: string, runId: string) =>
+    ["run-artifacts", taskId, runId] as const,
+  photoUrl: (taskId: string, runId: string, artifactId: string) =>
+    ["photo-url", taskId, runId, artifactId] as const,
 };
+
+// Presigned photo URLs expire after an hour; refresh them well before that.
+const PHOTO_URL_TTL = 50 * 60_000;
 
 const PAGE_SIZE = 50;
 
@@ -101,6 +110,14 @@ export function useTasks(search = "") {
   });
 }
 
+export function currentUserQuery(session: Session | null) {
+  return {
+    queryKey: ["me", session?.host, session?.userId],
+    queryFn: () => getClient().getCurrentUser(),
+    staleTime: Number.POSITIVE_INFINITY,
+  };
+}
+
 export function useTask(taskId: string) {
   const session = useAuth((s) => s.session);
   return useQuery({
@@ -111,6 +128,16 @@ export function useTask(taskId: string) {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
+  });
+}
+
+export function useInsightSummary(shortId: string) {
+  const session = useAuth((s) => s.session);
+  return useQuery({
+    queryKey: keys.insight(shortId),
+    queryFn: () => getClient().getInsightSummary(shortId),
+    enabled: !!session,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -214,5 +241,42 @@ export async function createAndRunTask(input: {
     pendingUserMessage: input.prompt,
     pendingUserArtifactIds: artifactIds.length ? artifactIds : undefined,
     ...currentRunConfig(),
+  });
+}
+
+// Resolves a sent photo to a short-lived download URL. Pass null to skip.
+export function usePhotoUrl(taskId: string, photo: PhotoRef | null) {
+  const session = useAuth((s) => s.session);
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: keys.photoUrl(
+      taskId,
+      photo?.runId ?? "",
+      photo?.artifactId ?? "",
+    ),
+    queryFn: async () => {
+      if (!photo) throw new Error("No photo");
+      const client = getClient();
+      const findPath = async (staleTime: number) => {
+        const artifacts = await queryClient.fetchQuery({
+          queryKey: keys.runArtifacts(taskId, photo.runId),
+          queryFn: async () =>
+            (await client.getTaskRun(taskId, photo.runId)).artifacts ?? [],
+          staleTime,
+        });
+        return artifacts.find((artifact) => artifact.id === photo.artifactId)
+          ?.storage_path;
+      };
+      // One manifest fetch serves every photo of the run, but a cached one can
+      // predate a photo that was just sent, so a miss fetches it again.
+      const storagePath = (await findPath(10_000)) ?? (await findPath(0));
+      if (!storagePath) throw new Error("Photo not found");
+      return client.presignTaskRunArtifact(taskId, photo.runId, storagePath);
+    },
+    enabled: !!session && !!photo,
+    staleTime: PHOTO_URL_TTL,
+    gcTime: PHOTO_URL_TTL,
+    refetchInterval: PHOTO_URL_TTL,
+    retry: false,
   });
 }

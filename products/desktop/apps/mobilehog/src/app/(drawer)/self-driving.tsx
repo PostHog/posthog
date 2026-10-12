@@ -1,8 +1,21 @@
-import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
+import {
+  Button,
+  Host,
+  Image,
+  Menu,
+  Picker,
+  Text as SwiftText,
+} from "@expo/ui/swift-ui";
+import {
+  frame,
+  glassEffect,
+  pickerStyle,
+  tag,
+} from "@expo/ui/swift-ui/modifiers";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
@@ -18,32 +31,45 @@ import { GlassCircleButton } from "@/components/Glass";
 import { MenuIcon } from "@/components/Icons";
 import { PriorityChip } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
+import { REPORT_FILTERS, type ReportFilter } from "@/lib/reportFilters";
+import { REPORT_SCOPES, useReportScope } from "@/lib/reportScope";
 import {
   useDismissReport,
+  useMarkReportRead,
+  useReportReadStates,
   useReports,
-  useSeenReports,
-  useStartReport,
+  useStartReportTask,
 } from "@/lib/reports";
-import { useSessions } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
+
+const EMPTY: Record<ReportFilter, string> = {
+  attention: "All clear",
+  "pull-requests": "No pull requests ready",
+  dismissed: "Nothing dismissed",
+};
+
+const EMPTY_FOR_YOU: Record<ReportFilter, string> = {
+  attention: "Nothing for you right now.",
+  "pull-requests": "No pull requests ready for you.",
+  dismissed: "Nothing dismissed for you.",
+};
 
 export default function SelfDrivingScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const reports = useReports();
-  const seen = useSeenReports((s) => s.seen);
-  const seenHydrated = useSeenReports((s) => s.hydrated);
-  const markSeen = useSeenReports((s) => s.markSeen);
+  const [filter, setFilter] = useState<ReportFilter>("attention");
+  const scope = useReportScope((s) => s.scope);
+  const setScope = useReportScope((s) => s.setScope);
+  // The deck always works on the reports that need attention.
+  const reports = useReports("", "attention", { scope });
+  const listed = useReports("", filter, { scope });
+  const markRead = useMarkReportRead();
   const dismiss = useDismissReport();
-  const start = useStartReport();
+  const startTask = useStartReportTask();
   // Locally swiped ids, so a card leaves the deck before the server catches up.
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [deck, setDeck] = useState<string[] | null>(null);
-  const { report: linkedReport } = useLocalSearchParams<{ report?: string }>();
-  useEffect(() => {
-    if (linkedReport) setDeck([linkedReport]);
-  }, [linkedReport]);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!notice) return;
@@ -55,17 +81,25 @@ export default function SelfDrivingScreen() {
     () => (reports.data ?? []).filter((report) => !handled.has(report.id)),
     [reports.data, handled],
   );
-  const unseen = useMemo(
-    () => all.filter((report) => !seen.has(report.id)),
-    [all, seen],
-  );
+  const rows = filter === "attention" ? all : (listed.data ?? []);
+  const listFailed = listed.isError && !listed.data;
+  const allIds = useMemo(() => all.map((report) => report.id), [all]);
+  const rowIds = useMemo(() => rows.map((report) => report.id), [rows]);
+  const readStates = useReportReadStates(allIds);
+  const rowReadStates = useReportReadStates(rowIds);
 
-  // New reports since the last visit open the deck on their own.
+  // Unread reports open the deck on their own.
   useEffect(() => {
-    if (deck === null && seenHydrated && reports.data && unseen.length > 0) {
-      setDeck(unseen.map((report) => report.id));
+    if (
+      deck === null &&
+      filter === "attention" &&
+      reports.data &&
+      readStates.settled
+    ) {
+      const unread = allIds.filter((id) => readStates.unread.has(id));
+      if (unread.length > 0) setDeck(unread);
     }
-  }, [deck, seenHydrated, reports.data, unseen]);
+  }, [deck, filter, reports.data, readStates, allIds]);
 
   const deckReports = useMemo(
     () =>
@@ -75,15 +109,14 @@ export default function SelfDrivingScreen() {
     [deck, all],
   );
 
-  // Whatever surfaces at the top of the deck counts as seen.
+  // Whatever surfaces at the top of the deck counts as read.
   const topId = deckReports[0]?.id;
   useEffect(() => {
-    if (topId && !seen.has(topId)) markSeen([topId]);
-  }, [topId, seen, markSeen]);
+    if (topId) markRead(topId);
+  }, [topId, markRead]);
 
   const finish = (report: SignalReport): void => {
     setHandled((current) => new Set(current).add(report.id));
-    markSeen([report.id]);
   };
 
   // A failed action leaves the report open on the server, so put the card back
@@ -107,31 +140,16 @@ export default function SelfDrivingScreen() {
     });
   };
 
-  // Open the chat immediately with the report prompt in it (the same pending
-  // pattern as the new-chat screen), then re-key it to the real task id.
   const onStart = (report: SignalReport): void => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
       () => {},
     );
     finish(report);
-    const tempId = `new-${Date.now()}`;
-    const prompt = buildCreatePrReportPrompt({ reportId: report.id });
-    const { startPending, adopt, failPending } = useSessions.getState();
-    startPending(tempId, prompt, `local-${Date.now()}`);
-    router.push({ pathname: "/(drawer)/task/[id]", params: { id: tempId } });
-    start.mutate(report, {
-      onSuccess: (task) => {
-        adopt(tempId, task);
-        router.replace({
-          pathname: "/(drawer)/task/[id]",
-          params: { id: task.id },
-        });
-      },
-      onError: (error) => {
-        restore(report);
-        failPending(tempId, error.message);
-      },
-    });
+    startTask.start(report, router.push).catch(() => restore(report));
+  };
+
+  const openReport = (report: SignalReport): void => {
+    router.push({ pathname: "/report/[id]", params: { id: report.id } });
   };
 
   const showDeck = deck !== null && deckReports.length > 0;
@@ -150,7 +168,39 @@ export default function SelfDrivingScreen() {
           </GlassCircleButton>
         )}
         <Text style={styles.title}>{showDeck ? "Triage" : "Reports"}</Text>
-        <View style={{ width: 46 }} />
+        {showDeck ? (
+          <View style={{ width: 46 }} />
+        ) : (
+          <Host matchContents>
+            <Menu
+              label={
+                <Image
+                  systemName="slider.horizontal.3"
+                  size={18}
+                  color={colors.ink}
+                />
+              }
+              modifiers={[
+                frame({ width: 46, height: 46 }),
+                glassEffect({
+                  glass: { variant: "regular", interactive: true },
+                  shape: "circle",
+                }),
+              ]}
+            >
+              {REPORT_SCOPES.map((option) => (
+                <Button
+                  key={option.value}
+                  label={option.label}
+                  systemImage={
+                    scope === option.value ? "checkmark" : option.icon
+                  }
+                  onPress={() => setScope(option.value)}
+                />
+              ))}
+            </Menu>
+          </Host>
+        )}
       </View>
 
       {showDeck ? (
@@ -164,7 +214,8 @@ export default function SelfDrivingScreen() {
             reports={deckReports}
             onDismiss={onDismiss}
             onStart={onStart}
-            starting={start.isPending}
+            onOpen={openReport}
+            starting={startTask.isPending}
             headerHeight={headerHeight}
           />
         </Animated.View>
@@ -178,14 +229,42 @@ export default function SelfDrivingScreen() {
             { paddingBottom: insets.bottom + 100 },
           ]}
         >
-          <Text style={styles.sectionTitle}>
-            {all.length === 0 && !reports.isLoading ? "All clear" : "Reports"}
-          </Text>
-          {reports.isLoading ? <Text style={styles.muted}>Loading</Text> : null}
-          {all.map((report) => (
+          <Host matchContents={{ vertical: true }}>
+            <Picker
+              selection={filter}
+              onSelectionChange={setFilter}
+              modifiers={[pickerStyle("segmented")]}
+            >
+              {REPORT_FILTERS.map((option) => (
+                <SwiftText key={option.value} modifiers={[tag(option.value)]}>
+                  {option.label}
+                </SwiftText>
+              ))}
+            </Picker>
+          </Host>
+          {listed.isLoading ? <Text style={styles.muted}>Loading</Text> : null}
+          {listFailed ? (
+            <Pressable onPress={() => listed.refetch()}>
+              <Text style={styles.muted}>
+                Could not load reports. Tap to try again.
+              </Text>
+            </Pressable>
+          ) : null}
+          {rows.length === 0 && !listed.isLoading && !listFailed ? (
+            scope === "for-you" ? (
+              <Pressable onPress={() => setScope("entire-project")}>
+                <Text style={styles.muted}>
+                  {EMPTY_FOR_YOU[filter]} Tap to show the entire project.
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.sectionTitle}>{EMPTY[filter]}</Text>
+            )
+          ) : null}
+          {rows.map((report) => (
             <Pressable
               key={report.id}
-              onPress={() => setDeck([report.id])}
+              onPress={() => openReport(report)}
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.5 }]}
             >
               {report.priority ? (
@@ -201,7 +280,9 @@ export default function SelfDrivingScreen() {
                   {formatRelativeAge(report.updated_at)}
                 </Text>
               </View>
-              {!seen.has(report.id) ? <View style={styles.newDot} /> : null}
+              {rowReadStates.unread.has(report.id) ? (
+                <View style={styles.newDot} />
+              ) : null}
             </Pressable>
           ))}
         </Animated.ScrollView>
@@ -217,7 +298,7 @@ export default function SelfDrivingScreen() {
           <Text style={styles.notice}>{notice}</Text>
         </Animated.View>
       ) : null}
-      {!showDeck && all.length > 0 ? (
+      {!showDeck && filter === "attention" && all.length > 0 ? (
         <Animated.View
           entering={FadeInDown.duration(260)}
           exiting={FadeOutDown.duration(180)}
@@ -225,18 +306,14 @@ export default function SelfDrivingScreen() {
         >
           <FadeScrim style={styles.floatingScrim} />
           <Pressable
-            onPress={() =>
-              setDeck((unseen.length > 0 ? unseen : all).map((r) => r.id))
-            }
+            onPress={() => setDeck(all.map((report) => report.id))}
             style={({ pressed }) => [
               styles.triage,
               pressed && { opacity: 0.8 },
             ]}
           >
             <Text style={styles.triageText}>
-              {unseen.length > 0
-                ? `Triage ${unseen.length} new report${unseen.length === 1 ? "" : "s"}`
-                : `Triage ${all.length} report${all.length === 1 ? "" : "s"}`}
+              Triage {all.length} report{all.length === 1 ? "" : "s"}
             </Text>
           </Pressable>
         </Animated.View>
