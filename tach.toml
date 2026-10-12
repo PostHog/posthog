@@ -1070,6 +1070,9 @@ depends_on = [
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
+    # Facade-only: the Classify with AI action's endpoint asks the model through
+    # products.ml_inference.backend.facade.api.
+    "products.ml_inference",
 ]
 layer = "modules"
 
