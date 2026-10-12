@@ -6,6 +6,17 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## Google Ads change history
+
+The Google Ads source exposes an optional `change_event` table using the source's existing account and OAuth connection.
+Enable it on each account source and use incremental sync with `change_event.change_date_time` to keep imported changes beyond Google's 30-day API retention.
+Full refresh replaces the table with the available recent window, and an outage longer than the API retention can leave a gap that Google cannot backfill.
+
+The reader uses the account time zone, bounds the initial import to the available window, and re-reads a one-day overlap to capture delayed records.
+It sorts changes by time, deduplicates with the account ID and event resource name, and splits saturated time windows because the API requires `LIMIT 10000`.
+If one second still reaches that limit, the sync fails rather than reporting partial history as complete.
+The table includes the changed resource, operation, client, user email when available, changed fields, and JSON values before and after the change.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
