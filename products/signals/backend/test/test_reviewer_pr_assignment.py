@@ -257,7 +257,11 @@ class TestAssignReviewersToPullRequest:
     def test_a_github_failure_is_swallowed(self, org_and_team, failing_call: str, outcome: object, expected: list[str]):
         org, team = org_and_team
         _make_reviewer(org, "opted-in", opted_in=True)
-        report = _make_report(team, ["opted-in"])
+        reviewer_logins = ["opted-in"]
+        if failing_call in {"list_submitted_pull_request_reviewers", "request_pull_request_reviews"}:
+            _make_reviewer(org, "opted-out", opted_in=False)
+            reviewer_logins.append("opted-out")
+        report = _make_report(team, reviewer_logins)
         github = _open_pr_github()
         if isinstance(outcome, Exception):
             getattr(github, failing_call).side_effect = outcome
@@ -271,6 +275,12 @@ class TestAssignReviewersToPullRequest:
             assert (
                 assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == expected
             )
+
+        if failing_call in {"list_submitted_pull_request_reviewers", "request_pull_request_reviews"}:
+            github.list_submitted_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 123)
+            github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
+        if failing_call == "request_pull_request_reviews":
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["opted-out"])
 
     @pytest.mark.django_db
     def test_a_url_that_is_not_a_pull_request_is_not_assigned(self, org_and_team):
