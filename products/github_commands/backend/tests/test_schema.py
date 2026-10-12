@@ -118,7 +118,7 @@ def test_signature_and_usage_cover_every_declaration() -> None:
 
     assert sorted(listed) == sorted(declaration.verb for declaration in (*COMMAND_DECLARATIONS, HELP))
     assert [usage(declaration) for declaration in (REVIEW, STAMP, QA, LOOP, _MODE)] == [
-        "@posthog review [--deep]",
+        "@posthog review [--deep] [--no-resolve]",
         "@posthog stamp",
         "@posthog qa [<focus>]",
         "@posthog loop <name>",

@@ -65,6 +65,9 @@ class StampArgs:
 @frozen
 class ReviewArgs:
     deep: bool = flag("Run a Deep review instead of the default Standard review.")
+    no_resolve: bool = flag(
+        "Don't resolve review comments after a Deep review. By default the pull request owner's setting decides."
+    )
 
 
 @frozen

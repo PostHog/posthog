@@ -33,6 +33,7 @@ from products.github_commands.backend.logic.schema import LoopArgs, QaArgs, Revi
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
+    RUN_MODE_REVIEW_ONLY,
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
@@ -314,12 +315,35 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("standard", "commenter_project", False, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
-            ("deep", "commenter_project", True, RUN_MODE_REVIEW, "PostHog Review is reviewing this pull request."),
-            ("no_owner", None, False, None, "PostHog Review isn't set up for this repository."),
+            (
+                "standard",
+                "commenter_project",
+                False,
+                False,
+                RUN_MODE_FLASH,
+                "PostHog Review is reviewing this pull request.",
+            ),
+            (
+                "deep",
+                "commenter_project",
+                True,
+                False,
+                RUN_MODE_REVIEW,
+                "PostHog Review is reviewing this pull request.",
+            ),
+            (
+                "deep_without_resolving",
+                "commenter_project",
+                True,
+                True,
+                RUN_MODE_REVIEW_ONLY,
+                "PostHog Review is reviewing this pull request.",
+            ),
+            ("no_owner", None, False, False, None, "PostHog Review isn't set up for this repository."),
             (
                 "owner_without_the_commenter",
                 "other_project",
+                False,
                 False,
                 None,
                 "You aren't a member of the PostHog project that reviews this repository.",
@@ -331,6 +355,7 @@ class TestDispatchCommentCommand(BaseTest):
         _name: str,
         owner: str | None,
         deep: bool,
+        no_resolve: bool,
         expected_mode: str | None,
         expected_message: str,
     ) -> None:
@@ -351,7 +376,7 @@ class TestDispatchCommentCommand(BaseTest):
             patch(OWNING_TEAM_ID, return_value=owner_team_ids[owner]),
             patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
         ):
-            outcome = handle_review(context, ReviewArgs(deep=deep))
+            outcome = handle_review(context, ReviewArgs(deep=deep, no_resolve=no_resolve))
 
         assert outcome.message == expected_message
         assert outcome.accepted == (expected_mode is not None)

@@ -58,12 +58,20 @@
                     "choices": null,
                     "default": false,
                     "help": "Run a Deep review instead of the default Standard review."
+                },
+                {
+                    "name": "no_resolve",
+                    "spelling": "--no-resolve",
+                    "kind": "flag",
+                    "choices": null,
+                    "default": false,
+                    "help": "Don't resolve review comments after a Deep review. By default the pull request owner's setting decides."
                 }
             ],
             "text": null,
             "refuses_forks": true,
             "access": null,
-            "usage": "@posthog review [--deep]"
+            "usage": "@posthog review [--deep] [--no-resolve]"
         },
         {
             "verb": "stamp",

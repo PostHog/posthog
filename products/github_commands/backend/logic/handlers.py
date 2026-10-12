@@ -82,8 +82,15 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
         return CommandOutcome(
             accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
         )
-    # Standard is the default review, and Deep is the longer one asked for with `--deep`.
-    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.deep else review_hog_facade.RUN_MODE_FLASH
+    # Standard is the default review, and Deep is the longer one asked for with `--deep`. Only a Deep
+    # review resolves comments, and only when the pull request owner opted in, so `--no-resolve` can
+    # turn resolving off but nothing here can turn it on.
+    if not args.deep:
+        run_mode = review_hog_facade.RUN_MODE_FLASH
+    elif args.no_resolve:
+        run_mode = review_hog_facade.RUN_MODE_REVIEW_ONLY
+    else:
+        run_mode = review_hog_facade.RUN_MODE_REVIEW
     outcome = review_hog_facade.request_pr_review(
         team_id=team_id,
         requester_id=context.user_id,
