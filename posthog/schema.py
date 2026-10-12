@@ -27551,6 +27551,10 @@ class DashboardFilter(BaseModel):
         extra="forbid",
     )
     breakdown_filter: BreakdownFilter | None = None
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Period comparison forced onto every insight that supports one. Absent/null = inherit."),
+    )
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
@@ -29867,6 +29871,7 @@ class TileFilters(BaseModel):
         extra="forbid",
     )
     breakdown_filter: BreakdownFilter | None = None
+    compareFilter: CompareFilter | None = None
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
