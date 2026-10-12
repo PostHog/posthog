@@ -3,6 +3,7 @@ import json
 import uuid
 import threading
 from contextlib import nullcontext
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -12,8 +13,9 @@ from django.test import override_settings
 from django.utils import timezone
 
 import requests
+from temporalio.exceptions import ApplicationError
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
@@ -1381,6 +1383,38 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
             ],
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "error,expected_delay_seconds",
+    [
+        pytest.param(GitHubRateLimitError("secondary rate limit"), 60, id="no_reset_hint_waits_a_minute"),
+        pytest.param(GitHubRateLimitError("secondary rate limit", retry_after=10), 60, id="short_hint_waits_a_minute"),
+        pytest.param(GitHubRateLimitError("primary rate limit", retry_after=900), 900, id="reset_hint_is_honored"),
+        pytest.param(GitHubEgressBudgetExhausted("shed", scope=INSTALLATION_ID), 60, id="egress_budget_waits_a_minute"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_fetch_review_context_backs_off_on_github_rate_limit(
+    team, stamphog_chain: StamphogChain, error: Exception, expected_delay_seconds: int
+) -> None:
+    repo_config = _repo_config(team.id)
+    head_sha = "sha133a"
+    stamphog_chain.recorder.register_pr(REPO, 133, _pr_object(133, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=133, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.QUEUED
+    )
+
+    with (
+        patch.object(StamphogGitHubClient, "get_pr_review_threads", side_effect=error),
+        pytest.raises(ApplicationError) as raised,
+    ):
+        _run_activity(fetch_review_context, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert raised.value.next_retry_delay == timedelta(seconds=expected_delay_seconds)
 
 
 @pytest.mark.parametrize(
