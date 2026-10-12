@@ -2024,8 +2024,8 @@ class InsightViewSet(
             offset = int(request.GET.get("offset", "0"))
         except (ValueError, TypeError):
             raise ValidationError("days, limit and offset must be valid integers")
-        if limit < 0 or offset < 0:
-            raise ValidationError("limit and offset must not be negative")
+        if limit <= 0 or offset < 0:
+            raise ValidationError("limit must be positive and offset must not be negative")
 
         cutoff_date = now() - timedelta(days=days)
 

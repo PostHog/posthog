@@ -2972,6 +2972,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("non_integer_offset", "offset=abc"),
             ("negative_offset", "offset=-1"),
             ("negative_limit", "limit=-1"),
+            ("zero_limit", "limit=0"),
         ]
     )
     def test_trending_insights_rejects_invalid_params(self, _name: str, query: str) -> None:
