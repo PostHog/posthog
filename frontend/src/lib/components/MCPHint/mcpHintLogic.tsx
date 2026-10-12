@@ -301,6 +301,8 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                     draggable: false,
                     hideProgressBar: true,
                     icon: false,
+                    // The body has no click action, so let clicks during the exit slide reach the page underneath.
+                    className: '[&[data-in=false]]:pointer-events-none',
                     // Clicking the X is the only way to permanently hide this surface — auto-dismiss
                     // (timeout) shouldn't count, so we wire dismissSurface here, not in onClose.
                     // Close first so the toast always dismisses, independent of the bookkeeping action.
