@@ -997,6 +997,36 @@ def _fix_pydantic_schema_for_openapi(schema):
     return schema
 
 
+def _hoist_inline_discriminated_unions(schemas: dict[str, Any]) -> dict[str, Any]:
+    """
+    Give a discriminated union nested inside another discriminated union its own component.
+
+    Pydantic emits a nested discriminated union (``Annotated[A | B, Field(discriminator="x")]``
+    as a member of a union discriminated on ``y``) inline, and puts that inline schema in the
+    outer ``discriminator.mapping``. OpenAPI only allows ``$ref`` strings there, and Orval crashes
+    on the object. The inline union becomes ``<Outer><MappingValue>`` and both the ``oneOf``
+    entry and the mapping point at it.
+    """
+    schemas = dict(schemas)
+    for outer_name, outer in list(schemas.items()):
+        mapping = (outer.get("discriminator") or {}).get("mapping") if isinstance(outer, dict) else None
+        if not isinstance(mapping, dict) or not any(isinstance(target, dict) for target in mapping.values()):
+            continue
+        outer = {**outer, "discriminator": {**outer["discriminator"], "mapping": dict(mapping)}}
+        for value, target in list(mapping.items()):
+            if not isinstance(target, dict):
+                continue
+            inner_name = outer_name + "".join(part.title() for part in value.split("_"))
+            if inner_name in schemas and schemas[inner_name] != target:
+                raise ValueError(f"Cannot hoist nested union {outer_name}.{value}: component {inner_name} exists")
+            schemas[inner_name] = target
+            ref = f"#/components/schemas/{inner_name}"
+            outer["discriminator"]["mapping"][value] = ref
+            outer["oneOf"] = [{"$ref": ref} if entry == target else entry for entry in outer.get("oneOf", [])]
+        schemas[outer_name] = outer
+    return schemas
+
+
 def _unrequire_deprecated_dashboards_field(schema):
     """
     The deprecated insight `dashboards` field is gated behind an opt-in query parameter, so it
@@ -1261,7 +1291,7 @@ def custom_postprocessing_hook(result, generator, request, public):
     if "components" in result and "schemas" in result["components"]:
         result["components"]["schemas"] = {
             name: _unrequire_deprecated_dashboards_field(_fix_pydantic_schema_for_openapi(schema))
-            for name, schema in result["components"]["schemas"].items()
+            for name, schema in _hoist_inline_discriminated_unions(result["components"]["schemas"]).items()
         }
 
     # Apply the same cleanup to parameter, requestBody, and response schemas at the operation
