@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
@@ -11,8 +13,10 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.engineering_analytics.backend.logic.sources import (
     TRUNK_MERGE_QUEUE_SCHEMA,
+    TRUNK_QUARANTINED_TESTS_SCHEMA,
     list_github_sources,
     resolve_trunk_merge_queue_table,
+    resolve_trunk_quarantined_tests_source,
 )
 from products.engineering_analytics.backend.logic.views import (
     ci_job_history,
@@ -107,6 +111,24 @@ class TestListGithubSourcesAccessControl(BaseTest):
 
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
         assert resolve_trunk_merge_queue_table(self.team, UserAccessControl(user=self.user, team=self.team)) is None
+
+    @parameterized.expand(
+        [
+            ("same_repo", {"repo_owner": "PostHog", "repo_name": "posthog"}, True),
+            ("legacy_without_repo_keys", {}, True),
+            ("other_repo", {"repo_owner": "PostHog", "repo_name": "posthog-js"}, False),
+        ]
+    )
+    def test_trunk_quarantine_resolver_never_serves_another_repos_source(
+        self, _name: str, job_inputs: dict[str, str], resolves: bool
+    ) -> None:
+        source = create_trunk_source(self.team, job_inputs=job_inputs)
+        table = create_warehouse_table_row(self.team, name="trunkprefix_quarantined_tests", source=source)
+        link_schema(self.team, source, name=TRUNK_QUARANTINED_TESTS_SCHEMA, table=table)
+
+        resolved = resolve_trunk_quarantined_tests_source(self.team, "posthog/posthog")
+
+        assert (resolved.table if resolved else None) == (table.name if resolves else None)
 
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
