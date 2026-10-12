@@ -5674,10 +5674,10 @@ Today (7): `chargebacks`, `customers`, `payment_links`, `payments`, `refunds`, `
 
 Diffed against: <https://raw.githubusercontent.com/mollie/openapi/main/specs.yaml>
 
-- [ ] `/v2/balances/{balanceId}/transactions` — per-transaction ledger of every movement (payment, refund, fee, payout) — the reconciliation fact table (high)
-- [ ] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
-- [ ] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
-- [ ] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
+- [x] `/v2/balances/{balanceId}/transactions` — per-transaction ledger of every movement (payment, refund, fee, payout) — the reconciliation fact table (high)
+- [x] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
+- [x] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
+- [x] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
 - [ ] `/v2/payouts` — bank payouts of settled funds — needed to tie settlements to money received (high)
 - [ ] `/v2/payments/{paymentId}/captures` — capture events on authorized payments; without them captured vs authorized amounts can't be split (medium)
 - [ ] `/v2/invoices` — Mollie's own invoices to the merchant (fees charged) for cost analysis (medium)
