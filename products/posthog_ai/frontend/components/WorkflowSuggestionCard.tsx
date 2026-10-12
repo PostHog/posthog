@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
+
+import { WORKFLOW_BRIEF_MAX_LENGTH } from 'lib/utils/workflowDraftHandoff'
 
 import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
-import { SuggestionAcceptedBanner } from './SuggestionAcceptedBanner'
 import { SuggestionActionRow } from './SuggestionActionRow'
 
 export function WorkflowSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
@@ -18,11 +19,7 @@ export function WorkflowSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
         return null
     }
     if (accepted) {
-        return (
-            <SuggestionAcceptedBanner accepted={accepted} linkLabel="Open workflow builder">
-                Brief opened in the workflow builder.
-            </SuggestionAcceptedBanner>
-        )
+        return <LemonBanner type="success">Brief opened in the workflow builder.</LemonBanner>
     }
 
     return (
@@ -33,7 +30,7 @@ export function WorkflowSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
                     id={briefId}
                     value={workflowPrompt}
                     onChange={setWorkflowPrompt}
-                    maxLength={4000}
+                    maxLength={WORKFLOW_BRIEF_MAX_LENGTH}
                     minRows={3}
                     data-attr="posthog-ai-turn-suggestion-workflow-brief"
                 />
