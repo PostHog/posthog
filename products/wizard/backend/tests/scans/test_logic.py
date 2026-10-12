@@ -64,13 +64,26 @@ def test_tracks_tools_across_scans(team: Team) -> None:
 
 
 @pytest.mark.django_db
-def test_older_scan_arriving_late_does_not_rewind_state(team: Team) -> None:
-    newer = _scan(team, "newer", 2, ["Stripe"])
-    _scan(team, "older", 1, [])
+@pytest.mark.parametrize(
+    "scans, last_seen_session, removed_session",
+    [
+        pytest.param([("newer", 2, ["Stripe"]), ("older", 1, [])], "newer", None, id="late_empty_scan"),
+        pytest.param(
+            [("seen", 0, ["Stripe"]), ("removed", 2, []), ("late", 1, ["Stripe"])],
+            "seen",
+            "removed",
+            id="late_sighting_after_removal",
+        ),
+    ],
+)
+def test_older_scan_arriving_late_does_not_rewind_state(
+    team: Team, scans: list[tuple[str, int, list[str]]], last_seen_session: str, removed_session: str | None
+) -> None:
+    ids = {session_id: _scan(team, session_id, hours, kinds).id for session_id, hours, kinds in scans}
 
     stripe = _tools(team)["Stripe"]
-    assert stripe.removed_at is None
-    assert stripe.last_seen_scan_id == newer.id
+    assert stripe.last_seen_scan_id == ids[last_seen_session]
+    assert stripe.removed_in_scan_id == (ids[removed_session] if removed_session else None)
 
 
 @pytest.mark.django_db
