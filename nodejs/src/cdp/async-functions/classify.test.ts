@@ -61,6 +61,23 @@ describe('postHogClassify', () => {
     })
 
     it.each([
+        ['a timeout, which may still be answering', new DOMException('The operation timed out.', 'TimeoutError'), 1],
+        ['a refused connection, which never reached Django', new Error('connect ECONNREFUSED 127.0.0.1:8000'), 3],
+    ])('retries after %s only when no answer can still arrive', async (_name, error, expectedCalls) => {
+        jest.useFakeTimers()
+        try {
+            fetchSpy.mockRejectedValue(error)
+            const invoked = invokeLive(payload)
+            await jest.runAllTimersAsync()
+            await invoked
+
+            expect(fetchSpy).toHaveBeenCalledTimes(expectedCalls)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
         ['a blank question', { ...payload, question: ' ' }, /Enter a question/],
         ['a long question', { ...payload, question: 'x'.repeat(2001) }, /2000 characters or fewer/],
         [
