@@ -229,19 +229,19 @@ async def test_bigquery_dataset_permission_request_failure(
 
 def test_bigquery_destination_create_dataset_configuration() -> None:
     destination = BigQueryDestinationTest()
-    assert destination.create_dataset_if_missing is False
+    assert not destination.create_dataset_if_missing
     dataset_step = next(step for step in destination.steps if isinstance(step, BigQueryDatasetTestStep))
     assert dataset_step.create_if_missing is False
 
     destination.configure(create_dataset_if_missing=True)
-    assert destination.create_dataset_if_missing is True
+    assert destination.create_dataset_if_missing
     dataset_step = next(step for step in destination.steps if isinstance(step, BigQueryDatasetTestStep))
     assert dataset_step.create_if_missing is True
     table_step = next(step for step in destination.steps if isinstance(step, BigQueryTableTestStep))
     assert table_step.skip_if_dataset_missing is True
 
     destination.configure()
-    assert destination.create_dataset_if_missing is False
+    assert not destination.create_dataset_if_missing
     dataset_step = next(step for step in destination.steps if isinstance(step, BigQueryDatasetTestStep))
     assert dataset_step.create_if_missing is False
 
