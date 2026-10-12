@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 // Kept in step with the max_value on TeamWorkflowsConfigSerializer.
 const MAX_MESSAGES = 1000
-const MAX_WINDOW_DAYS = 365
+const MAX_WINDOW_DAYS = 30
 
 // A cleared number input reports NaN, which must save as null to turn the cap off.
 function toInputValue(value: number | null | undefined): number | null {
