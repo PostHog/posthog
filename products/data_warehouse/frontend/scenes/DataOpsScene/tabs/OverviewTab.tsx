@@ -81,13 +81,25 @@ export function OverviewTab(): JSX.Element {
     const { loadManagedWarehouseDataStatus } = useActions(managedWarehouseDataStatusLogic)
     const { loadSourceSchemas } = useActions(sourceSchemasModalLogic)
 
+    const openSourceSchemas = (source: ManagedWarehouseSourceSummaryApi): void =>
+        loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name })
+
     const sourceSummaryColumns: LemonTableColumns<ManagedWarehouseSourceSummaryApi> = [
         {
             title: 'Source',
             key: 'source',
             render: (_, source) => (
                 <div>
-                    <div className="font-medium">{source.source_name}</div>
+                    <Link
+                        className="font-medium"
+                        data-attr="managed-warehouse-source-schemas"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            openSourceSchemas(source)
+                        }}
+                    >
+                        {source.source_name}
+                    </Link>
                     <div className="text-xs text-muted">{source.source_type}</div>
                 </div>
             ),
@@ -207,7 +219,7 @@ export function OverviewTab(): JSX.Element {
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>
                         <p className="text-xs text-muted mb-0">
-                            Reflects the warehouse source imports currently enabled to sync.{' '}
+                            Covers all warehouse source imports, including tables with sync paused.{' '}
                             <Link to={urls.sources()}>Manage sources</Link>
                         </p>
                     </div>
@@ -221,8 +233,7 @@ export function OverviewTab(): JSX.Element {
                         rowKey="source_id"
                         pagination={{ pageSize: 20 }}
                         onRow={(source) => ({
-                            onClick: () =>
-                                loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name }),
+                            onClick: () => openSourceSchemas(source),
                             className: 'cursor-pointer',
                         })}
                     />

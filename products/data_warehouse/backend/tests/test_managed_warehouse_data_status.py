@@ -291,6 +291,33 @@ class TestRollupSources(SimpleTestCase):
         # needs_attention outranks up_to_date, so Postgres sorts first despite the alphabet.
         assert [s["source_name"] for s in summaries] == ["Postgres", "Stripe"]
 
+    @parameterized.expand(
+        [
+            ("one_table", ["orders"], "The latest workflow failed for orders."),
+            ("two_tables", ["refunds", "orders"], "The latest workflow failed for orders and refunds."),
+            (
+                "more_than_fit",
+                ["refunds", "orders", "Invoices", "charges", "payouts"],
+                "The latest workflow failed for charges, Invoices, orders and 2 more.",
+            ),
+        ]
+    )
+    def test_needs_attention_detail_names_the_failing_tables(
+        self, _name: str, failing_tables: list[str], expected_detail: str
+    ) -> None:
+        source_id = str(uuid4())
+        tables = [
+            _table(source_id=source_id, source_name="Stripe", table_name=name, readiness_state="needs_attention")
+            for name in failing_tables
+        ]
+        tables.append(
+            _table(source_id=source_id, source_name="Stripe", table_name="customers", readiness_state="up_to_date")
+        )
+
+        [summary] = _rollup_sources(tables)
+
+        assert summary["detail"] == expected_detail
+
     def test_timestamps_roll_up_to_the_most_recent_across_schemas(self) -> None:
         # Both event timestamps summarize a source as "the latest time this happened anywhere in
         # it"; a min (or a None clobbering the max) would misreport an active source as stale.
