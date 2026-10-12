@@ -2803,6 +2803,7 @@ describe('dashboardLogic', () => {
         expect(tileEvents()[0]).toMatchObject({
             tile_id: logic.values.insightTiles[0].id,
             client_query_id: requestIds()[0],
+            primary_interaction_id: requestIds()[0],
             individual_refresh: true,
         })
         expect(tileEvents()[0].primary_interaction_id).not.toBe(refresh.primary_interaction_id)
@@ -3167,10 +3168,10 @@ describe('dashboardLogic', () => {
                     // aborted tile leaves the status map, so the sibling still in flight keeps being counted
                     // (a whole-map wipe would drop it and overstate X as "done").
                     logic.actions.abortQuery({
-                        queryId: 'q1',
+                        clientQueryId: 'q1',
                         queryStartTime: 0,
                         shortId: insight1.short_id,
-                        primaryInteractionId: 'original-batch',
+                        dashboardInteractionId: 'original-batch',
                     })
                     expect(logic.values.refreshStatus).not.toHaveProperty(insight1.short_id)
                     expect(logic.values.refreshStatus[insight2.short_id]?.loading).toBe(true)

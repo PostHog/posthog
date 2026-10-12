@@ -177,16 +177,17 @@ function reportDashboardTileRefreshed(
     variables: Record<string, any>,
     refreshDurationMs: number,
     individualRefresh: boolean,
-    correlation: { clientQueryId: string; primaryInteractionId: string }
+    correlation: { clientQueryId: string; dashboardInteractionId: string }
 ): void {
     const insight = tile.insight
     const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
 
+    // Keep analytics property names stable because existing journey events and dashboards use them.
     posthog.capture('dashboard insight refreshed', {
         dashboard_id: dashboardId,
         tile_id: tile.id,
         client_query_id: correlation.clientQueryId,
-        primary_interaction_id: correlation.primaryInteractionId,
+        primary_interaction_id: correlation.dashboardInteractionId,
         insight_id: insight?.id,
         insight_short_id: insight?.short_id,
         was_cached: tile.is_cached,
@@ -468,13 +469,13 @@ export interface dashboardLogicActions {
         value: true
     }
     abortQuery: (payload: {
-        primaryInteractionId?: string
-        queryId: string
+        clientQueryId: string
+        dashboardInteractionId?: string
         queryStartTime: number
         shortId: InsightShortId
     }) => {
-        primaryInteractionId?: string | undefined
-        queryId: string
+        clientQueryId: string
+        dashboardInteractionId?: string | undefined
         queryStartTime: number
         shortId: InsightShortId
     }
@@ -1516,10 +1517,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
         abortQuery: (payload: {
-            queryId: string
+            clientQueryId: string
             queryStartTime: number
             shortId: InsightShortId
-            primaryInteractionId?: string
+            dashboardInteractionId?: string
         }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
@@ -4341,8 +4342,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakpoint()
 
                 const refreshStartTime = performance.now()
-                const queryId = uuid()
-                const primaryInteractionId = uuid()
+                const clientQueryId = uuid()
                 // when one insight is refreshed manually, we want to avoid cache and force a refresh of the insight
                 // hence using 'force_blocking', small cost to give latest data for the insight
                 // also it's then consistent with the dashboard refresh button
@@ -4350,7 +4350,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     currentTeamId,
                     insight,
                     dashboardId,
-                    queryId,
+                    clientQueryId,
                     'force_blocking',
                     undefined,
                     effectiveRefreshFilters,
@@ -4365,7 +4365,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
                     true,
-                    { clientQueryId: queryId, primaryInteractionId }
+                    { clientQueryId, dashboardInteractionId: clientQueryId }
                 )
 
                 if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
@@ -4391,7 +4391,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
-            const primaryInteractionId = isInitialLoad ? values.dashboardLoadData.dashboardQueryId : uuid()
+            const dashboardInteractionId = isInitialLoad ? values.dashboardLoadData.dashboardQueryId : uuid()
             const initialUrlOverridesArePreviewed =
                 isInitialLoad && !values.canAutoPreview && values.dashboardSettingsState === 'unsavedChanges'
 
@@ -4445,7 +4445,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
-                    const queryId = uuid()
+                    const clientQueryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
 
@@ -4458,7 +4458,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             currentTeamId,
                             insight,
                             dashboardId,
-                            queryId,
+                            clientQueryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
                             effectiveRefreshFilters,
@@ -4485,7 +4485,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     urlVariables,
                                     Math.floor(performance.now() - insightRefreshStartTime),
                                     false,
-                                    { clientQueryId: queryId, primaryInteractionId }
+                                    { clientQueryId, dashboardInteractionId }
                                 )
                             }
                         } else {
@@ -4496,10 +4496,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({
-                                queryId,
+                                clientQueryId,
                                 queryStartTime,
                                 shortId: insight.short_id,
-                                primaryInteractionId,
+                                dashboardInteractionId,
                             })
                             tilesAbortedCount++
                         } else {
@@ -4542,7 +4542,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const refreshDurationMs = Math.floor(performance.now() - dashboardRefreshStartTime)
                 posthog.capture(`dashboard refreshed`, {
                     dashboard_id: dashboardId,
-                    primary_interaction_id: primaryInteractionId,
+                    primary_interaction_id: dashboardInteractionId,
                     filters: urlFilters,
                     variables: urlVariables,
                     last_refreshed: lastDashboardRefresh?.toString(),
@@ -4991,10 +4991,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelDashboardRefresh: () => {
             actions.abortAnyRunningQuery()
         },
-        abortQuery: async ({ queryId, queryStartTime, primaryInteractionId }) => {
+        abortQuery: async ({ clientQueryId, queryStartTime, dashboardInteractionId }) => {
             const { currentTeamId, dashboardLoadData } = values
             try {
-                await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
+                // nosemgrep: prefer-codegen-api-namespaced-product_analytics -- Generated insightsCancelCreate expects InsightApi, not { client_query_id }.
+                await api.insights.cancelQuery(clientQueryId, currentTeamId ?? undefined)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
@@ -5004,8 +5005,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 team_id: currentTeamId,
                 type: 'insight_load',
                 context: 'dashboard',
-                primary_interaction_id: primaryInteractionId ?? dashboardQueryId,
-                query_id: queryId,
+                primary_interaction_id: dashboardInteractionId ?? dashboardQueryId,
+                query_id: clientQueryId,
                 status: 'cancelled',
                 time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
                 insights_fetched: 0,
