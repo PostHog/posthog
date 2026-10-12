@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Counter } from 'prom-client'
 
+import { disableGeoipWithoutClientIp } from '~/common/services/internal-capture'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
@@ -68,7 +69,7 @@ export class PushCaptureService {
             uuid: randomUUID(),
             distinct_id: event.distinctId,
             timestamp: now,
-            properties,
+            properties: disableGeoipWithoutClientIp(properties),
         }
         if (Object.keys(options).length > 0) {
             entry.options = options
@@ -133,6 +134,15 @@ export class PushCaptureService {
             }
             await this.sleep(TRANSPORT_BACKOFF_MS[retry])
         }
+    }
+}
+
+/** Answers like a capture that accepted the event, and sends nothing. A mirrored copy of traffic that
+ * Django already stores goes here, so the copy writes and bills nothing twice. */
+export class DryRunPushCaptureService {
+    public capture(_event: PushCaptureEvent): Promise<void> {
+        captureCounter.inc({ outcome: 'dry_run' })
+        return Promise.resolve()
     }
 }
 

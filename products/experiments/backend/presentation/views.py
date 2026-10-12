@@ -134,7 +134,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance_from_stats,
 )
 from products.experiments.backend.session_buckets import (
-    SessionBucket,
+    ExperimentSessionBucket,
     SessionBucketUnavailable,
     finalize_session_bucket,
     get_experiment_session_bucket,
@@ -322,7 +322,7 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         name="search",
         location=OpenApiParameter.QUERY,
         type=str,
-        description="Free-text search applied to the experiment name (case-insensitive).",
+        description="Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
         required=False,
     ),
     OpenApiParameter(
@@ -1363,6 +1363,12 @@ class EnterpriseExperimentsViewSet(
         responses={
             200: ExperimentMetricsRecalculationJobSerializer,
             201: ExperimentMetricsRecalculationJobSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A manual trigger arrived less than five minutes after the latest completed run finished. "
+                    "Retry-After carries the seconds until the next run is allowed."
+                )
+            ),
         },
     )
     @action(
@@ -1375,7 +1381,8 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. The response payload intentionally does not
+        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1763,7 +1770,7 @@ class EnterpriseExperimentsViewSet(
                 # property-level access control.
                 user=cast(User, request.user),
                 experiment=experiment,
-                bucket=SessionBucket(request.validated_data["bucket"]),
+                bucket=ExperimentSessionBucket(request.validated_data["bucket"]),
                 metric_uuids=request.validated_data["metric_uuids"],
                 variant=request.validated_data["variant"],
                 limit=request.validated_data["limit"],

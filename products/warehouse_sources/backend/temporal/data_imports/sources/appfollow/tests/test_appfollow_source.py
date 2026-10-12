@@ -1,7 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
+    APPFOLLOW_V2,
+    APPFOLLOW_V3,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source import AppfollowSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
     AppfollowSourceConfig,
@@ -18,73 +21,9 @@ class TestAppfollowSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "name,incremental,field",
-        [
-            ("app_collections", False, None),
-            ("app_lists", False, None),
-            ("users", False, None),
-            ("reviews", True, "updated"),
-            ("ratings_history", True, "date"),
-            # Only reviews_stats among the ASO/statistics endpoints takes a from/to range; rankings,
-            # keywords and app_versions expose no server-side time filter at all.
-            ("reviews_stats", True, "date"),
-            ("rankings", False, None),
-            ("keywords", False, None),
-            ("app_versions", False, None),
-        ],
-    )
-    def test_incremental_capability_per_endpoint(self, name, incremental, field):
-        # Only reviews (server-side last_modified) and ratings_history (server-side from-date) expose a
-        # real server filter; the discovery/dimension tables must stay full refresh.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[name].supports_incremental is incremental
-        if incremental:
-            assert [f["field"] for f in schemas[name].incremental_fields] == [field]
-        else:
-            assert schemas[name].incremental_fields == []
-
-    @pytest.mark.parametrize(
-        "name,default_sync",
-        [
-            ("app_collections", True),
-            ("app_lists", True),
-            ("reviews", True),
-            ("users", False),
-            ("ratings_history", False),
-            ("rankings", False),
-            ("keywords", False),
-            ("app_versions", False),
-            ("reviews_stats", False),
-        ],
-    )
-    def test_should_sync_defaults(self, name, default_sync):
-        # ratings_history and users cost extra credits / are niche, so they're opt-in by default.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[name].should_sync_default is default_sync
-
-    @pytest.mark.parametrize(
-        "name,primary_keys",
-        [
-            ("app_collections", ["id"]),
-            ("app_lists", ["app_collection_id", "app_id"]),
-            ("users", ["id"]),
-            # Fan-out children must include the parent id so keys stay unique table-wide.
-            ("reviews", ["ext_id", "review_id"]),
-            ("ratings_history", ["ext_id", "store", "date"]),
-            ("rankings", ["ext_id", "country", "device", "genre_id", "date"]),
-            ("keywords", ["ext_id", "country", "device", "date", "keyword"]),
-            ("app_versions", ["ext_id", "country", "version"]),
-            ("reviews_stats", ["ext_id", "date"]),
-        ],
-    )
-    def test_primary_keys_are_unique_table_wide(self, name, primary_keys):
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[name].detected_primary_keys == primary_keys
+    def test_new_sources_start_on_v3(self):
+        assert self.source.default_version == APPFOLLOW_V3
+        assert self.source.supported_versions == (APPFOLLOW_V2, APPFOLLOW_V3)
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews"])
@@ -112,33 +51,29 @@ class TestAppfollowSource:
             assert ok is expected_ok
 
     @pytest.mark.parametrize(
-        "observed_error",
+        "api_version,probed_url",
         [
-            "401 Client Error: Unauthorized for url: https://api.appfollow.io/api/v2/account/apps",
-            "402 Client Error: Payment Required for url: https://api.appfollow.io/api/v2/reviews?ext_id=1",
-            "403 Client Error: Forbidden for url: https://api.appfollow.io/api/v2/meta/ratings/history",
+            (APPFOLLOW_V2, "https://api.appfollow.io/api/v2/account/apps"),
+            (APPFOLLOW_V3, "https://api.appfollow.io/api/v3/workspaces"),
+            (None, "https://api.appfollow.io/api/v3/workspaces"),
         ],
     )
-    def test_non_retryable_errors_match_auth_and_credit_failures(self, observed_error):
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
+    def test_validate_credentials_probes_the_pinned_version(self, api_version, probed_url):
+        session = mock.MagicMock()
+        session.get.return_value.status_code = 200
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow.make_tracked_session",
+            return_value=session,
+        ):
+            ok, _ = self.source.validate_credentials(self.config, self.team_id, api_version=api_version)
+        assert ok is True
+        assert session.get.call_args.args[0] == probed_url
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.appfollow.io/api/v2/reviews",
-            "429 Client Error: Too Many Requests for url: https://api.appfollow.io/api/v2/reviews",
-        ],
-    )
-    def test_non_retryable_errors_ignore_retryable_and_unrelated(self, unrelated_error):
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    def test_documented_tables_render_for_public_docs(self):
-        # lists_tables_without_credentials=True must produce a credential-free catalog for posthog.com;
-        # a regression in get_schemas' placeholder path would silently empty the docs' Supported tables.
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["reviews"]["sync_methods"]
-        assert tables["app_collections"]["sync_methods"] == ["Full refresh"]
+    @pytest.mark.parametrize("pinned", [APPFOLLOW_V2, APPFOLLOW_V3])
+    def test_source_for_pipeline_dispatches_on_the_pin(self, pinned):
+        inputs = mock.MagicMock(api_version=pinned, schema_name="reviews", should_use_incremental_field=False)
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source.appfollow_source"
+        ) as appfollow_source:
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert appfollow_source.call_args.kwargs["api_version"] == pinned

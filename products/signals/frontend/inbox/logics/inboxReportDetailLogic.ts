@@ -40,6 +40,7 @@ import {
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
+    signalsReportsPriorityUpdate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -47,7 +48,9 @@ import type {
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
     ReportChartApi,
+    ReportPriorityApi,
     SignalReportCheckApi,
+    SignalReportApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -327,6 +330,7 @@ export interface inboxReportDetailLogicValues {
     prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
+    prioritySaving: boolean
     report: SignalReport | null
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
@@ -586,6 +590,9 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setPrioritySaving: (saving: boolean) => {
+        saving: boolean
+    }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
@@ -608,6 +615,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         commentId: string
         content: string
+    }
+    updatePriority: (priority: ReportPriorityApi) => {
+        priority: ReportPriorityApi
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -712,6 +722,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
         selectPullRequest: (url: string) => ({ url }),
         setReport: (report: SignalReport | null) => ({ report }),
+        updatePriority: (priority: ReportPriorityApi) => ({ priority }),
+        setPrioritySaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
@@ -928,7 +940,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         // Checks whose cancel request is in flight, so each row's Stop button disables itself
         // without blocking a second row.
@@ -951,6 +963,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
+        prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,
             {
@@ -982,7 +995,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 toggleExpandedTask: (state, { taskId }) =>
                     state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
-                setReport: () => [],
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : []),
             },
         ],
         // Which tab the report column shows. The logic is keyed by report id, so each report keeps its
@@ -1090,7 +1103,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 openDraftThread: (_, { draft }) => draft,
                 closeDraftThread: () => null,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
         // Which thread's composer has a post in flight — gates its submit button and textarea.
@@ -1106,10 +1119,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 setEditingCommentId: (_, { commentId }) => commentId,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
-    }),
+    })),
 
     selectors({
         // Mirrors the optimistic override lifecycle: an update is in flight exactly while the
@@ -1400,6 +1413,40 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props, selectors }) => ({
+        updatePriority: async ({ priority }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
+                return
+            }
+            actions.setPrioritySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
+            } catch {
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setPrioritySaving(false)
+                    lemonToast.error("Couldn't save the priority. Try again.")
+                }
+                return
+            }
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                priority,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setPrioritySaving(false)
+        },
         approveReportCheck: async ({ checkId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {

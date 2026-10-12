@@ -20,6 +20,7 @@ sibling tests.
 
 from __future__ import annotations
 
+import re
 from contextlib import ExitStack
 
 import unittest
@@ -141,7 +142,14 @@ class OverrideTemporalParityTest(unittest.TestCase):
         stack = PostHogPreviewStack(backend)
         stack.write_override()
         override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
-        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 2)
+        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 3)
+
+    def test_feature_flags_reads_the_caches_django_writes(self):
+        override = self._override()
+        flags_block = override.split("  feature-flags:", 1)[1].split("  ingestion-general:", 1)[0]
+        self.assertIn(f"FLAGS_REDIS_URL={PostHogPreviewStack.FLAGS_REDIS_URL}", flags_block)
+        self.assertIn("OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000", flags_block)
+        self.assertEqual(override.count(f"FLAGS_REDIS_URL={PostHogPreviewStack.FLAGS_REDIS_URL}"), 4)
 
     def test_worker_pins_the_image(self):
         # dev-full's worker carries `build: .` — an unpinned image turns
@@ -163,7 +171,7 @@ class OverrideTemporalParityTest(unittest.TestCase):
     def test_both_services_force_the_local_warehouse_path(self):
         # A preview runs DEBUG=0, so USE_LOCAL_SETUP has to be forced or every
         # warehouse path reaches for real AWS creds instead of the stack's MinIO.
-        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 2)
+        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 3)
 
     def test_temporal_server_started_with_deps_but_not_the_worker(self):
         # The server must be listening before web schedules; the worker imports
@@ -190,6 +198,17 @@ class OverrideTemporalParityTest(unittest.TestCase):
         script = backend.long_runs[-1]
         self.assertIn("register_temporal_search_attributes", script)
         self.assertIn("WARN", script)  # non-fatal fallthrough, not a bare run
+
+    def test_migrate_applies_the_prs_cyclotron_node_migrations_tolerantly(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        stack.migrate()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        migrate_block = re.split(r"\n  \S", override.split("  cyclotron-node-migrate:", 1)[1], maxsplit=1)[0]
+        self.assertIn("./rust/cyclotron-node-migrations:/migrations/cyclotron-node-migrations:ro", migrate_block)
+        script = next(run for run in backend.long_runs if "cyclotron-node-migrate" in run)
+        self.assertIn("WARN", script)
 
     def test_reset_database_recreates_temporal(self):
         # The wiped postgres volume held temporal's DBs, and only temporal's
@@ -255,6 +274,7 @@ class TemplateSyncTest(unittest.TestCase):
             "start_cdp_service",
             "sync_hog_function_templates",
             "sync_feature_flags",
+            "warm_flag_caches",
             "up_web",
             "wait_for_health",
             "deep_health",
@@ -270,7 +290,8 @@ class TemplateSyncTest(unittest.TestCase):
         self.assertLess(events.index("migrate"), events.index("start_cdp_service"))
         self.assertLess(events.index("start_cdp_service"), events.index("sync_hog_function_templates"))
         self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
-        self.assertLess(events.index("sync_feature_flags"), events.index("up_web"))
+        self.assertLess(events.index("sync_feature_flags"), events.index("warm_flag_caches"))
+        self.assertLess(events.index("warm_flag_caches"), events.index("up_web"))
 
     def test_cdp_service_uses_the_published_image_configuration(self):
         backend = _RecordingBackend()

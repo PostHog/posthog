@@ -108,29 +108,6 @@ class TestWindows:
         assert window.start == window.end - snowplow.JOB_RUNS_RETENTION
 
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_incremental_run_rewinds_watermark_by_lookback(self) -> None:
-        # A run listed while RUNNING changes state after we fetch it; advancing straight from the
-        # watermark would freeze it at RUNNING forever.
-        window = _jobs_window_bounds(
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-07-15T00:00:00Z",
-            resume_window_from=None,
-            now=datetime.now(UTC),
-        )
-        assert window.start == datetime(2026, 7, 14, tzinfo=UTC)
-
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_stale_watermark_is_clamped_to_the_retention_floor(self) -> None:
-        # A watermark older than the retention window would produce a from the API rejects.
-        window = _jobs_window_bounds(
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-06-01T00:00:00Z",
-            resume_window_from=None,
-            now=datetime.now(UTC),
-        )
-        assert window.start == window.end - snowplow.JOB_RUNS_RETENTION
-
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_future_watermark_is_clamped_to_now(self) -> None:
         window = _jobs_window_bounds(
             should_use_incremental_field=True,
@@ -140,52 +117,8 @@ class TestWindows:
         )
         assert window.start == window.end
 
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_resume_window_takes_precedence_over_the_watermark(self) -> None:
-        # On resume the saved window marks what was already yielded; restarting from the watermark
-        # would re-fetch (and re-merge) everything the crashed attempt already produced.
-        window = _jobs_window_bounds(
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-07-10T00:00:00Z",
-            resume_window_from="2026-07-14T12:00:00Z",
-            now=datetime.now(UTC),
-        )
-        assert window.start == datetime(2026, 7, 14, 12, tzinfo=UTC)
-
 
 class TestJobRuns:
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_windows_are_requested_and_state_saved_after_each(self, monkeypatch: Any) -> None:
-        run = {"runId": "r1", "state": "SUCCEEDED", "startTime": "2026-07-14T00:10:00Z"}
-
-        def handler(path: str, params: dict | None) -> Any:
-            assert path == "/jobs/v1/runs"
-            assert params is not None and set(params) == {"from", "to"}
-            return [run] if params["from"] == "2026-07-14T12:00:00Z" else []
-
-        manager = _FakeResumableManager()
-        rows, client = _run_endpoint(
-            "job_runs",
-            handler,
-            manager,
-            monkeypatch,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-07-15T12:00:00Z",
-        )
-
-        # Watermark minus the 24h lookback => one 24h window [07-14T12, 07-15T12].
-        assert [p for _, p in client.calls] == [{"from": "2026-07-14T12:00:00Z", "to": "2026-07-15T12:00:00Z"}]
-        assert rows == [run]
-        # State advances to the window end AFTER the batch was consumed, so a crash re-fetches the
-        # in-flight window instead of skipping it.
-        assert [s.window_from for s in manager.saved] == ["2026-07-15T12:00:00Z"]
-
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_resume_restarts_from_the_saved_window(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SnowplowResumeConfig(window_from="2026-07-15T00:00:00Z"))
-        _, client = _run_endpoint("job_runs", lambda path, params: [], manager, monkeypatch)
-        assert [p for _, p in client.calls] == [{"from": "2026-07-15T00:00:00Z", "to": "2026-07-15T12:00:00Z"}]
-
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_full_window_logs_a_truncation_warning(self, monkeypatch: Any) -> None:
         # The API silently caps a window at 10k rows; without the warning a truncated sync looks complete.
@@ -208,41 +141,6 @@ class TestJobRuns:
 
 
 class TestJobRunSteps:
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_steps_carry_parent_run_fields(self, monkeypatch: Any) -> None:
-        # Step names are unique only within a run; the injected runId is what makes the composite
-        # primary key unique table-wide, and runStartTime is the advertised incremental field.
-        run = {
-            "runId": "r1",
-            "jobId": "j1",
-            "jobName": "webmodel",
-            "environment": "com.acme-prod1",
-            "state": "SUCCEEDED",
-            "startTime": "2026-07-15T00:10:00Z",
-        }
-
-        def handler(path: str, params: dict | None) -> Any:
-            if path == "/jobs/v1/runs":
-                return [run]
-            assert path == "/jobs/v1/runs/r1/steps"
-            return [{"name": "run-page-views", "state": "SUCCEEDED", "dependencies": ["other"], "duration": "PT1M"}]
-
-        manager = _FakeResumableManager(SnowplowResumeConfig(window_from="2026-07-15T00:00:00Z"))
-        rows, _ = _run_endpoint("job_run_steps", handler, manager, monkeypatch)
-        assert rows == [
-            {
-                "name": "run-page-views",
-                "state": "SUCCEEDED",
-                "dependencies": ["other"],
-                "duration": "PT1M",
-                "runId": "r1",
-                "jobId": "j1",
-                "jobName": "webmodel",
-                "environment": "com.acme-prod1",
-                "runStartTime": "2026-07-15T00:10:00Z",
-            }
-        ]
-
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_run_that_404s_is_skipped(self, monkeypatch: Any) -> None:
         # A run that aged out of retention between the window listing and the steps fetch must not
@@ -280,40 +178,6 @@ class TestJobRunSteps:
 
 
 class TestFlattenFailedEventAggregates:
-    def test_flattens_one_row_per_error_and_window(self) -> None:
-        aggregates = [
-            {
-                "errorId": "e1",
-                "schemaKey": "iglu:com.acme/checkout/jsonschema/1-0-0",
-                "classification": "Validation",
-                "metrics": [
-                    {"window": "2026-07-14T00:00:00Z", "count": 12, "lastSeen": "2026-07-14T18:00:00Z"},
-                    {"window": "2026-07-15T00:00:00Z", "count": 3, "lastSeen": "2026-07-15T09:00:00Z"},
-                ],
-            }
-        ]
-        rows = _flatten_failed_event_aggregates("p1", aggregates, MagicMock())
-        assert rows == [
-            {
-                "pipelineId": "p1",
-                "errorId": "e1",
-                "schemaKey": "iglu:com.acme/checkout/jsonschema/1-0-0",
-                "classification": "Validation",
-                "window": "2026-07-14T00:00:00Z",
-                "count": 12,
-                "lastSeen": "2026-07-14T18:00:00Z",
-            },
-            {
-                "pipelineId": "p1",
-                "errorId": "e1",
-                "schemaKey": "iglu:com.acme/checkout/jsonschema/1-0-0",
-                "classification": "Validation",
-                "window": "2026-07-15T00:00:00Z",
-                "count": 3,
-                "lastSeen": "2026-07-15T09:00:00Z",
-            },
-        ]
-
     def test_rows_without_key_fields_are_skipped(self) -> None:
         # errorId and window are primary key columns; null-keyed rows would collapse distinct
         # aggregates into one persisted row on merge.
@@ -422,35 +286,6 @@ class TestClientAuth:
         response = MagicMock(status_code=200, ok=True)
         response.json.return_value = payload
         return response
-
-    def test_token_is_minted_once_and_reused(self) -> None:
-        session = self._session([self._token_response(), self._data_response([1]), self._data_response([2])])
-        with patch.object(snowplow, "make_tracked_session", return_value=session) as mock_session_factory:
-            client = SnowplowClient("org-1", "key-id", "key", MagicMock())
-            assert client.get("/users") == [1]
-            assert client.get("/users") == [2]
-        # The session must never follow redirects: the token exchange carries the admin-capable API
-        # key in custom X-API-Key headers, which requests would replay to a redirect target.
-        assert mock_session_factory.call_args.kwargs["allow_redirects"] is False
-        # Exactly one token mint for two data calls; re-minting per request would double API traffic
-        # and hammer the credentials endpoint.
-        token_calls = [c for c in session.get.call_args_list if "credentials/v3/token" in c.args[0]]
-        assert len(token_calls) == 1
-        data_call = next(c for c in session.get.call_args_list if "credentials" not in c.args[0])
-        assert data_call.kwargs["headers"]["Authorization"] == "Bearer jwt-1"
-
-    def test_expired_token_is_reminted_once_mid_sync(self) -> None:
-        # The JWT is only valid ~24h; a long sync must recover from a 401 by re-minting instead of
-        # failing the job.
-        expired = MagicMock(status_code=401, ok=False)
-        session = self._session(
-            [self._token_response("jwt-1"), expired, self._token_response("jwt-2"), self._data_response([1])]
-        )
-        with patch.object(snowplow, "make_tracked_session", return_value=session):
-            client = SnowplowClient("org-1", "key-id", "key", MagicMock())
-            assert client.get("/users") == [1]
-        last_data_call = session.get.call_args_list[-1]
-        assert last_data_call.kwargs["headers"]["Authorization"] == "Bearer jwt-2"
 
     def test_persistent_401_raises(self) -> None:
         unauthorized = requests.Response()

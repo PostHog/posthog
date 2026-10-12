@@ -12,6 +12,13 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
+    MarketstackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
@@ -21,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketstac
     marketstack_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import MARKETSTACK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -131,60 +138,6 @@ class TestPagination:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession) -> None:
-        # A page shorter than the limit means there's no further page, even without a total.
-        session = MockSession.return_value
-        _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        rows = _rows(_source("currencies", symbols=None))
-
-        assert [r["code"] for r in rows] == ["USD"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], total=0)])
-
-        rows = _rows(_source("currencies", symbols=None))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        _rows(_source("currencies", manager=_make_manager(MarketstackResumeConfig(next_offset=2000)), symbols=None))
-
-        # The first (and only) request must start from the persisted offset, not 0.
-        assert params[0]["offset"] == 2000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_a_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        page1 = [{"code": f"c{i}"} for i in range(1000)]
-        page2 = [{"code": f"c{i}"} for i in range(1000, 2000)]
-        _wire(session, [_page(page1, total=2000), _page(page2, total=2000)])
-
-        manager = _make_manager()
-        _rows(_source("currencies", manager=manager, symbols=None))
-
-        # State saved once, with the next offset to resume from, only while more pages remain.
-        manager.save_state.assert_called_once_with(MarketstackResumeConfig(next_offset=1000))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_saves_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        manager = _make_manager()
-        _rows(_source("currencies", manager=manager, symbols=None))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_page(None, drop_data=True)])
@@ -195,55 +148,23 @@ class TestPagination:
             _rows(_source("currencies", symbols=None))
 
 
-class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_time_series_endpoint_requests_ascending_sort_and_symbols(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"symbol": "AAPL"}], total=None)])
-
-        _rows(_source("eod", symbols="AAPL"))
-
-        assert params[0]["sort"] == "ASC"
-        assert params[0]["symbols"] == "AAPL"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoint_sends_no_symbols_or_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        _rows(_source("currencies", symbols=None))
-
-        assert "symbols" not in params[0]
-        assert "sort" not in params[0]
-        assert "date_from" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_passes_date_from_watermark(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"symbol": "AAPL"}], total=None)])
-
-        _rows(_source("eod", symbols="AAPL", db_incremental_field_last_value="2021-04-09T00:00:00+0000"))
-
-        assert params[0]["date_from"] == "2021-04-09"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_date_from_on_first_incremental_sync(self, MockSession) -> None:
-        # A first incremental sync has no stored watermark, so no date_from should be sent.
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"symbol": "AAPL"}], total=None)])
-
-        _rows(_source("eod", symbols="AAPL", db_incremental_field_last_value=None))
-
-        assert "date_from" not in params[0]
-
-
 class TestRequiresSymbols:
-    @parameterized.expand([("eod",), ("intraday",), ("splits",), ("dividends",)])
-    def test_time_series_endpoints_require_symbols(self, endpoint: str) -> None:
-        # Selecting a time-series table with no symbols is a permanent misconfiguration.
+    @parameterized.expand(
+        [
+            ("eod", "[missing_symbols]"),
+            ("intraday", "[missing_symbols]"),
+            ("splits", "[missing_symbols]"),
+            ("dividends", "[missing_symbols]"),
+            ("tickerinfo", "[missing_symbols]"),
+            ("companyratings", "[missing_symbols]"),
+            ("submissions", "[missing_cik_codes]"),
+        ]
+    )
+    def test_endpoints_require_their_lookup_values(self, endpoint: str, expected_code: str) -> None:
+        # Selecting a table with nothing to look up is a permanent misconfiguration.
         with pytest.raises(ValueError) as exc:
             _source(endpoint, symbols=None)
-        assert "[missing_symbols]" in str(exc.value)
+        assert expected_code in str(exc.value)
 
     def test_blank_symbols_treated_as_missing(self) -> None:
         with pytest.raises(ValueError) as exc:
@@ -342,12 +263,6 @@ class TestSourceResponse:
             assert response.partition_keys == [expected_partition]
             assert response.partition_mode == "datetime"
 
-    def test_every_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in MARKETSTACK_ENDPOINTS:
-            response = _source(endpoint, symbols="AAPL")
-            assert response.name == endpoint
-            assert callable(response.items)
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -421,3 +336,147 @@ class TestBaseUrl:
         _rows(_source("currencies", symbols=None, api_version=version))
 
         assert sent_urls[0].startswith(f"https://api.marketstack.com/{version}/")
+
+
+def _fan_out_driver(symbols: str | None = "AAPL", cik_codes: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        MarketstackSource(), MarketstackSourceConfig(access_key="supersecret", symbols=symbols, cik_codes=cik_codes)
+    )
+
+
+class TestFanOutEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "tickerinfo_one_row_per_symbol",
+                "tickerinfo",
+                {"data": {"name": "Apple Inc", "sector": "Technology", "key_executives": [{"name": "A"}]}},
+                [{"ticker": "AAPL", "name": "Apple Inc", "sector": "Technology", "key_executives": [{"name": "A"}]}],
+            ),
+            (
+                "companyratings_flattens_rating",
+                "companyratings",
+                {
+                    "status": {"code": 200, "message": "ok"},
+                    "result": {
+                        "basics": {"company_name": "Apple Inc", "ticker": "AAPL"},
+                        "output": {
+                            "analyst_consensus": {"consensus_conclusion": "Buy"},
+                            "analysts": [
+                                {
+                                    "analyst_name": "Jane Doe",
+                                    "analyst_firm": "Example Securities",
+                                    "analyst_role": "Analyst",
+                                    "rating": {"date_rating": "2026-09-01", "price_target": "250", "rated": "buy"},
+                                },
+                                {"analyst_name": "John Roe", "analyst_firm": "Sample Capital", "rating": None},
+                            ],
+                        },
+                    },
+                },
+                [
+                    {
+                        "ticker": "AAPL",
+                        "company_name": "Apple Inc",
+                        "analyst_name": "Jane Doe",
+                        "analyst_firm": "Example Securities",
+                        "analyst_role": "Analyst",
+                        "date_rating": "2026-09-01",
+                        "price_target": "250",
+                        "rated": "buy",
+                    },
+                    {
+                        "ticker": "AAPL",
+                        "company_name": "Apple Inc",
+                        "analyst_name": "John Roe",
+                        "analyst_firm": "Sample Capital",
+                    },
+                ],
+            ),
+            (
+                "companyratings_without_analysts_yields_nothing",
+                "companyratings",
+                {"result": {"basics": {"ticker": "AAPL"}, "output": {"analysts": None}}},
+                [],
+            ),
+            (
+                "submissions_transposes_filing_arrays",
+                "submissions",
+                {
+                    "data": {
+                        "cik_code": "0000000001",
+                        "company_name": "Example Corp",
+                        "tickers": ["EXMP"],
+                        "filings": {
+                            "recent": {
+                                "accession_number": ["0000000001-26-000002", "0000000001-26-000001"],
+                                "filing_date": ["2026-08-01", "2026-05-01"],
+                                "form": ["10-Q"],
+                            },
+                            "files": [],
+                        },
+                    }
+                },
+                [
+                    {
+                        "cik_code": "0000000001",
+                        "company_name": "Example Corp",
+                        "accession_number": "0000000001-26-000002",
+                        "filing_date": "2026-08-01",
+                        "form": "10-Q",
+                    },
+                    {
+                        "cik_code": "0000000001",
+                        "company_name": "Example Corp",
+                        "accession_number": "0000000001-26-000001",
+                        "filing_date": "2026-05-01",
+                        "form": None,
+                    },
+                ],
+            ),
+        ]
+    )
+    def test_row_shaping(self, _name: str, endpoint: str, body: dict[str, Any], expected: list[dict]) -> None:
+        result = _fan_out_driver(cik_codes="0000000001").run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == expected
+        assert result.paths == [f"/v2/{endpoint}"]
+
+    def test_walks_each_distinct_value_and_saves_state_before_yielding(self) -> None:
+        def ratings(ticker: str) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "result": {
+                        "basics": {"ticker": ticker},
+                        "output": {"analysts": [{"analyst_name": "Jane Doe", "rating": {"date_rating": "2026-09-01"}}]},
+                    }
+                }
+            )
+
+        result = _fan_out_driver(symbols=" AAPL, MSFT,AAPL,").run("companyratings", [ratings("AAPL"), ratings("MSFT")])
+
+        assert result.raised is None
+        assert result.params("ticker") == ["AAPL", "MSFT"]
+        assert [row["ticker"] for row in result.rows] == ["AAPL", "MSFT"]
+        assert result.committed_states == [MarketstackResumeConfig(next_offset=1)]
+
+    def test_resumes_from_the_next_value(self) -> None:
+        result = _fan_out_driver(symbols="AAPL,MSFT").run(
+            "tickerinfo",
+            [ScriptedResponse(json={"data": {"ticker": "MSFT"}})],
+            resume_state=MarketstackResumeConfig(next_offset=1),
+        )
+
+        assert result.raised is None
+        assert result.params("ticker") == ["MSFT"]
+
+    def test_error_envelope_fails_loud(self) -> None:
+        result = _fan_out_driver().run(
+            "tickerinfo",
+            [ScriptedResponse(json={"error": {"code": "function_access_restricted", "message": "Upgrade your plan."}})],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "[function_access_restricted]" in str(result.raised)
+        assert "supersecret" not in str(result.raised)

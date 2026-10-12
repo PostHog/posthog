@@ -1,5 +1,4 @@
 import json
-import inspect
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -15,7 +14,6 @@ from posthog.constants import (
     TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
@@ -205,25 +203,6 @@ class Entity(PropertyMixin):
         "distinct_id_field",
         "table_name",
     )
-
-
-class ExclusionEntity(Entity, FunnelFromToStepsMixin):
-    """
-    Exclusion Entities represent Entities in Filter objects
-    with extra parameters for exclusion semantics.
-    """
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        super().__init__(data)
-
-    def to_dict(self) -> dict[str, Any]:
-        ret = super().to_dict()
-
-        for _, func in inspect.getmembers(self, inspect.ismethod):
-            if hasattr(func, "include_dict"):  # provided by @include_dict decorator
-                ret.update(func())
-
-        return ret
 
 
 def parse_entities(data: dict) -> list["Entity"]:

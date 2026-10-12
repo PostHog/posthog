@@ -283,7 +283,7 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert len(additions) == 1
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
 
-    # An APPROVED verdict never hands off to ReviewHog — the reviewhog label is a refusal-only signal.
+    # An APPROVED verdict never hands off to ReviewHog — the posthog-review label is a refusal-only signal.
     assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
 
 
@@ -860,6 +860,7 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
         "POSTHOG_API_KEY",
         "POSTHOG_HOST",
         "STAMPHOG_EXTRA_PROPERTIES",
+        "STAMPHOG_REVIEWER_ENGINE",
         *NETWORK_RESTRICTED_AGENT_ENV,
     }
     assert all(env[name] == "1" for name in NETWORK_RESTRICTED_AGENT_ENV)
@@ -1810,7 +1811,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
     label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
-    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["reviewhog"]}]
+    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["posthog-review"]}]
     assert label_adds == (expected if expect_handoff else [])
 
 
@@ -1872,7 +1873,7 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
     # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
     # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
     # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
-    # returns skipped_superseded and the reviewhog label is never added. The run carries inbox
+    # returns skipped_superseded and the posthog-review label is never added. The run carries inbox
     # provenance so the supersession is what blocks the handoff, not the self-driving-only condition.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-superseded"
@@ -2305,8 +2306,34 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
         assert pull_request.summary_line == run.change_summary
 
 
+def _path_denied_engine_output(deny_categories: list[str]) -> str:
+    payload = {
+        "final_verdict": "REFUSED",
+        "gates": [
+            {"gate": "size", "passed": True, "message": "within ceiling"},
+            {"gate": "deny-list", "passed": False, "message": "matches: infra_cicd"},
+            {"gate": "tier", "passed": False, "message": "classified as T2-never"},
+        ],
+        "classification": {"deny_categories": deny_categories},
+        "review_body": "Refused by stamphog.",
+    }
+    return json.dumps(payload)
+
+
+@pytest.mark.parametrize(
+    "engine_output, expect_hint",
+    [
+        pytest.param(_refused_engine_output(), "Re-add the `stamphog` label", id="reviewer-refusal"),
+        # A re-review of the same files refuses again, so the review must not invite one.
+        pytest.param(_path_denied_engine_output(["infra_cicd", "migrations"]), "gives the same result", id="path-deny"),
+        # The Migration risk check lifts this deny with the files unchanged.
+        pytest.param(_path_denied_engine_output(["migrations"]), "Re-add the `stamphog` label", id="migrations-only"),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogChain) -> None:
+def test_each_non_approval_posts_its_own_review(
+    team, stamphog_chain: StamphogChain, engine_output: str, expect_hint: str
+) -> None:
     # Every verdict has to land in the Reviews section, the same list the approvals land in. A refusal
     # written into an edited issue comment notified nobody and sat in a different list from the
     # approval that later replaced it, so a stale refusal outlived the approval it contradicted. Each
@@ -2327,7 +2354,7 @@ def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogCh
             pull_request=pull_request,
             head_sha=head_sha,
             status=ReviewRunStatus.REVIEWING,
-            output={"reviewer_raw": _refused_engine_output()},
+            output={"reviewer_raw": engine_output},
         )
         # Twice per run: a Temporal retry after the post must not repeat the review.
         _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
@@ -2343,7 +2370,7 @@ def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogCh
         assert review["body"]["commit_id"] == head_sha
         assert review["body"]["body"].startswith("**Not approved")
         # LABEL mode strips the trigger label, so the review has to say how to ask again.
-        assert "Re-add the `stamphog` label" in review["body"]["body"]
+        assert expect_hint in review["body"]["body"]
 
 
 @pytest.mark.parametrize(

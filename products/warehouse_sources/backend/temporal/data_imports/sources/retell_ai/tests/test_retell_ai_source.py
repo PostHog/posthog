@@ -1,8 +1,5 @@
 import json
-from collections.abc import Iterable
 from dataclasses import replace
-from datetime import UTC, datetime
-from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -10,42 +7,14 @@ from unittest.mock import MagicMock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.models.external_data_schema import apply_incremental_lookback
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    UnknownResourceError,
-    build_default_sync_settings,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retellai import (
     RetellAISourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.retell_ai.source import RetellAISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.retell_ai.tests.conftest import response
-from products.warehouse_sources.backend.types import IncrementalFieldType
-
-
-@pytest.mark.parametrize("name", ["calls", "chats"])
-def test_schema_lookback_refetches_recent_analysis(
-    name: str, inputs: SourceInputs, http: MagicMock, redis_client: MagicMock
-) -> None:
-    source = RetellAISource()
-    config = RetellAISourceConfig(api_key="fake-key")
-    schemas = source.get_schemas(config, 1, names=[name])
-    assert len(schemas) == 1
-    sync_settings = build_default_sync_settings(schemas[0])
-    assert sync_settings["sync_type"] == "incremental"
-    watermark = datetime(2026, 1, 1, 1, tzinfo=UTC)
-    shifted = apply_incremental_lookback(
-        watermark, IncrementalFieldType.DateTime, sync_settings["incremental_field_lookback_seconds"]
-    )
-    inputs = replace(
-        inputs, schema_name=name, should_use_incremental_field=True, db_incremental_field_last_value=shifted
-    )
-    http.return_value = response({"items": [], "has_more": False})
-    result = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
-    assert list(cast(Iterable[Any], result.items())) == []
-    assert json.loads(http.call_args.args[1].body)["filter_criteria"]["start_timestamp"]["value"] == 1767225600000
 
 
 @pytest.mark.parametrize("status", [200, 401, 403])

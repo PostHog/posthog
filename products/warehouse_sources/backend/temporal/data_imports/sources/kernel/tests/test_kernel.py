@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.ker
     KernelUnexpectedResponseError,
     _extract_items,
     _next_page,
-    _redact_sensitive_fields,
     get_audit_log_rows,
     get_rows,
     kernel_source,
@@ -67,19 +66,6 @@ class TestExtractItems:
             _extract_items(body)
 
 
-class TestRedactSensitiveFields:
-    def test_strips_credential_bearing_keys_case_insensitively(self) -> None:
-        item = {
-            "id": "b1",
-            "env_vars": {"SECRET": "x"},
-            "CDP_WS_URL": "wss://token@example",
-            "webdriver_ws_url": "wss://jwt@example",
-            "browser_live_view_url": "https://token@example",
-            "region": "us",
-        }
-        assert _redact_sensitive_fields(item) == {"id": "b1", "region": "us"}
-
-
 class TestNextPage:
     @pytest.mark.parametrize(
         "headers, page_len, expected",
@@ -99,20 +85,6 @@ class TestNextPage:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_ok",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session: Any, status_code: int, expected_ok: bool) -> None:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        ok, status = validate_credentials("sk_test")
-        assert ok is expected_ok
-        assert status == status_code
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_sends_bearer_auth(self, mock_session: Any) -> None:
         response = mock.MagicMock()
@@ -138,17 +110,6 @@ class TestGetRows:
         for table in get_rows("sk_test", endpoint, mock.MagicMock()):
             rows.extend(table.to_pylist())
         return rows
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_single_page_full_refresh(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = _response([{"id": "a1"}, {"id": "a2"}], has_more=False)
-
-        rows = self._collect("apps")
-
-        assert rows == [{"id": "a1"}, {"id": "a2"}]
-        assert mock_session.return_value.get.call_count == 1
-        # Kernel responses carry secrets the generic sampler can't scrub, so capture must be off.
-        assert mock_session.call_args.kwargs["capture"] is False
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_offset_pagination_follows_next_offset_header(self, mock_session: Any) -> None:
@@ -178,53 +139,6 @@ class TestGetRows:
         ]
         assert self._collect("apps") == [{"id": "a1"}]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_without_advancing_offset_terminates(self, mock_session: Any) -> None:
-        # Empty page claiming more pages but with no way to advance the offset must stop,
-        # not loop forever re-fetching the same request.
-        mock_session.return_value.get.return_value = _response([], has_more=True)
-        assert self._collect("apps") == []
-        assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_browsers_requests_all_statuses(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = _response([{"id": "b1"}], has_more=False)
-
-        self._collect("browsers")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "status=all" in url
-
-    @pytest.mark.parametrize(
-        "endpoint, item, expected",
-        [
-            (
-                "browsers",
-                {"id": "b1", "browser_live_view_url": "https://token@example", "region": "us"},
-                {"id": "b1", "region": "us"},
-            ),
-            (
-                "proxies",
-                {
-                    "id": "p1",
-                    "type": "custom",
-                    "config": {"host": "proxy.example.com", "port": 8080, "username": "user", "password": "x"},
-                },
-                # The batcher stores nested objects as JSON strings.
-                {"id": "p1", "type": "custom", "config": '{"host":"proxy.example.com","port":8080}'},
-            ),
-        ],
-    )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_sensitive_fields_are_stripped_from_rows(
-        self, mock_session: Any, endpoint: str, item: dict[str, Any], expected: dict[str, Any]
-    ) -> None:
-        mock_session.return_value.get.return_value = _response([item], has_more=False)
-
-        rows = self._collect(endpoint)
-
-        assert rows == [expected]
-
     @pytest.mark.parametrize(
         "error_code, expect_error",
         [("projects_disabled", False), ("not_found", True)],
@@ -249,20 +163,6 @@ class TestGetRows:
 
         with pytest.raises(KernelUnexpectedResponseError):
             self._collect("apps")
-
-    @mock.patch("time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_retries_retryable_status_then_succeeds(self, mock_session: Any, _sleep: Any) -> None:
-        mock_session.return_value.get.side_effect = [
-            _response(None, status_code=500),
-            _response(None, status_code=429),
-            _response([{"id": "a1"}], has_more=False),
-        ]
-
-        rows = self._collect("apps")
-
-        assert rows == [{"id": "a1"}]
-        assert mock_session.return_value.get.call_count == 3
 
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")

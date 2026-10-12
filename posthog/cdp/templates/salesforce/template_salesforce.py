@@ -22,7 +22,7 @@ common_inputs = {
 }
 
 template_create: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-salesforce-create",
@@ -124,7 +124,7 @@ return res.body
 )
 
 template_update: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-salesforce-update",
@@ -234,7 +234,7 @@ return empty(res.body) ? {'success': true} : res.body
 
 
 template_lookup: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-salesforce-lookup",

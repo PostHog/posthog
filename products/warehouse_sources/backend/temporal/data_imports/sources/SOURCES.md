@@ -199,6 +199,7 @@ the row lists both.
 | checkly                          | HTTP                        | requests                                                        | ✅                          |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
+| chess_com                        | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
 | cisco_meraki                     | HTTP                        | requests                                                        | ✅                          |
 | clarifai                         | HTTP                        | requests                                                        | ✅                          |
@@ -507,6 +508,7 @@ the row lists both.
 | lodgify                          | HTTP                        | requests                                                        | ✅                          |
 | logicmonitor                     | HTTP                        | requests                                                        | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
+| looker                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lovable                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -701,6 +703,7 @@ the row lists both.
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
 | rubygems                         | HTTP                        | requests                                                        | ✅                          |
+| rudderstack                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ruddr                            | HTTP                        | requests                                                        | ✅                          |
 | runpod                           | HTTP                        | requests                                                        | ✅                          |
 | safetyculture                    | HTTP                        | requests                                                        | ✅                          |
@@ -784,6 +787,7 @@ the row lists both.
 | stack_overflow_for_teams         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | statuscake                       | HTTP                        | requests                                                        | ✅                          |
 | statuspage                       | HTTP                        | requests                                                        | ✅                          |
+| steam                            | HTTP                        | requests                                                        | ✅                          |
 | stigg                            | HTTP                        | requests                                                        | ✅                          |
 | stockdata                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | streamelements                   | HTTP                        | requests                                                        | ✅                          |
@@ -814,6 +818,7 @@ the row lists both.
 | temporalio                       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tenable_vulnerability_management | HTTP (async export flow)    | requests                                                        | ✅                          |
 | terraform_cloud                  | HTTP                        | requests                                                        | ✅                          |
+| testdino                         | HTTP                        | requests                                                        | ✅                          |
 | testrail                         | HTTP                        | requests                                                        | ✅                          |
 | thinkific                        | HTTP                        | requests                                                        | ✅                          |
 | thinkific_courses                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1044,6 +1049,7 @@ doesn't conflict with concurrent PRs.
 - castor_edc
 - chargebackstop
 - chargeflow
+- checkhq
 - checkly
 - chift
 - chorus
@@ -1236,6 +1242,7 @@ doesn't conflict with concurrent PRs.
 - kyve
 - labelbox
 - lambda_labs
+- laravel_cloud
 - lawmatics
 - learnworlds
 - ledyer
@@ -1250,7 +1257,6 @@ doesn't conflict with concurrent PRs.
 - llama_cloud
 - logrocket
 - lokalise
-- looker
 - loom
 - m3ter
 - mailtrap
@@ -1363,6 +1369,7 @@ doesn't conflict with concurrent PRs.
 - quay
 - quickbooks
 - railz
+- rainforest_pay
 - raisely
 - raken
 - rakuten_advertising
@@ -1378,12 +1385,12 @@ doesn't conflict with concurrent PRs.
 - reply_io
 - retail_express
 - retently
+- rewardful
 - ringcentral
 - rocket_chat
 - rocket_matter
 - rocketlane
 - rss
-- rudderstack
 - safetyculture
 - sage_intacct
 - sailthru
@@ -1441,6 +1448,7 @@ doesn't conflict with concurrent PRs.
 - sprinto
 - sprout_social
 - sqlite
+- stackadapt
 - starburst
 - statsig
 - stockx
@@ -1465,7 +1473,6 @@ doesn't conflict with concurrent PRs.
 - ternary
 - tessitura
 - terra_api
-- testdino
 - thinkific_courses
 - thoughtspot
 - threads
@@ -1480,6 +1487,7 @@ doesn't conflict with concurrent PRs.
 - toast
 - toggl
 - track_pms
+- tracklution
 - tradable_bits
 - tremendous
 - triple_whale
@@ -1494,6 +1502,7 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_bls
+- userback
 - uservoice
 - vanta
 - vespa
@@ -1512,6 +1521,7 @@ doesn't conflict with concurrent PRs.
 - whmcs
 - wikipedia_pageviews
 - windsor_ai
+- wise
 - wisprflow
 - wistia
 - wiz

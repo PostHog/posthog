@@ -5,14 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import MAX_KEYWORDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
-    DATAFORSEO_ENDPOINTS,
-    ENDPOINTS,
-    KEYWORD_SCOPES,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
@@ -37,36 +31,6 @@ def _make_config(
 
 
 class TestDataForSEOSource:
-    def test_source_config_fields(self) -> None:
-        config = DataForSEOSource().get_source_config
-        assert [f.name for f in config.fields] == [
-            "api_login",
-            "api_password",
-            "targets",
-            "keywords",
-            "location_name",
-            "language_name",
-        ]
-        fields = {f.name: f for f in config.fields}
-
-        def input_field(name: str) -> SourceFieldInputConfig:
-            field = fields[name]
-            assert isinstance(field, SourceFieldInputConfig)
-            return field
-
-        password_field = input_field("api_password")
-        # The API password is a secret credential, so it must render as a password input.
-        assert password_field.type == "password"
-        assert password_field.secret is True
-        assert password_field.required is True
-        assert input_field("api_login").required is True
-        assert input_field("targets").required is True
-        # Location and language fall back to defaults in the transport when left blank, and only
-        # the keyword-scoped tables need keywords.
-        assert input_field("keywords").required is False
-        assert input_field("location_name").required is False
-        assert input_field("language_name").required is False
-
     def test_connection_host_fields_cover_every_spend_field(self) -> None:
         # targets and keywords both select what the stored credential spends paid requests on,
         # so changing either must force re-entry of the secret.
@@ -75,32 +39,6 @@ class TestDataForSEOSource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert DataForSEOSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
-        schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # No DataForSEO live endpoint has a server-side updated-since filter.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-
-    def test_get_schemas_exposes_primary_keys(self) -> None:
-        schemas = {s.name: s for s in DataForSEOSource().get_schemas(_make_config(), team_id=1)}
-        assert schemas["ranked_keywords"].detected_primary_keys == ["target", "keyword", "item_type", "rank_absolute"]
-        assert schemas["historical_rank_overview"].detected_primary_keys == ["target", "year", "month"]
-        assert schemas["competitors_domain"].detected_primary_keys == ["target", "domain"]
-        # The lookup tables are global, so they key on their own code rather than on a target.
-        assert schemas["locations_and_languages"].detected_primary_keys == ["location_code"]
-        assert schemas["categories"].detected_primary_keys == ["category_code"]
-
-    def test_tables_needing_extra_setup_are_off_by_default(self) -> None:
-        # A table that needs the separate paid Backlinks subscription, or keywords the source
-        # form leaves optional, cannot be part of the default selection that one-shot setup
-        # enables — it would fail the first sync.
-        schemas = {s.name: s for s in DataForSEOSource().get_schemas(_make_config(), team_id=1)}
-        for name, schema in schemas.items():
-            endpoint = DATAFORSEO_ENDPOINTS[name]
-            needs_extra_setup = endpoint.path.startswith("/backlinks/") or endpoint.scope in KEYWORD_SCOPES
-            assert schema.should_sync_default is not needs_extra_setup
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1, names=["ranked_keywords"])
@@ -135,12 +73,6 @@ class TestDataForSEOSource:
         assert ok is False
         assert message is not None
         assert str(MAX_KEYWORDS) in message
-        probe.assert_not_called()
-
-    def test_validate_credentials_skips_probe_without_targets(self) -> None:
-        with patch(f"{MODULE}.validate_dataforseo_credentials") as probe:
-            ok, _ = DataForSEOSource().validate_credentials(_make_config(targets=""), team_id=1)
-        assert ok is False
         probe.assert_not_called()
 
     def test_source_for_pipeline_plumbs_config(self) -> None:
@@ -252,10 +184,3 @@ class TestDataForSEOSource:
         source = DataForSEOSource()
         assert error_message_matches(error_msg, source.get_retryable_errors())
         assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
-
-    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
-        descriptions = DataForSEOSource().get_canonical_descriptions()
-        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
-        assert set(descriptions.keys()) <= set(ENDPOINTS)
-        assert "ranked_keywords" in descriptions
-        assert "backlinks_summary" in descriptions

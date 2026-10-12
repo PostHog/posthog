@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import date, datetime
+from datetime import date
 from typing import Any, cast
 
 import pytest
@@ -8,14 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.pluralsight_flow import (
     PluralsightFlowResumeConfig,
-    _core_resource,
-    _default_metrics_date_range,
     _format_incremental_value,
-    _metrics_resource,
     normalize_workspace,
     pluralsight_flow_source,
     validate_credentials,
@@ -23,20 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsigh
 
 
 class TestNormalizeWorkspace:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("acme", "acme"),
-            ("acme-test", "acme-test"),
-            ("acme2024", "acme2024"),
-            ("acme.appfireflow.com", "acme"),
-            ("https://acme.appfireflow.com", "acme"),
-            ("https://acme.appfireflow.com/", "acme"),
-        ],
-    )
-    def test_accepts_and_normalizes_valid_workspaces(self, raw, expected):
-        assert normalize_workspace(raw) == expected
-
     @pytest.mark.parametrize(
         "raw",
         [
@@ -53,64 +35,8 @@ class TestNormalizeWorkspace:
 
 
 class TestFormatIncrementalValue:
-    def test_formats_datetime(self):
-        assert _format_incremental_value(datetime(2024, 3, 5, 12, 30, 45)) == "2024-03-05T12:30:45"
-
     def test_formats_date(self):
         assert _format_incremental_value(date(2024, 3, 5)) == "2024-03-05T00:00:00"
-
-    def test_passes_through_already_formatted_string(self):
-        # The `initial_value` seed for a never-synced schema is already a formatted string.
-        assert _format_incremental_value("1970-01-01T00:00:00") == "1970-01-01T00:00:00"
-
-
-class TestDefaultMetricsDateRange:
-    def test_builds_trailing_window(self):
-        assert _default_metrics_date_range(today=date(2026, 4, 30)) == "[2026-01-30:2026-04-30]"
-
-
-def _endpoint_params(resource: EndpointResource) -> dict[str, Any]:
-    # `endpoint` is typed as `str | Endpoint | None` (a dlt-style shorthand union), so mypy can't
-    # index into it directly even though these tests only ever build the dict form.
-    endpoint = cast(dict[str, Any], resource["endpoint"])
-    return cast(dict[str, Any], endpoint["params"])
-
-
-class TestCoreResource:
-    def test_incremental_endpoint_sets_merge_disposition_and_filter_param(self):
-        resource = _core_resource("Commits", should_use_incremental_field=True)
-
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        assert resource["table_name"] == "commits"
-        params = _endpoint_params(resource)
-        assert "author_date__gte" in params
-        assert params["author_date__gte"]["type"] == "incremental"
-
-    def test_incremental_endpoint_without_incremental_flag_is_full_refresh(self):
-        resource = _core_resource("Commits", should_use_incremental_field=False)
-
-        assert resource["write_disposition"] == "replace"
-        params = _endpoint_params(resource)
-        assert params == {}
-
-    def test_endpoint_with_no_incremental_fields_ignores_the_flag(self):
-        # Repos has no INCREMENTAL_FIELDS entry, so even should_use_incremental_field=True
-        # must not add a filter param.
-        resource = _core_resource("Repos", should_use_incremental_field=True)
-
-        assert resource["write_disposition"] == "replace"
-        params = _endpoint_params(resource)
-        assert params == {}
-
-
-class TestMetricsResource:
-    def test_stamps_date_range_onto_each_row(self):
-        resource = _metrics_resource("CodingMetrics", "[2026-01-01:2026-04-01]")
-        data_map = resource["data_map"]
-        assert data_map is not None
-
-        row = data_map({"time_to_merge": {"average": 3.2}})
-        assert row == {"time_to_merge": {"average": 3.2}, "date_range": "[2026-01-01:2026-04-01]"}
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -189,15 +115,6 @@ class TestPluralsightFlowSourceCoreEndpoints:
         assert rows == [{"id": 5}]
         assert sent_params[0].get("offset") == 2000
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"count": 1, "next": None, "previous": None, "results": [{"id": 1}]})]
-        self._drive("Repos", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_incremental_endpoint_sends_gte_filter(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

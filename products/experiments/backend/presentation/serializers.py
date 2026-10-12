@@ -6,8 +6,9 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+import logging
 from copy import deepcopy
-from typing import Annotated, Any, TypeGuard
+from typing import Annotated, Any, Final, TypeGuard
 
 from django.utils import timezone
 
@@ -39,15 +40,20 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.models.team.team import Team
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.contracts import (
+    CreateExperimentInput,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingCode,
+    ExperimentHealthFindingSeverity,
+)
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
@@ -58,16 +64,20 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
-from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
+from products.experiments.backend.session_buckets import (
+    MAX_BUCKET_SCAN_DAYS,
+    MAX_SESSION_BUCKET_LIMIT,
+    ExperimentSessionBucket,
+)
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.experiments.backend.session_event_deltas import (
     FIRST_SESSION_HORIZON_HOURS,
     MAX_CARD_HIGHLIGHTS,
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
-    DeltaStrength,
-    WatchCardKind,
-    WatchEmptyReason,
+    ExperimentWatchCardKind,
+    ExperimentWatchCardStrength,
+    ExperimentWatchEmptyReason,
 )
 from products.experiments.backend.setup_context import (
     DEFAULT_LIST_LIMIT,
@@ -84,6 +94,9 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
+
+EXPERIMENT_HEALTH_FINDINGS_FLAG: Final = "experiment-health-findings"
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -177,6 +190,66 @@ class ExperimentRunningTimeCalculationField(serializers.JSONField):
 @extend_schema_field(ExperimentMetric)  # type: ignore[arg-type]
 class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {"oneOf": [{"type": "string"}, {"type": "number"}], "nullable": True},
+    }
+)
+class ExperimentHealthEvidenceField(serializers.DictField):
+    pass
+
+
+class ExperimentHealthFindingSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=ExperimentHealthFindingCode.choices,
+        help_text="Stable identifier of the problem. Each code has one meaning across every surface that reports it.",
+    )
+    subcode = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The case within the code, when a code covers several, for example "
+            "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
+        ),
+    )
+    severity = serializers.ChoiceField(
+        choices=ExperimentHealthFindingSeverity.choices,
+        help_text="How much the problem affects the results: critical, warning, or info.",
+    )
+    title = serializers.CharField(help_text="One-line summary of the problem.")
+    detail = serializers.CharField(help_text="What is wrong, what it does to the experiment, and how to fix it.")
+    evidence = ExperimentHealthEvidenceField(
+        help_text=(
+            "The values behind the finding, such as the key of a shipped variant or the share of users "
+            "exposed to multiple variants. The keys depend on the code."
+        ),
+    )
+    actions = serializers.ListField(
+        child=serializers.ChoiceField(choices=ExperimentHealthFindingActionKind.choices),
+        help_text=(
+            "The actions that fix the problem, in order of preference, for example 'open_feature_flag' "
+            "or 'add_primary_metric'."
+        ),
+    )
+    diagnostic_ref = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. "
+            "Null when the skill has none."
+        ),
+    )
+
+
+class ExperimentHealthSerializer(serializers.Serializer):
+    findings = ExperimentHealthFindingSerializer(
+        many=True,
+        help_text=(
+            "Problems that the health checks found in the experiment's configuration and its feature flag. "
+            "Empty when every check passed."
+        ),
+    )
 
 
 class ExperimentBaseSerializer(
@@ -501,6 +574,13 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "experiment would resolve to if launched now."
         ),
     )
+    health = serializers.SerializerMethodField(
+        help_text=(
+            "Health check diagnostics for this experiment: problems in its configuration and its feature "
+            "flag that keep it from producing trustworthy results, each with a fix. Read `findings` first "
+            "when you diagnose an experiment. Null where health checks are not enabled yet."
+        ),
+    )
     version = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -597,6 +677,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "is_legacy",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "health",
             "user_access_level",
             "tags",
         ]
@@ -612,6 +693,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "health",
             "user_access_level",
         ]
 
@@ -634,13 +716,33 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
-    @staticmethod
-    def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:
-        links = instance.experimenttosavedmetric_set.all()
-        # Calling select_related on the manager would discard a prefetch cache and query again.
-        if "experimenttosavedmetric_set" not in getattr(instance, "_prefetched_objects_cache", {}):
-            links = links.select_related("saved_metric")
-        return {link.id: link.saved_metric.query for link in links}
+    @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
+    def get_health(self, obj: Experiment) -> dict[str, Any] | None:
+        if not self._health_findings_enabled(obj.team):
+            return None
+        return ExperimentHealthSerializer(
+            {"findings": get_experiment_health_findings(team_id=obj.team_id, experiment_id=obj.id)}
+        ).data
+
+    def _health_findings_enabled(self, team: Team) -> bool:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        distinct_id = getattr(user, "distinct_id", None)
+        email = getattr(user, "email", None)
+        try:
+            # Local evaluation keeps a network call off every experiment read. A flag that targets
+            # by email still matches, because the email goes in as a person property.
+            return posthog_feature_flag_enabled(
+                EXPERIMENT_HEALTH_FINDINGS_FLAG,
+                str(distinct_id or team.uuid),
+                organization_id=team.organization_id,
+                team_id=team.id,
+                person_properties={"email": email} if email else None,
+                only_evaluate_locally=True,
+            )
+        except Exception:
+            logger.warning("Failed to evaluate the experiment health findings flag", exc_info=True)
+            return False
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -672,7 +774,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
-            stored_queries = self._stored_saved_metric_queries(instance) if saved_metrics else {}
+            calculation_keys = ExperimentService.saved_metric_calculation_keys(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
@@ -682,15 +784,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                     # overrides), the same dict the daily discovery fingerprints, so the chart read finds
                     # the rows the daily workflow wrote. The action names are part of the hash, and the
                     # serialized query carries the refreshed names, so the hash reads the stored query.
-                    stored_query = stored_queries.get(saved_metric["id"]) or saved_metric["query"]
-                    saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        resolve_saved_metric_definition(stored_query, saved_metric.get("metadata")),
-                        instance.start_date,
-                        get_experiment_stats_method(instance),
-                        instance.exposure_criteria,
-                        only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=instance.excluded_variants or [],
-                    )
+                    calculation_key = calculation_keys.get(saved_metric["id"])
+                    if calculation_key is not None:
+                        saved_metric["query"]["fingerprint"] = calculation_key
 
                     # Derived from the served query after the fingerprint is stamped, so that the effective
                     # definition carries the same fingerprint and refreshed action names. Clients send it to
@@ -701,7 +797,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         served_query.get("kind") == "ExperimentMetric"
                         and served_query.get("metric_type") in METRIC_BUILDERS
                     ):
-                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                        saved_metric["effective_query"] = apply_saved_metric_overrides(
                             served_query, saved_metric.get("metadata")
                         )
 
@@ -1949,7 +2045,7 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     """Request body for the session-bucket endpoint."""
 
     bucket = serializers.ChoiceField(
-        choices=[bucket.value for bucket in SessionBucket],
+        choices=ExperimentSessionBucket.choices,
         help_text=(
             "Which question the returned session set answers. 'fired_any': the session fired at least one event "
             "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
@@ -1989,7 +2085,7 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs["bucket"] == SessionBucket.FUNNEL_DROPOFF and len(attrs.get("metric_uuids") or []) != 1:
+        if attrs["bucket"] == ExperimentSessionBucket.FUNNEL_DROPOFF and len(attrs.get("metric_uuids") or []) != 1:
             raise serializers.ValidationError(
                 {"metric_uuids": ["The drop-off bucket takes exactly one funnel metric."]}
             )
@@ -2110,7 +2206,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=[kind.value for kind in WatchCardKind],
+        choices=ExperimentWatchCardKind.choices,
         help_text=(
             "What the card is: 'behavior' for an event this variant did clearly more than the other variants "
             "together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event "
@@ -2126,7 +2222,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
         help_text="The variant whose recordings these are: for comparison cards, the one that did the event more."
     )
     strength = serializers.ChoiceField(
-        choices=[strength.value for strength in DeltaStrength],
+        choices=ExperimentWatchCardStrength.choices,
         allow_null=True,
         help_text=(
             "How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in "
@@ -2326,7 +2422,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         )
     )
     empty_reason = serializers.ChoiceField(
-        choices=[reason.value for reason in WatchEmptyReason],
+        choices=ExperimentWatchEmptyReason.choices,
         allow_null=True,
         help_text=(
             "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "

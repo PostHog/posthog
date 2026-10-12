@@ -22,6 +22,8 @@ CHILD_NAME = "redis_cluster.discovery"
 OTHER_ROOT_NAME = "POST /webhook"
 EARLY_CHILD_NAME = "queue.wait"
 LATE_CHILD_NAME = "email.send"
+# Trace C: its root starts 5 minutes before DATE_FROM, and a child on "web" is inside the range.
+EARLY_ROOT_NAME = "GET /early"
 
 
 def _b64(raw: bytes) -> str:
@@ -48,6 +50,8 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         trace_b = _b64((2).to_bytes(16, "big"))
         root_a = _b64((1).to_bytes(8, "big"))
         root_b = _b64((4).to_bytes(8, "big"))
+        trace_c = _b64((3).to_bytes(16, "big"))
+        root_c = _b64((8).to_bytes(8, "big"))
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
 
         def _row(
@@ -72,6 +76,8 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             _row(4, trace_b, root_b, "", OTHER_ROOT_NAME, "worker", 0),
             _row(5, trace_b, _b64((5).to_bytes(8, "big")), root_b, CHILD_NAME, "web", 10),
             _row(7, trace_b, _b64((7).to_bytes(8, "big")), root_b, LATE_CHILD_NAME, "delayed", 5 * 60 * 1000),
+            _row(8, trace_c, root_c, "", EARLY_ROOT_NAME, "web", -65 * 60 * 1000),
+            _row(9, trace_c, _b64((9).to_bytes(8, "big")), root_c, CHILD_NAME, "web", -59 * 60 * 1000),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -101,14 +107,15 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         [
             # rootSpans=True selects traces by ROOT match: only trace A (its root is on "web").
             # Trace B is dropped because its root is on "worker", even though a child is on "web".
-            ("true_prefetches_children_excludes_nonroot_traces", True, False),
+            ("true_prefetches_children_excludes_nonroot_traces", True, False, False),
             # rootSpans=False matches a trace on ANY span, so trace B comes through via its "web" child.
-            ("false_includes_child_matched_traces", False, True),
+            # It also loads trace C's root from before the range, so the trace does not lose its root.
+            ("false_includes_child_matched_traces", False, True, True),
             # The frontend sends None; it behaves like False (relies on prefetch for the waterfall).
-            ("none_includes_child_matched_traces", None, True),
+            ("none_includes_child_matched_traces", None, True, True),
         ]
     )
-    def test_root_spans_filter(self, _name, root_spans, expect_other_trace):
+    def test_root_spans_filter(self, _name, root_spans, expect_other_trace, expect_early_root):
         results = self._run(root_spans=root_spans, prefetch=20, service_names=["web"])
         names = {r["name"] for r in results}
         # Trace A's root always matches the filter, and its children are always prefetched for the
@@ -119,6 +126,10 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             self.assertIn(OTHER_ROOT_NAME, names)
         else:
             self.assertNotIn(OTHER_ROOT_NAME, names)
+        if expect_early_root:
+            self.assertIn(EARLY_ROOT_NAME, names)
+        else:
+            self.assertNotIn(EARLY_ROOT_NAME, names)
 
     @parameterized.expand(
         [

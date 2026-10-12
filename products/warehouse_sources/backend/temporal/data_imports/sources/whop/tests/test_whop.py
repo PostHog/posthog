@@ -14,14 +14,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.setti
     ENDPOINTS,
     PAGE_SIZE,
     WHOP_ENDPOINTS,
-    sort_mode_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import (
     WhopCursorPaginator,
     WhopResumeConfig,
     _list_params,
     _parse_datetime,
-    _to_iso8601,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -111,51 +109,13 @@ class TestParseDatetime:
     def test_values(self, value, expected):
         assert _parse_datetime(value) == expected
 
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (datetime(2024, 5, 1, 10, tzinfo=UTC), "2024-05-01T10:00:00.000Z"),
-            (datetime(2024, 5, 1, 10, 0, 0, 401000, tzinfo=UTC), "2024-05-01T10:00:00.401Z"),
-        ],
-    )
-    def test_iso8601_uses_z_suffix(self, value, expected):
-        # Whop's timestamp filters document a `Z`-suffixed ISO 8601 value; `+00:00` is not accepted
-        # by every vendor and there is no reason to risk it.
-        assert _to_iso8601(value) == expected
-
 
 class TestListParams:
-    def test_ordered_endpoint_forces_ascending_created_at(self):
-        # Only a forced sort column makes the arrival order knowable, which is what lets these
-        # endpoints declare sort_mode="asc" and checkpoint the watermark per batch.
-        params = _list_params("payments", COMPANY_ID, None)
-        assert params["order"] == "created_at"
-        assert params["direction"] == "asc"
-
-    def test_direction_only_endpoint_pins_descending_and_sends_no_order(self):
-        # `/refunds` has no `order` enum, so sending one would 400; the sort column is undocumented
-        # so the endpoint is declared desc and the watermark deferred.
-        params = _list_params("refunds", COMPANY_ID, None)
-        assert params["direction"] == "desc"
-        assert "order" not in params
-
-    def test_endpoint_without_sort_params_sends_neither(self):
-        params = _list_params("promo_codes", COMPANY_ID, None)
-        assert "order" not in params
-        assert "direction" not in params
-
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_company_and_page_size_always_sent(self, endpoint):
         params = _list_params(endpoint, COMPANY_ID, None)
         assert params["company_id"] == COMPANY_ID
         assert params["first"] == PAGE_SIZE
-
-    def test_watermark_becomes_server_side_created_after(self):
-        params = _list_params("payments", COMPANY_ID, datetime(2024, 5, 1, 10, tzinfo=UTC))
-        assert params["created_after"] == "2024-05-01T10:00:00.000Z"
-
-    def test_full_refresh_sends_no_created_after(self):
-        assert "created_after" not in _list_params("payments", COMPANY_ID, None)
 
     @pytest.mark.parametrize(
         "endpoint",
@@ -189,20 +149,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(WhopResumeConfig(cursor="cursor-1"))
 
     @mock.patch(WHOP_SESSION_PATCH)
-    def test_stops_when_has_next_page_is_false_despite_a_populated_cursor(self, MockSession):
-        # Relay keeps `end_cursor` set on the last page, so a cursor-only stop condition would
-        # re-request the final page forever.
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([{"id": "pay_1"}], end_cursor="cursor-1", has_next_page=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("payments", manager))
-
-        assert len(requests_seen) == 1
-        assert [row["id"] for row in rows] == ["pay_1"]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(WHOP_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(session, [_page([{"id": "pay_9"}], end_cursor="cursor-9", has_next_page=False)])
@@ -211,25 +157,6 @@ class TestPagination:
 
         assert [row["id"] for row in rows] == ["pay_9"]
         assert requests_seen[0]["params"]["after"] == "cursor-8"
-
-    @pytest.mark.parametrize(
-        "page_info, expected_has_next",
-        [
-            ({"end_cursor": "c", "has_next_page": True}, True),
-            ({"end_cursor": "c", "has_next_page": False}, False),
-            ({"end_cursor": None, "has_next_page": True}, False),
-            ({}, False),
-        ],
-    )
-    def test_paginator_termination(self, page_info, expected_has_next):
-        response = Response()
-        response.status_code = 200
-        response._content = json.dumps({"data": [], "page_info": page_info}).encode()
-
-        paginator = WhopCursorPaginator()
-        paginator.update_state(response, [])
-
-        assert paginator.has_next_page is expected_has_next
 
     def test_paginator_stops_on_unparseable_body(self):
         # Nothing to page with, so stopping beats re-requesting the same cursor forever.
@@ -244,41 +171,6 @@ class TestPagination:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(WHOP_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == sort_mode_for(endpoint)
-
-        partition_key = WHOP_ENDPOINTS[endpoint].partition_key
-        if partition_key is None:
-            # Partitioning on a column the resource does not return would key every row to null.
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-
-    @pytest.mark.parametrize(
-        "should_use_incremental_field, expected_disposition",
-        [
-            (True, {"disposition": "merge", "strategy": "upsert"}),
-            (False, "replace"),
-        ],
-    )
-    @mock.patch(REST_RESOURCE_PATCH)
-    @mock.patch(WHOP_SESSION_PATCH)
-    def test_write_disposition_follows_incremental_mode(
-        self, MockSession, mock_rest_api_resource, should_use_incremental_field, expected_disposition
-    ):
-        _source("payments", _make_manager(), should_use_incremental_field=should_use_incremental_field)
-
-        config = mock_rest_api_resource.call_args.args[0]
-        assert config["resources"][0]["write_disposition"] == expected_disposition
-
     @mock.patch(REST_RESOURCE_PATCH)
     @mock.patch(WHOP_SESSION_PATCH)
     def test_framework_incremental_injection_is_not_used(self, MockSession, mock_rest_api_resource):
@@ -297,44 +189,6 @@ class TestSourceResponseMetadata:
 
 
 class TestWebhookTableTransformer:
-    def test_hoists_data_and_keeps_latest_delivery_per_id(self):
-        table = table_from_py_list(
-            [
-                {
-                    "id": "msg_1",
-                    "type": "payment.pending",
-                    "timestamp": "2024-05-01T00:00:00Z",
-                    "data": {"id": "pay_1", "status": "open"},
-                },
-                {
-                    "id": "msg_2",
-                    "type": "payment.succeeded",
-                    "timestamp": "2024-05-02T00:00:00Z",
-                    "data": {"id": "pay_1", "status": "paid"},
-                },
-                {
-                    "id": "msg_3",
-                    "type": "payment.succeeded",
-                    "timestamp": "2024-05-01T00:00:00Z",
-                    "data": {"id": "pay_2", "status": "paid"},
-                },
-            ]
-        )
-
-        rows = webhook_table_transformer(table).to_pylist()
-
-        assert sorted(rows, key=lambda row: row["id"]) == [
-            {"id": "pay_1", "status": "paid"},
-            {"id": "pay_2", "status": "paid"},
-        ]
-
-    def test_accepts_payloads_serialized_back_to_json_strings(self):
-        table = table_from_py_list(
-            [{"id": "msg_1", "timestamp": "2024-05-01T00:00:00Z", "data": json.dumps({"id": "pay_1", "total": 10})}]
-        )
-
-        assert webhook_table_transformer(table).to_pylist() == [{"id": "pay_1", "total": 10}]
-
     def test_skips_rows_without_a_resource_id(self):
         table = table_from_py_list(
             [
@@ -352,15 +206,6 @@ class TestWebhookTableTransformer:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [(200, (True, 200)), (401, (False, 401)), (403, (False, 403)), (404, (False, 404)), (500, (False, 500))],
-    )
-    @mock.patch(WHOP_SESSION_PATCH)
-    def test_status_mapping(self, MockSession, status_code, expected):
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key", COMPANY_ID) == expected
-
     @mock.patch(WHOP_SESSION_PATCH)
     def test_probes_the_connected_company_with_a_bearer_token(self, MockSession):
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)

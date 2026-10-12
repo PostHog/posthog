@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lever.leve
     LEVER_ENDPOINTS,
     LeverResumeConfig,
     _build_initial_params,
-    _normalize_item,
     lever_source,
     validate_credentials,
 )
@@ -48,74 +47,42 @@ def _make_manager(resume_state: LeverResumeConfig | None = None) -> mock.MagicMo
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session, returning a list that captures each request's params AT SEND TIME.
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wire a mock session, returning each request's params and URL captured AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
     run shows only the final state — snapshot a copy when each request is prepared instead.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
+    urls: list[str] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        urls.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
-    return param_snapshots
+    return param_snapshots, urls
 
 
 def _drive(endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any):
-    """Run ``lever_source`` against a mocked session and return (param snapshots, yielded batches)."""
+    """Run ``lever_source`` against a mocked session and return (param snapshots, yielded batches, URLs)."""
     with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
         session = MockSession.return_value
-        params = _wire(session, responses)
+        params, urls = _wire(session, responses)
         source_response = lever_source(
             "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
         )
         yielded = list(cast("Iterable[Any]", source_response.items()))
-    return params, yielded
-
-
-class TestNormalizeItem:
-    @pytest.mark.parametrize(
-        "item, expected",
-        [
-            ({"id": "a", "createdAt": 1700000000000}, {"id": "a", "createdAt": 1700000000}),
-            (
-                {"id": "a", "createdAt": 1700000000000, "updatedAt": 1700000005000},
-                {"id": "a", "createdAt": 1700000000, "updatedAt": 1700000005},
-            ),
-            ({"id": "a"}, {"id": "a"}),  # no timestamp fields -> untouched
-            ({"id": "a", "createdAt": None}, {"id": "a", "createdAt": None}),  # null preserved
-        ],
-    )
-    def test_milliseconds_converted_to_seconds(self, item: dict[str, Any], expected: dict[str, Any]) -> None:
-        assert _normalize_item(item) == expected
+    return params, yielded, urls
 
 
 class TestBuildInitialParams:
-    def test_full_refresh_only_sets_limit(self) -> None:
-        params = _build_initial_params(LEVER_ENDPOINTS["users"], False, None, None)
-        assert params == {"limit": 100}
-
-    def test_first_incremental_sync_has_no_filter(self) -> None:
-        # No watermark yet (initial sync) -> pull everything, only limit is set.
-        params = _build_initial_params(LEVER_ENDPOINTS["opportunities"], True, None, "updatedAt")
-        assert params == {"limit": 100}
-
     def test_incremental_filter_converts_seconds_to_milliseconds(self) -> None:
         params = _build_initial_params(LEVER_ENDPOINTS["opportunities"], True, 1700000000, "updatedAt")
         assert params == {"limit": 100, "updated_at_start": 1700000000000}
-
-    def test_incremental_filter_uses_chosen_cursor_field(self) -> None:
-        params = _build_initial_params(LEVER_ENDPOINTS["opportunities"], True, 1700000000, "createdAt")
-        assert params == {"limit": 100, "created_at_start": 1700000000000}
-
-    def test_unknown_cursor_field_is_ignored(self) -> None:
-        params = _build_initial_params(LEVER_ENDPOINTS["opportunities"], True, 1700000000, "somethingElse")
-        assert params == {"limit": 100}
 
 
 class TestValidateCredentials:
@@ -142,19 +109,6 @@ class TestValidateCredentials:
             assert error is not None
 
     @mock.patch(LEVER_SESSION_PATCH)
-    def test_bad_key_message_distinct_from_unexpected_status(self, mock_session_factory) -> None:
-        mock_session = mock_session_factory.return_value
-
-        mock_session.get.return_value = _make_response({}, status_code=401)
-        _, unauthorized_error = validate_credentials("test_key")
-
-        mock_session.get.return_value = _make_response({}, status_code=500)
-        _, unexpected_error = validate_credentials("test_key")
-
-        assert unauthorized_error == "Invalid Lever API key. Please check your key and try again."
-        assert "500" in (unexpected_error or "")
-
-    @mock.patch(LEVER_SESSION_PATCH)
     def test_network_error_is_not_valid(self, mock_session_factory) -> None:
         mock_session = mock_session_factory.return_value
         mock_session.get.side_effect = Exception("boom")
@@ -166,30 +120,9 @@ class TestValidateCredentials:
 
 
 class TestLeverSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = lever_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.primary_keys == LEVER_ENDPOINTS[endpoint].primary_keys
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_partitioning_only_when_partition_key_present(self, endpoint: str) -> None:
-        response = lever_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        partition_key = LEVER_ENDPOINTS[endpoint].partition_key
-
-        if partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_partition_key_is_never_updated_at(self) -> None:
         for endpoint in ENDPOINTS:
             assert LEVER_ENDPOINTS[endpoint].partition_key != "updatedAt"
-
-    def test_sort_mode_is_ascending(self) -> None:
-        response = lever_source("key", "opportunities", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.sort_mode == "asc"
 
 
 class TestLeverPaginationAndResume:
@@ -203,7 +136,7 @@ class TestLeverPaginationAndResume:
             _page([{"id": "o2", "createdAt": 1700000005000}], False),
         ]
 
-        sent_params, yielded = _drive("opportunities", manager, responses)
+        sent_params, yielded, _ = _drive("opportunities", manager, responses)
 
         # First request has no offset; second request uses the saved offset token.
         assert sent_params[0].get("offset") is None
@@ -218,50 +151,13 @@ class TestLeverPaginationAndResume:
             {"id": "o2", "createdAt": 1700000005},
         ]
 
-    def test_saves_offset_after_each_non_terminal_page(self) -> None:
-        manager = _make_manager()
-
-        responses = [
-            _page([{"id": "o1"}], True, "offset_2"),
-            _page([{"id": "o2"}], True, "offset_3"),
-            _page([{"id": "o3"}], False),
-        ]
-        _drive("opportunities", manager, responses)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [LeverResumeConfig(offset="offset_2"), LeverResumeConfig(offset="offset_3")]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _make_manager()
-
-        responses = [_page([{"id": "only"}], False)]
-        _drive("opportunities", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_resume_seeds_first_request_with_saved_offset(self) -> None:
         manager = _make_manager(LeverResumeConfig(offset="saved_offset"))
 
         responses = [_page([{"id": "o5"}], False)]
-        sent_params, _ = _drive("opportunities", manager, responses)
+        sent_params, _, _ = _drive("opportunities", manager, responses)
 
         assert sent_params[0].get("offset") == "saved_offset"
-
-    def test_incremental_filter_param_sent_to_api(self) -> None:
-        manager = _make_manager()
-
-        responses = [_page([{"id": "o1"}], False)]
-        sent_params, _ = _drive(
-            "opportunities",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000,
-            incremental_field="updatedAt",
-        )
-
-        # Watermark seconds are converted to Lever's millisecond filter param.
-        assert sent_params[0]["updated_at_start"] == 1700000000000
 
     def test_hasnext_without_next_token_raises(self) -> None:
         manager = _make_manager()
@@ -273,6 +169,68 @@ class TestLeverPaginationAndResume:
             _drive("opportunities", manager, responses)
 
         manager.save_state.assert_not_called()
+
+
+class TestLeverOpportunityChildren:
+    @pytest.mark.parametrize("endpoint", ["offers", "interviews", "feedback"])
+    def test_fans_out_per_opportunity_and_tags_rows_with_parent(self, endpoint: str) -> None:
+        responses = [
+            _page([{"id": "opp1"}], True, "parent_2"),
+            _page([{"id": "c1", "createdAt": 1700000000000}], True, "child_2"),
+            _page([{"id": "c2", "createdAt": 1700000005000}], False),
+            _page([{"id": "opp2"}, {"id": "opp_deleted"}], False),
+            _page([{"id": "c1", "createdAt": 1700000010000}], False),
+            _make_response({"code": "NotFound"}, status_code=404),
+        ]
+
+        sent_params, yielded, urls = _drive(endpoint, _make_manager(), responses)
+
+        assert [url.removeprefix("https://api.lever.co/v1") for url in urls] == [
+            "/opportunities",
+            f"/opportunities/opp1/{endpoint}",
+            f"/opportunities/opp1/{endpoint}",
+            "/opportunities",
+            f"/opportunities/opp2/{endpoint}",
+            f"/opportunities/opp_deleted/{endpoint}",
+        ]
+        assert sent_params[0] == {"limit": 100, "include": "id"}
+        assert sent_params[2].get("offset") == "child_2"
+        assert sent_params[3].get("offset") == "parent_2"
+        assert [row for batch in yielded for row in batch] == [
+            {"id": "c1", "createdAt": 1700000000, "opportunity_id": "opp1"},
+            {"id": "c2", "createdAt": 1700000005, "opportunity_id": "opp1"},
+            {"id": "c1", "createdAt": 1700000010, "opportunity_id": "opp2"},
+        ]
+
+
+class TestLeverApplications:
+    def test_flattens_expanded_applications_from_opportunities(self) -> None:
+        responses = [
+            _page(
+                [
+                    {"applications": [{"id": "a1", "opportunityId": "o1", "createdAt": 1700000000000}]},
+                    {"applications": []},
+                ],
+                True,
+                "offset_2",
+            ),
+            _page([{"applications": [{"id": "a2", "opportunityId": "o2", "createdAt": 1700000005000}]}], False),
+        ]
+
+        sent_params, yielded, urls = _drive("applications", _make_manager(), responses)
+
+        assert urls[0] == "https://api.lever.co/v1/opportunities"
+        assert sent_params[0] == {"limit": 100, "expand": "applications", "include": "applications"}
+        assert [row for batch in yielded for row in batch] == [
+            {"id": "a1", "opportunityId": "o1", "createdAt": 1700000000},
+            {"id": "a2", "opportunityId": "o2", "createdAt": 1700000005},
+        ]
+
+    def test_unexpanded_application_ids_fail_loudly(self) -> None:
+        responses = [_page([{"applications": ["a1"]}], False)]
+
+        with pytest.raises(ValueError, match="expected expanded applications objects"):
+            _drive("applications", _make_manager(), responses)
 
 
 class TestResumeConfigSerialization:

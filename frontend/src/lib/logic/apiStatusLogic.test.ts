@@ -1,5 +1,8 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { MakeLogicType, kea, path } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -94,33 +97,140 @@ describe('apiStatusLogic', () => {
 
     describe('read-only impersonation 403 handling', () => {
         const READ_ONLY_DETAIL = 'This action is not allowed during read-only user impersonation.'
+        let errorSpy: jest.SpyInstance
 
-        it('surfaces the block reason as a toast', async () => {
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/users/@me/': () => [403, { code: 'impersonation_read_only', detail: READ_ONLY_DETAIL }],
+                },
+            })
             initKeaTests()
             logic = apiStatusLogic()
             logic.mount()
+            errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        })
 
-            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
-            const mockResponse = {
-                status: 403,
-                ok: false,
-                json: () => Promise.resolve({ code: 'impersonation_read_only', detail: READ_ONLY_DETAIL }),
-            } as unknown as Response
+        afterEach(() => {
+            jest.restoreAllMocks()
+            document.body.innerHTML = ''
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.onApiResponse(mockResponse)
-            }).toFinishAllListeners()
+        const blockedWrite = (): Promise<unknown> => api.update('api/users/@me/', {}).catch(() => null)
+
+        const loaderThatWrites = async (): Promise<void> => {
+            const writeLogic = kea<MakeLogicType<{ savedUser: null }, { saveUser: () => void }>>([
+                path(['lib', 'logic', 'apiStatusLogic', 'test', 'writeLogic']),
+                loaders({
+                    savedUser: [
+                        null,
+                        {
+                            saveUser: async () => {
+                                await api.update('api/users/@me/', {})
+                                return null
+                            },
+                        },
+                    ],
+                }),
+            ])
+            writeLogic.mount()
+            await expectLogic(writeLogic, () => writeLogic.actions.saveUser()).toDispatchActions(['saveUserFailure'])
+        }
+
+        const clickThatWrites = async (tag: 'button' | 'a', beforeWrite?: () => void): Promise<void> => {
+            const element = document.createElement(tag)
+            if (tag === 'a') {
+                element.setAttribute('href', '#')
+            }
+            document.body.appendChild(element)
+            let write: Promise<unknown> = Promise.resolve()
+            element.addEventListener('click', (event) => {
+                event.preventDefault()
+                beforeWrite?.()
+                write = blockedWrite()
+            })
+            element.click()
+            await write
+        }
+
+        // LemonFormDialog submits from its own keydown handler, with no click or submit event. On a link,
+        // a real browser writes from the click that follows the keydown, which jsdom does not fire.
+        const keyThatWrites = async (
+            key: string,
+            tag: 'input' | 'a' = 'input',
+            init: KeyboardEventInit = {}
+        ): Promise<void> => {
+            const element = document.createElement(tag)
+            if (tag === 'a') {
+                element.setAttribute('href', '?tab=other')
+            }
+            document.body.appendChild(element)
+            let write: Promise<unknown> = Promise.resolve()
+            element.addEventListener('keydown', () => {
+                write = blockedWrite()
+            })
+            element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }))
+            await write
+        }
+
+        it.each([
+            ['a button click', () => clickThatWrites('button')],
+            [
+                'a click that only changed the search params',
+                () =>
+                    clickThatWrites('button', () =>
+                        router.actions.replace(router.values.location.pathname, { tab: 'other' })
+                    ),
+            ],
+            [
+                'a form submit without a button',
+                async () => {
+                    const form = document.createElement('form')
+                    document.body.appendChild(form)
+                    let write: Promise<unknown> = Promise.resolve()
+                    form.addEventListener('submit', (event) => {
+                        event.preventDefault()
+                        write = blockedWrite()
+                    })
+                    form.requestSubmit()
+                    await write
+                },
+            ],
+            ['Enter in a dialog input', () => keyThatWrites('Enter')],
+            [
+                'an Enter that confirms an IME composition',
+                () => keyThatWrites('Enter', 'input', { isComposing: true, keyCode: 229 }),
+            ],
+        ])('toasts when %s starts the blocked write', async (_name, run) => {
+            await run()
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(errorSpy).toHaveBeenCalledWith(READ_ONLY_DETAIL, { hideButton: true })
-            errorSpy.mockRestore()
+        })
+
+        it.each([
+            ['no click started it', blockedWrite],
+            ['a kea loader sent it', loaderThatWrites],
+            ['typing in an input started it', () => keyThatWrites('a')],
+            ['Enter on a link started it', () => keyThatWrites('Enter', 'a')],
+            ['a link click started it', () => clickThatWrites('a')],
+            ['the click navigated first', () => clickThatWrites('button', () => router.actions.push('/elsewhere'))],
+            [
+                'a click finished before it started',
+                async () => {
+                    document.body.click()
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                    await blockedWrite()
+                },
+            ],
+        ])('does not toast when %s', async (_name, run) => {
+            await run()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorSpy).not.toHaveBeenCalled()
         })
 
         it('does not toast for unrelated 403s', async () => {
-            initKeaTests()
-            logic = apiStatusLogic()
-            logic.mount()
-
-            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
             const mockResponse = {
                 status: 403,
                 ok: false,
@@ -128,11 +238,10 @@ describe('apiStatusLogic', () => {
             } as unknown as Response
 
             await expectLogic(logic, () => {
-                logic.actions.onApiResponse(mockResponse)
+                logic.actions.onApiResponse(mockResponse, undefined, true)
             }).toFinishAllListeners()
 
             expect(errorSpy).not.toHaveBeenCalled()
-            errorSpy.mockRestore()
         })
     })
 

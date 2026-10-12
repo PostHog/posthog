@@ -18,9 +18,16 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DropDisposition,
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+    ReportedPriority,
+)
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     CodeReference,
@@ -63,19 +70,55 @@ class ReviewIssueFinding(BaseModel):
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")
     body: str = Field(description="Description of the problem.")
+    # Empty for single-agent findings: their body ends with the fix direction instead.
     suggestion: str = Field(description="Specific fix or improvement.")
+    suggestion_code: str | None = Field(
+        default=None, description="Replacement code for the finding's line range, posted as a GitHub suggestion."
+    )
     priority: IssuePriority = Field(description="Priority level of the finding.")
+    reported_priority: ReportedPriority | None = Field(
+        default=None,
+        description="The single-agent reviewer's own P0-P3 priority, which tells P0 and P1 apart. Null for the pipeline.",
+    )
     source_perspective: str | None = Field(default=None, description="Which review perspective produced this finding.")
     is_directly_related_to_changes: bool = Field(
         default=False, description="Whether the finding is caused by the PR's changes, not just the same file."
     )
 
-    @field_validator("issue_key", "title", "file", "body", "suggestion")
+    @field_validator("issue_key", "title", "file", "body")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+
+class DroppedFindingArtefact(BaseModel):
+    """Content for a `dropped_finding` artefact: a single-agent finding the turn found but did not keep.
+
+    Analysis data only. Publishing, the status comment, outcome classification, `load_prior_findings`,
+    and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor keep a
+    later turn from raising the same problem. A retried turn replaces its rows by `finding.run_index`.
+    """
+
+    head_sha: str = Field(description="PR head commit the turn reviewed.")
+    finding: ReviewIssueFinding = Field(description="The full finding, as it would have persisted had it been kept.")
+    pass_number: int = Field(description="The session's reserved pass: 2000 for the main session, 2001+ for a lens.")
+    chunk_id: int = Field(description="The lens part the session reviewed (1 for the main session).")
+    disposition: DropDisposition = Field(description="Why the turn dropped the finding.")
+    duplicate_of: str | None = Field(
+        default=None,
+        description="For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment.",
+    )
+    rank: int | None = Field(
+        default=None, description="For a finding the cap cut, its 1-based position in the turn's ranked findings."
+    )
+    dedup_fallback: bool = Field(
+        default=False,
+        description="The dedup LLM call failed, so the positional pre-filter alone decided this drop.",
+    )
+    cap: int = Field(description="The turn's finding cap, which must-fix findings can exceed.")
+    lens_part_count: int = Field(description="How many parts the lens sessions split the PR into.")
 
 
 class ValidationVerdict(BaseModel):
@@ -278,6 +321,14 @@ class PRSnapshotArtefact(BaseModel):
     pr_metadata: PRMetadata = Field(description="The PR's metadata (title/body/branches/labels/…).")
     pr_comments: list[PRComment] = Field(default_factory=list, description="The PR's reviewable inline comments.")
     pr_files: list[PRFile] = Field(default_factory=list, description="The PR's reviewable files with code context.")
+    review_design: str = Field(
+        default=REVIEW_DESIGN_PIPELINE,
+        description="The design the turn runs on (pipeline or single_agent), chosen at fetch.",
+    )
+    merge_base_sha: str | None = Field(
+        default=None,
+        description="The commit GitHub computes the PR diff against. Fetched for single-agent turns only.",
+    )
 
 
 class TurnMarkerArtefact(BaseModel):
@@ -298,6 +349,28 @@ class TurnMarkerArtefact(BaseModel):
     )
 
 
+RUN_OUTCOME_NOTE_AUTHOR = "review_hog_run_outcome"
+
+
+class RunOutcomeNote(NoteArtefact):
+    """Content for a `note` artefact that records a review turn or resolution run that ended without a result.
+
+    A completed turn leaves a `turn_marker` and a stamped report, and a resolution run leaves its
+    closing note. A failed turn, a dropped Standard request, and a skipped resolution run leave
+    nothing else, so a status reader cannot tell them from a request that is still waiting. It stays
+    a `note` so that no new artefact type (and no migration) is needed: readers that parse it as a
+    plain `NoteArtefact` ignore the extra fields.
+    """
+
+    author: str | None = Field(default=RUN_OUTCOME_NOTE_AUTHOR, description="Always `review_hog_run_outcome`.")
+    stage: Literal["review", "resolution"] = Field(description="Which run ended: a review turn or a resolution run.")
+    outcome: Literal["skipped", "failed"] = Field(description="How the run ended.")
+    reason: str = Field(description="Short reason code, e.g. flash_after_full, review_failed, pr_not_open.")
+    run_index: int | None = Field(default=None, description="The review turn (1-based) for a review run.")
+    review_mode: str | None = Field(default=None, description="The review mode (full or flash) for a review run.")
+    head_sha: str | None = Field(default=None, description="The PR head the run targeted, when known.")
+
+
 # Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
 # working-state types (chunk_set / perspective_result) are per-turn pipeline scaffolding the
 # DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
@@ -307,6 +380,7 @@ ReviewWorkingStateContent = (
 )
 ReviewArtefactContent = (
     ReviewIssueFinding
+    | DroppedFindingArtefact
     | ValidationVerdict
     | FindingOutcomeArtefact
     | ThreadVerdictArtefact
@@ -319,6 +393,7 @@ ReviewArtefactContent = (
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
 ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "issue_finding": ReviewIssueFinding,
+    "dropped_finding": DroppedFindingArtefact,
     "validation_verdict": ValidationVerdict,
     "finding_outcome": FindingOutcomeArtefact,
     "thread_verdict": ThreadVerdictArtefact,
@@ -333,7 +408,11 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "pr_snapshot": PRSnapshotArtefact,
     "turn_marker": TurnMarkerArtefact,
 }
-_ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
+_ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {
+    **{model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()},
+    # A note subtype: it persists as `note`, and `note` rows still parse as the plain NoteArtefact.
+    RunOutcomeNote: "note",
+}
 
 
 def artefact_type_for(content: BaseModel) -> str:

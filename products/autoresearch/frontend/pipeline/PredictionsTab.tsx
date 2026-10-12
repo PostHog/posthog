@@ -1,14 +1,15 @@
 import { useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
-
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
 import { ProbabilityHistogram } from '../ProbabilityHistogram'
 import { EmptyTab } from './EmptyTab'
+import { PredictionActionsPanel } from './PredictionActionsPanel'
+import { CoverageHistoryChart, CoverageSummaryBanner } from './PredictionCoverage'
+import { PredictionSegmentCards } from './PredictionSegmentCards'
 import { ProbabilityUsersTable } from './ProbabilityUsersTable'
 import { ScoreNowButton } from './ScoreNowButton'
 
@@ -32,7 +33,8 @@ function DailyVolumePanel(): JSX.Element {
 }
 
 function ProbabilityDistributionPanel(): JSX.Element {
-    const { probabilityHistogram, probabilityDistributionError } = useValues(autoresearchPipelineLogic)
+    const { probabilityHistogram, probabilityDistributionError, segmentThresholds } =
+        useValues(autoresearchPipelineLogic)
 
     if (probabilityDistributionError) {
         return (
@@ -51,21 +53,7 @@ function ProbabilityDistributionPanel(): JSX.Element {
             </p>
         )
     }
-    return <ProbabilityHistogram buckets={probabilityHistogram} />
-}
-
-function ScoringCoverageBanner(): JSX.Element | null {
-    const { scoringCoverage } = useValues(autoresearchPipelineLogic)
-    if (!scoringCoverage) {
-        return null
-    }
-    const { scored, eligible, rescoreDays } = scoringCoverage
-    return (
-        <LemonBanner type="info">
-            The latest run scored {humanFriendlyNumber(scored)} of {humanFriendlyNumber(eligible)} users, starting with
-            users never scored, then those scored longest ago. Everyone is rescored about every {rescoreDays} days.
-        </LemonBanner>
-    )
+    return <ProbabilityHistogram buckets={probabilityHistogram} thresholds={segmentThresholds} />
 }
 
 export function PredictionsTab(): JSX.Element {
@@ -92,7 +80,11 @@ export function PredictionsTab(): JSX.Element {
                 <code>autoresearch_prediction</code> event. These views read straight from those events.
             </p>
 
-            <ScoringCoverageBanner />
+            <CoverageSummaryBanner />
+
+            <PredictionSegmentCards />
+
+            <PredictionActionsPanel />
 
             <LemonCollapse
                 multiple
@@ -107,6 +99,11 @@ export function PredictionsTab(): JSX.Element {
                         key: 'people',
                         header: 'People (latest scoring run)',
                         content: <ProbabilityUsersTable pipelineId={pipeline.id} />,
+                    },
+                    {
+                        key: 'coverage',
+                        header: 'Coverage and score age',
+                        content: <CoverageHistoryChart />,
                     },
                     {
                         key: 'volume',

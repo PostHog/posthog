@@ -1,3 +1,5 @@
+import type { SignalReportSuppressionSourceEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
 // Port of `packages/agent/packages/agent-contracts/src/dismissal-reasons.ts`. Canonical reason codes recorded when a
 // report is dismissed or resolved. Values are persisted on dismissal artefacts by the backend `state`
 // action – add or reorder options here only, and keep the values in sync with desktop and with
@@ -79,6 +81,19 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
     refunded: 'Refunded',
     merged: 'Merged into another report',
+}
+
+// Why a report nobody dismissed left the inbox, keyed by the backend's `suppression_source`.
+// `dismissed` has no entry: those rows show the person's reason, or nothing when none was given.
+const HELD_BACK_LABELS: Partial<Record<SignalReportSuppressionSourceEnumApi, string>> = {
+    safety_judge: 'Held back by safety check',
+    not_actionable: 'Judged not actionable',
+    system: 'Held back automatically',
+}
+
+/** Chip label for a suppressed report that no person or agent dismissed, or null. */
+export function heldBackLabel(source: SignalReportSuppressionSourceEnumApi | null | undefined): string | null {
+    return source ? (HELD_BACK_LABELS[source] ?? null) : null
 }
 
 /** Human label for a persisted reason code, or the raw code if it's not a known option. */

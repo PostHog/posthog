@@ -12,6 +12,7 @@ import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
+import { modalsLogic } from '../modalsLogic'
 import { runningTimeLogic } from './runningTimeLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -169,6 +170,28 @@ describe('runningTimeLogic', () => {
             // just resync so the tab stops being stale and the estimate recomputes from fresh state.
             expect(lemonToast.error).not.toHaveBeenCalled()
             expect(experimentLogicInstance.values.unmodifiedExperiment?.version).toEqual(9)
+        })
+    })
+
+    describe('save', () => {
+        it('keeps the modal open with the edited config when the experiment save fails', async () => {
+            // A failed estimate request stops the automatic estimate from saving anything on mount.
+            calculateRunningTimeMock.mockRejectedValue(new Error('backend unavailable'))
+            api.update.mockRejectedValueOnce(new Error('network down'))
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            modalsLogic.actions.openRunningTimeConfigModal()
+            logic.actions.setConfig({ mde: 7 })
+
+            await expectLogic(logic, () => logic.actions.save()).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(modalsLogic.values.isRunningTimeConfigModalOpen).toBe(true)
+            expect(logic.values.configOverrides).toEqual({ mde: 7 })
+            // The experiment save reports the failure itself, so the modal adds no second toast.
+            expect(lemonToast.error).toHaveBeenCalledTimes(1)
         })
     })
 
