@@ -2,8 +2,8 @@ import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
+import { labColor } from '../colors'
 import { harnessColor } from './harnessRegistry'
-import { AI_LAB_COLORS } from './modelColors'
 
 const theme: ChartTheme = { ...buildTheme(), colors: ['#204080', '#804020'], axisColor: '#888888' }
 
@@ -27,12 +27,12 @@ describe('harnessColor', () => {
     })
 
     it.each([
-        ['Claude Code', AI_LAB_COLORS.Anthropic],
-        ['ChatGPT', AI_LAB_COLORS.OpenAI],
-        ['Cursor', AI_LAB_COLORS.Cursor],
-        ['Grok', AI_LAB_COLORS.xAI],
-    ])('matches the %s harness to its AI lab color', (label, color) => {
-        expect(harnessColor(theme, label)).toBe(color)
+        ['Claude Code', 'Anthropic'],
+        ['ChatGPT', 'OpenAI'],
+        ['Cursor', 'Cursor'],
+        ['Grok', 'xAI'],
+    ])('matches the %s harness to the %s lab color', (label, lab) => {
+        expect(harnessColor(theme, label)).toBe(labColor(theme, lab))
     })
 
     it.each(['Other', 'Unidentified client'])('keeps %s neutral with calls from identified harnesses', (label) => {

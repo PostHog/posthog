@@ -13,13 +13,13 @@ import { urls } from 'scenes/urls'
 
 import { HogQLFilters } from '~/queries/schema/schema-general'
 
+import { modelColors } from '../colors'
 import { type ModelRow } from '../mcpDashboardOverviewLogic'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
 import { buildModelExplorationQuery, summarizeModelBreakdown } from './modelBreakdown'
 import { modelBreakdownLogic } from './modelBreakdownLogic'
 import { ModelBreakdownTable } from './ModelBreakdownTable'
-import { modelColor } from './modelColors'
 import { ShareBarChart, type ShareBarRow } from './ShareBarChart'
 
 function modelLabel(model: string): string {
@@ -47,26 +47,31 @@ export function ModelBarChart({
     rows,
     theme,
     filters = {},
+    colorOf,
 }: {
     rows: ModelRow[]
     theme: ChartTheme
     filters?: HogQLFilters
+    /** Pass the page's model colors when another chart on the page also shows models. */
+    colorOf?: (model: string) => string | undefined
 }): JSX.Element {
     const logic = modelBreakdownLogic({ filters })
     const { expanded, modelPageLoading } = useValues(logic)
     const { setExpanded } = useActions(logic)
     const { totalCalls, unknownCalls, rankedModels: sortedRows } = useMemo(() => summarizeModelBreakdown(rows), [rows])
-    const chartRows = useMemo<ShareBarRow<ModelRow>[]>(
-        () =>
-            sortedRows.map((row) => ({
-                key: row.model,
-                label: modelLabel(row.model),
-                value: row.total_calls,
-                color: modelColor(theme, row.model),
-                meta: row,
-            })),
-        [sortedRows, theme]
-    )
+    const chartRows = useMemo<ShareBarRow<ModelRow>[]>(() => {
+        const ownColors = modelColors(
+            theme,
+            sortedRows.map((row) => row.model)
+        )
+        return sortedRows.map((row) => ({
+            key: row.model,
+            label: modelLabel(row.model),
+            value: row.total_calls,
+            color: colorOf ? colorOf(row.model) : ownColors.get(row.model),
+            meta: row,
+        }))
+    }, [sortedRows, theme, colorOf])
 
     return (
         <LemonCard

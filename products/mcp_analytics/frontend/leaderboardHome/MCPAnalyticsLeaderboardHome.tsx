@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { labColor, modelColors } from '../colors'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
@@ -17,7 +18,6 @@ import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
-import { labColor, modelColor } from '../dashboard/modelColors'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
 import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
@@ -67,6 +67,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         scoreboardMetric,
         scoreboardShares,
         modelSeries,
+        pageModels,
         labSeries,
         protocolVersionSeries,
         reliabilitySeries,
@@ -78,7 +79,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
 
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
 
-    const modelColorOf = useCallback((label: string) => modelColor(theme, label), [theme])
+    const pageModelColors = useMemo(() => modelColors(theme, pageModels), [theme, pageModels])
+    const modelColorOf = useCallback((label: string) => pageModelColors.get(label), [pageModelColors])
     const labColorOf = useCallback((label: string) => labColor(theme, label), [theme])
     const paletteColorOf = useCallback(
         (label: string, index: number) =>
@@ -168,7 +170,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             <Skeleton className="h-48 w-full" />
                         </Card>
                     ) : (
-                        <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />
+                        <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} colorOf={modelColorOf} />
                     )}
                 </TwoColumns>
                 <TwoColumns>

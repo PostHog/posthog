@@ -6,11 +6,9 @@ import {
     buildLabUserShares,
     buildReliabilitySeries,
     harnessErrorRateRows,
-    labSqlExpression,
     buildShareSeries,
     hasKnownLabels,
     leadingLabs,
-    modelLab,
     toReliabilityRows,
     topFacetRows,
     type ReliabilityRow,
@@ -22,18 +20,6 @@ const labShare = (lab: LabShare['lab'], share: number): LabShare => ({ lab, shar
 const windowRow = (label: string, calls: number): WindowFacetRow => ({ label, calls, users: 1, errors: 0 })
 
 describe('leaderboardShares', () => {
-    test.each([
-        ['claude-opus-4-5', 'Anthropic'],
-        ['gpt-5-codex', 'OpenAI'],
-        ['gpt-oss-120b', 'Open weights'],
-        ['gemini-2.5-pro', 'Google'],
-        ['grok-4', 'xAI'],
-        ['composer-1', 'Cursor'],
-        ['some-new-model', 'Other'],
-    ])('modelLab(%s) is %s', (model, lab) => {
-        expect(modelLab(model)).toEqual(lab)
-    })
-
     it('groups per bucket, drops null groups and folds the tail into a final Other series', () => {
         const rows = [
             row('d1', 'a', 5),
@@ -96,13 +82,6 @@ describe('leaderboardShares', () => {
             { lab: 'Anthropic', share: 90 },
             { lab: 'OpenAI', share: 60 },
         ])
-    })
-
-    it('builds the SQL from the same patterns that modelLab matches', () => {
-        const sql = labSqlExpression('m')
-        expect(sql).toContain("match(lower(m), 'claude|opus|sonnet|haiku|fable|anthropic'), 'Anthropic'")
-        expect(sql.startsWith("multiIf(m = 'Unknown', 'Unknown', ")).toBe(true)
-        expect(sql.endsWith(", 'Other')")).toBe(true)
     })
 
     it('keeps the most used harnesses for the error rate chart and leaves out Other', () => {
