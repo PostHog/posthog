@@ -50,6 +50,18 @@ pub(crate) fn split_by_size(
     chunks
 }
 
+/// How a send settled once the worker took it.
+#[derive(Debug)]
+pub enum SendOutcome {
+    Accepted(u32),
+    /// The worker finished every message except `timed_out`, which come back
+    /// in send order.
+    Partial {
+        accepted: u32,
+        timed_out: Vec<SerializedKafkaMessage>,
+    },
+}
+
 /// Failure from a worker stream send, carrying back the sub-batch's messages
 /// so the caller can defer/replay them (the worker may have died mid-send and
 /// the messages were never accepted).
