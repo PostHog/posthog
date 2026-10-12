@@ -157,8 +157,8 @@ export interface mcpLeaderboardHomeLogicValues {
     facetsLoading: boolean
     labSeries: ShareSeries[]
     labShares: LabShare[]
-    leaderboardModelRows: ModelRow[]
     leaderboardLoading: boolean
+    leaderboardModelRows: ModelRow[]
     modelRowLabelMap: Map<string, string>
     modelSeries: ShareSeries[]
     pageModels: string[]
@@ -227,9 +227,10 @@ export interface mcpLeaderboardHomeLogicMeta {
             bucketKeys: string[],
             modelRowLabelMap: Map<string, string>
         ) => ShareSeries[]
+        leaderboardModelRows: (facets: LeaderboardFacets, modelRows: ModelRow[]) => ModelRow[]
         labSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         pageModels: (
-            modelRows: ModelRow[],
+            leaderboardModelRows: ModelRow[],
             modelSeries: ShareSeries[],
             modelRowLabelMap: Map<string, string>
         ) => string[]

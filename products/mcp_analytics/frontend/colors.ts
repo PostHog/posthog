@@ -57,8 +57,6 @@ export function modelColors(theme: ChartTheme, models: string[]): Map<string, st
     return colors
 }
 
-// A color at a fractional position on a ramp. Neighboring shades are close, so mixing them in sRGB keeps
-// the steps even when a lab shows more models than the ramp has shades.
 function shadeAt(shades: readonly string[], position: number): string {
     const clamped = Math.min(Math.max(position, 0), shades.length - 1)
     const lower = Math.floor(clamped)
