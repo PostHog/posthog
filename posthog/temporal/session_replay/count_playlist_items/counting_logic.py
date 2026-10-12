@@ -122,6 +122,21 @@ def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
     return int((dt1 - dt2).total_seconds())
 
 
+def parse_playlist_filters(filters: Any) -> dict[str, Any] | None:
+    """Return the filters as a dict, or None when they are malformed.
+
+    Some playlist rows store their filters as a JSON-encoded string instead of an object.
+    """
+    if isinstance(filters, str):
+        try:
+            filters = json.loads(filters)
+        except ValueError:
+            return None
+    if filters is None:
+        return {}
+    return filters if isinstance(filters, dict) else None
+
+
 def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
     # The exposure filter refuses userless callers because cached counts reach playlist
     # viewers without an access check, and this task has no principal to offer. Skip rather
@@ -208,7 +223,13 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             else:
                 existing_value = {}
 
-            if should_skip_task(existing_value, playlist.filters):
+            playlist_filters = parse_playlist_filters(playlist.filters)
+            if playlist_filters is None:
+                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="malformed_filters").inc()
+                return
+            playlist.filters = playlist_filters
+
+            if should_skip_task(existing_value, playlist_filters):
                 return
 
             query = convert_playlist_to_recordings_query(playlist)
