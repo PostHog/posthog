@@ -18,7 +18,7 @@ use super::key_queues::KeyRun;
 use super::state_machine::{BatcherStateMachine, Effects, FailureCause, SendRequest};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
-use crate::grpc_transport::GrpcTransport;
+use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
 use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
@@ -57,7 +57,7 @@ pub(super) trait RequestSender: Send + Sync + 'static {
         &self,
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
+        options: SendOptions,
     ) -> BoxFuture<'static, Result<SendOutcome, SendError>>;
 }
 
@@ -79,9 +79,9 @@ impl RequestSender for GrpcTransport {
         &self,
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
+        options: SendOptions,
     ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
-        self.begin_send(worker, &make_batch_id(), messages, replay)
+        self.begin_send_with(worker, &make_batch_id(), messages, options)
             .wait()
             .boxed()
     }
@@ -379,7 +379,11 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
             sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
-        let response = self.sender.send(&send.worker, messages, send.class.replay);
+        let options = SendOptions {
+            replay: send.class.replay,
+            soft_budget: send.soft_budget,
+        };
+        let response = self.sender.send(&send.worker, messages, options);
         let request = send.request;
         self.responses
             .push(async move { (request, response.await) }.boxed());
@@ -417,6 +421,7 @@ mod tests {
         worker: WorkerId,
         offsets: Vec<i64>,
         replay: bool,
+        soft_budget: Option<Duration>,
         fence_released: Option<bool>,
         reply: oneshot::Sender<Result<SendOutcome, SendError>>,
     }
@@ -436,7 +441,7 @@ mod tests {
             &self,
             worker: &WorkerId,
             messages: Vec<SerializedKafkaMessage>,
-            replay: bool,
+            options: SendOptions,
         ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
             let fence_released = self
                 .fence
@@ -448,7 +453,8 @@ mod tests {
             self.sent.lock().unwrap().push(Sent {
                 worker: worker.clone(),
                 offsets: offsets(&messages),
-                replay,
+                replay: options.replay,
+                soft_budget: options.soft_budget,
                 fence_released,
                 reply,
             });
@@ -493,6 +499,14 @@ mod tests {
 
     impl Harness {
         fn new(workers: &[&str], max_requests_per_worker: usize) -> Self {
+            Self::budgeted(workers, max_requests_per_worker, None)
+        }
+
+        fn budgeted(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+            soft_budget: Option<Duration>,
+        ) -> Self {
             let assigner =
                 WorkerAssigner::new(Router::new(RoutingStrategy::P2c), max_requests_per_worker)
                     .expect("valid request cap");
@@ -510,7 +524,8 @@ mod tests {
                 STALL,
                 tokio::time::Instant::now().into_std(),
             )
-            .expect("valid stall timeout");
+            .expect("valid stall timeout")
+            .with_request_budget(soft_budget);
             let fake_workers = FakeWorkers::default();
             fake_workers.set_candidates(workers);
             let sender = Arc::new(FakeSender {
@@ -614,10 +629,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_partial_response_resends_its_timed_out_messages_at_once_as_replay() {
-        let mut h = Harness::new(&["w"], 4);
+        let budget = Duration::from_millis(250);
+        let mut h = Harness::budgeted(&["w"], 4, Some(budget));
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
+        assert_eq!(send.soft_budget, Some(budget));
 
         send.reply
             .send(Ok(SendOutcome::Partial {
@@ -632,6 +649,7 @@ mod tests {
         assert_eq!(resend.len(), 1, "the resend waits for no retry delay");
         assert!(resend[0].replay);
         assert_eq!(resend[0].offsets, vec![1]);
+        assert_eq!(resend[0].soft_budget, Some(budget));
 
         let resend = resend.into_iter().next().unwrap();
         resend.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();

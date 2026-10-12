@@ -67,6 +67,7 @@ Under `key_table`:
 | `INGESTION_RUN_CAP_EVENTS` | `0` | The most events one key's run holds, which is the most of its backlog a key sends per round trip. With both run caps at `0`, the pack targets cap runs. When either is set, the run caps replace them, and a `0` cap leaves that dimension uncapped. |
 | `INGESTION_RUN_CAP_BYTES` | `0` | One key's run stops growing once it holds this many key-plus-value bytes. Works with `INGESTION_RUN_CAP_EVENTS`. |
 | `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay or a worker's time budget. |
+| `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is set under `pin_stash`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` is not below `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it plus `INGESTION_PACK_LATENCY_BUDGET_MS` is not below `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 
 Metrics:
