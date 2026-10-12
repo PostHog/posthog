@@ -130,6 +130,13 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# The role exists but has NOLOGIN, the default for a role made with CREATE ROLE. libpq prefixes
+# the refusal with the customer's host and port, so the raw text names nothing they can act on.
+_ROLE_CANNOT_LOG_IN_ERROR = (
+    "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a different "
+    "user, then re-enable the sync."
+)
+
 # A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
 # name") or the raw socket wording ("Name or service not known" / "No address associated with
 # hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
@@ -591,7 +598,7 @@ class PostgresSource(
             "XminUnsupportedError": None,
             "xmin replication": None,
             "NoSuchTableError": None,
-            "is not permitted to log in": None,
+            "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
             # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
