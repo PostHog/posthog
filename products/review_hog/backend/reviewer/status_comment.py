@@ -27,6 +27,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.utils import pluralize
 
@@ -680,8 +681,16 @@ class FinalizeStatusCommentInput:
     raised_elsewhere_count: int = 0
 
 
+def _is_transient_github_error(error: Exception) -> bool:
+    return isinstance(error, GitHubEgressBudgetExhausted | GitHubRateLimitError) or (
+        isinstance(error, GitHubAPIError) and error.status >= 500
+    )
+
+
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
-    """Rewrite the status comment with the turn's outcome: everything found vs. what was published."""
+    """Rewrite the status comment with the turn's outcome: everything found vs. what was published.
+
+    A transient GitHub error raises, so the activity's retry policy tries the edit again."""
     try:
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
@@ -711,7 +720,9 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         if redacted:
             logger.warning("Redacted %s credential-shaped string(s) from the status comment", redacted)
         _edit_and_stamp(input.team_id, report, body)
-    except Exception:
+    except Exception as error:
+        if _is_transient_github_error(error):
+            raise
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 
 
