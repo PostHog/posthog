@@ -1542,6 +1542,31 @@ teams: PostgresTable = PostgresTable(
     },
 )
 
+revenue_analytics_config: PostgresTable = PostgresTable(
+    name="revenue_analytics_config",
+    postgres_table_name="posthog_teamrevenueanalyticsconfig",
+    access_scope="revenue_analytics",
+    # One row per project, so there is no object for a grant to key on.
+    resource_level_access_only=True,
+    description="Revenue analytics settings of the project; at most one row. "
+    "Payment-platform sources are in data_warehouse_sources.",
+    fields={
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "events": StringJSONDatabaseField(
+            name="events",
+            description="JSON array of configured revenue events, one object per event: eventName, "
+            "revenueProperty, revenueCurrencyProperty, subscriptionProperty, productProperty, couponProperty, "
+            "currencyAwareDecimal. '[]' when no revenue event is configured.",
+        ),
+        "_filter_test_accounts": BooleanDatabaseField(name="filter_test_accounts", hidden=True),
+        "filter_test_accounts": ExpressionField(
+            name="filter_test_accounts",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_filter_test_accounts"])]),
+            description="1 if event-source revenue views drop test accounts, 0 otherwise.",
+        ),
+    },
+)
+
 data_deletion_requests: PostgresTable = PostgresTable(
     name="data_deletion_requests",
     postgres_table_name="posthog_datadeletionrequest",
@@ -3299,6 +3324,7 @@ class SystemTables(TableNode):
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
+        "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),

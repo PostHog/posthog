@@ -10911,6 +10911,35 @@
           "row_count": null,
           "type": "system"
       },
+      "system.revenue_analytics_config": {
+          "certification": null,
+          "fields": {
+              "events": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "events",
+                  "id": null,
+                  "name": "events",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "filter_test_accounts": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filter_test_accounts",
+                  "id": null,
+                  "name": "filter_test_accounts",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.revenue_analytics_config",
+          "name": "system.revenue_analytics_config",
+          "row_count": null,
+          "type": "system"
+      },
       "system.session_recordings": {
           "certification": null,
           "fields": {
@@ -23551,6 +23580,35 @@
           },
           "id": "system.replay_scanners",
           "name": "system.replay_scanners",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.revenue_analytics_config": {
+          "certification": null,
+          "fields": {
+              "events": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "events",
+                  "id": null,
+                  "name": "events",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "filter_test_accounts": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filter_test_accounts",
+                  "id": null,
+                  "name": "filter_test_accounts",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.revenue_analytics_config",
+          "name": "system.revenue_analytics_config",
           "row_count": null,
           "type": "system"
       },

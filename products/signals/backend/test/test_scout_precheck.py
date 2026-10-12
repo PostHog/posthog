@@ -1,7 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.apps import apps
@@ -10,7 +17,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
@@ -21,6 +30,7 @@ from products.signals.backend.scout_harness.precheck import (
     resolve_effective_precheck,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 NOW = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
 SKILL = "signals-scout-errors"
@@ -28,6 +38,7 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 # An access-scoped system table: a query with no user is denied it.
 DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
+REVENUE_SKILL = "signals-scout-revenue-analytics"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
@@ -213,6 +224,62 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
 
         assert result is None
         capture.assert_not_called()
+
+
+# The default reads Postgres through ClickHouse, which sees only committed rows.
+@time_machine.travel(NOW, tick=False)
+class TestRevenueAnalyticsDefaultPrecheck(ClickhouseTestMixin, NonAtomicBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=REVENUE_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=REVENUE_SKILL)
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def _configure_event(self, team: Team) -> None:
+        config = get_or_create_team_extension(team, TeamRevenueAnalyticsConfig)
+        config.events = [{"eventName": "purchase_completed", "revenueProperty": "amount"}]
+        config.save()
+
+    def _add_source(self, team: Team, source_type: str, *, deleted: bool = False) -> None:
+        ExternalDataSource.objects.create(
+            team=team,
+            source_id=f"source_{source_type}",
+            connection_id=f"conn_{source_type}",
+            status="Running",
+            source_type=source_type,
+            deleted=deleted,
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing_configured", lambda t: None, "skip", 0),
+            (
+                "other_team_configured",
+                lambda t: (t._configure_event(t.other_team), t._add_source(t.other_team, "Stripe")),
+                "skip",
+                0,
+            ),
+            ("non_payment_source", lambda t: t._add_source(t.team, "Postgres"), "skip", 0),
+            ("deleted_stripe_source", lambda t: t._add_source(t.team, "Stripe", deleted=True), "skip", 0),
+            ("stripe_source", lambda t: t._add_source(t.team, "Stripe"), "run", 1),
+            ("configured_event_without_source", lambda t: t._configure_event(t.team), "run", 1),
+        ]
+    )
+    def test_revenue_default_gates_the_run(self, _name, arrange, outcome, row_count) -> None:
+        arrange(self)
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, REVENUE_SKILL)
+
+        assert result is not None
+        assert (result.outcome, result.row_count, result.query_source) == (outcome, row_count, "skill_default")
 
 
 class TestResolveEffectivePrecheck(SimpleTestCase):
