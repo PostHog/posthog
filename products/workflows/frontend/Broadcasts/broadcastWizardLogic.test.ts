@@ -376,6 +376,39 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it('stops a launch while an uploaded list in the audience is still matching', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/cohorts/:id/': {
+                    id: 42,
+                    name: 'Spring list',
+                    is_static: true,
+                    is_calculating: true,
+                },
+            },
+        })
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            subject: 'Spring sale',
+            html: '<p>Hi</p>',
+        })
+        logic.actions.setAudienceProperties([
+            { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        ])
+        logic.actions.setStep('review')
+
+        await expectLogic(logic, () => {
+            logic.actions.launchBroadcast()
+        })
+            .toDispatchActions(['setAudienceCohortLaunchErrors', 'launchBroadcastFinished'])
+            .toNotHaveDispatchedActions(['saveBroadcastFinished'])
+
+        expect(logic.values.stepValidationErrors.review).toEqual([
+            '"Spring list" is still matching people. You can launch when it finishes.',
+        ])
+    })
+
     it.each([
         { sender: 'a sender that still exists', integrationId: 1, integrationIds: undefined, expected: [] },
         { sender: 'a deleted sender', integrationId: 7, integrationIds: undefined, expected: [DELETED_SENDER_ERROR] },
@@ -400,6 +433,62 @@ describe('broadcastWizardLogic', () => {
 
         expect(logic.values.stepValidationErrors.content).toEqual(expected)
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
+    })
+
+    it('counts the audience missing the To field property on the review step only, and never for an unfiltered audience', async () => {
+        const missingByProperty: Record<string, number> = { email: 98, $email: 0 }
+        const checkedFilters: { key: string; operator?: string }[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                    const { filters } = (await request.json()) as {
+                        filters: { properties: { key: string; operator?: string }[] }
+                    }
+                    const last = filters.properties[filters.properties.length - 1]
+                    if (!last || last.operator !== PropertyOperator.IsNotSet) {
+                        return [200, { affected: 98, total: 1000 }]
+                    }
+                    checkedFilters.push(filters.properties)
+                    return [200, { affected: missingByProperty[last.key], total: 1000 }]
+                },
+            },
+        })
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+        expect(checkedFilters).toEqual([])
+
+        logic.actions.setStep('review')
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: 98 })
+        expect(checkedFilters.at(-1)).toEqual([
+            ...LOCAL_AUDIENCE,
+            { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+        ])
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, to: { email: '{{ person.properties.$email }}' } })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: 0 })
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, to: { email: 'team@example.com' } })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+
+        const requestsBefore = checkedFilters.length
+        logic.actions.setEmail(DEFAULT_BROADCAST_EMAIL)
+        logic.actions.setAudienceProperties([])
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+        expect(checkedFilters).toHaveLength(requestsBefore)
+    })
+
+    it('starts a new broadcast with the only verified sender without creating a draft', async () => {
+        const createDraft = jest.fn()
+        useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => createDraft() } })
+        integrationsLogic.mount()
+
+        await expectLogic(logic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['defaultSenderApplied'])
+
+        expect(logic.values.email.from).toEqual({ integrationId: 1 })
+        expect(logic.values.stepValidationErrors.content).not.toContain('Choose an email sender')
+        expect(createDraft).not.toHaveBeenCalled()
     })
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {

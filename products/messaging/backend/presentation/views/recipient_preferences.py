@@ -12,14 +12,20 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 
-from products.messaging.backend.models.message_category import MessageCategory
-from products.messaging.backend.models.message_preferences import (
+from products.messaging.backend.facade.preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     EMAIL_TRACKING_PREFERENCE_ID,
-    MessageRecipientPreference,
     PreferenceStatus,
+    all_preference_statuses,
+    category_ids as team_category_ids,
+    get_or_create_recipient,
+    marketing_categories,
+    preference_status,
+    recipient_preferences,
+    replace_preferences,
+    set_preferences_column,
+    sync_to_customerio,
 )
-from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
@@ -43,12 +49,7 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
         # categories (or "$all") so a token bearer can't inject junk property values
         known_category_ids: set[str] = set()
         if any(category_id != ALL_MESSAGE_PREFERENCE_CATEGORY_ID for category_id in category_ids):
-            known_category_ids = {
-                str(category_id)
-                for category_id in MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list(
-                    "id", flat=True
-                )
-            }
+            known_category_ids = team_category_ids(team_id)
     except Exception as e:
         capture_exception(e)
         return
@@ -127,14 +128,17 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+    recipient = get_or_create_recipient(team_id, identifier)
+    current_preferences = recipient.preferences
+    categories = marketing_categories(team_id)
 
     is_one_click_unsubscribe = (
         request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
     )
     if is_one_click_unsubscribe:
-        was_fully_opted_out = recipient.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+        was_fully_opted_out = (
+            preference_status(recipient.preferences, ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+        )
 
         # If one-click unsubscribe, set all preferences to opted out
         preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
@@ -148,10 +152,10 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         if tracking_pref is not None:
             preferences_dict[EMAIL_TRACKING_PREFERENCE_ID] = tracking_pref
 
-        recipient.preferences = preferences_dict
-        recipient.save(update_fields=["preferences"])
+        set_preferences_column(team_id, identifier, preferences_dict)
+        current_preferences = preferences_dict
 
-        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+        sync_to_customerio(team_id, identifier, preferences_dict)
 
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
@@ -161,7 +165,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences
-    preferences = recipient.get_all_preferences() if recipient else {}
+    preferences = all_preference_statuses(current_preferences)
 
     categories_templating = [
         {
@@ -229,15 +233,10 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     if not team_id or not identifier:
         return JsonResponse({"error": "Invalid recipient"}, status=400)
 
-    recipient = None
+    stored_preferences = recipient_preferences(team_id, identifier)
 
     try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
-
-    try:
-        prior_preferences = dict(recipient.preferences or {})
+        prior_preferences = dict(stored_preferences or {})
         preferences = request.POST.getlist("preferences[]")
         # Convert to dict of category_id: status
         preferences_dict = {}
@@ -269,11 +268,9 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         if not subscription_prefs:
             preferences_dict = {**prior_preferences, **preferences_dict}
 
-        # Update all preferences with a single DB write
-        recipient.preferences = preferences_dict
-        recipient.save()
+        replace_preferences(team_id, identifier, preferences_dict)
 
-        sync_preferences_to_customerio(team_id, identifier, preferences_dict)
+        sync_to_customerio(team_id, identifier, preferences_dict)
 
         # Only genuine opt-out transitions count, so repeated saves don't double-emit
         newly_opted_out = [
