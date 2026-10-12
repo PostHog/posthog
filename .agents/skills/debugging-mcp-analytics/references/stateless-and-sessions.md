@@ -177,13 +177,12 @@ groups with the work that hit it instead of falling back to the transport sessio
 
 ## Where each repo stands
 
-> **None of the session model above applies to PostHog's own dogfood data yet.** `services/mcp`
-> uses the custom-dispatcher (`PostHogMCP`) path, pins `@posthog/mcp@0.10.2`, and sources
-> `$mcp_conversation_id` from an **`mcp-conversation-id` HTTP header** rather than a tool
-> argument (`src/index.ts`) — its `$session_id` is not derived from it. The code comment says the
-> tool-arg path arrives "once the SDK is bumped with `enableConversationId`". So when you query
-> project 2, you are looking at header-supplied conversation ids and transport-derived sessions,
-> not the mint/echo loop.
+> **PostHog's own dogfood server uses the custom-dispatcher path.** `services/mcp` uses
+> `PostHogMCP` and pins `@posthog/mcp@0.22.2` in `package.json` (re-check the pin). It takes the
+> conversation handle from the SDK's tool-call preparation (`src/hono/tool-executor.ts`) and
+> returns it through `prepareToolResult`. When no handle is present, it falls back to the
+> `mcp-conversation-id` HTTP header. `$session_id` derives from the conversation ID first, then
+> from the transport session (`resolveSessionKey` in `src/hono/mcp-context.ts`).
 
 **`services/mcp` — dual-dialect at the protocol layer, already shipped.** `src/lib/stateless-protocol.ts` (#72223)
 defines `STATELESS_PROTOCOL_VERSION = '2026-07-28'`, the reserved `_meta` keys, `server/discover`,
