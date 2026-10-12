@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -63,7 +64,7 @@ def test_credential_probe_does_not_hide_unexpected_http_errors() -> None:
     ],
 )
 def test_invalid_connection_input_fails_before_sending_credentials(
-    changes: dict[str, str], schema_name: str | None, api_version: str | None, message: str
+    changes: dict[str, Any], schema_name: str | None, api_version: str | None, message: str
 ) -> None:
     config = replace(
         AppcuesSourceConfig(api_key="test-key", api_secret="test-secret", account_id="12345", region="us"), **changes
