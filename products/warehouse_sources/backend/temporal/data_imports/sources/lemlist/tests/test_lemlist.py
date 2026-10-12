@@ -47,7 +47,7 @@ def _make_manager(resume_state: LemlistResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: list[str] | None = None) -> list[dict[str, Any]]:
     """Wire a mock session and capture each request's params AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
@@ -58,6 +58,8 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
@@ -167,15 +169,21 @@ class TestValidateCredentials:
 
 
 class TestPagination:
+    @parameterized.expand(
+        [
+            ("bare_list", "campaigns", lambda rows: rows),
+            ("data_envelope", "contacts", lambda rows: {"data": rows, "total": PAGE_SIZE + 1}),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession) -> None:
+    def test_paginates_until_short_page(self, _name: str, endpoint: str, wrap, MockSession) -> None:
         session = MockSession.return_value
-        full_page = [{"_id": f"cam_{i}"} for i in range(PAGE_SIZE)]
-        params = _wire(session, [_response(full_page), _response([{"_id": "cam_last"}])])
+        full_page = [{"_id": f"row_{i}"} for i in range(PAGE_SIZE)]
+        params = _wire(session, [_response(wrap(full_page)), _response(wrap([{"_id": "row_last"}]))])
         manager = _make_manager()
-        rows = _rows(_source("campaigns", manager))
+        rows = _rows(_source(endpoint, manager))
         assert len(rows) == PAGE_SIZE + 1
-        assert rows[-1] == {"_id": "cam_last"}
+        assert rows[-1] == {"_id": "row_last"}
         assert params[0]["offset"] == 0
         assert params[1]["offset"] == PAGE_SIZE
         # State is saved once, after the first full page, pointing at the next offset.
@@ -190,6 +198,65 @@ class TestPagination:
         rows = _rows(_source("campaigns", manager))
         assert rows == [{"_id": "cam_resumed"}]
         assert params[0]["offset"] == PAGE_SIZE
+
+
+class TestCampaignFanout:
+    @parameterized.expand(
+        [
+            (
+                "leads_export",
+                "campaign_leads",
+                [{"_id": "lea_1", "email": "a@example.com"}],
+                "/v2/campaigns/cam_1/export/leads",
+                {"state": "all", "format": "json"},
+                [{"_id": "lea_1", "email": "a@example.com", "campaignId": "cam_1"}],
+            ),
+            (
+                "reports_bound_by_query",
+                "campaign_reports",
+                [{"_id": "cam_1", "emailsSent": 3}],
+                "/campaigns/reports?campaignIds=cam_1",
+                {},
+                [{"_id": "cam_1", "emailsSent": 3}],
+            ),
+            (
+                "sequences_keyed_object",
+                "campaign_sequences",
+                {"seq_1": {"_id": "seq_1", "steps": []}, "seq_2": {"_id": "seq_2", "steps": [{"_id": "stp_1"}]}},
+                "/campaigns/cam_1/sequences",
+                {},
+                [
+                    {"_id": "seq_1", "steps": [], "campaignId": "cam_1"},
+                    {"_id": "seq_2", "steps": [{"_id": "stp_1"}], "campaignId": "cam_1"},
+                ],
+            ),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_rows_per_campaign(
+        self,
+        _name: str,
+        endpoint: str,
+        child_payload: Any,
+        child_path: str,
+        child_params: dict[str, Any],
+        expected_rows: list[dict[str, Any]],
+        MockSession,
+    ) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(session, [_response([{"_id": "cam_1"}]), _response(child_payload)], urls)
+        rows = _rows(_source(endpoint))
+        assert rows == expected_rows
+        assert params[0] == {
+            "version": "v2",
+            "sortBy": "createdAt",
+            "sortOrder": "asc",
+            "offset": 0,
+            "limit": PAGE_SIZE,
+        }
+        assert urls[1].endswith(child_path)
+        assert params[1] == child_params
 
 
 class TestRetryClassification:

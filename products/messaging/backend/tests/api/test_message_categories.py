@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +31,23 @@ class TestMessageCategoryAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         self.assertEqual(response_data["results"][0]["name"], "Team 1 Category")
+
+    def test_list_pages_categories_by_ascending_id(self):
+        ids = [UUID(int=n) for n in (3, 2, 1)]
+        for category_id in ids:
+            MessageCategory.objects.create(id=category_id, team=self.team, name=str(category_id), key=str(category_id))
+
+        pages = [
+            [
+                row["id"]
+                for row in self.client.get(
+                    f"/api/environments/{self.team.id}/messaging_categories/?limit=2&offset={offset}"
+                ).json()["results"]
+            ]
+            for offset in (0, 2)
+        ]
+
+        assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0])]]
 
     def test_get_message_category(self):
         """
@@ -209,7 +228,7 @@ class TestMessageCategoryAPI(APIBaseTest):
     def test_import_preferences_csv_without_categories(self):
         """Test CSV import when no categories exist"""
         with patch(
-            "products.messaging.backend.presentation.views.message_categories.CustomerIOImportService"
+            "products.messaging.backend.services.customerio_config.CustomerIOImportService"
         ) as mock_service_class:
             mock_service = MagicMock()
             mock_service_class.return_value = mock_service
@@ -311,7 +330,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(data["app_import_result"]["categories_created"], 6)
         self.assertIsNone(data["csv_import_result"])
 
-    @patch("products.messaging.backend.presentation.views.message_categories.CustomerIOImportService")
+    @patch("products.messaging.backend.services.customerio_config.CustomerIOImportService")
     def test_import_from_customerio_stores_integration_and_result(self, mock_service_class):
         mock_service = MagicMock()
         mock_service_class.return_value = mock_service
@@ -340,7 +359,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(config.app_import_result["status"], "completed")
         self.assertEqual(config.app_import_result["categories_created"], 3)
 
-    @patch("products.messaging.backend.presentation.views.message_categories.CustomerIOImportService")
+    @patch("products.messaging.backend.services.customerio_config.CustomerIOImportService")
     def test_import_from_customerio_stores_failure_result(self, mock_service_class):
         mock_service = MagicMock()
         mock_service_class.return_value = mock_service
@@ -362,7 +381,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(config.app_import_result["status"], "failed")
         self.assertIn("Invalid API key", config.app_import_result["error"])
 
-    @patch("products.messaging.backend.presentation.views.message_categories.CustomerIOImportService")
+    @patch("products.messaging.backend.services.customerio_config.CustomerIOImportService")
     def test_import_from_customerio_reuses_stored_key(self, mock_service_class):
         Integration.objects.create(
             team=self.team,
@@ -381,7 +400,9 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_service_class.assert_called_once_with(team=self.team, api_key="stored_key", user=self.user)
+        mock_service_class.assert_called_once_with(
+            team_id=self.team.id, api_key="stored_key", created_by_id=self.user.id
+        )
 
     def test_import_from_customerio_fails_without_key(self):
         response = self.client.post(
@@ -528,7 +549,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
         self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "secret")
 
-    @patch("products.messaging.backend.presentation.views.message_categories.CustomerIOImportService")
+    @patch("products.messaging.backend.services.customerio_config.CustomerIOImportService")
     def test_csv_import_stores_success_result(self, mock_service_class):
         mock_service = MagicMock()
         mock_service_class.return_value = mock_service
@@ -554,7 +575,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(config.csv_import_result["total_rows"], 100)
         self.assertEqual(config.csv_import_result["users_with_optouts"], 60)
 
-    @patch("products.messaging.backend.presentation.views.message_categories.CustomerIOImportService")
+    @patch("products.messaging.backend.services.customerio_config.CustomerIOImportService")
     def test_csv_import_stores_failure_result(self, mock_service_class):
         mock_service = MagicMock()
         mock_service_class.return_value = mock_service

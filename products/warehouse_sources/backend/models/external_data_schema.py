@@ -1842,6 +1842,31 @@ def save_repartition_checkpoint_if_claimed(
     return claimed
 
 
+def save_repartition_swap_phase_if_claimed(
+    schema: ExternalDataSchema, *, claim_token: str, temp_uri: str, phase: str
+) -> bool:
+    """Record how far a staged swap is, only while `claim_token` still owns the schema.
+
+    Row-locked for the same reason as `save_repartition_checkpoint_if_claimed`. The phase goes on
+    the marker for `temp_uri` only, so it never lands on a swap that a newer attempt staged.
+    """
+    saved = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal saved
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        swap = config.get("repartition_swap")
+        if not isinstance(swap, dict) or swap.get("temp_uri") != temp_uri:
+            return
+        swap["phase"] = phase
+        saved = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return saved
+
+
 def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> None:
     """Stop an abandoned rewrite checkpoint from holding the import (see `repartition_holds_import`).
 

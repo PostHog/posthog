@@ -48,7 +48,6 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -56,6 +55,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
+from products.review_hog.backend.reviewer.tools.coordinator_review import COORDINATOR_PROMPT_FILE
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DEDUP_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     VALIDATION_FOLLOWUP_TEMPLATE,
@@ -176,8 +176,6 @@ class TurnFingerprint:
                 (SINGLE_AGENT_PROMPT_PATH / prompt_file).read_text()
             )
         hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
-        # The Flash dedup renders its output schema from the model, not from `schema.json`.
-        hashes["issue_deduplicator/flash_schema"] = _text_hash(json.dumps(FlashIssueDeduplication.model_json_schema()))
         hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
         return hashes
 
@@ -233,6 +231,7 @@ class TurnFingerprint:
         review_mode: str,
         flash_reasoning_effort: str,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        coordinator: bool = False,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -244,8 +243,14 @@ class TurnFingerprint:
             review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
         )
         if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            coordinator_inputs: dict[str, Any] = {}
+            if coordinator:
+                # Only coordinated turns carry it, so turns on separate sessions keep their cohort.
+                prompt = (SINGLE_AGENT_PROMPT_PATH / COORDINATOR_PROMPT_FILE.name).read_text()
+                coordinator_inputs["coordinator"] = {"prompt": _text_hash(prompt)}
             return cls(
                 {
+                    **coordinator_inputs,
                     "review_mode": review_mode,
                     "review_design": review_design,
                     "review_arm": _arm_payload(review_arm),
@@ -293,6 +298,7 @@ def record_turn_marker(
     review_mode: str,
     flash_reasoning_effort: str,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    coordinator: bool = False,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact."""
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
@@ -303,6 +309,7 @@ def record_turn_marker(
         review_mode=review_mode,
         flash_reasoning_effort=flash_reasoning_effort,
         review_design=review_design,
+        coordinator=coordinator,
     )
     marker = ReviewHogMarker(
         version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()

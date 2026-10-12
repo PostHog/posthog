@@ -181,6 +181,9 @@ Copy the `secret` from the response into the field below. MailerLite never retur
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         endpoint_config = MAILERLITE_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint_config is not None and endpoint_config.fanout is not None:
+            # A fan-out path needs a parent id, so probe the parent list the child is reached through.
+            endpoint_config = MAILERLITE_ENDPOINTS[endpoint_config.fanout.parent_name]
         path = endpoint_config.path if endpoint_config else "/subscribers"
         return validate_mailerlite_credentials(config.api_key, path)
 

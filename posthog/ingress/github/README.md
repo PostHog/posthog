@@ -44,13 +44,38 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{tasks,conversations,error_tracking,review_hog,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{tasks,conversations,error_tracking,github_commands,review_hog,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
 The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
 It scans descriptions for direct issue links and fingerprint permalinks on the configured PostHog site, then queues team-scoped tasks.
 Repeated links and deliveries reuse an existing reference.
 Removing a link from a later description does not remove the reference.
+
+The GitHub commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
+The task checks the commenter's write access with GitHub and their linked PostHog account before any command runs.
+See `products/github_commands/README.md`.
+
+### Picking the project
+
+One installation can link to several projects in a region, so `installation.id` never names one project.
+A consumer picks its projects in one of two shapes.
+
+**Subscriptions.**
+Deliver the event to every project that has its own row for the repository, for example a workflow, a loop trigger, an issue link, or a monitored repository.
+Each project set up that row, so each project gets the event.
+`installation_team_ids` gives the candidate projects.
+Filter them by the product's own row before you act.
+
+**Single owner.**
+Some products act as one voice on a repository or pull request: they post the review, approve, or push fixes.
+Such a product needs exactly one project per repository.
+Enforce this with a unique constraint across projects on (installation id, repository), as `StamphogRepoConfig` does.
+Then find the owner through that row.
+
+Never pick a project by order.
+The first or lowest-id project on an installation depends on when the projects connected, not on which project should get the event.
+The `github-installation-first-team` semgrep rule flags this pattern.
 
 The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
 PR analytics shared by those consumers live in `posthog/github/`, see its README.

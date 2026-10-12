@@ -1,9 +1,19 @@
+import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+    ACTIVITY_LOGS_PAGE_SIZE,
     ITEMS_PAGE_SIZE,
     MONDAY_VERSION_2026_07,
     MONDAY_VERSION_V2,
@@ -13,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday"
 API_VERSION = MONDAY_VERSION_2026_07
@@ -142,3 +154,103 @@ class TestGetRowsItems:
         assert all(item["_board_id"] == "b1" for item in flat)
         next_vars = mock_session.return_value.post.call_args_list[2].kwargs["json"]["variables"]
         assert next_vars == {"cursor": "cur1", "limit": ITEMS_PAGE_SIZE}
+
+
+def _graphql(request: RecordedRequest) -> dict[str, Any]:
+    assert request.body is not None
+    return json.loads(request.body)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(MondaySource(), MondaySourceConfig(api_token="token"))
+
+
+class TestGetRowsBoardChildren:
+    @pytest.mark.parametrize(
+        "endpoint, child_key",
+        [("board_columns", "columns"), ("board_groups", "groups")],
+    )
+    def test_children_carry_their_board_across_board_pages(self, endpoint, child_key):
+        first_page = [{"id": "b1", child_key: [{"id": "status"}, None]}] + [
+            {"id": f"empty{i}", child_key: []} for i in range(PAGE_SIZE - 1)
+        ]
+        script = [
+            ScriptedResponse(json={"data": {"boards": first_page}}),
+            ScriptedResponse(json={"data": {"boards": [{"id": "b2", child_key: [{"id": "status"}]}]}}),
+        ]
+
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert result.rows == [{"id": "status", "_board_id": "b1"}, {"id": "status", "_board_id": "b2"}]
+        assert [_graphql(r)["variables"] for r in result.requests] == [
+            {"limit": PAGE_SIZE, "page": 1},
+            {"limit": PAGE_SIZE, "page": 2},
+        ]
+
+    @pytest.mark.parametrize(
+        "api_version, requested_field, absent_field",
+        [
+            (MONDAY_VERSION_V2, "settings_str", " settings "),
+            (MONDAY_VERSION_2026_07, " settings ", "settings_str"),
+        ],
+    )
+    def test_columns_request_the_settings_field_the_pinned_version_serves(
+        self, api_version, requested_field, absent_field
+    ):
+        with scripted_network([ScriptedResponse(json={"data": {"boards": []}})]) as network:
+            list(get_rows("token", "board_columns", mock.MagicMock(), api_version))
+
+        query = _graphql(network.requests_log[0])["query"]
+        assert requested_field in query
+        assert absent_field not in query
+
+
+class TestGetRowsFolders:
+    def test_walks_main_and_every_workspace_without_duplicating_folders(self):
+        script = [
+            ScriptedResponse(json={"data": {"workspaces": [{"id": "w1"}]}}),
+            ScriptedResponse(json={"data": {"folders": [{"id": "f1"}]}}),
+            ScriptedResponse(json={"data": {"folders": [{"id": "f1"}, {"id": "f2"}]}}),
+        ]
+
+        result = _driver().run("folders", script)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["f1", "f2"]
+        assert [_graphql(r)["variables"].get("workspaceIds") for r in result.requests] == [None, [None], ["w1"]]
+
+
+class TestGetRowsBoardActivityLogs:
+    @pytest.mark.parametrize(
+        "incremental_inputs, expected_from",
+        [
+            ({}, None),
+            (
+                {
+                    "incremental_field": "created_at",
+                    "incremental_field_type": IncrementalFieldType.DateTime,
+                    "db_incremental_field_last_value": datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=UTC),
+                },
+                "2026-01-02T03:04:05Z",
+            ),
+        ],
+    )
+    def test_pages_each_board_and_sends_the_watermark_only_when_incremental(self, incremental_inputs, expected_from):
+        full_page = [{"id": f"log{i}", "created_at": "17000000000000000"} for i in range(ACTIVITY_LOGS_PAGE_SIZE)]
+        script = [
+            ScriptedResponse(json={"data": {"boards": [{"id": "b1"}, {"id": "b2"}]}}),
+            ScriptedResponse(json={"data": {"boards": [{"activity_logs": full_page}]}}),
+            ScriptedResponse(json={"data": {"boards": [{"activity_logs": [{"id": "tail", "created_at": "bad"}]}]}}),
+            ScriptedResponse(json={"data": {"boards": [{"activity_logs": []}]}}),
+        ]
+
+        result = _driver().run("board_activity_logs", script, **incremental_inputs)
+
+        assert result.raised is None
+        assert len(result.rows) == ACTIVITY_LOGS_PAGE_SIZE + 1
+        assert result.rows[0]["created_at"] == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+        assert result.rows[-1] == {"id": "tail", "created_at": "bad", "_board_id": "b1"}
+        log_variables = [_graphql(r)["variables"] for r in result.requests[1:]]
+        assert [(v["boardId"], v["page"]) for v in log_variables] == [(["b1"], 1), (["b1"], 2), (["b2"], 1)]
+        assert {v.get("from") for v in log_variables} == {expected_from}

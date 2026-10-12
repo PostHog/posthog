@@ -7,7 +7,8 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { accuracyHeadline, rankingSentence } from '../onlinePerformance'
+import { accuracyHeadline, percent, precisionRecallSentence, rankingSentence } from '../onlinePerformance'
+import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
 import { RealizedAucChart } from './RealizedAucChart'
 import { ScoreNowButton } from './ScoreNowButton'
@@ -21,6 +22,10 @@ const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; la
 
 function fmt(value: number | null, decimals = 3): string {
     return value != null ? value.toFixed(decimals) : '—'
+}
+
+function fmtPercent(value: number | null | undefined): string {
+    return value != null ? percent(value) : '—'
 }
 
 function NotCheckedYet(): JSX.Element {
@@ -48,6 +53,8 @@ export function OnlinePerformanceTab(): JSX.Element {
         latestChampionPerformance,
         realizedAucPoints,
         segmentCalibration,
+        accuracyCutoff,
+        championConfusion,
     } = useValues(autoresearchPipelineLogic)
     const { loadOnlinePerformance } = useActions(autoresearchPipelineLogic)
 
@@ -75,6 +82,9 @@ export function OnlinePerformanceTab(): JSX.Element {
     }
 
     const ranking = rankingSentence(latestChampionPerformance, pipeline.target_event)
+    const precisionRecall = championConfusion
+        ? precisionRecallSentence(championConfusion, accuracyCutoff, pipeline.target_event)
+        : null
     const latestDate = dayjs(latestChampionPerformance.prediction_date).format('MMM D')
 
     return (
@@ -84,7 +94,10 @@ export function OnlinePerformanceTab(): JSX.Element {
                     {accuracyHeadline(latestChampionPerformance, pipeline.target_event)}
                 </p>
                 {ranking && <p className="text-sm text-muted mb-0">{ranking}</p>}
+                {precisionRecall && <p className="text-sm text-muted mb-0">{precisionRecall}</p>}
             </div>
+
+            <ConfusionMatrixCard />
 
             {segmentCalibration.length > 0 && (
                 <section className="space-y-2">
@@ -142,13 +155,25 @@ export function OnlinePerformanceTab(): JSX.Element {
                                         { title: 'Calibration error', render: (_, row) => fmt(row.calibration_error) },
                                         { title: 'Lift at 10%', render: (_, row) => `${fmt(row.lift_at_10, 2)}×` },
                                         { title: 'Lift at 20%', render: (_, row) => `${fmt(row.lift_at_20, 2)}×` },
+                                        {
+                                            title: 'Precision at 10%',
+                                            render: (_, row) => fmtPercent(row.confusion?.top_10.precision),
+                                        },
+                                        {
+                                            title: 'Recall at 10%',
+                                            render: (_, row) => fmtPercent(row.confusion?.top_10.recall),
+                                        },
+                                        { title: 'Average precision', render: (_, row) => fmt(row.average_precision) },
                                     ]}
                                 />
                                 <p className="text-xs text-muted mb-0">
                                     Realized AUC: higher is better. Brier score and calibration error (ECE): lower is
                                     better. ECE measures how far predicted probabilities drift from observed rates. Lift
                                     at k%: ratio of positives in the top k% vs a random sample, so 2× means twice as
-                                    many conversions as random.
+                                    many conversions as random. Precision at 10%: share of the top 10% who did{' '}
+                                    {pipeline.target_event}. Recall at 10%: share of everyone who did it that the top
+                                    10% includes. Average precision: precision averaged over every cutoff, higher is
+                                    better.
                                 </p>
                             </div>
                         ),

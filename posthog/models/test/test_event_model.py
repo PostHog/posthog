@@ -262,6 +262,15 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 False,
             ),
             (
+                "a tag and a class on different elements",
+                'button.btn[type="submit"]',
+                [
+                    Element(tag_name="button"),
+                    Element(tag_name="div", attr_class=["btn"], attributes={"attr__type": "submit"}),
+                ],
+                False,
+            ),
+            (
                 "two attributes followed by a class the element does not have",
                 'button[type="button"][data-x="a"].active',
                 [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
@@ -307,6 +316,12 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 "one attribute name that matches the end of a longer name",
                 'button[label="Save"]',
                 [Element(tag_name="button", attributes={"attr__aria-label": "Save"})],
+                True,
+            ),
+            (
+                "two attributes after a tag and a position",
+                'button:nth-child(2)[type="button"][data-x="a"]',
+                [Element(tag_name="button", nth_child=2, attributes={"attr__data-x": "a", "attr__type": "button"})],
                 True,
             ),
             (

@@ -36,6 +36,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
+    apply_hogql_batch_export_modifier_defaults,
     find_interval_placeholders,
     load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
@@ -282,7 +283,7 @@ def count_rows_for_hogql_batch_export(
         user=user,
         query_type="HogQLBatchExportCountRowsQuery",
         settings=query_settings,
-        modifiers=modifiers,
+        modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers),
     )
     return query_response.results[0][0] if query_response.results else 0
 

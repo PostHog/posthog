@@ -77,6 +77,7 @@ export type paymentEntryLogicType = MakeLogicType<paymentEntryLogicValues, payme
 export const paymentEntryLogic = kea<paymentEntryLogicType>([
     path(['scenes', 'billing', 'PaymentEntryLogic']),
     connect({
+        logic: [billingLogic],
         actions: [userLogic, ['loadUser'], organizationLogic, ['loadCurrentOrganization']],
     }),
     actions({
