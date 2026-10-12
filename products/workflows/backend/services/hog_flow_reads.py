@@ -73,6 +73,7 @@ def get_workflow_ref(
         trigger_type=trigger.get("type"),
         trigger_filters=trigger.get("filters") or {},
         variables=flow.variables,
+        description=flow.description or "",
     )
 
 

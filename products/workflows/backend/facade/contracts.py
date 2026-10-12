@@ -450,6 +450,7 @@ class WorkflowRef:
     trigger_type: str | None
     trigger_filters: dict[str, Any]
     variables: list[dict[str, Any]] | None
+    description: str = ""
 
 
 class WorkflowNotFound(Exception):

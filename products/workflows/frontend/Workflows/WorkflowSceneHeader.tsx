@@ -8,6 +8,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -24,6 +25,8 @@ import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layou
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { shareWorkflowPreviewLogic } from './slackPreview/shareWorkflowPreviewLogic'
+import { ShareWorkflowPreviewModal } from './slackPreview/ShareWorkflowPreviewModal'
 import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMenuItem'
 import { WorkflowSuggestionsPanelToggle } from './suggestions/WorkflowSuggestionsPanelToggle'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
@@ -69,6 +72,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const slackPreviewEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_SLACK_PREVIEW] && !!isSavedWorkflow
+    const { openModal: openSharePreviewModal } = useActions(shareWorkflowPreviewLogic({ id: props.id ?? 'new' }))
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
@@ -92,6 +97,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     return (
         <>
             <SaveAsTemplateModal {...props} editTemplateId={editTemplateId} />
+            {slackPreviewEnabled && <ShareWorkflowPreviewModal id={props.id!} />}
             {sceneMenuBarEnabled && isSavedWorkflow && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="workflow-menubar-file">
@@ -129,6 +135,16 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             <IconScreen />
                             Save as template
                         </SceneMenuBarItem>
+                        {slackPreviewEnabled && (
+                            <SceneMenuBarItem
+                                opensFloatingUi
+                                onClick={openSharePreviewModal}
+                                data-attr="workflow-menubar-share-preview"
+                            >
+                                <IconSlack />
+                                Share preview to Slack
+                            </SceneMenuBarItem>
+                        )}
                         {hasStagedDraft && (
                             <>
                                 <SceneMenuBarSeparator />
@@ -268,6 +284,16 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             <IconScreen />
                                             Save as template
                                         </ButtonPrimitive>
+                                        {slackPreviewEnabled && (
+                                            <ButtonPrimitive
+                                                menuItem
+                                                onClick={openSharePreviewModal}
+                                                data-attr="workflow-share-preview-btn"
+                                            >
+                                                <IconSlack />
+                                                Share preview to Slack
+                                            </ButtonPrimitive>
+                                        )}
                                     </ScenePanelActionsSection>
                                     <ScenePanelDivider />
                                     <ScenePanelActionsSection>

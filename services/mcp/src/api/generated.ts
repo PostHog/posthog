@@ -38446,6 +38446,16 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailPreviewImage {
+      /**
+         * Caption shown under the image in Slack.
+         * @maxLength 300
+         */
+      title: string;
+      /** The rendered email as a base64-encoded PNG, at most 2 MB once decoded. */
+      image_base64: string;
+    }
+
     /**
      * How much workflow email this project may send, and how much of that it has used.
      */
@@ -99073,6 +99083,48 @@ export namespace Schemas {
       note?: string | null;
       readonly created_by_email: string;
       readonly is_active: boolean;
+    }
+
+    export interface SharePreviewToSlackRequest {
+      /** ID of the project's Slack integration to post with. */
+      integration_id: number;
+      /**
+         * Slack channel to post in: a channel ID, or the channel picker's `ID|#name` value. Ignored when `thread_link` is set.
+         * @nullable
+         */
+      channel?: string | null;
+      /**
+         * Link to a Slack message. The preview is posted as a reply in that message's thread.
+         * @maxLength 1000
+         * @nullable
+         */
+      thread_link?: string | null;
+      /**
+         * Message to the team.
+         * @maxLength 3000
+         */
+      note?: string;
+      /**
+         * The workflow's steps, one line each, in the order they run.
+         * @maxItems 200
+         * @items.maxLength 500
+         */
+      outline?: string[];
+      /**
+         * Rendered previews of the workflow's emails, attached to the Slack message in order.
+         * @maxItems 20
+         */
+      emails?: EmailPreviewImage[];
+    }
+
+    export interface SharePreviewToSlackResponse {
+      /** ID of the Slack channel the preview was posted in. */
+      channel: string;
+      /**
+         * Timestamp of the thread the preview was posted in, or null for a new message.
+         * @nullable
+         */
+      thread_ts: string | null;
     }
 
     /**

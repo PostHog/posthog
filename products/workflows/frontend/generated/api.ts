@@ -60,6 +60,8 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    SharePreviewToSlackRequestApi,
+    SharePreviewToSlackResponseApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -1194,6 +1196,27 @@ export const hogFlowsSchedulesDestroy = async (
     return apiMutator<void>(getHogFlowsSchedulesDestroyUrl(projectId, id, scheduleId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getHogFlowsSharePreviewToSlackUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/share_preview_to_slack/`
+}
+
+/**
+ * Post a preview of this workflow, its steps and rendered emails, to a Slack channel or thread.
+ */
+export const hogFlowsSharePreviewToSlack = async (
+    projectId: string,
+    id: string,
+    sharePreviewToSlackRequestApi: SharePreviewToSlackRequestApi,
+    options?: RequestInit
+): Promise<SharePreviewToSlackResponseApi> => {
+    return apiMutator<SharePreviewToSlackResponseApi>(getHogFlowsSharePreviewToSlackUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sharePreviewToSlackRequestApi),
     })
 }
 

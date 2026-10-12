@@ -273,6 +273,7 @@ from products.workflows.backend.presentation.views.hog_flow_fields import (
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
+from products.workflows.backend.presentation.views.hog_flow_slack_preview import HogFlowSlackPreviewMixin
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
@@ -4133,7 +4134,12 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
     ),
 )
 class HogFlowViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+    HogFlowSlackPreviewMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
@@ -4174,6 +4180,7 @@ class HogFlowViewSet(
         "resume_email_sending",
         "approve_proposal",
         "reject_proposal",
+        "share_preview_to_slack",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
