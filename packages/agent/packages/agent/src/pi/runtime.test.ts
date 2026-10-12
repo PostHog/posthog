@@ -211,39 +211,52 @@ describe("PiRuntime", () => {
     },
   );
 
-  it("uses the native command id for the echoed user message", async () => {
-    const { client, emit, send } = createClient();
-    const runtime = new PiRuntime(client);
-    const conversationListener = vi.fn();
-    runtime.onConversationEvent(conversationListener);
-    const message: UserMessage = {
-      role: "user",
-      content: "hello",
-      timestamp: 1,
-    };
-    send.mockImplementation(async () => {
-      emit({ type: "message_end", message });
-      return {
-        id: "message-1",
-        type: "response",
-        command: "prompt",
-        success: true,
+  const skillBlock =
+    '<skill name="review" location="/skills/review/SKILL.md">\nReferences are relative to /skills/review.\n\n# Review\n</skill>';
+
+  it.each([
+    { sent: "hello", echoed: "hello" },
+    { sent: "/skill:review", echoed: skillBlock },
+    {
+      sent: "/skill:review check this diff",
+      echoed: `${skillBlock}\n\ncheck this diff`,
+    },
+  ])(
+    "uses the native command id for the echo of $sent",
+    async ({ sent, echoed }) => {
+      const { client, emit, send } = createClient();
+      const runtime = new PiRuntime(client);
+      const conversationListener = vi.fn();
+      runtime.onConversationEvent(conversationListener);
+      const message: UserMessage = {
+        role: "user",
+        content: echoed,
+        timestamp: 1,
       };
-    });
+      send.mockImplementation(async () => {
+        emit({ type: "message_end", message });
+        return {
+          id: "message-1",
+          type: "response",
+          command: "prompt",
+          success: true,
+        };
+      });
 
-    await runtime.sendCommand({
-      id: "message-1",
-      type: "prompt",
-      message: "hello",
-    });
-
-    expect(conversationListener).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "user_message",
+      await runtime.sendCommand({
         id: "message-1",
-      }),
-    );
-  });
+        type: "prompt",
+        message: sent,
+      });
+
+      expect(conversationListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "user_message",
+          id: "message-1",
+        }),
+      );
+    },
+  );
 
   it("does not apply an extension command id to a later user message", async () => {
     const { client, emit, send } = createClient();
