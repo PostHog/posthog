@@ -74,6 +74,12 @@ def test_tracks_tools_across_scans(team: Team) -> None:
             "removed",
             id="late_sighting_after_removal",
         ),
+        pytest.param(
+            [("seen", 0, ["Stripe"]), ("removed", 2, []), ("still_absent", 4, []), ("late", 3, ["Stripe"])],
+            "seen",
+            "removed",
+            id="late_sighting_after_repeated_absence",
+        ),
     ],
 )
 def test_older_scan_arriving_late_does_not_rewind_state(
