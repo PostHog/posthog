@@ -5273,14 +5273,14 @@ Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-
 
 ## LogzIO — **thin**
 
-Today (5): `alerts`, `drop_filters`, `notification_endpoints`, `search_logs`, `triggered_alerts`
+Today (9): `alerts`, `audit_trail`, `drop_filters`, `notification_endpoints`, `search_logs`, `security_events`, `security_rules`, `triggered_alerts`, `users`
 
 Diffed against: <https://docs.logz.io/docs/logz/logz-io-api>
 
-- [ ] `POST /v2/security/rules/events/search (Fetch security events)` — SIEM detection events — the main analytical output of the security product (high)
-- [ ] `POST /v2/security/rules/search (Retrieve security rules)` — lookup resolving the rule ids on every security event (high)
-- [ ] `GET/POST audit trail (Retrieve audit trail / List account audit trails)` — who changed what in the account, a standard warehouse audit dataset (high)
-- [ ] `GET /v1/user-management/users (Retrieve all users)` — lookup resolving user ids on alerts, audit rows and triggered alerts (high)
+- [x] `POST /v2/security/rules/events/search (Fetch security events)` — SIEM detection events — the main analytical output of the security product (`security_events`)
+- [x] `POST /v2/security/rules/search (Retrieve security rules)` — lookup resolving the rule ids on every security event (`security_rules`)
+- [x] `POST /v1/audit-trail (Retrieve a filtered list of audit trail events)` — who changed what in the account, a standard warehouse audit dataset (`audit_trail`)
+- [x] `GET /v1/user-management (Retrieve all users)` — lookup resolving user ids on alerts, audit rows and triggered alerts (`users`)
 - [ ] `POST /v1/security/rules/events/logs/search (Logs that triggered a security event)` — drills a detection down to the underlying log lines (medium)
 - [ ] `GET /v1/insights (Get the list of Insights)` — Cognitive Insights findings, an analytical product surface (medium)
 - [ ] `POST lookup lists search + lookup list elements search` — literal lookup tables used to enrich logs and alerts (medium)
@@ -5298,12 +5298,11 @@ Today (12): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaig
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
-- [ ] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (high)
-- [ ] `GET /v1/contacts/suppression` — suppressed contacts, needed to reconcile deliverable audience (medium)
+- [x] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (`event_patterns`)
 - [x] `GET /v1/campaigns/{campaignId}/metrics` — all-time engagement counters per sent campaign (`campaign_metrics`)
 - [x] `GET /v1/transactional-emails/{transactionalId}/metrics` — all-time delivery counters per transactional email (`transactional_email_metrics`)
 
-Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
+Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only, and /v1/contacts/suppression only checks one contact by email or userId rather than listing suppressed contacts. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
 
 ## Luma — gaps
 
@@ -5373,10 +5372,10 @@ Today (8): `bounces`, `complaints`, `domains`, `events`, `mailing_lists`, `tags`
 
 Diffed against: <https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/metrics/post-v1-analytics-metrics>
 
-- [ ] `POST /v1/analytics/metrics` — the modern aggregated metrics API — Mailgun's headline deliverability numbers (high)
-- [ ] `GET /v3/{domain}/stats/total and GET /v3/stats/total` — time-bucketed sent/delivered/opened/bounced counts per domain and account (high)
-- [ ] `GET /v3/{domain}/tags/{tag}/stats and /stats/aggregates` — per-tag performance; tags are synced but carry no metrics without these (high)
-- [ ] `GET /v3/{domain}/aggregates/devices, /providers, /countries` — device, mailbox provider and country breakdown dimensions for engagement (high)
+- [x] `POST /v1/analytics/metrics` — the modern aggregated metrics API — Mailgun's headline deliverability numbers (high) — synced as daily `metrics`, `domain_metrics`, `tag_metrics`, `country_metrics` and `recipient_provider_metrics`
+- [x] `GET /v3/{domain}/stats/total and GET /v3/stats/total` — time-bucketed sent/delivered/opened/bounced counts per domain and account (high) — deprecated Stats API, covered by `metrics` and `domain_metrics` from the Metrics API instead
+- [x] `GET /v3/{domain}/tags/{tag}/stats and /stats/aggregates` — per-tag performance; tags are synced but carry no metrics without these (high) — deprecated, covered by `tag_metrics` from the Metrics API instead
+- [x] `GET /v3/{domain}/aggregates/devices, /providers, /countries` — device, mailbox provider and country breakdown dimensions for engagement (high) — deprecated, covered by `recipient_provider_metrics` and `country_metrics` from the Metrics API; the Metrics API documents no device dimension, so devices stay uncovered
 - [ ] `GET /v3/lists/{list_address}/members` — mailing list membership join table; mailing_lists gives only the list headers (high)
 - [ ] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high)
 - [ ] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium)
@@ -5394,10 +5393,10 @@ Today (10): `campaign`, `campaigndraft`, `clickstatistics`, `contact`, `contactm
 
 Diffed against: <https://dev.mailjet.com/email/reference/messages/>
 
-- [ ] `statcounters` — Mailjet's unified stats endpoint - sent/open/click/bounce counters sliced by campaign, list or sender (high)
-- [ ] `messagesentstatistics` — Per-message delivery outcome metrics, the base fact table for deliverability analysis (high)
-- [ ] `messagehistory` — Per-message event/state transition log (sent, opened, clicked, bounced, spam) (high)
-- [ ] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
+- [x] `statcounters` — Mailjet's unified stats endpoint - sent/open/click/bounce counters sliced by campaign, list or sender (high). Added as `statcounters`: daily, event-timed counters for the whole API key.
+- [ ] `messagesentstatistics` — skipped: Mailjet lists it as a deprecated legacy statistics resource replaced by `/statcounters`.
+- [ ] `messagehistory` — skipped: only exposed as `/messagehistory/{message_ID}`, so it would take one request per message ever sent. The webhook-fed `messageevent` table already carries this event stream.
+- [x] `bouncestatistics` — Bounce events with reason codes; we sync clicks and opens but not bounces (high)
 - [ ] `campaignstatistics` — Aggregate performance per campaign, resolving the campaign rows we already sync (high)
 - [ ] `contactdata` — Actual custom property values per contact - we sync contactmetadata (the schema) but not the values (high)
 - [ ] `openstatistics` — Open events aggregated per message/campaign, complementing the openinformation rows we sync (medium)
