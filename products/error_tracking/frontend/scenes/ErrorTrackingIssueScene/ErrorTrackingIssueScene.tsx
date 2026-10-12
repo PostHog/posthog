@@ -174,6 +174,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     </SceneMenuBar>
                                 )}
                                 <SceneTitleSection
+                                    noPadding
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
