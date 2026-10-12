@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use metrics::counter;
 
 use super::codec::PropertiesCodec;
-use super::persons::{CachedPerson, PersonCache, PersonCacheKey};
+use super::persons::{CachedPerson, CachedVersion, PersonCache, PersonCacheKey};
 
 /// Result of a cache lookup that distinguishes partition ownership from person existence.
 pub enum CacheLookup {
@@ -188,7 +188,7 @@ impl PartitionedCache {
     }
 
     /// Counter-free read for bookkeeping passes; see [`PersonCache::peek`].
-    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedPerson> {
+    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedVersion> {
         self.partitions
             .get(&partition)
             .and_then(|cache| cache.peek(key))

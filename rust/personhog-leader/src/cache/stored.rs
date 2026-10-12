@@ -3,7 +3,7 @@ use std::mem::size_of;
 use uuid::Uuid;
 
 use super::codec::{PropertiesCodec, StoredProperties};
-use super::persons::{CachedPerson, PersonCacheKey};
+use super::persons::{CachedPerson, CachedVersion, PersonCacheKey};
 
 /// Foyer's per-record cost beyond key and value: the record's `Arc`
 /// header, hash, weight, LRU links, refcount, flags and hash-table slot.
@@ -48,6 +48,13 @@ impl StoredPerson {
             is_deleted: self.is_deleted,
             last_seen_at: self.last_seen_at,
         })
+    }
+
+    pub(super) fn cached_version(&self) -> CachedVersion {
+        CachedVersion {
+            version: self.version,
+            is_deleted: self.is_deleted,
+        }
     }
 
     pub(super) fn properties(&self) -> &StoredProperties {

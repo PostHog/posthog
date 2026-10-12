@@ -81,6 +81,12 @@ impl TryFrom<Person> for CachedPerson {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CachedVersion {
+    pub version: i64,
+    pub is_deleted: bool,
+}
+
 /// Counts entries leaving the cache, by reason. Evictions are the
 /// operationally interesting ones: evicting a recently written person is
 /// exactly what the dirty index + changelog recovery exist to make safe,
@@ -136,7 +142,7 @@ impl PersonCache {
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        let person = self.peek(key);
+        let person = self.lookup(key);
         match person {
             Some(_) => counter!("personhog_leader_cache_hits_total").increment(1),
             None => counter!("personhog_leader_cache_misses_total").increment(1),
@@ -144,11 +150,18 @@ impl PersonCache {
         person
     }
 
-    /// A read that skips the hit/miss counters, for bookkeeping passes
-    /// such as the death-document settle. It still promotes the entry's
-    /// recency, which is harmless for those passes. An entry that fails
-    /// to decode is dropped and reads as absent.
-    pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
+    /// A read for bookkeeping passes such as the death-document settle.
+    /// It skips the hit/miss counters and does not copy or decompress the
+    /// properties. It still promotes the entry's recency, which is
+    /// harmless for those passes.
+    pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedVersion> {
+        self.inner
+            .get(key)
+            .map(|entry| entry.value().cached_version())
+    }
+
+    /// An entry that fails to decode is dropped and reads as absent.
+    fn lookup(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
         let entry = self.inner.get(key)?;
         match entry.value().to_cached(&self.codec) {
             Ok(person) => Some(person),
