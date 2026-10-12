@@ -947,6 +947,8 @@ function CyclotronJobInputWithSchema({
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
+    const [editingSecret, setEditingSecret] = useState(false)
+    const [pendingSecretTemplating, setPendingSecretTemplating] = useState<CyclotronJobInputType['templating']>()
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
@@ -987,12 +989,29 @@ function CyclotronJobInputWithSchema({
         }
     }, [showSource])
 
+    // A save returns the new secret masked again, so close the editor and show the masked state.
+    useEffect(() => {
+        if (value?.secret) {
+            setEditingSecret(false)
+            setPendingSecretTemplating(undefined)
+        }
+    }, [value?.secret])
+
     const onChange = (newValue: CyclotronJobInputType): void => {
         onInputChange?.(schema.key, {
             // Keep the existing parts if they exist
             ...value,
             ...newValue,
         })
+    }
+
+    const onSecretReplacementChange = (newValue: CyclotronJobInputType): void => {
+        if (newValue.value === '' || newValue.value === null || newValue.value === undefined) {
+            // A language change sends the empty display value. Saving it would store an empty secret.
+            setPendingSecretTemplating(newValue.templating)
+            return
+        }
+        onChange({ ...newValue, templating: newValue.templating ?? pendingSecretTemplating, secret: false })
     }
 
     return (
@@ -1041,7 +1060,7 @@ function CyclotronJobInputWithSchema({
                                     </Tooltip>
                                 ) : undefined}
                             </LemonLabel>
-                            {schema.type === 'boolean' && (schema.templating ?? true) && (
+                            {schema.type === 'boolean' && (schema.templating ?? true) && !value?.secret && (
                                 <LemonSelect
                                     size="xsmall"
                                     type="tertiary"
@@ -1079,15 +1098,14 @@ function CyclotronJobInputWithSchema({
                                 />
                             )}
                         </div>
-                        {value?.secret ? (
+                        {value?.secret && !editingSecret ? (
                             <div className="flex gap-2 items-center p-1 rounded border border-dashed">
                                 <span className="flex-1 p-1 italic text-secondary">
                                     This value is secret and is not displayed here.
                                 </span>
                                 <LemonButton
-                                    onClick={() => {
-                                        onChange({ value: '', secret: false })
-                                    }}
+                                    // Only open the editor: auto-saving forms would store an empty value over the secret.
+                                    onClick={() => setEditingSecret(true)}
                                     size="small"
                                     type="secondary"
                                 >
@@ -1097,8 +1115,16 @@ function CyclotronJobInputWithSchema({
                         ) : (
                             <CyclotronJobInputRenderer
                                 schema={schema}
-                                input={value ?? { value: '' }}
-                                onChange={onChange}
+                                input={
+                                    value?.secret
+                                        ? {
+                                              ...value,
+                                              value: '',
+                                              templating: pendingSecretTemplating ?? value.templating,
+                                          }
+                                        : (value ?? { value: '' })
+                                }
+                                onChange={value?.secret ? onSecretReplacementChange : onChange}
                                 onInputChange={onInputChange}
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
