@@ -143,6 +143,7 @@ from products.signals.backend.ranking.inbox_sort import (
     RANKER_ORDERINGS,
     InboxRanker,
     resolve_recommended_ranker,
+    score_decile,
 )
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
@@ -2034,9 +2035,11 @@ class SignalReportViewSet(
         for clause in clauses:
             name = clause.lstrip("-")
             if name in ranking_annotations:
+                # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
+                expression = score_decile(name) if self._inbox_ranker is not None else F(name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
-                    F(name).desc(nulls_last=True) if clause.startswith("-") else F(name).asc(nulls_last=True)
+                    expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
                 )
             else:
                 order_by.append(clause)
@@ -2481,9 +2484,14 @@ class SignalReportViewSet(
     def list(self, request: ValidatedRequest, *args, **kwargs):
         count_only: bool = request.validated_query_data["count_only"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        if count_only:
+            # A count orders nothing, so it must not record a flag exposure for the ranker.
+            self._inbox_ranker = None
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
+                # Private trial reads compare against the priority order, never a flag arm.
+                self._inbox_ranker = None
                 return TrialInboxReads(self, store).list(
                     count_only=count_only, include_source_metadata=include_source_metadata
                 )

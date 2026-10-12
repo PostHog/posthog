@@ -4,10 +4,15 @@ A multivariate flag keyed by team picks the ranker. `control`, an unknown varian
 off or fails to evaluate gives the priority order. `test` orders by the served `fixed` head first.
 
 The merge key lets a client merge rows from the two rankers without the raw score. It is the score
-decile then the priority rank, so it never says more about the score than one decimal place.
+decile then the priority rank, so it never says more about the score than one decimal place. The
+`fixed` ranker sorts by the same decile, so the row order does not say more either. Keep
+`score_decile` and `inbox_merge_key` in step.
 """
 
 from typing import Literal
+
+from django.db.models import Case, F, FloatField, Value, When
+from django.db.models.functions import Floor
 
 import structlog
 import posthoganalytics
@@ -37,13 +42,25 @@ def resolve_recommended_ranker(team: Team) -> InboxRanker:
         variant = posthoganalytics.get_feature_flag(
             RECOMMENDED_INBOX_SORT_FLAG,
             str(team.uuid),
-            groups={"project": str(team.id)},
-            group_properties={"project": {"id": str(team.id)}},
+            # The web and desktop clients register the project group by uuid, so all clients get the same variant.
+            groups={"project": str(team.uuid)},
+            group_properties={"project": {"id": team.id, "uuid": str(team.uuid)}},
         )
     except Exception:
         logger.exception("signals.inbox_sort.flag_failed", team_id=team.id)
         return "priority"
     return "fixed" if variant == "test" else "priority"
+
+
+def score_decile(field: str) -> Case:
+    """The SQL form of the decile in `inbox_merge_key`. NULL stays NULL."""
+    return Case(
+        When(**{f"{field}__isnull": True}, then=Value(None)),
+        When(**{f"{field}__lt": 0}, then=Value(0.0)),
+        When(**{f"{field}__gte": (_DECILES - 1) / _DECILES}, then=Value(float(_DECILES - 1))),
+        default=Floor(F(field) * _DECILES),
+        output_field=FloatField(),
+    )
 
 
 def inbox_merge_key(score: float | None, priority_rank: int | None) -> int:

@@ -1294,12 +1294,20 @@ class TestSignalReportListAPI(APIBaseTest):
         self.user.save()
         low_p0 = self._create_report(title="Low P0")
         high_p3 = self._create_report(title="High P3")
+        same_decile_p0 = self._create_report(title="Same decile P0")
         unscored_p1 = self._create_report(title="Unscored P1")
         stale_p0 = self._create_report(title="Stale P0")
-        for report, priority in ((low_p0, "P0"), (high_p3, "P3"), (unscored_p1, "P1"), (stale_p0, "P0")):
+        for report, priority in (
+            (low_p0, "P0"),
+            (high_p3, "P3"),
+            (same_decile_p0, "P0"),
+            (unscored_p1, "P1"),
+            (stale_p0, "P0"),
+        ):
             self._priority_artefact(report, priority=priority)
         self._ranking_score_artefact(low_p0, scores={"fixed": 0.1234})
         self._ranking_score_artefact(high_p3, scores={"fixed": 0.8765})
+        self._ranking_score_artefact(same_decile_p0, scores={"fixed": 0.8123})
         self._ranking_score_artefact(stale_p0, scores={"fixed": 0.9876})
         SignalReportArtefact.objects.create(
             team=self.team,
@@ -1317,13 +1325,14 @@ class TestSignalReportListAPI(APIBaseTest):
         body = response.json()
         assert body["ranker"] == "fixed"
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
+            (str(same_decile_p0.id), 6),
             (str(high_p3.id), 9),
             (str(low_p0.id), 48),
             (str(stale_p0.id), 60),
             (str(unscored_p1.id), 61),
         ]
         assert all(r["ranking"] is None for r in body["results"])
-        for raw_score in ("0.1234", "0.8765", "0.9876"):
+        for raw_score in ("0.1234", "0.8123", "0.8765", "0.9876"):
             assert raw_score not in response.content.decode()
 
     @parameterized.expand(
