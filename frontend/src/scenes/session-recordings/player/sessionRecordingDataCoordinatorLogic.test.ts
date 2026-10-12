@@ -422,6 +422,23 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 isOldAndInvalid: logic.values.isOldAndInvalid,
             }).toEqual(expected)
         })
+        it('settles a viewer-requested check for new data while a background poll is in flight', async () => {
+            mountWithSnapshots(incrementalOnlySnapshotsAsJSONLines(dayjs().subtract(1, 'minute').valueOf()))
+            await loadFully()
+            expect(logic.values.snapshotCheckState).toBe('idle')
+
+            jest.useFakeTimers()
+            try {
+                logic.actions.loadSnapshotSources(60000)
+                logic.actions.checkForNewSnapshots()
+                expect(logic.values.snapshotCheckState).toBe('checking')
+
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(logic.values.snapshotCheckState).toBe('checked')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1
