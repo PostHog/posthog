@@ -11,6 +11,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType } from '~/types'
 
+import { DASHBOARD_WIDGET_CATALOG_GROUPS } from '../widget_types/catalog'
 import { AddWidgetModal } from './AddWidgetModal'
 
 type AddWidgetModalProps = React.ComponentProps<typeof AddWidgetModal>
@@ -84,15 +85,9 @@ describe('AddWidgetModal', () => {
         renderAddWidgetModal()
 
         const badges = screen.getByTestId('dashboard-widget-product-badges')
-        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
-            'Activity',
-            'Error tracking',
-            'Experiments',
-            'Logs',
-            'Session replay',
-            'Support',
-            'Surveys',
-        ])
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual(
+            DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => group.groupLabel).sort((a, b) => a.localeCompare(b))
+        )
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {
