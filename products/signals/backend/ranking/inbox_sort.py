@@ -23,11 +23,12 @@ RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-recommended-sort"
 InboxRanker = Literal["priority", "fixed"]
 
 PRIORITY_ORDERING = "priority,status,-updated_at"
-FIXED_ORDERING = "-ranking_fixed,priority,status,-updated_at"
-RANKER_ORDERINGS: dict[InboxRanker, str] = {"priority": PRIORITY_ORDERING, "fixed": FIXED_ORDERING}
+RANKER_ORDERINGS: dict[InboxRanker, str] = {
+    "priority": PRIORITY_ORDERING,
+    "fixed": "-ranking_fixed,priority,status,-updated_at",
+}
 
 _DECILES = 10
-_UNSCORED_DECILE_RANK = _DECILES
 _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
 
 
@@ -48,7 +49,7 @@ def resolve_recommended_ranker(team: Team) -> InboxRanker:
 def inbox_merge_key(score: float | None, priority_rank: int | None) -> int:
     """Lower keys rank first. A report without a score sorts after every scored report."""
     if score is None:
-        decile_rank = _UNSCORED_DECILE_RANK
+        decile_rank = _DECILES
     else:
         decile = min(max(int(score * _DECILES), 0), _DECILES - 1)
         decile_rank = _DECILES - 1 - decile

@@ -1999,9 +1999,8 @@ class SignalReportViewSet(
 
     @cached_property
     def _inbox_ranker(self) -> InboxRanker | None:
-        if self.request.query_params.get("ordering") is not None:
-            return None
-        if self.request.query_params.get("sort") != "recommended":
+        params = self.request.query_params
+        if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
         return resolve_recommended_ranker(self.team)
 
