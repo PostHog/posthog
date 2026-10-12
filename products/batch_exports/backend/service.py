@@ -3,6 +3,7 @@ import types
 import typing
 import datetime as dt
 from dataclasses import Field, asdict, dataclass, field, fields
+from typing import Literal
 from uuid import UUID
 
 from django.conf import settings
@@ -37,6 +38,7 @@ from posthog.temporal.common.schedule import (
 )
 
 from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
@@ -152,6 +154,164 @@ class BatchExportModel:
     hogql_modifiers: dict[str, typing.Any] | None = None
 
 
+class _BatchExportModelProtocol(typing.Protocol):
+    """Read-only protocol covering all batch export models."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def incremental_mode(self) -> IncrementalMode: ...
+
+    @property
+    def primary_key(self) -> tuple[str, ...]: ...
+
+    @property
+    def version_key(self) -> tuple[str, ...]: ...
+
+
+@frozen
+class BatchExportEventsModel:
+    # NOTE: In this and classes that follow, 'name' should really be a class
+    # variable. However, fields() and asdict() exclude attributes with ClassVar
+    # annotations. In the prescence of a type union, this would make it
+    # possible for Temporal to accidentaly deserialize into the wrong class, if
+    # we are not strict with type hints. So, to have the additional check 'name'
+    # provides, I would use a field(init=False) for name to approximate a class
+    # variable that is included in serialization/deserialization. However, this
+    # is not supported in Temporal==1.34.0. A fix has landed on main but has not
+    # released yet.
+    # TODO: On temporal==1.35.0 (or later) add init=False.
+    name: Literal["events"] = field(default="events")
+    # NOTE: primary_key and version_key are hardcoded for pre-defined models.
+    # This maintains backwards compatibility, and rejects any user input for
+    # models maintained by PostHog.
+    primary_key: tuple[Literal["uuid"]] = field(default=("uuid",))
+    version_key: tuple[Literal["timestamp"]] = field(default=("timestamp",))
+    incremental_mode: IncrementalMode = IncrementalMode.APPEND
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] = field(default_factory=list)
+
+
+@frozen
+class BatchExportEventsCustomModel:
+    name: Literal["events"] = field(default="events")
+    schema: BatchExportSchema
+    # NOTE: With a custom schema, we can't know if any of the key fields are
+    # present or not, so we enforce an empty key just to keep up with the
+    # protocol.
+    primary_key: tuple[str, ...] = field(default=())
+    version_key: tuple[str, ...] = field(default=())
+    incremental_mode: IncrementalMode = field(default=IncrementalMode.APPEND)
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.incremental_mode != IncrementalMode.APPEND:
+            # NOTE: Ideally, we would express this restriction using different
+            # types: an append model and a merge model as required. But Temporal
+            # encoding/decoding cannot reconstruct the types correctly, as
+            # Literal types just pass their SERIALIZED value as-is. So we
+            # have to validate. At least the validation happens at construction
+            # (or right after) so if you have a model instance, it's valid!
+            raise ValueError("Model is APPEND-only")
+
+
+def _validate_merge_only_model(model: _BatchExportModelProtocol) -> None:
+    if model.incremental_mode != IncrementalMode.MERGE:
+        raise ValueError("Model is MERGE-only")
+
+    _validate_keys(model)
+
+
+def _validate_keys(model: _BatchExportModelProtocol) -> None:
+    if not model.primary_key:
+        raise ValueError("MERGE requires a primary key")
+
+
+@frozen
+class BatchExportPersonsModel:
+    name: Literal["persons"] = field(default="persons")
+    primary_key: tuple[Literal["team_id"], Literal["distinct_id"]] = field(default=("team_id", "distinct_id"))
+    version_key: tuple[Literal["person_version"], Literal["person_distinct_id_version"]] = field(
+        default=(
+            "person_version",
+            "person_distinct_id_version",
+        ),
+    )
+    # NOTE: I am not sure if appending makes sense for persons or sessions, so
+    # this is hardcoded to merge. Happy to be corrected!
+    incremental_mode: IncrementalMode = field(default=IncrementalMode.MERGE)
+
+    def __post_init__(self) -> None:
+        _validate_merge_only_model(self)
+
+
+@frozen
+class BatchExportSessionsModel:
+    name: Literal["sessions"] = field(default="sessions")
+    primary_key: tuple[Literal["team_id"], Literal["session_id"]] = field(default=("team_id", "session_id"))
+    version_key: tuple[Literal["end_timestamp"]] = field(default=("end_timestamp",))
+    incremental_mode: IncrementalMode = field(default=IncrementalMode.MERGE)
+
+    def __post_init__(self):
+        _validate_merge_only_model(self)
+
+
+@frozen
+class BatchExportHogQLModel:
+    name: Literal["hogql"] = field(default="hogql")
+    query: str
+    user_id: int
+    modifiers: dict[str, typing.Any]
+    primary_key: tuple[str, ...] = ()
+    version_key: tuple[str, ...] = ()
+    incremental_mode: IncrementalMode = IncrementalMode.APPEND
+
+    def __post_init__(self) -> None:
+        if self.incremental_mode == IncrementalMode.MERGE:
+            _validate_keys(self)
+
+
+AnyBatchExportModel = (
+    BatchExportEventsCustomModel
+    | BatchExportEventsModel
+    | BatchExportPersonsModel
+    | BatchExportSessionsModel
+    | BatchExportHogQLModel
+)
+
+BatchExportModelInput = AnyBatchExportModel | BatchExportModel
+
+
+def migrate_batch_export_model(old: BatchExportModelInput | None, /) -> AnyBatchExportModel:
+    if old is None:
+        return BatchExportEventsModel()
+    if isinstance(old, AnyBatchExportModel):
+        return old
+
+    match old.name:
+        case "events":
+            if old.schema is not None:
+                return BatchExportEventsCustomModel(schema=old.schema, filters=old.filters or [])
+            return BatchExportEventsModel(filters=old.filters or [])
+        case "persons":
+            return BatchExportPersonsModel()
+        case "sessions":
+            return BatchExportSessionsModel()
+        case "hogql":
+            # These two should be set in the model, but we must be strict.
+            if old.user_id is None:
+                raise ValueError("HogQL model requires user_id")
+            if old.hogql_query is None:
+                raise ValueError("HogQL model requires a query")
+            return BatchExportHogQLModel(
+                query=old.hogql_query,
+                user_id=old.user_id,
+                modifiers=old.hogql_modifiers if old.hogql_modifiers is not None else {},
+            )
+        case s:
+            raise ValueError(f"Invalid model name: '{s}'")
+
+
 @dataclass
 class BackfillDetails:
     backfill_id: str | None
@@ -202,7 +362,7 @@ class BaseBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     integration_id: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Coerce string values to their declared types.
 
         EncryptedJSONField may not preserve Python types, so fields can
@@ -411,7 +571,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     mode: typing.Literal["COPY", "INSERT"] = "INSERT"
     copy_inputs: RedshiftCopyInputs | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__post_init__()
         if (
             self.mode == "COPY"
