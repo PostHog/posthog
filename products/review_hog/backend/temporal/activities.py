@@ -34,11 +34,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
@@ -1619,7 +1620,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
-            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
+            app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments, app_login)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1898,24 +1900,27 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
-    try:
-        github_api_request(
-            "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/reviewhog",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-            installation_id=installation_id,
-        )
-    except GitHubAPIError as error:
-        if error.status != 404:
-            raise
+    # The run does not know which label started it, and a label added during the run joins it, so the
+    # run removes every review label.
+    for label in sorted(REVIEW_LABELS):
+        try:
+            github_api_request(
+                "DELETE",
+                f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{label}",
+                token=token,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+                installation_id=installation_id,
+            )
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the label that started a label-triggered review, if it is still present."""
+    """Remove the review labels that started a label-triggered review, if they are still present."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 

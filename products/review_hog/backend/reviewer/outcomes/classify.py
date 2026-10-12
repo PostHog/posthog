@@ -33,6 +33,7 @@ from posthog.sync import database_sync_to_async
 
 from products.engineering_analytics.backend.facade.api import list_recently_merged_pull_requests
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewUserSettings
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -455,6 +456,7 @@ async def classify_report(
     inputs = await database_sync_to_async(_gather_report_inputs, thread_sensitive=False)(
         team_id=team_id, report=report, final_head=final_head
     )
+    app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
     compared_by_head = {head: parse_compare_files(files) for head, files in inputs.compares.items()}
     outcomes: list[_ClassifiedOutcome] = []
 
@@ -482,6 +484,7 @@ async def classify_report(
                 comment=pf.comment,
                 review_comments=inputs.review_comments,
                 reactions=inputs.reactions_by_comment.get(pf.comment["id"], []),
+                app_login=app_login,
             )
             if pf.comment
             else None
