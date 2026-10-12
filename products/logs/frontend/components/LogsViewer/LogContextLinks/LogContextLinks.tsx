@@ -3,6 +3,9 @@ import { useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { buildLogErrorsLogicProps } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/RelatedErrors/buildLogErrorsLogicProps'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
@@ -36,6 +39,8 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
+    const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+
     if (!traceId && !sessionId && !distinctId) {
         return null
     }
@@ -52,7 +57,7 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
                     data-attr={TRACE_DATA_ATTR[surface]}
                 />
             )}
-            {(traceId || sessionId) && (
+            {(traceId || sessionId) && canViewErrors && (
                 <LogErrorCount
                     logicProps={buildLogErrorsLogicProps(log, sessionId)}
                     surface={surface}
