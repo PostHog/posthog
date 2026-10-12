@@ -327,7 +327,7 @@ Product teams own their definitions and control which operations are exposed as 
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
-       exclude_params: [field] # hide params from tool input
+       exclude_params: [field, steps.*.secret] # hide params and body fields from tool input (`*` steps into array items and dict values)
        include_params: [field] # whitelist params (excludes all others)
        response: # filter response fields (applied per-item on list endpoints)
          include: [id, key, name] # keep only these fields (dot-path wildcards supported)
@@ -357,6 +357,7 @@ Product teams own their definitions and control which operations are exposed as 
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+   An `exclude_params` entry that names no query parameter or request body field also fails the build, so a typo cannot leave the field exposed.
 
    For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
    needs from each result row. This adds a compact text response for clients that cannot read
