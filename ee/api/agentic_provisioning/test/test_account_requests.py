@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import User
+from posthog.models.user import OnboardingSkippedReason, User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
@@ -67,6 +67,10 @@ class TestAccountRequests(ProvisioningTestBase):
         assert user.organization is not None
         assert user.team is not None
         assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
+        assert user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
+        assert user.onboarding_skipped_at is not None
+        assert user.onboarding_skipped_organization_id == user.organization.id
+        assert user.team.completed_snippet_onboarding is True
 
     def test_new_user_starts_unverified(self):
         # Partner-asserted email ownership is not trusted: the user must prove they own

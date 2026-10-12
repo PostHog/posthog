@@ -15,8 +15,7 @@ Charging happens two ways, mirroring where the partner becomes known:
   those refuse spends no partner quota.
 - ``charge="manual"``: the handler calls ``self.charge_rate_limit(...)`` once
   it has resolved its partner (the token endpoint decodes a grant first,
-  account_requests must clear the capability check before spending quota), or
-  a flow outside any view calls :func:`charge_partner_by_name`.
+  account_requests must clear the capability check before spending quota).
 
 A charge is refunded in ``handle_exception`` when the request provably did no
 work (the error code is in the declaration's ``refund_on``), so a partner
@@ -313,24 +312,6 @@ def charge_partner(
         )
 
     DECISIONS_COUNTER.labels(endpoint=declaration.endpoint, tier=tier, outcome="allowed").inc()
-
-
-def charge_partner_by_name(
-    endpoint: str, partner: OAuthApplication, *, request: Request | None = None, resource_id: str = ""
-) -> None:
-    """Charge by registry name, for flows that run outside any view dispatch."""
-    declaration = _REGISTRY.get(endpoint)
-    if declaration is None:
-        # Declarations register when the view modules import. Web processes load
-        # them through the URLconf; anything else (a test importing accounts.py
-        # directly) gets them here. Function-local to break the views->ratelimits
-        # import cycle.
-        from ee.api.agentic_provisioning import views  # noqa: F401, PLC0415
-
-        declaration = _REGISTRY.get(endpoint)
-    if declaration is None:
-        raise ImproperlyConfigured(f"No rate limit declared for endpoint {endpoint!r}")
-    charge_partner(declaration, partner, request=request, resource_id=resource_id)
 
 
 def _did_no_work(error_code: str, refund_on: frozenset[str]) -> bool:
