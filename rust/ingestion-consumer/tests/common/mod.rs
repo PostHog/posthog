@@ -29,6 +29,7 @@ pub const ONE_MESSAGE_PER_REQUEST: PackTargets = PackTargets {
     latency_budget: Duration::ZERO,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn batcher(
     kind: SchedulerKind,
     dispatcher: &Arc<Dispatcher>,
@@ -37,9 +38,11 @@ pub fn batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
     pack_targets: PackTargets,
+    soft_budget: Option<Duration>,
 ) -> (Batcher, BatcherOutputs) {
     match kind {
         SchedulerKind::PinStash => {
+            debug_assert!(soft_budget.is_none(), "pin_stash sends no budget");
             Batcher::new(Arc::clone(dispatcher), transport, handle, stall_timeout)
         }
         SchedulerKind::KeyTable => packing_key_table_batcher(
@@ -48,6 +51,7 @@ pub fn batcher(
             stall_timeout,
             retry_delay,
             pack_targets,
+            soft_budget,
         ),
     }
 }
@@ -64,6 +68,7 @@ pub fn key_table_batcher(
         stall_timeout,
         retry_delay,
         ONE_MESSAGE_PER_REQUEST,
+        None,
     )
 }
 
@@ -73,6 +78,7 @@ fn packing_key_table_batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
     pack_targets: PackTargets,
+    soft_budget: Option<Duration>,
 ) -> (Batcher, BatcherOutputs) {
     let pool_source = dispatcher.worker_pool_source();
     let assigner =
@@ -86,6 +92,7 @@ fn packing_key_table_batcher(
         stall_timeout,
         Instant::now(),
     )
-    .expect("valid stall timeout");
+    .expect("valid stall timeout")
+    .with_request_budget(soft_budget);
     Batcher::with_state_machine(state_machine, pool_source, transport)
 }
