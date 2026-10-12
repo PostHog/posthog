@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from products.workflows.backend.facade.enums import WorkflowIdeaSource, WorkflowIdeaStatus, WorkflowIdeaValueTier
+from products.workflows.backend.facade.enums import WorkflowIdeaSource, WorkflowIdeaStatus
 
 
 class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
@@ -15,7 +15,6 @@ class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
 
     Status = WorkflowIdeaStatus
     Source = WorkflowIdeaSource
-    ValueTier = WorkflowIdeaValueTier
 
     class Meta:
         constraints = [
@@ -34,11 +33,6 @@ class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
     key = models.CharField(max_length=200, help_text="Stable name of the idea within the project.")
     title = models.CharField(max_length=200, help_text="Short name of the suggested workflow.")
     rationale = models.TextField(help_text="Why this workflow is worth running, in one or two sentences.")
-    value_tier = models.CharField(
-        max_length=20,
-        choices=ValueTier.choices,
-        help_text="How close the workflow's goal is to revenue. Orders the ideas.",
-    )
     evidence = models.JSONField(
         default=dict,
         blank=True,

@@ -62,13 +62,6 @@ class WorkflowIdeaStatus(LabeledStrEnum):
     DISMISSED = "dismissed", "Dismissed"
 
 
-class WorkflowIdeaValueTier(LabeledStrEnum):
-    REVENUE = "revenue", "Revenue"
-    ACTIVATION = "activation", "Activation"
-    RETENTION = "retention", "Retention"
-    ENGAGEMENT = "engagement", "Engagement"
-
-
 class WorkflowIdeaSource(LabeledStrEnum):
     MANUAL = "manual", "Manual"
     SCOUT = "scout", "Scout"

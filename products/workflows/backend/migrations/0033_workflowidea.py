@@ -46,19 +46,6 @@ class Migration(migrations.Migration):
                     models.TextField(help_text="Why this workflow is worth running, in one or two sentences."),
                 ),
                 (
-                    "value_tier",
-                    models.CharField(
-                        choices=[
-                            ("revenue", "Revenue"),
-                            ("activation", "Activation"),
-                            ("retention", "Retention"),
-                            ("engagement", "Engagement"),
-                        ],
-                        help_text="How close the workflow's goal is to revenue. Orders the ideas.",
-                        max_length=20,
-                    ),
-                ),
-                (
                     "evidence",
                     models.JSONField(
                         blank=True,
