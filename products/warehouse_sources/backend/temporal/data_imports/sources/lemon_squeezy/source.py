@@ -45,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_sque
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 LEMON_SQUEEZY_API_SETTINGS_URL = "https://app.lemonsqueezy.com/settings/api"
 

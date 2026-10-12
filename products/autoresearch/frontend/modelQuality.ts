@@ -40,6 +40,7 @@ function modelQualityVerdict(auc: number): ModelQualityVerdict {
 function liftSentence(liftAt10: number | null | undefined, target: string, confirmed: boolean): string {
     if (liftAt10 == null) {
         // A confirmed model has realized metrics, so the API leaves lift null only when no one did the target that day.
+        // An unconfirmed model card shows its Likely count instead, so this line is the fallback for a card without one.
         return confirmed ? `No one did ${target} in the latest check` : 'Not checked against real outcomes yet'
     }
     return `Top 10% are ${liftAt10.toFixed(1)}× more likely to do ${target}`

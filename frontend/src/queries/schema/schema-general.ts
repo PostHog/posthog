@@ -1433,6 +1433,10 @@ export interface GoalLine {
     displayLabel?: boolean
     displayIfCrossed?: boolean
     position?: 'start' | 'end'
+    /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+    calculation?: 'fixed' | 'mean' | 'median' | 'min' | 'max'
+    /** SQL chart calculations use the primary axis, across all series or separately per series. */
+    scope?: 'all' | 'series'
 }
 
 export interface ChartAxis {
