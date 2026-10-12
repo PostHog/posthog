@@ -100,6 +100,8 @@ export const parseGroupsFromResult = (
     return groups
 }
 
+const NON_EVENT_TRIGGER_TYPES: readonly string[] = ['schedule', 'manual', 'batch']
+
 export const createGlobalsFromResponse = (
     event: any,
     person: any,
@@ -168,6 +170,7 @@ export interface hogFlowEditorTestLogicValues {
     sampleGlobalsStale: boolean
     shouldFilterTestAccounts: boolean
     shouldLoadSampleGlobals: boolean
+    showTestEvent: boolean
     showTestInvocationErrors: boolean
     testInvocation: HogflowTestInvocation
     testInvocationAllErrors: Record<string, any>
@@ -1058,6 +1061,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 // Only load samples if the trigger is event
                 return !!(triggerAction && triggerAction.config.type === 'event')
             },
+        ],
+        // These triggers start a run without an event, so a test event only confuses the tester.
+        // The example globals from afterMount still back the test run.
+        showTestEvent: [
+            (s) => [s.triggerAction],
+            (triggerAction: null | import('../../../workflowLogic').TriggerAction): boolean =>
+                !NON_EVENT_TRIGGER_TYPES.includes(triggerAction?.config.type ?? ''),
         ],
         // Mirror real execution: the worker's getGroupsForEvent gates on group_analytics, so without
         // the addon the test run must also resolve no groups (otherwise a group condition could match

@@ -60,6 +60,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         eventPanelOpen,
         eventSelectorOpen,
         lastSearchedEventName,
+        showTestEvent,
     } = useValues(hogFlowEditorTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -177,150 +178,162 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 overflow-y-auto">
                 {/* Event Information */}
-                <div className="flex-0">
-                    <LemonCollapse
-                        embedded
-                        multiple
-                        activeKeys={eventPanelOpen}
-                        onChange={setEventPanelOpen}
-                        panels={[
-                            {
-                                key: 'event',
-                                header: sampleGlobalsLoading ? (
-                                    <>
-                                        Loading test event... <Spinner />
-                                    </>
-                                ) : (
-                                    <>Test event: {sampleGlobals?.event?.event} </>
-                                ),
-                                className: 'bg-surface-secondary',
-                                content: (
-                                    <div>
-                                        <div className="bg-surface-secondary">
-                                            {sampleGlobalsError && (
-                                                <div>
-                                                    <LemonBanner type="info" className="mb-2">
-                                                        {sampleGlobalsError}
-                                                    </LemonBanner>
-                                                    {canTryExtendedSearch && (
-                                                        <div className="mb-2 text-center">
-                                                            <LemonButton
-                                                                type="primary"
-                                                                onClick={() => {
-                                                                    if (shouldLoadSampleGlobals) {
-                                                                        loadSampleGlobals({ extendedSearch: true })
-                                                                    } else {
-                                                                        // For non-event triggers, reload with the last searched event name
-                                                                        loadSampleEventByName({
-                                                                            eventName:
-                                                                                lastSearchedEventName || '$pageview',
-                                                                            extendedSearch: true,
-                                                                        })
-                                                                    }
-                                                                }}
-                                                                loading={sampleGlobalsLoading}
-                                                            >
-                                                                Try searching last 30 days (slower)
-                                                            </LemonButton>
+                {showTestEvent && (
+                    <>
+                        <div className="flex-0">
+                            <LemonCollapse
+                                embedded
+                                multiple
+                                activeKeys={eventPanelOpen}
+                                onChange={setEventPanelOpen}
+                                panels={[
+                                    {
+                                        key: 'event',
+                                        header: sampleGlobalsLoading ? (
+                                            <>
+                                                Loading test event... <Spinner />
+                                            </>
+                                        ) : (
+                                            <>Test event: {sampleGlobals?.event?.event} </>
+                                        ),
+                                        className: 'bg-surface-secondary',
+                                        content: (
+                                            <div>
+                                                <div className="bg-surface-secondary">
+                                                    {sampleGlobalsError && (
+                                                        <div>
+                                                            <LemonBanner type="info" className="mb-2">
+                                                                {sampleGlobalsError}
+                                                            </LemonBanner>
+                                                            {canTryExtendedSearch && (
+                                                                <div className="mb-2 text-center">
+                                                                    <LemonButton
+                                                                        type="primary"
+                                                                        onClick={() => {
+                                                                            if (shouldLoadSampleGlobals) {
+                                                                                loadSampleGlobals({
+                                                                                    extendedSearch: true,
+                                                                                })
+                                                                            } else {
+                                                                                // For non-event triggers, reload with the last searched event name
+                                                                                loadSampleEventByName({
+                                                                                    eventName:
+                                                                                        lastSearchedEventName ||
+                                                                                        '$pageview',
+                                                                                    extendedSearch: true,
+                                                                                })
+                                                                            }
+                                                                        }}
+                                                                        loading={sampleGlobalsLoading}
+                                                                    >
+                                                                        Try searching last 30 days (slower)
+                                                                    </LemonButton>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
-                                                </div>
-                                            )}
-                                            <div className="flex gap-2 items-center">
-                                                <ProfilePicture name={display} />
-                                                <div className="flex-1">
-                                                    {sampleGlobals?.person ? (
-                                                        <Link to={url} className="flex gap-2 items-center">
-                                                            <span className="font-semibold">{display}</span>
-                                                        </Link>
-                                                    ) : sampleGlobals ? (
-                                                        <span className="text-muted">No associated person</span>
-                                                    ) : (
-                                                        <span className="text-muted">Loading...</span>
-                                                    )}{' '}
-                                                    <span className="text-muted">performed</span>{' '}
-                                                    <span className="space-y-1 font-semibold text-md">
-                                                        {sampleGlobals?.event?.event}
-                                                    </span>{' '}
-                                                    {sampleGlobals?.event?.timestamp && (
-                                                        <TZLabel time={sampleGlobals?.event?.timestamp} />
+                                                    <div className="flex gap-2 items-center">
+                                                        <ProfilePicture name={display} />
+                                                        <div className="flex-1">
+                                                            {sampleGlobals?.person ? (
+                                                                <Link to={url} className="flex gap-2 items-center">
+                                                                    <span className="font-semibold">{display}</span>
+                                                                </Link>
+                                                            ) : sampleGlobals ? (
+                                                                <span className="text-muted">No associated person</span>
+                                                            ) : (
+                                                                <span className="text-muted">Loading...</span>
+                                                            )}{' '}
+                                                            <span className="text-muted">performed</span>{' '}
+                                                            <span className="space-y-1 font-semibold text-md">
+                                                                {sampleGlobals?.event?.event}
+                                                            </span>{' '}
+                                                            {sampleGlobals?.event?.timestamp && (
+                                                                <TZLabel time={sampleGlobals?.event?.timestamp} />
+                                                            )}
+                                                        </div>
+                                                        {shouldLoadSampleGlobals ? (
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                onClick={() => loadSampleGlobals()}
+                                                                tooltip={
+                                                                    noMatchingEvents
+                                                                        ? 'No events match the current filters. Try adjusting your trigger filters.'
+                                                                        : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
+                                                                }
+                                                                disabledReason={
+                                                                    noMatchingEvents
+                                                                        ? 'No matching events found - adjust your trigger filters'
+                                                                        : undefined
+                                                                }
+                                                                icon={<IconRedo />}
+                                                                size="small"
+                                                            >
+                                                                Load new event
+                                                            </LemonButton>
+                                                        ) : (
+                                                            <Popover
+                                                                overlay={
+                                                                    <TaxonomicFilter
+                                                                        groupType={TaxonomicFilterGroupType.Events}
+                                                                        value={sampleGlobals?.event?.event || ''}
+                                                                        onChange={(_, value) => {
+                                                                            if (typeof value === 'string') {
+                                                                                loadSampleEventByName({
+                                                                                    eventName: value,
+                                                                                })
+                                                                            }
+                                                                        }}
+                                                                        allowNonCapturedEvents
+                                                                        taxonomicGroupTypes={[
+                                                                            TaxonomicFilterGroupType.CustomEvents,
+                                                                            TaxonomicFilterGroupType.Events,
+                                                                        ]}
+                                                                    />
+                                                                }
+                                                                visible={eventSelectorOpen}
+                                                                onClickOutside={() => setEventSelectorOpen(false)}
+                                                                placement="bottom-end"
+                                                            >
+                                                                <LemonButton
+                                                                    type="secondary"
+                                                                    onClick={() =>
+                                                                        setEventSelectorOpen(!eventSelectorOpen)
+                                                                    }
+                                                                    tooltip="Select an event type to load test data"
+                                                                    size="small"
+                                                                >
+                                                                    {sampleGlobals?.event?.event || 'Select event'}
+                                                                </LemonButton>
+                                                            </Popover>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Event Properties */}
+                                                    {sampleGlobals && (
+                                                        <>
+                                                            <div className="text-sm mt-2">
+                                                                Here are all the global variables you can use in your
+                                                                workflow:
+                                                            </div>
+                                                            <div className="flex-col gap-2 my-3 max-h-48 overflow-auto">
+                                                                <HogFunctionTestEditor
+                                                                    value={JSON.stringify(sampleGlobals, null, 2)}
+                                                                    onChange={setSampleGlobals}
+                                                                />
+                                                            </div>
+                                                        </>
                                                     )}
                                                 </div>
-                                                {shouldLoadSampleGlobals ? (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        onClick={() => loadSampleGlobals()}
-                                                        tooltip={
-                                                            noMatchingEvents
-                                                                ? 'No events match the current filters. Try adjusting your trigger filters.'
-                                                                : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
-                                                        }
-                                                        disabledReason={
-                                                            noMatchingEvents
-                                                                ? 'No matching events found - adjust your trigger filters'
-                                                                : undefined
-                                                        }
-                                                        icon={<IconRedo />}
-                                                        size="small"
-                                                    >
-                                                        Load new event
-                                                    </LemonButton>
-                                                ) : (
-                                                    <Popover
-                                                        overlay={
-                                                            <TaxonomicFilter
-                                                                groupType={TaxonomicFilterGroupType.Events}
-                                                                value={sampleGlobals?.event?.event || ''}
-                                                                onChange={(_, value) => {
-                                                                    if (typeof value === 'string') {
-                                                                        loadSampleEventByName({ eventName: value })
-                                                                    }
-                                                                }}
-                                                                allowNonCapturedEvents
-                                                                taxonomicGroupTypes={[
-                                                                    TaxonomicFilterGroupType.CustomEvents,
-                                                                    TaxonomicFilterGroupType.Events,
-                                                                ]}
-                                                            />
-                                                        }
-                                                        visible={eventSelectorOpen}
-                                                        onClickOutside={() => setEventSelectorOpen(false)}
-                                                        placement="bottom-end"
-                                                    >
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={() => setEventSelectorOpen(!eventSelectorOpen)}
-                                                            tooltip="Select an event type to load test data"
-                                                            size="small"
-                                                        >
-                                                            {sampleGlobals?.event?.event || 'Select event'}
-                                                        </LemonButton>
-                                                    </Popover>
-                                                )}
                                             </div>
-
-                                            {/* Event Properties */}
-                                            {sampleGlobals && (
-                                                <>
-                                                    <div className="text-sm mt-2">
-                                                        Here are all the global variables you can use in your workflow:
-                                                    </div>
-                                                    <div className="flex-col gap-2 my-3 max-h-48 overflow-auto">
-                                                        <HogFunctionTestEditor
-                                                            value={JSON.stringify(sampleGlobals, null, 2)}
-                                                            onChange={setSampleGlobals}
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
-                <LemonDivider className="my-0" />
+                                        ),
+                                    },
+                                ]}
+                            />
+                        </div>
+                        <LemonDivider className="my-0" />
+                    </>
+                )}
                 <div className="flex flex-col flex-1 gap-2 p-2">
                     <h3 className="mb-0">Test results</h3>
                     {!testResult ? (
