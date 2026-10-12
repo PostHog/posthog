@@ -257,17 +257,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
-#   ticket:write           Every support ticket in the scout's project: status, priority,
-#                          assignee, SLA, escalation, and tags, plus every saved ticket view. It also
-#                          sends CUSTOMER-FACING messages: a reply goes out over the ticket's
-#                          channel (email, Slack, Teams, or GitHub), a composed ticket goes out as
-#                          email, and a message that is sent cannot be recalled. Note edit
-#                          and delete reach only notes the caller wrote, and note delete is a
-#                          recoverable soft-delete. Ticket delete is not one of the scope's write
-#                          actions, so a scout cannot remove a ticket. Saved view delete is
-#                          PERMANENT: a view has no soft-delete, and every member's pin on it goes
-#                          with it. A view is only a name and a filter set, so it is cheap to
-#                          recreate.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -275,11 +270,6 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
-#
-# `ticket:write` misses the bar in a different direction: a reply leaves PostHog and reaches a
-# customer, so it is neither recoverable nor project-scoped in effect. It is grantable on the same
-# terms as the others. A person grants it to one scout on purpose, and the picker row says the
-# scope sends customer-facing replies.
 # Grantable although INTERNAL, which normally means "never on a token a person can obtain". A scout
 # token is minted server-side from this allowlist and never through the consent flow, and the MCP
 # server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
