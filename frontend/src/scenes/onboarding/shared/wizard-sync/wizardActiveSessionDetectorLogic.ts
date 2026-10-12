@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
@@ -54,6 +54,21 @@ const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 // with nothing in the UI to explain why. Failing open costs a wrong takeover during an outage;
 // failing closed costs every new team its onboarding.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
+
+// Backoff after polls that never reached the server (a blocked URL or a dropped connection). Such a
+// request fails in milliseconds, so without a gate every caller of `check()` turns into one failed
+// request. The delay doubles per failed poll up to the cap, and any answered poll clears it.
+const NETWORK_BACKOFF_BASE_MS = 15 * 1000
+const NETWORK_BACKOFF_MAX_MS = 5 * 60 * 1000
+
+// Module scope rather than `cache`: the cache is discarded on unmount, and a remount must not
+// clear the backoff for a connection that is still failing.
+const networkBackoff = { consecutiveFailures: 0, retryAt: 0 }
+
+export function resetNetworkBackoff(): void {
+    networkBackoff.consecutiveFailures = 0
+    networkBackoff.retryAt = 0
+}
 
 /**
  * Keep the detector mounted and watching a program until the returned cleanup runs. The one way to
@@ -198,7 +213,8 @@ export type wizardActiveSessionDetectorLogicType = MakeLogicType<
  *    survives a navigation away from the install step.
  *  - REST `wizardSessionsLatestRetrieve(workflow_id=posthog-integration)`,
  *    polled on mount (jittered), on tab visibility return (throttled), and
- *    on a 60s loop while the tab is visible.
+ *    on a 60s loop while the tab is visible. Polls that never reach the
+ *    server back off every caller, up to one poll per 5 minutes.
  */
 export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorLogicType>([
     path(['scenes', 'onboarding', 'wizardActiveSessionDetectorLogic']),
@@ -330,6 +346,9 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (projectId === null) {
                 return
             }
+            if (Date.now() < networkBackoff.retryAt) {
+                return
+            }
             // Concurrent-poll guard. The next-poll wins; older resolutions are
             // ignored — without this, an older "empty" can overwrite a newer
             // "active" if responses race.
@@ -366,6 +385,18 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             // it doesn't pollute lastError or telemetry.
             if (errors.some((err) => err instanceof Error && err.name === 'AbortError')) {
                 return
+            }
+
+            if (errors.length === results.length && errors.every((err) => err instanceof NetworkError)) {
+                networkBackoff.consecutiveFailures += 1
+                networkBackoff.retryAt =
+                    Date.now() +
+                    Math.min(
+                        NETWORK_BACKOFF_BASE_MS * 2 ** (networkBackoff.consecutiveFailures - 1),
+                        NETWORK_BACKOFF_MAX_MS
+                    )
+            } else if (errors.length < results.length) {
+                resetNetworkBackoff()
             }
 
             // 401/403 are structural access denials: the user can't or shouldn't talk to this

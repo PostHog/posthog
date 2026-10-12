@@ -1,13 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
-import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import {
+    isSessionActive,
+    resetNetworkBackoff,
+    wizardActiveSessionDetectorLogic,
+} from './wizardActiveSessionDetectorLogic'
 
 jest.mock('products/wizard/frontend/generated/api', () => ({
     wizardSessionsLatestRetrieve: jest.fn(),
@@ -42,6 +46,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockLatestRetrieve.mockReset()
+        resetNetworkBackoff()
         logic = wizardActiveSessionDetectorLogic()
         logic.mount()
     })
@@ -157,6 +162,64 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toDispatchActions(['pollFailed'])
             .toNotHaveDispatchedActions(['markInactive', 'scheduleMarkInactive'])
             .toMatchValues({ hasActiveSession: true })
+    })
+
+    // A blocked URL fails in milliseconds, so every check() call became a failed request. The
+    // backoff lives at module scope, so it must also hold across a remount of the detector.
+    describe('network failure backoff', () => {
+        let now: number
+
+        beforeEach(() => {
+            now = Date.now()
+            jest.spyOn(Date, 'now').mockImplementation(() => now)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        async function checkAndSettle(): Promise<void> {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toFinishAllListeners()
+        }
+
+        it('skips polls inside the backoff window, doubles it per failure, and clears it on an answer', async () => {
+            mockLatestRetrieve.mockRejectedValue(new NetworkError('network'))
+
+            await checkAndSettle()
+            await checkAndSettle()
+            await checkAndSettle()
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+
+            now += 15_000
+            await checkAndSettle()
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+            now += 15_000
+            await checkAndSettle()
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+            logic.unmount()
+            logic = wizardActiveSessionDetectorLogic()
+            logic.mount()
+            await checkAndSettle()
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+            now += 15_000
+            mockLatestRetrieve.mockResolvedValue(null)
+            await checkAndSettle()
+            await checkAndSettle()
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(4)
+        })
+
+        it('does not back off on an HTTP error', async () => {
+            mockLatestRetrieve.mockRejectedValue(new ApiError('bad gateway', 502))
+
+            await checkAndSettle()
+            await checkAndSettle()
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('hasResolvedSessionState', () => {
