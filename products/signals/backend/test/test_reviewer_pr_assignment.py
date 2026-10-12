@@ -173,11 +173,13 @@ class TestAssignReviewersToPullRequest:
     @pytest.mark.django_db
     def test_suggested_reviewers_receive_review_requests(self, org_and_team):
         org, team = org_and_team
-        for login in ("assigned", "requested", "new-reviewer"):
+        for login in ("author", "assigned", "requested", "new-reviewer"):
             _make_reviewer(org, login, opted_in=False)
-        report = _make_report(team, ["assigned", "requested", "new-reviewer"])
+        report = _make_report(team, ["author", "assigned", "requested", "new-reviewer"])
         github = _open_pr_github()
-        github.get_pull_request.return_value.update({"assignees": ["Assigned"], "requested_reviewers": ["Requested"]})
+        github.get_pull_request.return_value.update(
+            {"author": "Author", "assignees": ["Assigned"], "requested_reviewers": ["Requested"]}
+        )
         github.request_pull_request_reviews.return_value = {
             "success": True,
             "requested_reviewers": ["requested", "new-reviewer"],
@@ -568,6 +570,15 @@ class TestDirectlyResponsibleIndividual:
         calls = self._assign(team, report, self._github(existing_assignees=[], assignable=None))
 
         assert calls == ([[expected_owner]] if expected_owner else [])
+
+    @pytest.mark.django_db
+    def test_the_dri_does_not_receive_a_review_request(self, org_and_team):
+        org, team = org_and_team
+        report, _ = self._setup(org, team, ["alice", "bob"])
+        github = self._github(existing_assignees=[], assignable=None)
+
+        assert self._assign(team, report, github) == [["alice"]]
+        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["bob"])
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
