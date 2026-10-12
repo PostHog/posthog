@@ -46,11 +46,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
     BigQueryBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -956,13 +957,14 @@ class BigQueryClient:
                 merge_condition += " AND "
             merge_condition += f"final.`{field_name}` = stage.`{field_name}`"
 
-        update_condition = "AND ("
+        update_condition = ""
 
         for index, field_name in enumerate(final.version_key):
             if index > 0:
                 update_condition += " OR "
             update_condition += f"final.`{field_name}` < stage.`{field_name}`"
-        update_condition += ")"
+        if update_condition:
+            update_condition = f"AND ({update_condition})"
 
         update_clause = ""
         values = ""
@@ -1010,13 +1012,18 @@ class BigQueryClient:
             raise ValueError("Empty update clause")
 
         inner_union_query = "\nUNION ALL\n".join(f"SELECT * FROM `{table.fully_qualified_name}`" for table in stage)
+        order_by = (
+            "ORDER BY " + ",".join(f"{field_name} DESC" for field_name in final.version_key)
+            if final.version_key
+            else ""
+        )
 
         union_query = f"""
         SELECT
             *,
             ROW_NUMBER() OVER (
               PARTITION BY {",".join(field_name for field_name in final.primary_key)}
-              ORDER BY {",".join(f"{field_name} DESC" for field_name in final.version_key)}
+              {order_by}
               ) row_num
         FROM (
             {inner_union_query}
@@ -1427,31 +1434,6 @@ async def merge_all_consumer_tables(
         )
 
 
-class MergeSettings(typing.NamedTuple):
-    primary_key: collections.abc.Sequence[str]
-    version_key: collections.abc.Sequence[str]
-
-
-def _get_merge_settings(
-    model: BatchExportModel | None,
-) -> MergeSettings | None:
-    """Return merge settings for models that require merging."""
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
-        elif model.name == "sessions":
-            primary_key = ("team_id", "session_id")
-            version_key = ("end_timestamp",)
-        # TODO: Support merges in 'events'?
-        else:
-            return None
-    else:
-        return None
-
-    return MergeSettings(primary_key, version_key)
-
-
 @dataclasses.dataclass(frozen=False, kw_only=True)
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
@@ -1528,7 +1510,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
     )
 
     async with Heartbeater():
-        model = inputs.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1569,14 +1551,14 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         else:
             json_fields = set()
 
-        merge_settings = _get_merge_settings(model)
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
         target_table = BigQueryTable.from_arrow_schema(
             record_batch_schema,
             table_id=inputs.table_id,
             project_id=project_id,
             dataset_id=inputs.dataset_id,
-            primary_key=merge_settings.primary_key if merge_settings else (),
-            version_key=merge_settings.version_key if merge_settings else (),
+            primary_key=model.primary_key if requires_merge else (),
+            version_key=model.version_key if requires_merge else (),
         )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
@@ -1697,7 +1679,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                 run_consumer(
                                     client=bq_client,
                                     consumer_table=consumer_table,
-                                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                                    model=model.name,
                                     file_format=file_format,
                                     queue=queue,
                                     transformer=transformer,
