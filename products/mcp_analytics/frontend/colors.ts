@@ -22,14 +22,6 @@ const MAIN_SHADE = 2
 // stays close to its main shade instead of stretching to the darkest and lightest ends.
 const MAX_SHADE_STEP = 4 / 3
 
-export const HARNESS_BRAND_COLORS = {
-    vscode: '#007acc',
-    coderabbit: '#ff570a',
-    kimchi: '#ff521d',
-} as const
-
-export type HarnessBrand = keyof typeof HARNESS_BRAND_COLORS
-
 const NEUTRAL_LABELS = new Set(['Unknown', 'Other', otherModelsLabel('Other')])
 
 export function labColor(theme: ChartTheme, lab: string): string | undefined {

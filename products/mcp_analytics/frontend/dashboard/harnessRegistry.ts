@@ -3,7 +3,7 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { hashCodeForString } from 'lib/utils/strings'
 
 import { type AiLab } from '../aiLabs'
-import { HARNESS_BRAND_COLORS, type HarnessBrand, labColor, shadeColor } from '../colors'
+import { labColor, shadeColor } from '../colors'
 import antigravityLogo from '../harness-logos/antigravity.png'
 import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
@@ -26,6 +26,14 @@ export interface HarnessLogo {
     src: string
     alt: string
 }
+
+const HARNESS_BRAND_COLORS = {
+    vscode: '#007acc',
+    coderabbit: '#ff570a',
+    kimchi: '#ff521d',
+} as const
+
+type HarnessBrand = keyof typeof HARNESS_BRAND_COLORS
 
 interface HarnessDescriptor {
     logo?: HarnessLogo
