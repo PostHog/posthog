@@ -1,6 +1,7 @@
 """Whole workflows PostHog suggests to a project, and what a person does with them."""
 
 from collections.abc import Iterable
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -78,6 +79,10 @@ def create_ideas(
 
 
 def _lock_open(team_id: int, idea_id: str) -> WorkflowIdea:
+    try:
+        UUID(idea_id)
+    except ValueError:
+        raise WorkflowIdeaNotFound()
     row = WorkflowIdea.objects.for_team(team_id).select_for_update().filter(id=idea_id).first()
     if row is None:
         raise WorkflowIdeaNotFound()

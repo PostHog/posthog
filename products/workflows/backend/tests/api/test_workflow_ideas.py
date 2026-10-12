@@ -109,8 +109,9 @@ class TestWorkflowIdeasAPI(APIBaseTest):
         [row] = create_ideas(team_id=other_team.id, items=[_idea("winback")], source="manual")
 
         response = self.client.post(self._url(f"{row.id}/{action}/"), {"hog_flow_id": str(self._flow().id)})
+        malformed = self.client.post(self._url(f"not-an-id/{action}/"), {"hog_flow_id": str(self._flow().id)})
 
-        assert response.status_code == 404
+        assert (response.status_code, malformed.status_code) == (404, 404)
         stored_row = _stored(row.id)
         assert stored_row.status == WorkflowIdea.Status.SUGGESTED
 
