@@ -1,8 +1,10 @@
 import typing
+import asyncio
 import collections.abc
 
+import requests
 import google.auth.transport.requests
-from google.api_core.exceptions import NotFound, PermissionDenied
+from google.api_core.exceptions import BadRequest, NotFound, PermissionDenied
 from google.cloud import bigquery, iam_admin_v1
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration
@@ -18,6 +20,9 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     get_our_google_cloud_credentials,
     impersonate_service_account,
 )
+
+if typing.TYPE_CHECKING:
+    from google.auth.credentials import Credentials
 
 
 class ServiceAccountInfo(typing.TypedDict):
@@ -250,6 +255,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         dataset_id: The ID of the dataset we are checking.
         service_account_info: Service account credentials used to access the
             project and dataset.
+        create_if_missing: Check creation permissions if the dataset does not exist.
     """
 
     name = "Verify BigQuery dataset"
@@ -263,6 +269,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         dataset_id: str | None = None,
         integration: GoogleCloudServiceAccountIntegration | None = None,
         service_account_info: ServiceAccountInfo | None = None,
+        create_if_missing: bool = False,
     ) -> None:
         super().__init__()
 
@@ -270,6 +277,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         self.project_id = project_id
         self.integration = integration
         self.service_account_info = service_account_info
+        self.create_if_missing = create_if_missing
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
@@ -281,10 +289,40 @@ class BigQueryDatasetTestStep(DestinationTestStep):
             return False
         return True
 
+    def _test_iam_permissions(
+        self, credentials: "Credentials", permissions: list[str]
+    ) -> DestinationTestStepResult | list[str]:
+        try:
+            with google.auth.transport.requests.AuthorizedSession(credentials) as session:
+                response = session.post(
+                    f"https://cloudresourcemanager.googleapis.com/v1/projects/{self.project_id}:testIamPermissions",
+                    json={"permissions": permissions},
+                    timeout=30,
+                )
+        except requests.exceptions.RequestException:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Could not check permissions on project '{self.project_id}' because the request failed.",
+            )
+
+        if response.status_code == 403 and any(
+            marker in response.text for marker in ("SERVICE_DISABLED", "has not been used", "is disabled")
+        ):
+            return DestinationTestStepResult(
+                status=Status.SKIPPED,
+                message="Could not check whether the service account can create datasets because the Cloud Resource Manager API is disabled for this project. Enable it, or create the dataset first.",
+            )
+
+        if not 200 <= response.status_code < 300:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Could not check permissions on project '{self.project_id}' (HTTP {response.status_code}).",
+            )
+
+        return response.json().get("permissions", [])
+
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from google.cloud.exceptions import NotFound
-
         client = get_client(self.project_id, self.integration, self.service_account_info)
 
         # This method should be called by `run()` which ensures this test step is configured
@@ -294,12 +332,37 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         try:
             _ = client.sync_client.get_dataset(self.dataset_id)
         except NotFound:
+            if not self.create_if_missing:
+                return DestinationTestStepResult(
+                    status=Status.FAILED,
+                    message=f"Dataset '{self.dataset_id}' could not be found because it doesn't exist or we don't have permissions to use it",
+                )
+            dataset_exists = False
+            permissions = ["bigquery.datasets.create", "bigquery.jobs.create"]
+        else:
+            if not self.create_if_missing:
+                return DestinationTestStepResult(status=Status.PASSED)
+            dataset_exists = True
+            permissions = ["bigquery.jobs.create"]
+
+        granted = await asyncio.to_thread(self._test_iam_permissions, client.sync_client._credentials, permissions)
+        if isinstance(granted, DestinationTestStepResult):
+            if dataset_exists and granted.status == Status.SKIPPED:
+                return DestinationTestStepResult(status=Status.PASSED)
+            return granted
+
+        missing = [permission for permission in permissions if permission not in granted]
+        if missing and not dataset_exists:
             return DestinationTestStepResult(
                 status=Status.FAILED,
-                message=f"Dataset '{self.dataset_id}' could not be found because it doesn't exist or we don't have permissions to use it",
+                message=f"Dataset '{self.dataset_id}' does not exist and the service account cannot create it. Missing permissions: {', '.join(missing)}. Grant the BigQuery Data Editor and BigQuery Job User roles on project '{self.project_id}', or create the dataset first.",
             )
-        else:
-            return DestinationTestStepResult(status=Status.PASSED)
+        if missing:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"The service account is missing permissions: bigquery.jobs.create. Grant the BigQuery Job User role on project '{self.project_id}'.",
+            )
+        return DestinationTestStepResult(status=Status.PASSED)
 
 
 class BigQueryTableTestStep(DestinationTestStep):
@@ -354,9 +417,6 @@ class BigQueryTableTestStep(DestinationTestStep):
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from google.api_core.exceptions import BadRequest
-        from google.cloud.exceptions import NotFound
-
         client = get_client(self.project_id, self.integration, self.service_account_info)
 
         # This method should be called by `run()` which ensures this test step is configured
@@ -408,11 +468,12 @@ class BigQueryDestinationTest(DestinationTest):
         service_account_info: Service account credentials used to access BigQuery.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.project_id: str | None = None
         self.integration: GoogleCloudServiceAccountIntegration | None = None
         self.service_account_email: str | None = None
         self.dataset_id: str | None = None
+        self.create_dataset_if_missing: bool = False
         self.table_id: str | None = None
         self.private_key: str | None = None
         self.private_key_id: str | None = None
@@ -423,6 +484,7 @@ class BigQueryDestinationTest(DestinationTest):
         self.project_id = kwargs.get("project_id", None)
         self.service_account_email = kwargs.get("service_account_email", None) or kwargs.get("client_email", None)
         self.dataset_id = kwargs.get("dataset_id", None)
+        self.create_dataset_if_missing = bool(kwargs.get("create_dataset_if_missing", False))
         self.table_id = kwargs.get("table_id", None)
 
         self.private_key = kwargs.get("private_key", None)
@@ -470,6 +532,7 @@ class BigQueryDestinationTest(DestinationTest):
                 dataset_id=self.dataset_id,
                 integration=self.integration,
                 service_account_info=self.service_account_info,
+                create_if_missing=self.create_dataset_if_missing,
             ),
             BigQueryTableTestStep(
                 project_id=self.project_id,
