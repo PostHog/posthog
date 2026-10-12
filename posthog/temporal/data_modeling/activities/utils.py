@@ -104,6 +104,9 @@ EXTERNALLY_ABORTED_MARKERS = (
     ABANDONED_ERROR,
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
+    # Trino killed the query because the whole cluster ran out of memory. A query over its own
+    # memory limit fails with an EXCEEDED_*_MEMORY_LIMIT name and still counts.
+    "name=CLUSTER_OUT_OF_MEMORY,",
 )
 
 
