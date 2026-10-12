@@ -16,6 +16,7 @@ import temporalio.workflow
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
@@ -34,6 +35,8 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import Flash
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
+    CoordinatorReviewInput,
+    CoordinatorReviewResult,
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
@@ -126,7 +129,7 @@ async def _run_full_review_pr_workflow(
     publish: bool,
     already_published: bool = False,
     acting_user_id: int | None = 3,
-    review_labeled_prs: bool = True,
+    owner_user_id: int | None = 3,
     review_inbox_prs: bool = False,
     input_acting_user_id: int | None = None,
     trigger_source: str = "manual",
@@ -151,14 +154,18 @@ async def _run_full_review_pr_workflow(
     lens_chunks_capped: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
+    coordinator: bool = False,
+    coordinator_lens_failures: int = 0,
     automatic_reviewed_head_sha: str | None = None,
+    skip_agent_review: bool = False,
     gate_skips: bool = False,
     fail_gate: bool = False,
+    workflow_max_attempts: int | None = None,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
-    # isn't a PostHog user, so the workflow skips the review. review_labeled_prs / review_inbox_prs
-    # are the trigger-aware opt-outs read per trigger_source; input_acting_user_id is the explicit
+    # isn't a PostHog user, so the workflow skips the review. review_inbox_prs is the inbox
+    # trigger's opt-in; input_acting_user_id is the explicit
     # override on the workflow input (CLI / inbox). meta_pr_number is the publish destination fetch
     # resolved (None = branch target with no PR → store-only); fail_dedup forces a mid-run failure so
     # the failed-turn receipt path can be observed.
@@ -197,6 +204,8 @@ async def _run_full_review_pr_workflow(
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
     lens_calls: list[tuple[str, int]] = []
+    coordinator_calls: list[int] = []
+    started_coordinator: list[bool] = []
     lens_timeouts: list[timedelta | None] = []
 
     def _saw_design(stage: str, design: str) -> None:
@@ -227,7 +236,9 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            coordinator=coordinator,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
+            skip_agent_review=skip_agent_review,
         )
 
     gate_calls: list[str] = []
@@ -247,13 +258,13 @@ async def _run_full_review_pr_workflow(
         # dataclass defaults.
         return ResolveActingUserResult(
             acting_user_id=acting_user_id,
-            review_labeled_prs=review_labeled_prs,
             urgency_threshold="must_fix",
             review_inbox_prs=review_inbox_prs,
             resolved_from="override",
             resolve_comments=resolve_comments_setting,
             flash_reasoning_effort=flash_reasoning_effort,
             review_authored_prs=review_authored_prs,
+            owner_user_id=owner_user_id,
         )
 
     @activity.defn(name="sync_review_skills_activity")
@@ -327,6 +338,11 @@ async def _run_full_review_pr_workflow(
         lens_timeouts.append(activity.info().schedule_to_close_timeout)
         if (input.lens, input.chunk_id) in fail_lens_units:
             raise ApplicationError("lens session died", non_retryable=True)
+
+    @activity.defn(name="coordinator_review_activity")
+    async def coordinator_review(input: CoordinatorReviewInput) -> CoordinatorReviewResult:
+        coordinator_calls.append(input.lens_chunk_count)
+        return CoordinatorReviewResult(lens_failures=coordinator_lens_failures)
 
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
@@ -419,6 +435,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
+        started_coordinator.append(input.coordinator)
         _saw_design("track", input.review_design)
         return None
 
@@ -450,6 +467,7 @@ async def _run_full_review_pr_workflow(
                 review,
                 single_agent_review,
                 lens_review,
+                coordinator_review,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -486,6 +504,9 @@ async def _run_full_review_pr_workflow(
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=workflow_max_attempts)
+                    if workflow_max_attempts is not None
+                    else None,
                 )
             except WorkflowFailureError:
                 failed = True
@@ -526,6 +547,8 @@ async def _run_full_review_pr_workflow(
         "single_agent": single_agent_calls,
         "lens": lens_calls,
         "lens_timeouts": lens_timeouts,
+        "coordinator": coordinator_calls,
+        "started_coordinator": started_coordinator,
         "gate": gate_calls,
         "status_posts": status_posts,
     }
@@ -632,6 +655,20 @@ async def test_review_pr_workflow_removes_label_trigger_after_failure():
 
 
 @pytest.mark.asyncio
+async def test_review_pr_workflow_does_not_retry_a_wave_over_the_failure_floor():
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="label",
+        fail_review_units=frozenset((p, c) for p in (1, 2, 3) for c in (1, 2)),
+        workflow_max_attempts=2,
+    )
+    assert recorded["failed"] is True
+    assert recorded["split"] == [1]
+    assert len(recorded["review"]) == 6
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
 async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
     recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="manual")
     assert recorded["remove_label"] == []
@@ -640,15 +677,15 @@ async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
 @parameterized.expand(
     [
         # (name, publish, resolve_comments_setting, input_resolve_comments, expect_dispatch)
-        # The default posture: a publishing review chains resolution when the acting user's
-        # setting is on (reviewing includes resolving)...
+        # The default posture: a publishing review chains resolution when the PR owner opted in
+        # (reviewing includes resolving)...
         ("setting_on_chains_after_publish", True, True, None, True),
         # ...their opt-out is the off switch...
         ("setting_off_skips", True, False, None, False),
         # ...the UI's "review without resolving" pins a single run off despite the setting...
         ("ui_review_only_override_pins_off", True, True, False, False),
-        # ...an explicit True forces the chain (the input override outranks everything)...
-        ("explicit_true_forces", False, False, True, True),
+        # ...no input turns resolution on for a PR whose owner did not opt in...
+        ("explicit_true_cannot_override_the_owner", True, False, True, False),
         # ...and an unpublished (eval/CLI) review must never write to the PR off the setting alone.
         ("unpublished_run_never_chains_by_setting", False, True, None, False),
     ]
@@ -663,11 +700,12 @@ async def test_review_pr_workflow_chains_resolution_per_setting_and_override(
         publish=publish,
         resolve_comments_setting=resolve_comments_setting,
         input_resolve_comments=input_resolve_comments,
+        owner_user_id=9,
     )
     if expect_dispatch:
-        # The dispatch carries the RESOLVED acting user (their criteria skill applies) and the
-        # original trigger source, keyed to the PR the fetch resolved.
-        assert recorded["resolve_dispatches"] == [(7, 3, "manual")]
+        # The dispatch carries the PR OWNER, not the acting user: it writes to the owner's branch
+        # under their criteria. The original trigger source is kept, keyed to the PR the fetch resolved.
+        assert recorded["resolve_dispatches"] == [(7, 9, "manual")]
     else:
         assert recorded["resolve_dispatches"] == []
 
@@ -688,6 +726,8 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
     )
     assert recorded["publish"] == [7]
     assert recorded["resolve_dispatches"] == []
+    # Flash publishes every kept finding, whatever the acting user's threshold says.
+    assert {threshold for _, threshold in recorded["thresholds"]} == {"consider"}
     assert recorded["modes"] == {
         stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "status", "track")
     }
@@ -716,6 +756,33 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
     assert recorded["validate"] == []
     assert recorded["publish"] == [7]
     assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "track")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review_design,expect_coordinator", [("single_agent", True), ("pipeline", False)])
+async def test_review_pr_workflow_coordinator_replaces_the_separate_sessions_of_a_single_agent_turn(
+    review_design: str, expect_coordinator: bool
+) -> None:
+    # The fetch records the flag for every turn, so a pipeline turn must ignore it. A coordinated turn must
+    # run no separate sessions, and its events must say it ran coordinated, or the rollout cannot be compared.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design=review_design,
+        lens_chunk_count=2,
+        coordinator=True,
+        coordinator_lens_failures=1,
+    )
+
+    assert recorded["coordinator"] == ([2] if expect_coordinator else [])
+    assert recorded["started_coordinator"] == [expect_coordinator]
+    assert recorded["publish"] == [7]
+    if expect_coordinator:
+        assert recorded["single_agent"] == []
+        assert recorded["lens"] == []
+        [(_, sessions)] = recorded["track_flash"]
+        assert sessions is not None
+        assert (sessions.lens_failures, sessions.coordinator) == (1, True)
 
 
 @pytest.mark.asyncio
@@ -752,11 +819,17 @@ async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "enabled,completed,pr_open,expected_review",
-    [(True, False, True, True), (False, False, True, False), (True, True, True, False), (True, False, False, False)],
+    "enabled,completed,pr_open,skip_label,expected_review",
+    [
+        (True, False, True, False, True),
+        (False, False, True, False, False),
+        (True, True, True, False, False),
+        (True, False, False, False, False),
+        (True, False, True, True, False),
+    ],
 )
 async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_prs(
-    enabled: bool, completed: bool, pr_open: bool, expected_review: bool
+    enabled: bool, completed: bool, pr_open: bool, skip_label: bool, expected_review: bool
 ) -> None:
     recorded = await _run_full_review_pr_workflow(
         publish=True,
@@ -765,9 +838,11 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
         review_authored_prs=enabled,
         already_completed=completed,
         pr_open=pr_open,
+        skip_agent_review=skip_label,
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
+    assert bool(recorded["status_posts"]) is expected_review
 
 
 @pytest.mark.asyncio
@@ -838,24 +913,20 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
 
 @parameterized.expand(
     [
-        # (name, trigger_source, review_labeled_prs, review_inbox_prs, input_acting_user_id, expect_ran)
-        # The label trigger's per-author opt-out gates only the cloud path (no explicit override)...
-        ("label_opt_out_skips", "label", False, True, None, False),
-        # ...an explicit override (CLI re-run of a labeled PR) always runs...
-        ("label_override_ignores_opt_out", "label", False, True, 3, True),
-        # ...and the inbox toggle has no say over the label path.
-        ("label_ignores_inbox_toggle", "label", True, False, None, True),
+        # (name, trigger_source, review_inbox_prs, input_acting_user_id, expect_ran)
+        # A label always runs, and the inbox toggle has no say over it.
+        ("label_ignores_inbox_toggle", "label", False, None, True),
         # The inbox trigger honors only review_inbox_prs (default off = the budget gate); the
         # receiver always sets the acting override, so the override must NOT bypass this gate.
-        ("inbox_default_off_skips", "inbox", True, False, 3, False),
-        ("inbox_opt_in_runs_despite_label_opt_out", "inbox", False, True, 3, True),
-        # Manual (CLI/eval) stays ungated regardless of either toggle.
-        ("manual_ungated", "manual", False, False, 3, True),
+        ("inbox_default_off_skips", "inbox", False, 3, False),
+        ("inbox_opt_in_runs", "inbox", True, 3, True),
+        # Manual (CLI/eval) stays ungated.
+        ("manual_ungated", "manual", False, 3, True),
     ]
 )
 @pytest.mark.asyncio
 async def test_review_pr_workflow_trigger_aware_gates(
-    _name, trigger_source, review_labeled_prs, review_inbox_prs, input_acting_user_id, expect_ran
+    _name, trigger_source, review_inbox_prs, input_acting_user_id, expect_ran
 ):
     # The trigger-source gate matrix: a miswired gate either reviews PRs for opted-out users (burning
     # sandbox cost) or silently disables a production trigger. Skipped turns must also append no
@@ -863,7 +934,6 @@ async def test_review_pr_workflow_trigger_aware_gates(
     recorded = await _run_full_review_pr_workflow(
         publish=False,
         trigger_source=trigger_source,
-        review_labeled_prs=review_labeled_prs,
         review_inbox_prs=review_inbox_prs,
         input_acting_user_id=input_acting_user_id,
         signal_report_id="sr-1",
@@ -1079,8 +1149,10 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
         raise RuntimeError("sandbox boom")
 
-    with pytest.raises(WorkflowFailureError):
+    with pytest.raises(WorkflowFailureError) as excinfo:
         await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
+    assert isinstance(excinfo.value.cause, ApplicationError)
+    assert excinfo.value.cause.non_retryable is True
 
 
 @pytest.mark.asyncio

@@ -104,6 +104,8 @@ class ObservationProgress(TypedDict):
     step: int  # index of `phase` in OBSERVATION_PHASE_ORDER
     total_steps: int  # len(OBSERVATION_PHASE_ORDER)
     rasterizer_workflow_id: str | None  # set while rendering, so the stream can read the child's frame heartbeats
+    # Workflow-clock epoch seconds, so a client that joins mid-phase still sees the true elapsed time.
+    phase_started_at: float | None
 
 
 class MarkObservationFailedInputs(BaseModel, frozen=True):

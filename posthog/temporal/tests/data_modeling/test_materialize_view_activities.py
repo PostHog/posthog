@@ -17,6 +17,7 @@ import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -59,7 +60,14 @@ from posthog.temporal.data_modeling.activities.notify_materialization_failure im
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.data_modeling.backend.facade.api import compute_enrichment_hash
+from products.data_modeling.backend.facade.api import (
+    TRINO_INCREMENTAL_SCOPE,
+    compute_enrichment_hash,
+    definition_fingerprint,
+    get_incremental_config,
+    get_incremental_state,
+    set_incremental_state,
+)
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -79,7 +87,7 @@ from products.data_quality.backend.facade.enums import (
 )
 from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
+from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, TrinoIncrementalWrite
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
@@ -195,6 +203,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             team_id=ateam.pk,
             saved_query_id=asaved_query.id,
             source_query=executable_query,
+            incremental=None,
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
@@ -208,6 +217,57 @@ class TestMaterializeViewManagedWarehouseActivity:
             assert result.error is None
             assert ajob.status == DataModelingJobStatus.COMPLETED
             assert ajob.rows_materialized == 12
+
+    @pytest.mark.parametrize("merge_fails", [False, True])
+    async def test_trino_shadow_keeps_its_own_incremental_watermark(
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, merge_fails: bool
+    ) -> None:
+        clickhouse_mark = dt.datetime(2026, 10, 5, tzinfo=dt.UTC)
+        trino_mark = dt.datetime(2026, 10, 3, tzinfo=dt.UTC)
+        written_mark = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+
+        def seed() -> None:
+            asaved_query.incremental_config = {"enabled": True, "incremental_key": "ts", "unique_key": ["id"]}
+            asaved_query.save(update_fields=["incremental_config"])
+            fingerprint = definition_fingerprint(asaved_query.query, get_incremental_config(asaved_query))
+            set_incremental_state(asaved_query, watermark=clickhouse_mark, fingerprint=fingerprint, mode="incremental")
+            set_incremental_state(
+                asaved_query,
+                watermark=trino_mark,
+                fingerprint=fingerprint,
+                mode="incremental",
+                scope=TRINO_INCREMENTAL_SCOPE,
+            )
+
+        await database_sync_to_async(seed)()
+        inputs = ManagedWarehouseShadowInputs(
+            team_id=ateam.pk, node_id=str(anode.id), dag_id=str(adag.id), job_id=str(ajob.id), use_trino=True
+        )
+        with (
+            unittest.mock.patch(
+                "products.data_modeling.backend.logic.incremental_plan.incremental_enabled", return_value=True
+            ),
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
+            ),
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_trino_model",
+                return_value=DuckLakeTableResult(
+                    schema_name="s", table_name="t", row_count=4, watermark=written_mark, merged=True
+                ),
+                side_effect=RuntimeError("MERGE failed") if merge_fails else None,
+            ) as execute,
+        ):
+            await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
+
+        assert execute.call_args.kwargs["incremental"] == TrinoIncrementalWrite(
+            incremental_key="ts", unique_key=("id",), since=trino_mark
+        )
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        trino_state = get_incremental_state(asaved_query, scope=TRINO_INCREMENTAL_SCOPE)
+        assert trino_state.watermark == (None if merge_fails else written_mark.isoformat())
+        # ClickHouse progress is never moved by the shadow.
+        assert get_incremental_state(asaved_query).watermark == clickhouse_mark.isoformat()
 
     async def test_records_failure_against_the_job_engine(self, activity_environment, ateam, anode, ajob, adag):
         ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES
@@ -1709,6 +1769,62 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+    @pytest.mark.parametrize(
+        "clickhouse_message,expects_delayed_retry",
+        [
+            (
+                "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
+                "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)",
+                True,
+            ),
+            ("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)", False),
+        ],
+    )
+    async def test_delta_kernel_read_error_retries_after_a_delay(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        ajob,
+        bucket_name,
+        adag,
+        clickhouse_message,
+        expects_delayed_retry,
+    ):
+        def mock_hogql_table(*args, **kwargs):
+            raise ClickHouseError(clickhouse_message)
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(Exception) as raised:
+                await activity_environment.run(materialize_view_activity, inputs)
+
+        error = raised.value
+        assert clickhouse_message in str(error)
+        if expects_delayed_retry:
+            assert isinstance(error, ApplicationError)
+            assert error.type == "ClickHouseError"
+            assert not error.non_retryable
+            assert error.next_retry_delay is not None
+            assert error.next_retry_delay >= dt.timedelta(minutes=1)
+        else:
+            assert type(error) is ClickHouseError
 
 
 class _EmptyArrowClient:

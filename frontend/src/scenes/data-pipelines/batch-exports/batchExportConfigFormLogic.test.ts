@@ -385,6 +385,7 @@ const HOGQL_BATCH_EXPORT: BatchExportConfiguration = {
     ...fixture('test-hogql-id', 'HogQL Export', { type: 'AwsS3', integration: 31, config: AWS_S3_CONFIG }),
     model: 'hogql',
     hogql_query: 'SELECT event FROM events WHERE timestamp >= {data_interval_start}',
+    hogql_modifiers: { convertToProjectTimezone: false },
 }
 
 // Single map keyed by id; used to register GET + PATCH mocks dynamically below.
@@ -1376,8 +1377,9 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
-            // Only the 'hogql' model edits the query, so other models must not send one
+            // Only the 'hogql' model edits the query and its modifiers, so other models must not send them
             expect(body.hogql_query).toEqual(fixture.hogql_query)
+            expect(body.hogql_modifiers).toEqual(fixture.hogql_modifiers)
         })
 
         it.each([

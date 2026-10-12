@@ -312,9 +312,17 @@ from products.warehouse_sources.backend.facade.temporal import (
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
 )
+from products.warehouse_suggestions.backend.facade.temporal import (
+    ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
+    WORKFLOWS as WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+)
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal.page_history.registry import (
+    ACTIVITIES as HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    WORKFLOWS as HEATMAP_PAGE_HISTORY_WORKFLOWS,
 )
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
@@ -359,8 +367,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS + WAREHOUSE_SUGGESTIONS_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES + WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -568,6 +576,11 @@ _task_queue_specs = [
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
+    ),
+    (
+        settings.WEB_ANALYTICS_TASK_QUEUE,
+        HEATMAP_PAGE_HISTORY_WORKFLOWS,
+        HEATMAP_PAGE_HISTORY_ACTIVITIES,
     ),
     (
         settings.LOGS_ALERTING_TASK_QUEUE,
