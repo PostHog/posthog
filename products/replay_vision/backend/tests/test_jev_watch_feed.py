@@ -1,3 +1,4 @@
+import itertools
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -44,7 +45,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks, _teams_with_scanners
 from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     MAX_JUDGE_ATTEMPTS,
-    RATE_LIMIT_BACKOFF_AFTER,
+    RATE_LIMIT_GIVE_UP_AFTER,
 )
 from products.replay_vision.backend.temporal.jev_watch_rank.types import JevWatchRankSweepInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -635,11 +636,21 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.observations_judged == 2
         assert result.failed_chunks == 0
 
-    def test_a_rate_limited_run_leaves_the_remaining_scanners_for_the_next_run(self) -> None:
-        # A run that keeps sending after the shared rate limit takes capacity from other features.
+    @parameterized.expand(
+        [
+            # A run that keeps sending into the shared rate limit takes capacity from other features.
+            ("every_call_rate_limited", 1, True),
+            # Occasional 429s clear within seconds, so a pause must not cost the run its remaining scanners.
+            ("every_other_call_rate_limited", 2, False),
+        ]
+    )
+    def test_a_rate_limited_run_pauses_and_gives_up_only_when_the_limit_persists(
+        self, _name: str, rate_limit_every: int, gives_up: bool
+    ) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        scanner_count = RATE_LIMIT_BACKOFF_AFTER + 3
+        # Enough scanners that some are still queued when the run would give up.
+        scanner_count = 2 * RATE_LIMIT_GIVE_UP_AFTER + 4
         for index in range(scanner_count):
             scanner = ReplayScanner.objects.create(
                 team=self.team,
@@ -649,19 +660,34 @@ class TestJevWatchRankSweep(BaseTest):
                 model=ScannerModel.GEMINI_3_8_FLASH,
             )
             self._succeeded_observation(scanner, f"session-{index}", "The user hit an error at checkout.")
+        answer = _answer_every_question(0.1)
+        calls = itertools.count()
+        lock = threading.Lock()
+
+        def _decide(request: DecisionRequest, **kwargs: Any) -> DecisionResult:
+            with lock:
+                call = next(calls)
+            if call % rate_limit_every == 0:
+                raise DecisionGatewayError(429, "rate limited")
+            return answer(request)
 
         activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
         with (
             patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
             patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(f"{activities}.RATE_LIMIT_PAUSE", timedelta(0)),
             patch(_API) as api,
             patch("posthoganalytics.capture"),
         ):
-            api.decide_when_available.side_effect = DecisionGatewayError(429, "rate limited")
+            api.decide_when_available.side_effect = _decide
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
-        assert RATE_LIMIT_BACKOFF_AFTER <= result.scanners_rate_limited < scanner_count
-        assert api.decide_when_available.call_count == result.scanners_rate_limited
-        assert result.scanners_backed_off == scanner_count - result.scanners_rate_limited
+        if gives_up:
+            assert RATE_LIMIT_GIVE_UP_AFTER <= result.scanners_rate_limited < scanner_count
+            assert result.scanners_backed_off == scanner_count - result.scanners_rate_limited
+        else:
+            assert result.scanners_rate_limited >= 3
+            assert result.scanners_backed_off == 0
+            assert result.scanners_judged == scanner_count
 
     def test_a_consent_revoked_while_a_scanner_waits_sends_nothing(self) -> None:
         # Scanners are queued when their team passes the consent check but judged at their turn,
