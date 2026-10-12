@@ -412,12 +412,7 @@ export function HogFlowEditorPanelBuild({
                         key="classify"
                         action={CLASSIFY_ACTION_NODE}
                         onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {CLASSIFY_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </span>
-                    </HogFlowEditorToolbarNode>
+                    />
                 )}
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
