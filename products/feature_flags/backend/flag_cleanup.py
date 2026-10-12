@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 
 if TYPE_CHECKING:
-    from posthog.models.integration import GitHubIntegration
+    from posthog.models.github_integration_base import GitHubIntegrationBase
     from posthog.models.team import Team
 
     from products.tasks.backend.facade.contracts import TaskDetailDTO
@@ -59,7 +59,9 @@ class FlagCleanupKeep(models.TextChoices):
 MAX_CANDIDATES = 1000
 
 
-def _cached_repositories(github: GitHubIntegration, *, must_include: str | None, allow_refresh: bool) -> dict[str, str]:
+def _cached_repositories(
+    github: GitHubIntegrationBase, *, must_include: str | None, allow_refresh: bool
+) -> dict[str, str]:
     try:
         repositories = github.list_all_cached_repositories(allow_refresh=allow_refresh)
         if (

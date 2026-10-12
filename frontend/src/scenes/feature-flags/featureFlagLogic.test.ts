@@ -3445,6 +3445,7 @@ describe('featureFlagLogic', () => {
                 expect(cleanup).toHaveBeenCalledWith(String(MOCK_DEFAULT_PROJECT.id), flag.id, request)
                 expect(logic.values.featureFlag).toEqual(flag)
                 expect(capturesOf('feature flag archived')).toHaveLength(0)
+                expect(lemonToast.success).not.toHaveBeenCalled()
             }
         )
 

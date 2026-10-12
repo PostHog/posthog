@@ -576,8 +576,10 @@ class TestFacadeReadsAndMappers(TestCase):
         task = Task.objects.get(id=created.task_id)
         other_user = User.objects.create(email="cleanup-viewer@example.com")
 
-        self.assertIsNotNone(task.channel_id)
-        self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+        channel = task.channel
+        self.assertIsNotNone(channel)
+        assert channel is not None
+        self.assertEqual(channel.channel_type, Channel.ChannelType.PERSONAL)
         self.assertIsNotNone(facade.get_task_detail(task.id, self.team.id, self.user.id))
         self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id))
 

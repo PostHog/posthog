@@ -317,6 +317,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         )
 
         if competing:
+            assert existing.origin_key is not None
 
             def competing_insert(**kwargs):
                 with transaction.atomic():
@@ -362,6 +363,7 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
             repository="posthog/posthog",
         )
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.FAILED)
+        assert task.origin_key is not None
         stale_task = tasks_facade.get_task_by_origin_key(self.team.id, task.origin_key)
 
         with patch("products.tasks.backend.facade.api.get_task_by_origin_key", return_value=stale_task):

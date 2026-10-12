@@ -47,7 +47,11 @@ def refresh_repository_cache_chunk(github: GitHubIntegration) -> bool:
         page += 1
 
     pages = redis.hmget(checkpoint_key, [f"page:{number}" for number in range(1, page)])
-    repositories = [repository for payload in pages for repository in json.loads(payload)]
+    repositories = []
+    for payload in pages:
+        if payload is None:
+            raise ValueError("Repository cache checkpoint is missing a page")
+        repositories.extend(json.loads(payload))
     # Publish only a complete scan, without overwriting a reconnect or a newer cache refresh.
     Integration.objects.filter(
         id=integration.id,
