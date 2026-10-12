@@ -125,14 +125,15 @@ class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
     """
 
     def _policy(self, action_key: str, **overrides) -> ApprovalPolicy:
-        return ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key=action_key,
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
+        fields = {
+            "organization": self.organization,
+            "team": self.team,
+            "action_key": action_key,
+            "approver_config": {"quorum": 1, "users": [self.user.id]},
+            "created_by": self.user,
             **overrides,
-        )
+        }
+        return ApprovalPolicy.objects.create(**fields)
 
     def _rolled_out(self):
         return patch("products.approvals.backend.experiment_policy_sync.scope_by_owner_enabled", return_value=True)
