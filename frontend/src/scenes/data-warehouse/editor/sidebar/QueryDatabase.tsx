@@ -58,6 +58,7 @@ import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { validateFolderName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
@@ -165,6 +166,7 @@ export const QueryDatabase = ({
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
+    const { dataWarehouseSavedQueryFolders } = useValues(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
     const { openNewExpressionModal, openEditExpressionModal, deleteExpression } = useActions(expressionModalLogic)
@@ -853,7 +855,7 @@ export const QueryDatabase = ({
                                         ),
                                         errors: {
                                             folderName: (name) =>
-                                                !name?.trim() ? 'You must enter a folder name' : undefined,
+                                                validateFolderName(name, dataWarehouseSavedQueryFolders),
                                         },
                                         onSubmit: ({ folderName }) =>
                                             createDataWarehouseSavedQueryFolder(folderName.trim()),
@@ -903,7 +905,12 @@ export const QueryDatabase = ({
                                         ),
                                         errors: {
                                             folderName: (name) =>
-                                                !name?.trim() ? 'You must enter a folder name' : undefined,
+                                                validateFolderName(
+                                                    name,
+                                                    dataWarehouseSavedQueryFolders.filter(
+                                                        (existingFolder) => existingFolder.id !== folder.id
+                                                    )
+                                                ),
                                         },
                                         onSubmit: ({ folderName }) =>
                                             updateDataWarehouseSavedQueryFolder({

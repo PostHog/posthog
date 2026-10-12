@@ -611,6 +611,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
         },
+        createDataWarehouseSavedQueryFolderFailure: ({ errorObject }) => {
+            if (errorObject?.status === 400 && errorObject?.attr === 'name' && errorObject?.detail) {
+                lemonToast.error(errorObject.detail)
+            }
+        },
         updateDataWarehouseSavedQueryFolderSuccess: () => {
             lemonToast.success('Folder renamed')
         },
