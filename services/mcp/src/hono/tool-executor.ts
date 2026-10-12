@@ -16,12 +16,12 @@ import {
     MissingProjectContextError,
     PinnedContextSwitchError,
     PostHogApiError,
-    PostHogTransportError,
     PostHogValidationError,
     ToolInputValidationError,
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    hasTimeoutCause,
     isTimeoutError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
@@ -980,7 +980,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (isTimeoutError(error) || (error instanceof PostHogTransportError && error.timedOut)) {
+    if (hasTimeoutCause(error)) {
         return { errorType: 'timeout' }
     }
 

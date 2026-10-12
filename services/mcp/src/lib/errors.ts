@@ -535,6 +535,21 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
     return undefined
 }
 
+/** True when the error or any error in its `cause` chain came from a request deadline. Tools that
+ *  rethrow through `wrapError` keep the timeout in `cause`. */
+export function hasTimeoutCause(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (isTimeoutError(current) || (current instanceof PostHogTransportError && current.timedOut)) {
+            return true
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return false
+}
+
 /**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
