@@ -245,8 +245,7 @@ GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
 )
 
-# llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
-# ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
+# llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     # SDK local evaluation and remote config. The Rust feature-flags service already
@@ -264,7 +263,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     ("support_ticket", "read"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
-    # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
+    # in the project (accepted).
     ("loop", "write"),
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.

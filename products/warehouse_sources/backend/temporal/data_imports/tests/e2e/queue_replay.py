@@ -21,10 +21,6 @@ from products.warehouse_sources.backend.facade.models import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
-    CalculateTableSizeActivityInputs,
-    calculate_table_size_activity,
-)
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, PendingBatch
 from products.warehouse_sources_queue.backend.testing import ensure_queue_tables, get_test_database_url
@@ -167,13 +163,5 @@ async def replay_v3_consumer(
     ):
         for run_uuid in run_uuids:
             await sync_to_async(replay.replay_batches_for_run)(run_uuid)
-
-        await sync_to_async(calculate_table_size_activity)(
-            CalculateTableSizeActivityInputs(
-                team_id=team_id,
-                schema_id=str(schema_id),
-                job_id=job_id,
-            )
-        )
 
     replay.clear()

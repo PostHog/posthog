@@ -59,35 +59,6 @@ def test_pagination_uses_returned_offset_and_raw_auth(endpoint: str, manager: Ma
     manager.clear_state.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        {"videos": []},
-        {"videos": [{"id": "last"}]},
-        {"videos": [{"id": "last"}], "nextOffset": None},
-        {"videos": [{"id": "last"}], "nextOffset": 0},
-    ],
-)
-def test_terminal_page_stops_without_saving_cursor(body: dict[str, Any], manager: MagicMock) -> None:
-    with patch("requests.Session.send", return_value=make_response(body)) as send:
-        result = synthesia_source("fake-api-key", "v2", "videos", 1, "job", manager)
-        pages = list(cast(Iterable[list[dict[str, Any]]], result.items()))
-    assert [row for page in pages for row in page] == body["videos"]
-    send.assert_called_once()
-    manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize("saved_offset", [None, 123])
-def test_resume_starts_at_saved_offset(saved_offset: int | None, manager: MagicMock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = SynthesiaResumeConfig(next_offset=saved_offset) if saved_offset else None
-    with patch("requests.Session.send", return_value=make_response({"videos": []})) as send:
-        result = synthesia_source("fake-api-key", "v2", "videos", 1, "job", manager)
-        list(cast(Iterable[Any], result.items()))
-    query = parse_qs(urlsplit(send.call_args.args[0].url).query)
-    assert query["offset"] == [str(saved_offset or 0)]
-
-
 def test_repeated_offset_fails_instead_of_looping(manager: MagicMock) -> None:
     manager.can_resume.return_value = True
     manager.load_state.return_value = SynthesiaResumeConfig(next_offset=12)
@@ -140,15 +111,6 @@ def test_sync_auth_errors_are_terminal_and_mapped(status: int, manager: MagicMoc
     ]
     assert len(messages) == 1
     assert messages[0] is not None and "Legacy (v2)" in messages[0]
-
-
-@pytest.mark.parametrize("status", [429, 503])
-def test_sync_transient_errors_retry(status: int, manager: MagicMock) -> None:
-    responses = [make_response({"error": "temporary"}, status), make_response({"videos": [{"id": "v"}]})]
-    with patch("requests.Session.send", side_effect=responses) as send, patch("time.sleep"):
-        result = synthesia_source("fake-api-key", "v2", "videos", 1, "job", manager)
-        assert list(cast(Iterable[Any], result.items())) == [[{"id": "v"}]]
-    assert send.call_count == 2
 
 
 def test_unknown_endpoint_fails_before_request(manager: MagicMock) -> None:

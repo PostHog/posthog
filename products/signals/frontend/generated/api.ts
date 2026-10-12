@@ -70,6 +70,7 @@ import type {
     ScoutSuggestionSetApi,
     ScoutToolCatalogueApi,
     ScoutTrialComparisonApi,
+    ScoutTrialComparisonArchiveRequestApi,
     ScoutTrialComparisonHistoryApi,
     ScoutTrialComparisonQueryApi,
     ScoutTrialComparisonRequestApi,
@@ -98,6 +99,7 @@ import type {
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
+    SignalReportPriorityUpdateApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -114,6 +116,8 @@ import type {
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
     SignalScoutManualRunRequestApi,
+    SignalScoutPrecheckTestApi,
+    SignalScoutPrecheckTestRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -704,6 +708,28 @@ export const signalsReportPrReviewCommentReactionDestroy = async (
     )
 }
 
+export const getSignalsReportsPriorityUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/priority/`
+}
+
+/**
+ * Append an attributed priority correction, preserving the previous judgment for future learning.
+ * @summary Change a report's priority
+ */
+export const signalsReportsPriorityUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportPriorityUpdateApi: SignalReportPriorityUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPriorityUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPriorityUpdateApi),
+    })
+}
+
 export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/refund/`
 }
@@ -767,6 +793,25 @@ export const signalsReportsReviewersUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportArtefactWriteApi),
+    })
+}
+
+export const getSignalsReportsReviewersMeDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
+}
+
+/**
+ * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers
+ */
+export const signalsReportsReviewersMeDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsReviewersMeDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1460,6 +1505,28 @@ export const signalsScoutConfigDestroy = async (
     })
 }
 
+export const getSignalsScoutConfigPrecheckTestUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/precheck_test/`
+}
+
+/**
+ * Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the effective one: the saved query, or the default the scout's skill ships. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
+ * @summary Test a scout pre-check
+ */
+export const signalsScoutConfigPrecheckTest = async (
+    projectId: string,
+    id: string,
+    signalScoutPrecheckTestRequestApi?: SignalScoutPrecheckTestRequestApi,
+    options?: RequestInit
+): Promise<SignalScoutPrecheckTestApi> => {
+    return apiMutator<SignalScoutPrecheckTestApi>(getSignalsScoutConfigPrecheckTestUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutPrecheckTestRequestApi),
+    })
+}
+
 export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/scout/configs/${id}/run/`
 }
@@ -1523,6 +1590,28 @@ export const signalsScoutConfigTrialComparisonCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutTrialComparisonRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialComparisonArchiveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_archive/`
+}
+
+/**
+ * Hide a finished trial from history or restore it without deleting results or starting any work.
+ * @summary Archive or restore a saved scout trial
+ */
+export const signalsScoutConfigTrialComparisonArchive = async (
+    projectId: string,
+    id: string,
+    scoutTrialComparisonArchiveRequestApi: ScoutTrialComparisonArchiveRequestApi,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonApi> => {
+    return apiMutator<ScoutTrialComparisonApi>(getSignalsScoutConfigTrialComparisonArchiveUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialComparisonArchiveRequestApi),
     })
 }
 

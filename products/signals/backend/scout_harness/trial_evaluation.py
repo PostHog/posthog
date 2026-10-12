@@ -10,10 +10,11 @@ from uuid import UUID
 from django.utils import timezone
 
 from pydantic import BaseModel, JsonValue, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
@@ -29,6 +30,7 @@ from products.signals.backend.scout_harness.trial_comparison_types import (
 from products.signals.backend.scout_harness.trial_evaluation_report import build_trial_comparison_report
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialComparisonReport,
+    TrialEvaluationAccess,
     TrialEvaluationCriterion,
     TrialEvaluationRequest,
     TrialEvaluationSnapshot,
@@ -39,6 +41,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
 )
 from products.signals.backend.scout_harness.trial_inspection import ScoutTrialInspection
 from products.signals.backend.scout_harness.trial_launch import (
+    MAX_EVIDENCE_BYTES,
     ScoutTrialLaunchError,
     TrialContext,
     TrialLaunch,
@@ -46,11 +49,13 @@ from products.signals.backend.scout_harness.trial_launch import (
     assert_trial_work_enabled,
     load_trial_context,
     read_trial_launch,
+    trial_context_evidence,
 )
 from products.signals.backend.scout_harness.trial_result import (
     get_trial_workflow_status,
     read_trial_result,
     recover_trial_result,
+    trial_timeout_error,
 )
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
@@ -58,7 +63,6 @@ from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 JUDGE_MODEL = "gpt-6-astra"
 _Document = TypeVar("_Document", bound=BaseModel)
 
@@ -230,7 +234,10 @@ def _read_trial_judge_input(team_id: int, evaluation_id: UUID, launch_id: UUID) 
 
 
 def _assert_context_access(
-    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan, *, config: SignalScoutConfig, user: User
+    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan | TrialEvaluationAccess,
+    *,
+    config: SignalScoutConfig,
+    user: User,
 ) -> None:
     if (
         config.team_id != 2
@@ -258,7 +265,7 @@ def assert_evaluation_access(snapshot: TrialEvaluationSnapshot, *, config: Signa
     _assert_context_access(load_trial_context(snapshot.team_id, snapshot.context_id), config=config, user=user)
 
 
-def _assert_worker_access(snapshot: TrialEvaluationSnapshot) -> None:
+def _assert_worker_access(snapshot: TrialEvaluationSnapshot, *, use_saved_access: bool = False) -> None:
     assert_trial_environment_ready()
     config = (
         SignalScoutConfig.objects.for_team(snapshot.team_id)
@@ -269,6 +276,23 @@ def _assert_worker_access(snapshot: TrialEvaluationSnapshot) -> None:
     user = User.objects.filter(id=snapshot.user_id, is_active=True).first()
     if config is None or user is None:
         raise TrialEvaluationError("The evaluation is no longer available to this operator.")
+    access = (
+        _read_document(_key(snapshot.team_id, snapshot.evaluation_id, "access"), TrialEvaluationAccess)
+        if use_saved_access
+        else None
+    )
+    if access is not None:
+        if (
+            access.evaluation_id != snapshot.evaluation_id
+            or access.team_id != snapshot.team_id
+            or access.config_id != snapshot.config_id
+            or access.user_id != snapshot.user_id
+            or access.context_id != snapshot.context_id
+        ):
+            raise TrialEvaluationError("The saved source identity does not match this evaluation.")
+        # Polls only need the frozen source identity; current permissions are still checked every time.
+        _assert_context_access(access, config=config, user=user)
+        return
     assert_evaluation_access(snapshot, config=config, user=user)
 
 
@@ -331,7 +355,6 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
         or not isinstance(marker, dict)
         or marker.get("version") != 1
         or marker.get("context_id") != str(launch.context_id)
-        or (task_run.state or {}).get("scout_trial") != marker
     ):
         raise TrialEvaluationError("The trial does not match its private task and operator.")
     return run
@@ -402,7 +425,12 @@ def _report_evidence(report_id: str, report: JsonValue) -> dict[str, JsonValue]:
 
 
 def _run_evidence(
-    launch: TrialLaunch, context: TrialContext, variant_id: UUID, *, evaluation_id: UUID
+    launch: TrialLaunch,
+    context: TrialContext,
+    variant_id: UUID,
+    *,
+    evaluation_id: UUID,
+    rubric_reference_context: ScoutRubricReferenceContext,
 ) -> TrialRunEvidence:
     run = _bound_run(launch)
     result = read_trial_result(run) if run is not None else None
@@ -416,11 +444,16 @@ def _run_evidence(
     if status not in {"completed", "failed", "cancelled", "skipped"} or (run is None and status == "completed"):
         raise TrialEvaluationNotReady("Every selected trial must have a known terminal state before scoring.")
     if run is not None:
-        run.task_run.refresh_from_db(fields=["status", "state"])
+        run.task_run.refresh_from_db(fields=["status", "state", "error_message"])
         if run.task_run.status not in {"completed", "failed", "cancelled"}:
             raise TrialEvaluationNotReady("Every selected trial task must finish before scoring.")
         if status == "completed":
             status = run.task_run.status
+    exclusion_reason = None
+    if status != "completed":
+        exclusion_reason = (
+            trial_timeout_error(run, status=status) if run is not None else None
+        ) or "The trial did not complete successfully."
     evidence = TrialRunEvidence(
         launch_id=launch.id,
         variant_id=variant_id,
@@ -428,7 +461,7 @@ def _run_evidence(
         task_id=run.task_run.task_id if run else None,
         task_run_id=run.task_run_id if run else None,
         execution_status=status,
-        exclusion_reason=None if status == "completed" else "The trial did not complete successfully.",
+        exclusion_reason=exclusion_reason,
         model=launch.model,
         runtime_adapter=launch.runtime_adapter,
         reasoning_effort=launch.reasoning_effort,
@@ -459,16 +492,12 @@ def _run_evidence(
         )
     builder = _EvidenceBuilder()
     authored = [
+        TrialEvidenceSource(
+            id="rubric-reference", kind="instructions", text=rubric_reference_context.model_dump_json()
+        ),
         TrialEvidenceSource(id="instructions", kind="instructions", text=launch.skill_body),
         TrialEvidenceSource(id="launch-note", kind="instructions", text=launch.note),
-        TrialEvidenceSource(
-            id="context",
-            kind="context",
-            text=json.dumps(
-                {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
-                ensure_ascii=False,
-            ),
-        ),
+        TrialEvidenceSource(id="context", kind="context", text=trial_context_evidence(context)),
     ]
     summary = result.get("summary")
     if isinstance(summary, str) and summary:
@@ -599,6 +628,7 @@ def prepare_trial_evaluation(
     criteria = trial_evaluation_criteria(rubric)
     if judge_prompt_version != JUDGE_PROMPT_VERSION:
         raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
+    rubric_reference_context = ScoutRubricReferenceContext.model_validate(rubric["reference_context"])
     snapshot = TrialEvaluationSnapshot(
         evaluation_id=request.evaluation_id,
         team_id=config.team_id,
@@ -609,13 +639,18 @@ def prepare_trial_evaluation(
         request=request,
         request_hash=request_hash,
         rubric_document=rubric,
-        rubric_reference_context=ScoutRubricReferenceContext.model_validate(rubric["reference_context"]),
         rubric_reference_generation_id=cast(str, rubric["reference_generation_id"]),
         criteria=criteria,
         judge_model=judge_model,
         judge_prompt_version=judge_prompt_version,
         runs=[
-            _run_evidence(launches[identifier], context, variant.id, evaluation_id=request.evaluation_id)
+            _run_evidence(
+                launches[identifier],
+                context,
+                variant.id,
+                evaluation_id=request.evaluation_id,
+                rubric_reference_context=rubric_reference_context,
+            )
             for variant in request.variants
             for identifier in variant.launch_ids
         ],
@@ -633,6 +668,20 @@ def prepare_trial_evaluation(
     stored = _write_once(_key(config.team_id, request.evaluation_id, "snapshot"), snapshot)
     if stored.request_hash != request_hash:
         raise TrialEvaluationError("This evaluation ID was already used for a different request.")
+    if stored.context_id != context.id:
+        raise TrialEvaluationError("The saved evaluation uses a different starting context.")
+    access = TrialEvaluationAccess(
+        evaluation_id=stored.evaluation_id,
+        team_id=stored.team_id,
+        config_id=stored.config_id,
+        user_id=stored.user_id,
+        context_id=context.id,
+        skill_name=context.skill_name,
+        skill_version=context.skill_version,
+    )
+    saved_access = _write_once(_key(stored.team_id, stored.evaluation_id, "access"), access)
+    if saved_access != access:
+        raise TrialEvaluationError("The saved source identity does not match this evaluation.")
     _save_trial_judge_inputs(stored)
     return stored
 
@@ -665,22 +714,7 @@ def _error_judgment(evidence: TrialRunEvidence, error: str | None = None) -> Tri
     )
 
 
-def _claim_judgment(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> bool:
-    key = _key(snapshot.team_id, snapshot.evaluation_id, f"attempts/{evidence.launch_id}")
-    try:
-        object_storage.write(
-            key,
-            _error_judgment(evidence).model_dump_json(),
-            extras={"ContentType": "application/json", "IfNoneMatch": "*"},
-        )
-    except object_storage.ObjectStorageError:
-        if _read_document(key, TrialRunJudgment) is None:
-            raise
-        return False
-    return True
-
-
-async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> None:
+async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> bool:
     from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
         TrialJudgeExecutionError,
         judge_trial_run,
@@ -695,7 +729,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
         if evidence is None:
             raise TrialEvaluationError("The trial is not part of this evaluation.")
         if await asyncio.to_thread(_read_judgment, snapshot, evidence) is not None:
-            return
+            return True
         if evidence.exclusion_reason:
             judgment = TrialRunJudgment(
                 launch_id=launch_id,
@@ -704,24 +738,22 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
                 summary=evidence.exclusion_reason,
             )
         else:
-            await database_sync_to_async(assert_trial_work_enabled)(
-                await database_sync_to_async(Team.objects.get)(pk=team_id)
-            )
             step = "access_check"
             try:
-                await database_sync_to_async(_assert_worker_access)(snapshot)
-                step = "judgment_claim"
-                if not await asyncio.to_thread(_claim_judgment, snapshot, evidence):
-                    return
+                await database_sync_to_async(_assert_worker_access)(snapshot, use_saved_access=True)
                 step = "judge_execution"
-                judgment = await judge_trial_run(snapshot, evidence)
+                collected_judgment = await judge_trial_run(snapshot, evidence)
+                if collected_judgment is None:
+                    return False
+                judgment = collected_judgment
                 if judgment.launch_id != launch_id or judgment.variant_id != evidence.variant_id:
-                    judgment = _error_judgment(evidence)
+                    judgment = _error_judgment(evidence, "The judge returned a result for another trial run.")
             except TrialJudgeExecutionError as error:
                 judgment = _error_judgment(evidence, str(error))
-            except Exception as error:
+            except (TrialEvaluationError, NotFound, PermissionDenied) as error:
                 judgment = _error_judgment(evidence, safe_judge_failure(step, error))
         await asyncio.to_thread(_write_once, _key(team_id, evaluation_id, f"runs/{launch_id}"), judgment)
+        return True
 
 
 @private_capture_context()
@@ -747,6 +779,10 @@ def finish_trial_evaluation(team_id: int, evaluation_id: UUID) -> TrialCompariso
     for evidence in snapshot.runs:
         judgment = _read_judgment(snapshot, evidence)
         if judgment is None:
+            if not evidence.exclusion_reason:
+                raise TrialEvaluationNotReady(
+                    "Judging has not finished. Resume this evaluation to collect its results."
+                )
             judgment = _write_once(
                 _key(team_id, evaluation_id, f"runs/{evidence.launch_id}"), _error_judgment(evidence)
             )

@@ -41,7 +41,9 @@ from posthog.schema import (
     SourceMap,
 )
 
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
@@ -68,6 +70,7 @@ from posthog.models.event_ingestion_restriction_config import (
 )
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
+from posthog.models.integration.model import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
@@ -128,8 +131,9 @@ from products.customer_analytics.backend.facade.account_property_pins import (
     validate_pinned_account_properties,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
-from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
@@ -628,6 +632,7 @@ TEAM_CONFIG_FIELDS = (
     "survey_config",
     "week_start_day",
     "primary_dashboard",
+    "home_tab_dashboard",
     "live_events_columns",
     "recording_domains",
     "cookieless_server_hash_mode",
@@ -672,6 +677,7 @@ TEAM_CONFIG_MEMBER_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "surveys_opt_in",
     "primary_dashboard",
+    "home_tab_dashboard",
 )
 TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
 
@@ -989,6 +995,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    default_email_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the verified email integration that new broadcasts and workflow email steps use as "
+            "their sender. Null means no default. Set automatically when the project's first email "
+            "sender is verified, and cleared when that integration is deleted."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
@@ -996,6 +1012,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "default_email_integration_id",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -1026,6 +1043,20 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
         )
 
+    def validate_default_email_integration_id(self, value: int | None) -> int | None:
+        if self.parent or value is None:
+            return value
+        sender = (
+            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            if self.instance is not None
+            else None
+        )
+        if sender is None:
+            raise serializers.ValidationError("Choose an email sender from this project.")
+        if not sender.config.get("verified"):
+            raise serializers.ValidationError("Verify this sender's domain before making it the default.")
+        return value
+
 
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
@@ -1055,7 +1086,7 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        choices=AccountPropertyPinKind.choices,
         help_text="Definition type for this default pinned account property.",
     )
     id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
@@ -1396,6 +1427,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         allow_null=True,
         help_text="Settings for Conversations. Must be a JSON object or null.",
     )
+    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -1460,6 +1500,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "flag_evaluations_mode",
             "available_setup_task_ids",
         )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        if isinstance(self.instance, Team):
+            self.context["team_id"] = self.instance.pk
+        return super().get_fields()
 
     def to_representation(self, instance):
         with tracer.start_as_current_span("team_serializer.default_fields"):
@@ -2243,6 +2288,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Captured before the locked block pops the keys, so the refresh/re-cache step
         # below still knows this request touched the team row.
         conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
+        if "home_tab_dashboard" in validated_data:
+            dashboard = instance.home_tab_dashboard
+            before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
@@ -2259,6 +2307,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             self._update_feature_flag_policy_config(instance, config_data)
+
+        # Lives on a Team extension, not a Team column, so it can't flow through the generic
+        # save(update_fields=...) loop below.
+        if "home_tab_dashboard" in validated_data:
+            dashboard = validated_data.pop("home_tab_dashboard")
+            instance.home_tab_dashboard = dashboard
+            home_tab_dashboard_id = dashboard.id if dashboard else None
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -2354,6 +2409,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
+        if "home_tab_dashboard" in before_update:
+            after_update["home_tab_dashboard"] = home_tab_dashboard_id
         if other_team_fields or conversations_lock_applied:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
@@ -3352,6 +3409,20 @@ def validate_team_attrs(
                     + ", ".join(sorted(admin_fields_touched))
                 )
 
+    # A new team has no warehouse tables yet, so only an update can reach a denied one.
+    if "test_account_filters" in attrs and instance is not None:
+        team = instance if isinstance(instance, Team) else instance.passthrough_team
+        denied_table = table_blocking_property_filters(
+            cast(User, view.request.user), team, attrs["test_account_filters"]
+        )
+        if denied_table:
+            raise exceptions.ValidationError(
+                {
+                    "test_account_filters": f"This filter uses the table '{denied_table}', which you don't have access to."
+                },
+                code="permission_denied",
+            )
+
     if "primary_dashboard" in attrs:
         if not instance:
             raise exceptions.ValidationError(
@@ -3359,6 +3430,14 @@ def validate_team_attrs(
             )
         if attrs["primary_dashboard"] and attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
+
+    if "home_tab_dashboard" in attrs:
+        if not instance:
+            raise exceptions.ValidationError(
+                {"home_tab_dashboard": "Home tab dashboard cannot be set on project creation."}
+            )
+        if attrs["home_tab_dashboard"] and attrs["home_tab_dashboard"].team_id != instance.id:
+            raise exceptions.ValidationError({"home_tab_dashboard": "Dashboard does not belong to this team."})
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

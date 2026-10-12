@@ -133,7 +133,21 @@ Rows written before a field joined `field_with_masked_contents` still store its 
 Code that returns a row's `detail` to a user must read `ActivityLog.safe_detail`, which masks those fields in old rows too.
 The activity log API, the advanced activity logs API and its exports, the notifications feed, and the PostHog AI context all do.
 The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
+`python manage.py clean_destination_secrets --step activity-logs` rewrites them. It is a dry run until you pass `--commit`.
 These protections do not revoke exposed credentials.
+
+Destination mappings do not support secret inputs.
+Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
+The API rejects mapping schemas that declare secret inputs before it validates their values.
+Input schema keys must be unique, including in mappings and workflow function inputs.
+Changing an input from secret to non-secret does not copy its stored value into plaintext storage.
+An explicit replacement value can be stored as a non-secret input.
+Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
+Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
+
+New browser configuration builds leave out a site function while one of its secret values would reach the browser.
+That covers a secret still stored in plaintext inputs, and a mapping secret or its default.
+Regenerate existing browser configurations after deployment to replace cached JavaScript.
 
 ## Writes the signal cannot see
 
@@ -279,6 +293,14 @@ The SQL table enforces the same entitlement, retention, and access controls; it 
 When a reader is unavailable, stop using that reader for the run and record the limitation. Other advertised, authorized readers remain usable: per-object endpoints such as feature-flag activity do not share the project-wide Audit Logs entitlement gate. Skip only checks that have no available reader.
 To audit scheduled scout writes, use the server-derived `scout:<skill_name>` client tag and the run window. The tag identifies a scout, not a run; inspect actors, items, and timestamps when runs overlap.
 Do not infer that no configuration change occurred from missing access.
+
+### Available filters
+
+`advanced_activity_logs/available_filters/` checks the organization-wide cache before counting activity rows.
+For organizations with at most 20,000 rows, cache hits reuse detail field names without fetching detail documents.
+Static options (users, scopes, activities, and clients) still use distinct values from the request's visibility-filtered queryset.
+Small organizations cache discovered detail fields for 12 hours, so new detail field names can take that long to appear.
+On a cache miss, organizations with at most 20,000 rows run discovery in the request; larger organizations return empty filters until the background refresh populates the cache.
 
 A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
 Most scenes do not need this; the side panel and deep links work without it.

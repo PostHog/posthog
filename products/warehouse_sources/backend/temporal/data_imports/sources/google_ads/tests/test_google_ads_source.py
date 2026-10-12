@@ -342,12 +342,14 @@ class TestGoogleAdsRetryableErrors:
             # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
             # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
             "Resource has been exhausted (e.g. check quota).",
+            # str(GoogleAdsCallDeadlineExceeded) raised when a single call runs past
+            # GOOGLE_ADS_CALL_TIMEOUT_SECONDS (see google_ads.py).
+            f"Google Ads call did not finish within {GOOGLE_ADS_CALL_TIMEOUT_SECONDS} seconds",
         ],
     )
-    def test_quota_exhausted_is_retryable(self, error_msg):
-        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
-        # in-process retry budget starts polluting error tracking even though Temporal's activity
-        # retry still recovers once the quota clears.
+    def test_known_self_recovering_errors_are_retryable(self, error_msg):
+        # If either pattern drops out of get_retryable_errors(), a condition Temporal's activity
+        # retry already recovers from on its own starts polluting error tracking as noise.
         assert any(pattern in error_msg for pattern in self.retryable)
 
     def test_receive_limit_exhausted_is_not_retryable(self):
@@ -2072,6 +2074,67 @@ class TestResourceSchemaInvariants:
             return
         assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
         assert "segments.date" in contents["field_names"]
+
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_top_impression_metrics_use_a_compatible_resource_and_segments(self, alias):
+        # Google rejects the whole query when these metrics meet a resource or segment outside their
+        # "Selectable with" list, so every sync of the table fails.
+        contents = RESOURCE_SCHEMAS[alias]
+        if not _TOP_IMPRESSION_METRICS & set(contents["field_names"]):
+            return
+        assert contents["resource_name"] in _TOP_IMPRESSION_SELECTABLE_RESOURCES
+        segments = {field for field in contents["field_names"] if field.startswith("segments.")}
+        assert segments <= _TOP_IMPRESSION_SELECTABLE_SEGMENTS
+
+
+_TOP_IMPRESSION_METRICS = {"metrics.top_impression_percentage", "metrics.absolute_top_impression_percentage"}
+
+# The "Selectable with" list that both metrics share in the Google Ads API v25 metrics reference:
+# https://developers.google.com/google-ads/api/fields/v25/metrics#metrics.top_impression_percentage
+_TOP_IMPRESSION_SELECTABLE_RESOURCES = {
+    "ad_group",
+    "ad_group_ad",
+    "ad_group_asset",
+    "ad_group_audience_view",
+    "asset_set_asset",
+    "campaign",
+    "campaign_asset",
+    "campaign_audience_view",
+    "campaign_search_term_view",
+    "customer",
+    "customer_asset",
+    "geographic_view",
+    "keyword_view",
+    "location_interest_view",
+    "search_term_view",
+    "targeting_expansion_view",
+    "webpage_view",
+}
+_TOP_IMPRESSION_SELECTABLE_SEGMENTS = {
+    "segments.ad_network_type",
+    "segments.ad_sub_network_type",
+    "segments.asset_interaction_target.asset",
+    "segments.asset_interaction_target.interaction_on_this_asset",
+    "segments.date",
+    "segments.day_of_week",
+    "segments.device",
+    "segments.geo_target_city",
+    "segments.geo_target_country",
+    "segments.geo_target_metro",
+    "segments.geo_target_region",
+    "segments.hour",
+    "segments.keyword.ad_group_criterion",
+    "segments.keyword.info.match_type",
+    "segments.keyword.info.text",
+    "segments.match_type",
+    "segments.month",
+    "segments.quarter",
+    "segments.search_term_match_source",
+    "segments.search_term_match_type",
+    "segments.search_term_targeting_status",
+    "segments.week",
+    "segments.year",
+}
 
 
 class TestConversionActionSegmentedStats:

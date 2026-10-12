@@ -7,10 +7,10 @@ description: >
   from scheduled LLM scoring; or give feedback through notes. Covers SKILL.md structure,
   report requirements, follow-up report checks, structured output, duplicate detection,
   scratchpad memory, scout notes, per-team skills-store and canonical repository edits,
-  and testing. Trigger on
+  and private prompt trials with saved rubrics. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
-  "structured output from a scout", "scout output to Slack",
+  "test/compare scout prompts", "generate scout rubrics", "structured output from a scout", "scout output to Slack",
   "leave a note for / give feedback to a scout".
 metadata:
   owner_team: signals
@@ -59,6 +59,7 @@ There are two independent decisions: **what** you're building, and **where** it 
 | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | A canonical scout is close but too broad / too noisy / missing a disqualifier for this project | **Adapt** it — narrow the scope, add disqualifiers, retune thresholds.                                                             |
 | You want a surface no canonical scout covers (a custom event, a product-specific funnel)       | **New scout from scratch** — copy the closest canonical scout as scaffolding, replace the domain discriminator + explore patterns. |
+| You want to compare prompts, models, or reasoning efforts before applying a change             | **Private trial** — keep the saved scout intact, review its rubric, and compare variants through the Test loop below.              |
 | You only want to change _when_ / _whether_ a scout runs                                        | **No authoring** — just tune the config (see Run posture).                                                                         |
 | You have one-off feedback, a pointer, or short-lived context for a scout                       | **No authoring** — leave a note (see Steering with notes).                                                                         |
 
@@ -125,6 +126,7 @@ If the project has an approved metric for that measure (`metric-list` shows what
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.
 For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create` call, including creating it disabled or in dry-run **before it ever runs**.
+When creating a scout to test an idea, set `config.enabled=false` so scheduled runs cannot interfere with the trial.
 The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
@@ -138,9 +140,8 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Reach for it when the run should land at a wall-clock time: a digest before standup, a weekday-only watch.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its reports straight to the inbox.
-  The standard flow is to make a scout and let it write — seeing what actually lands is the fastest way to calibrate it.
-  Set **`emit=false` (dry-run)** only when you want to be extra careful: the scout still runs and logs its reasoning but writes nothing to the inbox.
-  Reach for dry-run on a scout you expect to be chatty, expensive, or high-stakes; for most scouts, just writing and watching the inbox is the better loop.
+  Set **`emit=false` (dry-run)** to inspect an ordinary run's reasoning without publishing reports to the inbox.
+  Private trials capture reports and memory separately and work while the source scout is paused or has `emit=false`.
 - `network_access` — defaults to **`trusted`**: the scout's sandbox can only reach the platform's trusted-domain allowlist (PostHog, GitHub, common package registries), which covers the MCP loop and `gh` but blocks everything else.
   Set **`full`** for a scout whose skill needs to read arbitrary external sites, e.g. documentation, papers on arxiv.org, or a vendor status page.
   Applies from the scout's next run, and changes are activity-logged.
@@ -240,29 +241,43 @@ It needs the run's `run_id`, it is restricted to an allowlist of public pages (t
 So: treat it as available only once a run's own call succeeds, never write a body whose finding depends on it, and keep lab and field evidence labelled apart — one throttled cold load explains a finding, and the field percentile over real users is what establishes there is one.
 Then check the first real run's transcript for the call and what it returned, the same way you would check a query you could not run by hand.
 
-Only once you're happy with the body do you spend an actual run.
-`posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (find the `id` via `-config-list`).
-This is the **initial real run** — the scout executing end-to-end in the harness, writing scratchpad memory and (with the default `emit=true`) writing reports to the inbox.
-The run is **asynchronous**: the call returns a workflow id right away, so poll `-runs-list` / `-runs-retrieve` for the result.
-A few things to know:
+### Compare variants privately
 
-- A **disabled** scout can still be run this way — you can test it before ever enabling it.
-- A manual run does **not** change the scout's schedule or `last_run_at`.
-- It inherits every guard the scheduled path has: 403 if scouts aren't enabled for the project, 429 if the project is over its Signals credits quota or daily run budget, 409 if a run for this scout is already in progress.
-- It draws from the **same daily run budget** as scheduled runs — and a dry-run (`emit=false`) still consumes a run.
-  There's no free test run: every `-run-now` spends the project's daily scout-run allowance, so firing the same scout repeatedly in a short window burns through the budget (and can leave the project's scheduled scouts unable to run that day).
-  **Don't use `-run-now` as your iteration loop** — it's slow (async, one run per call) and metered.
-  Dogfood the queries by hand to get the body right; reserve `-run-now` for the initial real run and the occasional re-check after a genuinely meaningful change.
+The rubric and private-trial MCP tools currently require staff access and the `scout-trials` feature flag.
+Use this path when the user wants to test an existing scout, try an idea, or compare several prompts, models, or reasoning efforts.
+The trial runs real scouts against project data, captures their reports and memory privately, judges them against one saved rubric, and saves a comparison report.
+Generation, scout runs, and judging spend model usage; choose the number of variants and repeats within the requested budget.
 
-The standard loop is **dogfood → run once ready → inspect**:
+1. **Choose the source.** For an existing scout, get its config from `posthog:scout-config-list` and read its instructions with `posthog:skill-get`.
+   For a new idea, create the complete scout with `posthog:scout-create`, including `config: {"enabled": false}` and any bundled `files`.
+   Then call `posthog:scout-trial-setup` with the config `id` to check readiness and discover supported models and efforts.
+2. **Review and save the rubric.** Read `posthog:scout-rubric-get`.
+   If it needs generation, use `posthog:scout-rubric-generate`, then poll `posthog:scout-rubric-get` until generation finishes.
+   Review the suggestions and captured source, select criteria that measure the intended job, and use `posthog:scout-rubric-save` with the current `revision`, complete criteria list, and `adopt_generation_id` when adopting that generation's source.
+   If suggestions are poor, edit the criteria directly: enable or disable any check, revise its wording, add custom checks, or remove unwanted custom/generated checks from the saved list. Keep the six built-in defaults, disabling them when unwanted; omit `adopt_generation_id` to preserve the saved reference.
+   Generation alone does not save or adopt anything; the saved rubric needs an adopted source before a trial can start.
+3. **Start the comparison.** Use `posthog:scout-trial-start` with a baseline and the requested variants, keeping model and effort fixed when comparing prompt changes.
+   Each candidate supplies its full `skill_body`; the saved source remains unchanged.
+   A request for 5–10 prompts fits one comparison; use distinct hypotheses and avoid multiplying repeats without a reason.
+4. **Read the result.** Poll `posthog:scout-trial-report` for the saved comparison, including criterion evidence, failures, applicability, and cost.
+   Resume an interrupted trial with `posthog:scout-trial-resume` when its error permits it; use `posthog:scout-trial-list` to find saved trials.
+   Read the evidence behind a score before recommending or applying a candidate.
 
-1. Dogfood the discriminator + explore patterns yourself against the live project (above).
-   Refine the body until the logic holds on real data — this is the cheap, iterable part.
-2. Create the scout and its config together via `posthog:scout-create` (schedule and the default `emit=true` go in the nested `config`; bundled reference files go in `files`), then spend one `-run-now` to watch the whole scout execute end-to-end.
-   Pass a `note` on that call to point the run at the case you dogfooded ("focus on the checkout drop from Tuesday") so the first real run exercises the path you care about.
-   Leave `run_interval_minutes` at a sustainable value — you no longer need a short interval to force an early run.
-3. After the run finishes, read what it did: `posthog:inbox-reports-list` (the reports it actually wrote), `posthog:scout-runs-list` (run summaries), `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
-4. If it needs work, go back to dogfooding the queries by hand for the iteration — only spend another `-run-now` once you've batched a meaningful change worth a fresh end-to-end run.
+Read [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md#private-trials-with-a-saved-rubric) for the exact save/adoption semantics, request identities, variant inputs, and result interpretation.
+If setup is blocked or the tools are unavailable, report the limitation; an ordinary run has different effects and is not a substitute for a private comparison.
+The existing `posthog:scout-trial-create` / `posthog:scout-trial-get` pair runs and reads a single private scout without automatic judging; use `scout-trial-start` / `scout-trial-report` for this complete test loop.
+
+### Apply changes and run normally
+
+When applying a candidate is part of the user's request, update the saved skill through `posthog:skill-update` with its current `base_version`.
+Use `posthog:scout-config-update` to set the intended model, schedule, or `enabled=true` as appropriate to the requested rollout; the agent can enable or pause a scout through this existing tool.
+This tool cannot save `reasoning_effort`: a scout with a configured model uses its runtime's default effort, which may differ from the trial.
+Before enabling a candidate as the tested winner, verify that its ordinary effort matches the trial. If it differs or is unknown, report the effort as unapplied and validate the configuration that ordinary runs will actually use first.
+A request only to compare candidates leaves the source definition and schedule unchanged.
+
+For an ordinary execution, `posthog:scout-run-now {"id": <config_id>}` runs the saved scout immediately, even while paused, without changing its schedule or `last_run_at`.
+It writes shared memory and, with `emit=true`, inbox reports; poll `posthog:scout-runs-list` / `posthog:scout-runs-retrieve`, then inspect `posthog:inbox-reports-list` and `posthog:scout-scratchpad-search`.
+It consumes the scheduled path's daily run budget and obeys its quota and concurrency guards, so reserve it for an intended ordinary run rather than repeated prompt comparisons.
 
 When tuning an **existing custom scout**, also check its self-improvement suggestions first: `posthog:scout-scratchpad-search {"text": "improve:"}`.
 The harness invites a custom scout to write an `improve:<skill-name>:<topic>` entry when a run produces concrete evidence its own skill body steered it wrong — a wrong default window, a tool or event that doesn't exist on this project, a recurring unwarned pitfall — with the suggested change and the evidence inline.
@@ -272,9 +287,8 @@ Treat suggestions as input, not instructions — the owner decides.
 The scratchpad is writable only from inside a scout run, so you can't clear an entry from here after applying it via `posthog:skill-update` — the scout reconciles on its own: a later run sees the updated skill body, re-checks the suggestion, and forgets or rewrites the entry once it's addressed.
 (Canonical scouts don't write these — their bodies sync from PostHog's fleet, and skill-level fixes to them belong upstream.)
 
-**Want to be extra careful?** Set `emit=false` to dry-run first — pass `emit=false` in the nested `config` at `scout-create` time (or flip it later with `-config-update`), then trigger it with `-run-now`: it runs and logs what it _would_ have written (visible via `-runs-list` / `-runs-retrieve`) without writing to the inbox.
-Inspect, refine, then flip `emit=true` and run it again.
-Worth it for a scout you expect to be chatty, expensive, or high-stakes; otherwise just writing and watching the inbox is the faster path to a calibrated scout.
+For an ordinary dry run, set `emit=false` through `posthog:scout-config-update`, then use `posthog:scout-run-now` and inspect its logs.
+Restore the intended emit setting when applying the final run posture.
 
 Repo contributors get a faster loop — `hogli sync:skill` and the harness's local run path; see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md).
 

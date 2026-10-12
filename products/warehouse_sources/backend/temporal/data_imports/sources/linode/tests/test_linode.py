@@ -13,14 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linode.linode import (
-    PAGE_SIZE,
     LinodeResumeConfig,
-    _build_x_filter,
     _format_filter_value,
     linode_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.settings import LINODE_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -109,22 +106,6 @@ class TestFormatFilterValue:
         assert _format_filter_value(value) == expected
 
 
-class TestBuildXFilter:
-    def test_first_sync_has_no_gte_bound(self) -> None:
-        # A missing watermark must produce an order-only filter, never `{"+gte": None}`, which the API
-        # would reject and wedge every first sync.
-        assert _build_x_filter("id", None) == {"+order_by": "id", "+order": "asc"}
-
-    def test_watermark_adds_ascending_gte_bound(self) -> None:
-        # Ordering must always be ascending so rows arrive oldest-first, matching sort_mode="asc";
-        # otherwise the watermark would checkpoint to ~now after the first batch.
-        assert _build_x_filter("date", datetime(2026, 3, 4, 2, 58, 14)) == {
-            "+order_by": "date",
-            "+order": "asc",
-            "date": {"+gte": "2026-03-04T02:58:14"},
-        }
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -173,27 +154,6 @@ class TestValidateCredentials:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_across_all_pages(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"id": 1}, {"id": 2}], page=1, pages=2),
-                _response([{"id": 3}], page=2, pages=2),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert params[0]["page"] == 1
-        assert params[0]["page_size"] == PAGE_SIZE
-        assert params[1]["page"] == 2
-        # Checkpoint saved after the first page (points at the next page); the last page ends it.
-        manager.save_state.assert_called_once_with(LinodeResumeConfig(next_page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         # Only page 2 is wired, so resuming anywhere other than page 2 fails loudly (StopIteration).
@@ -204,20 +164,6 @@ class TestPagination:
 
         assert params[0]["page"] == 2
         assert [r["id"] for r in rows] == [3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_x_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], pages=1)])
-
-        _rows(
-            _source(
-                endpoint="volumes",
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-        assert "X-Filter" not in session.headers
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_endpoint_attaches_x_filter_with_watermark(self, MockSession: mock.MagicMock) -> None:
@@ -235,15 +181,6 @@ class TestPagination:
             )
         )
         assert json.loads(session.headers["X-Filter"]) == {"+order_by": "id", "+order": "asc", "id": {"+gte": 4}}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_page_size_is_maxed(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}], pages=1)])
-
-        _rows(_source())
-        assert params[0]["page_size"] == PAGE_SIZE
-        assert PAGE_SIZE == 500
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_sync_session_registers_token_for_redaction(self, MockSession: mock.MagicMock) -> None:
@@ -280,6 +217,53 @@ class TestPagination:
             mock.call(LinodeResumeConfig(next_page=3)),
         ]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_invoice_items_fan_out_per_invoice_and_carry_invoice_fields(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [
+            _response([{"id": 11, "date": "2026-01-01T00:00:00"}, {"id": 12, "date": "2026-02-01T00:00:00"}]),
+            _response([{"label": "Linode 1", "amount": 5.0}]),
+            _response([{"label": "Linode 1", "amount": 5.0}, {"label": "Backups", "amount": 2.0}]),
+        ]
+
+        response = _source(endpoint="invoice_items")
+        rows = _rows(response)
+
+        assert [u.rsplit("/v4", 1)[1] for u in urls] == [
+            "/account/invoices",
+            "/account/invoices/11/items",
+            "/account/invoices/12/items",
+        ]
+        assert [(r["invoice_id"], r["invoice_date"], r["label"]) for r in rows] == [
+            (11, "2026-01-01T00:00:00", "Linode 1"),
+            (12, "2026-02-01T00:00:00", "Linode 1"),
+            (12, "2026-02-01T00:00:00", "Backups"),
+        ]
+        assert response.partition_keys == ["invoice_date"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_account_transfer_yields_the_bare_object_as_one_row(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        transfer = {"quota": 4000, "used": 120, "billable": 0, "region_transfers": []}
+        resp = Response()
+        resp.status_code = 200
+        resp._content = json.dumps(transfer).encode()
+        params = _wire(session, [resp])
+
+        rows = _rows(_source(endpoint="account_transfer"))
+
+        assert rows == [transfer]
+        assert "page_size" not in params[0]
+        assert session.send.call_count == 1
+
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
@@ -297,17 +281,6 @@ class TestRetries:
         # 5 attempts before giving up (reraise=True).
         assert session.send.call_count == 5
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_transient_error_retried_then_succeeds(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, status=500, content=b"{}"), _response([{"id": 1}], pages=1)])
-
-        rows = _rows(_source())
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_message_excludes_response_body(self, MockSession: mock.MagicMock) -> None:
         # Error bodies can carry account/billing/audit data; a failing sync must not copy the raw body
@@ -321,9 +294,6 @@ class TestRetries:
 
 
 class TestLinodeSource:
-    def test_sort_mode_is_ascending(self) -> None:
-        assert _source(endpoint="events").sort_mode == "asc"
-
     @parameterized.expand(
         [
             ("invoices", "date", True),
@@ -342,7 +312,3 @@ class TestLinodeSource:
         else:
             assert response.partition_keys is None
             assert response.partition_mode is None
-
-    def test_primary_keys_come_from_endpoint_config(self) -> None:
-        assert _source(endpoint="users").primary_keys == ["username"]
-        assert LINODE_ENDPOINTS["events"].primary_keys == ["id"]

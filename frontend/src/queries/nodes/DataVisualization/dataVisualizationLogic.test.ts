@@ -553,6 +553,56 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsProportionBar, ChartDisplayType.ActionsPie])(
+        'gives a numeric x-axis back to the values when %s draws one part per column',
+        async (displayType) => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['signups', 'logins', 'purchases'],
+                types: [
+                    ['signups', 'Int64'],
+                    ['logins', 'Int64'],
+                    ['purchases', 'Int64'],
+                ],
+                results: [[1, 2, 3]],
+            })
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+            await expectLogic(logic).toMatchValues({ selectedXAxis: 'signups' })
+
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                selectedXAxis: null,
+                selectedYAxis: [
+                    expect.objectContaining({ name: 'signups' }),
+                    expect.objectContaining({ name: 'logins' }),
+                    expect.objectContaining({ name: 'purchases' }),
+                ],
+            })
+        }
+    )
+
+    it('keeps the x-axis a series breakdown needs when a part-of-whole chart is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['week', 'signups', 'logins', 'country'],
+            types: [
+                ['week', 'Int64'],
+                ['signups', 'Int64'],
+                ['logins', 'Int64'],
+                ['country', 'String'],
+            ],
+            results: [[1, 2, 3, 'US']],
+        })
+        logic.actions.updateChartSettings({
+            xAxis: { column: 'week' },
+            yAxis: [{ column: 'signups' }, { column: 'logins' }],
+            seriesBreakdownColumn: 'country',
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsProportionBar)
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'week' })
+    })
+
     it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['session_duration', 'revenue'],
@@ -879,6 +929,13 @@ describe('dataVisualizationLogic', () => {
     })
 
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'pads currency decimal places',
+            12.5,
+            { formatting: { style: 'number', prefix: '$', decimalPlaces: 2 } },
+            '$12.50',
+        ],
+        ['pads percentage decimal places', 25, { formatting: { style: 'percent', decimalPlaces: 1 } }, '25.0%'],
         [
             'formats zero decimal places under the none style',
             42.195,

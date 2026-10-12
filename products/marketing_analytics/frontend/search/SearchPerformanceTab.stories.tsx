@@ -1,17 +1,26 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
-import { BindLogic } from 'kea'
+import { waitFor, within } from '@testing-library/dom'
+import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { Mocks } from '~/mocks/utils'
+import { MockSignature, Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchRow } from '~/queries/schema/schema-general'
+import {
+    AttributionMode,
+    NodeKind,
+    MarketingAnalyticsSearchQuery,
+    MarketingAnalyticsSearchRow,
+} from '~/queries/schema/schema-general'
 
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -28,17 +37,22 @@ const SOURCES = [
         description: 'Example Google Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaign', 'campaign_overview_stats', 'keyword', 'keyword_stats', 'landing_page_stats'].map(
-            (name) => ({
-                id: `example-${name}`,
-                name,
-                should_sync: true,
-                sync_frequency: '24hour',
-                last_synced_at: '2025-02-14T12:00:00Z',
-                status: 'Completed',
-                table: { name: `example_${name}`, hogql_name: `example.${name}` },
-            })
-        ),
+        schemas: [
+            'campaign',
+            'campaign_overview_stats',
+            'keyword',
+            'keyword_stats',
+            'keyword_placement_stats',
+            'landing_page_stats',
+        ].map((name) => ({
+            id: `example-${name}`,
+            name,
+            should_sync: true,
+            sync_frequency: '24hour',
+            last_synced_at: '2025-02-14T12:00:00Z',
+            status: 'Completed',
+            table: { name: `example_${name}`, hogql_name: `example.${name}` },
+        })),
     },
     {
         id: 'example-bing',
@@ -46,7 +60,12 @@ const SOURCES = [
         description: 'Example Bing Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaigns', 'campaign_performance_report', 'keyword_performance_report'].map((name) => ({
+        schemas: [
+            'campaigns',
+            'campaign_performance_report',
+            'keyword_performance_report',
+            'destination_url_performance_report',
+        ].map((name) => ({
             id: `example-bing-${name}`,
             name,
             should_sync: true,
@@ -94,6 +113,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'product analytics',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'exact',
         currency: 'USD',
         clicks: 840,
@@ -107,6 +128,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'website analytics',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'phrase',
         currency: 'USD',
         clicks: 520,
@@ -120,6 +143,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'product analytics',
         platform: 'BingAds',
+        topImpressionRate: 0.64,
+        absoluteTopImpressionRate: 0.28,
         matchType: 'exact',
         currency: 'USD',
         clicks: 240,
@@ -133,6 +158,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'conversion tracking',
         platform: 'BingAds',
+        topImpressionRate: 0.64,
+        absoluteTopImpressionRate: 0.28,
         matchType: 'broad',
         currency: 'EUR',
         clicks: 80,
@@ -146,6 +173,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'analytics dashboard',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'exact',
         currency: 'USD',
         clicks: 0,
@@ -159,6 +188,7 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
 ]
 
 const MOCKS: Mocks = {
+    delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
         '/api/environments/:team_id/external_data_sources/wizard/': {
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads', iconPath: IconGoogleAds, fields: [] },
@@ -183,8 +213,15 @@ const MOCKS: Mocks = {
             return [
                 200,
                 {
+                    posthogConversionGoals: query.includePostHogConversions
+                        ? [
+                              { id: 'signup', name: 'Signups' },
+                              { id: 'purchase', name: 'Purchases' },
+                          ]
+                        : undefined,
+                    posthogAttributionMode: query.includePostHogConversions ? AttributionMode.LastTouch : undefined,
                     results: (query.breakdown === 'page'
-                        ? ROWS.filter((row) => row.platform !== 'BingAds' && row.clicks > 0).map((row) => ({
+                        ? ROWS.filter((row) => row.clicks > 0).map((row) => ({
                               ...row,
                               page: `https://example.com/${row.keyword?.replaceAll(' ', '-')}`,
                               keyword: null,
@@ -203,9 +240,41 @@ const MOCKS: Mocks = {
                         )
                         .map((row) => ({
                             ...row,
+                            posthogConversions: query.includePostHogConversions
+                                ? [
+                                      {
+                                          id: 'signup',
+                                          name: 'Signups',
+                                          conversions: 24,
+                                          costPerConversion: row.cost == null ? null : row.cost / 24,
+                                          previousConversions: query.compareFilter?.compare ? 20 : null,
+                                          previousCostPerConversion:
+                                              query.compareFilter?.compare && row.cost != null
+                                                  ? (row.cost * 1.1) / 20
+                                                  : null,
+                                      },
+                                      {
+                                          id: 'purchase',
+                                          name: 'Purchases',
+                                          conversions: 6,
+                                          costPerConversion: row.cost == null ? null : row.cost / 6,
+                                          previousConversions: query.compareFilter?.compare ? 8 : null,
+                                          previousCostPerConversion:
+                                              query.compareFilter?.compare && row.cost != null
+                                                  ? (row.cost * 1.1) / 8
+                                                  : null,
+                                      },
+                                  ]
+                                : undefined,
                             previous: query.compareFilter?.compare
                                 ? {
                                       clicks: row.clicks * 0.8,
+                                      topImpressionRate:
+                                          row.topImpressionRate == null ? null : row.topImpressionRate - 0.08,
+                                      absoluteTopImpressionRate:
+                                          row.absoluteTopImpressionRate == null
+                                              ? null
+                                              : row.absoluteTopImpressionRate - 0.05,
                                       position: row.position == null ? null : row.position + 1.5,
                                       impressions: row.impressions * 0.9,
                                       cost: row.cost == null ? null : row.cost * 1.1,
@@ -231,6 +300,11 @@ const meta: Meta<typeof SearchPerformanceTab> = {
     component: SearchPerformanceTab,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+        const originalNow = performance.now
+        performance.now = () => 0
+        return () => {
+            performance.now = originalNow
+        }
     },
     render: () => (
         <>
@@ -260,13 +334,76 @@ type Story = StoryObj<typeof meta>
 export const Connected: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
 }
+export const Pagination: Story = {
+    parameters: {
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        const { query } = (await request.json()) as { query: MarketingAnalyticsSearchQuery }
+                        return [
+                            200,
+                            {
+                                results: Array.from({ length: 23 }, (_, index) => ({
+                                    ...ROWS[index % ROWS.length],
+                                    previous: {
+                                        clicks: 50,
+                                        impressions: 1000,
+                                        ctr: 0.05,
+                                        cost: 100,
+                                        conversions: 2,
+                                        cpc: 2,
+                                        cpa: 50,
+                                        position: 5,
+                                    },
+                                    keyword: `Example keyword ${index + 1}`,
+                                    page: query.breakdown === 'page' ? `https://example.com/page-${index + 1}` : null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        const nextButton = canvas.getByRole('button', { name: 'Next page' })
+        const arrowTop = nextButton.getBoundingClientRect().top
+        await userEvent.click(canvas.getByRole('button', { name: 'Go to page' }))
+        await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
+        await canvas.findByText('21-23 of 23 entries')
+        await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
+        await userEvent.click(canvas.getByRole('button', { name: 'Landing pages' }))
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await expect(await canvas.findByText('1-10 of 23 entries')).toBeVisible()
+    },
+}
 export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Google Search Console')
+        const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
+        await expect(table.getBoundingClientRect().height).toBeLessThan(600)
+    },
 }
 export const MixedWithPosition: Story = {
     ...Comparison,
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByRole('checkbox', { name: 'Show position' }))
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
+        await expect(canvas.queryByRole('checkbox', { name: 'Show position' })).not.toBeInTheDocument()
     },
 }
 export const OrganicTraffic: Story = {
@@ -429,6 +566,29 @@ export const OnlyGoogleAds: Story = {
         },
     },
 }
+export const PlacementUnavailable: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': {
+                        results: ROWS.map((row) =>
+                            row.platform === 'GoogleAds'
+                                ? { ...row, topImpressionRate: null, absoluteTopImpressionRate: null }
+                                : row
+                        ),
+                        placementUnavailable: true,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(canvas.findByText(/Some Google Ads position data is unavailable/)).resolves.toBeVisible()
+        expect((await canvas.findAllByRole('button', { name: 'product analytics' })).length).toBeGreaterThan(0)
+    },
+}
 export const Empty: Story = {
     parameters: {
         msw: {
@@ -549,5 +709,205 @@ export const NewDashboardFlagOff: Story = {
     parameters: {
         ...LegacyScene.parameters,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+    },
+}
+
+export const PositionMetrics: Story = {
+    ...Comparison,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
+        await expect(await canvas.findAllByText('72.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('38.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('64.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('28.0%')).not.toHaveLength(0)
+        await expect(canvas.queryByRole('button', { name: 'Visibility' })).not.toBeInTheDocument()
+        const topLabel = (await canvas.findAllByText('Top'))[0]
+        topLabel.scrollIntoView({ block: 'center', inline: 'center' })
+        topLabel.focus()
+        await userEvent.tab({ shift: true })
+        await userEvent.tab()
+        await expect(topLabel).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.tab()
+        await expect((await canvas.findAllByText('72.0%'))[0].parentElement).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.tab()
+        const firstLabel = (await canvas.findAllByText('First'))[0]
+        await expect(firstLabel).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown as the first ad. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.keyboard('{Escape}')
+        firstLabel.blur()
+        await userEvent.hover(topLabel)
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+    },
+}
+export const NarrowPositionMetrics: Story = {
+    ...Narrow,
+    play: PositionMetrics.play,
+}
+
+export const PostHogConversions: Story = {
+    ...Comparison,
+    render: function Render(): JSX.Element {
+        const { includeConversionGoals } = useValues(marketingAnalyticsLogic)
+        const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
+        return (
+            <>
+                <MarketingAnalyticsFilters tabs={<></>} />
+                <LemonSwitch
+                    className="mb-4"
+                    label="Include conversion goals"
+                    checked={includeConversionGoals}
+                    onChange={setAdPerformanceConversionGoals}
+                />
+                <SearchPerformanceTab />
+            </>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            marketing_analytics_config: {
+                conversion_goals: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'purchase',
+                        conversion_goal_id: 'purchase-goal',
+                        conversion_goal_name: 'Purchases',
+                        schema_map: {},
+                    },
+                ],
+            },
+        })
+        await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await waitFor(() =>
+            expect(canvas.queryByRole('columnheader', { name: /Cost per Purchases/ })).not.toBeInTheDocument()
+        )
+        await expect(canvas.findByRole('columnheader', { name: /Reported conversions/ })).resolves.toBeVisible()
+        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+    },
+}
+
+export const PostHogConversionsNarrow: Story = {
+    ...PostHogConversions,
+    decorators: [
+        (Story) => (
+            <div className="w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+function conversionLoadingMock(state: 'loading' | 'error'): MockSignature {
+    return async (info) => {
+        const { query } = (await info.request.clone().json()) as { query: MarketingAnalyticsSearchQuery }
+        if (query.includePostHogConversions) {
+            if (state === 'loading') {
+                await new Promise<void>((resolve) => pendingLoadingQueries.add(resolve))
+                return { results: [] }
+            }
+            return [500, { detail: 'Could not calculate conversions' }]
+        }
+        const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
+        return typeof resolver === 'function' ? resolver(info) : resolver
+    }
+}
+
+async function showPostHogConversionColumns(canvasElement: HTMLElement): Promise<void> {
+    teamLogic.actions.loadCurrentTeamSuccess({
+        ...teamLogic.values.currentTeam!,
+        marketing_analytics_config: {
+            conversion_goals: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    conversion_goal_id: 'purchase',
+                    conversion_goal_name: 'Purchases',
+                    schema_map: {},
+                },
+            ],
+        },
+    })
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+    await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
+    await expect(
+        (await canvas.findAllByRole('cell', { name: /https:\/\/example.com\/product-analytics/ }))[0]
+    ).toBeVisible()
+}
+
+export const PostHogConversionsLoading: Story = {
+    ...PostHogConversions,
+    beforeEach: Loading.beforeEach,
+    parameters: {
+        ...PostHogConversions.parameters,
+        testOptions: { waitForLoadersToDisappear: false },
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': conversionLoadingMock('loading'),
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await showPostHogConversionColumns(canvasElement)
+        await expect(within(canvasElement).findByText('Loading PostHog conversions…')).resolves.toBeVisible()
+    },
+}
+
+export const PostHogConversionsError: Story = {
+    ...PostHogConversions,
+    parameters: {
+        ...PostHogConversions.parameters,
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': conversionLoadingMock('error'),
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await showPostHogConversionColumns(canvasElement)
+        await expect(
+            within(canvasElement).findByText('Could not load PostHog conversions. Your search data is still available.')
+        ).resolves.toBeVisible()
+        await expect(within(canvasElement).findByText('00000000-0000-4000-8000-000000000000')).resolves.toBeVisible()
     },
 }

@@ -1,6 +1,9 @@
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+
 import {
+    computeIsSelfDrivingSetUp,
     computeOnboardingDecision,
     InboxOnboardingDecision,
     InboxOnboardingMode,
@@ -147,6 +150,26 @@ describe('inboxOnboardingLogic', () => {
             ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)
+        })
+    })
+
+    describe('computeIsSelfDrivingSetUp', () => {
+        type Scout = Pick<SignalScoutConfigApi, 'enabled' | 'managed_by' | 'scout_role'>
+        const background: Scout = { enabled: true, managed_by: 'background', scout_role: 'specialist' }
+        const operational: Scout = { enabled: true, managed_by: 'team', scout_role: 'operational' }
+        const specialist: Scout = { enabled: true, managed_by: 'team', scout_role: 'specialist' }
+
+        it.each<[string, number, Scout[] | null, boolean]>([
+            ['configs not loaded', 0, null, false],
+            ['background scout only', 0, [background], false],
+            // The first inbox visit seeds the operational scouts enabled, so they must not end onboarding.
+            ['background scout plus seeded operational scout', 0, [background, operational], false],
+            ['operational scout only', 0, [operational], false],
+            ['person enabled a specialist scout', 0, [operational, specialist], true],
+            ['disabled specialist scout', 0, [{ ...specialist, enabled: false }], false],
+            ['enabled source', 1, [operational], true],
+        ])('%s', (_label, enabledSourcesCount, scoutConfigs, expected) => {
+            expect(computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs)).toBe(expected)
         })
     })
 

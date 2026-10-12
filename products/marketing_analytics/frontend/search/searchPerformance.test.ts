@@ -22,6 +22,21 @@ describe('search performance sources', () => {
             [schema('keyword'), schema('keyword_stats')],
             { sourceType: 'GoogleAds', keywordTable: 'example.keyword', statsTable: 'example.keyword_stats' },
         ],
+        [
+            'GoogleAds',
+            [schema('keyword'), schema('keyword_stats'), schema('keyword_placement_stats')],
+            {
+                sourceType: 'GoogleAds',
+                keywordTable: 'example.keyword',
+                statsTable: 'example.keyword_stats',
+                placementTable: 'example.keyword_placement_stats',
+            },
+        ],
+        [
+            'GoogleAds',
+            [schema('keyword'), schema('keyword_stats'), schema('keyword_placement_stats', false)],
+            { sourceType: 'GoogleAds', keywordTable: 'example.keyword', statsTable: 'example.keyword_stats' },
+        ],
         ['GoogleAds', [schema('keyword'), schema('keyword_stats', false)], null],
         ['GoogleAds', [schema('keyword', true, false), schema('keyword_stats')], null],
         ['GoogleAds', [schema('search_term_stats')], null],
@@ -57,6 +72,13 @@ describe('search performance sources', () => {
     it.each([
         ['GoogleAds', ['landing_page_stats'], 'page', false, 'example.landing_page_stats'],
         ['BingAds', ['keyword_performance_report'], 'page', false, undefined],
+        [
+            'BingAds',
+            ['destination_url_performance_report'],
+            'page',
+            false,
+            'example.destination_url_performance_report',
+        ],
         [
             'GoogleSearchConsole',
             ['search_analytics_by_page', 'search_analytics_by_query_page'],
@@ -96,6 +118,35 @@ describe('search performance sources', () => {
         } as ExternalDataSource
         expect(searchPerformanceSource(source)).toBeNull()
         expect(searchPerformanceSourceNotice(source)).toContain(message)
+    })
+
+    it.each([
+        ['disabled', { should_sync: false }, 'Enable keyword_placement_stats'],
+        ['pending', { last_synced_at: undefined }, 'first sync of keyword_placement_stats'],
+        ['failed', { status: ExternalDataSchemaStatus.Failed }, 'failed'],
+        ['paused', { status: ExternalDataSchemaStatus.Paused }, 'Resume it'],
+        ['billing', { status: 'Billing limits' as ExternalDataSchemaStatus }, 'billing limit'],
+        ['stale', { last_synced_at: dayjs('2025-02-10T12:00:00Z') }, 'out of date'],
+    ])('keeps traffic available when placement is %s', (_, overrides, message) => {
+        const source = {
+            source_type: 'GoogleAds',
+            schemas: [
+                schema('keyword'),
+                schema('keyword_stats'),
+                { ...schema('keyword_placement_stats'), ...overrides },
+                schema('landing_page_stats'),
+            ],
+        } as ExternalDataSource
+        expect(searchPerformanceSource(source)).toEqual({
+            sourceType: 'GoogleAds',
+            keywordTable: 'example.keyword',
+            statsTable: 'example.keyword_stats',
+        })
+        expect(searchPerformanceSourceNotice(source)).toContain(message)
+        expect(searchPerformanceSourceNotice(source)).toContain('Traffic data is available.')
+        expect(searchPerformanceSourceNotice(source, 'page')).toBeNull()
+        source.schemas[2] = schema('keyword_placement_stats')
+        expect(searchPerformanceSourceNotice(source)).toBeNull()
     })
 
     it.each(['keyword', 'page'] as const)('uses fresh query-page data instead of a stale %s aggregate', (breakdown) => {

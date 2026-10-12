@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
     insightSceneMswDecorator,
@@ -40,6 +41,13 @@ export const UserPaths: Story = {
             </div>
         </InsightVizStory>
     ),
+}
+
+export const UserPathsSankeyChart: Story = {
+    ...UserPaths,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_SANKEY_CHART],
+    },
 }
 
 // The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys

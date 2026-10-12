@@ -10,12 +10,14 @@ import {
     isTrendsResult,
 } from '@/ui-apps/components/infer-visualization'
 import {
+    buildProportionBarSeries,
     formatDate,
     formatDuration,
     formatNumber,
     formatPercent,
     getDisplayType,
     getSeriesLabel,
+    insightQueryProperties,
     normalizeFunnelSteps,
 } from '@/ui-apps/components/utils'
 
@@ -233,6 +235,38 @@ describe('insight visualizations', () => {
             })
         })
 
+        describe('buildProportionBarSeries', () => {
+            it.each([
+                [
+                    'one part per row',
+                    [
+                        { label: 'Chrome', aggregated_value: 3 },
+                        { label: 'Safari', aggregated_value: 5 },
+                    ],
+                    [
+                        { label: 'Chrome', data: [3] },
+                        { label: 'Safari', data: [5] },
+                    ],
+                ],
+                [
+                    'no part for the previous period of a compare',
+                    [
+                        { label: 'Chrome', aggregated_value: 3, compare_label: 'current' },
+                        { label: 'Chrome', aggregated_value: 2, compare_label: 'previous' },
+                        { label: 'Safari', aggregated_value: 5, compare_label: 'current' },
+                    ],
+                    [
+                        { label: 'Chrome', data: [3] },
+                        { label: 'Safari', data: [5] },
+                    ],
+                ],
+            ])('draws %s', (_name, results, expected) => {
+                expect(
+                    buildProportionBarSeries(results, () => 'red').map(({ label, data }) => ({ label, data }))
+                ).toEqual(expected)
+            })
+        })
+
         describe('getDisplayType', () => {
             it('defaults to ActionsLineGraph when the query or filter is missing', () => {
                 expect(getDisplayType(undefined)).toBe('ActionsLineGraph')
@@ -243,6 +277,35 @@ describe('insight visualizations', () => {
                 expect(getDisplayType({ kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } })).toBe(
                     'BoldNumber'
                 )
+            })
+        })
+
+        describe('insightQueryProperties', () => {
+            it.each([
+                ['bare trends without a display', { kind: 'TrendsQuery' }, { queryKind: 'TrendsQuery' }],
+                [
+                    'trends wrapped in InsightVizNode',
+                    {
+                        kind: 'InsightVizNode',
+                        source: { kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } },
+                    },
+                    {
+                        queryKind: 'InsightVizNode',
+                        querySourceKind: 'TrendsQuery',
+                        display: 'BoldNumber',
+                    },
+                ],
+                [
+                    'SQL insight with its display on the wrapper node',
+                    { kind: 'DataVisualizationNode', display: 'ActionsBar', source: { kind: 'HogQLQuery' } },
+                    {
+                        queryKind: 'DataVisualizationNode',
+                        querySourceKind: 'HogQLQuery',
+                        display: 'ActionsBar',
+                    },
+                ],
+            ])('%s', (_, query, expected) => {
+                expect(insightQueryProperties(query)).toEqual(expected)
             })
         })
 

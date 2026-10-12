@@ -30,7 +30,8 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
-from products.signals.backend.scout_harness.trial_comparison import dispatch_trial_comparison
+from products.signals.backend.scout_harness.trial_comparison import dispatch_trial_comparison, save_comparison_progress
+from products.signals.backend.scout_harness.trial_comparison_types import TrialComparisonProgress
 from products.signals.backend.scout_harness.trial_evaluation import TrialEvaluationError
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
@@ -39,8 +40,10 @@ from products.signals.backend.scout_harness.trial_launch import (
     create_trial_launch,
     load_trial_context,
     load_trial_launch,
+    read_trial_launch,
     resolve_trial_source_model,
     scout_trials_enabled,
+    trial_context_evidence,
 )
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport, memory_snapshot
@@ -48,6 +51,7 @@ from products.signals.backend.test.test_scout_harness_api import _authenticate_a
 from products.signals.backend.test.test_scout_trial_judge import _reference_context
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
+from products.tasks.backend.models import TaskRun
 
 
 class TestScoutTrialAPI(APIBaseTest):
@@ -71,12 +75,14 @@ class TestScoutTrialAPI(APIBaseTest):
         _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=self.trial_run.task_run.task_id)
 
     def test_operator_run_reads_mark_only_trial_content(self) -> None:
+        ScoutTrialStore(self.trial_run, initial_memory=[]).remember(key="private", content="Trial-only memory")
         for run, private in ((self.trial_run, True), (self.production, False)):
             run.task_run.task.created_by = self.user
             run.task_run.task.save(update_fields=["created_by"])
             response = self.client.get(f"{self.trial_runs_url}{run.id}/")
             assert response.status_code == 200, response.data
             assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
+            assert "trial_state" not in response.json()
 
     def test_memory_routes_from_credential_and_cannot_write_production_or_sibling(self) -> None:
         original = SignalScratchpad.objects.create(team=self.team, key="finding:shared", content="Production value")
@@ -116,6 +122,7 @@ class TestScoutTrialAPI(APIBaseTest):
         assert response.json() == []
 
     def test_ordinary_scout_cannot_read_trial_runs_and_own_detail_hides_labels(self) -> None:
+        ScoutTrialStore(self.trial_run, initial_memory=[]).remember(key="private", content="Trial-only memory")
         config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=self.trial_run.skill_name)
         config.emit = False
         config.save(update_fields=["emit"])
@@ -123,11 +130,13 @@ class TestScoutTrialAPI(APIBaseTest):
         response = self.client.get(self.trial_runs_url)
         assert response.status_code == 200, response.data
         assert [row["run_id"] for row in response.json()] == [str(self.production.id)]
+        assert all("trial_state" not in row for row in response.json())
         assert self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/").status_code == 404
         self._as_trial()
         response = self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/")
         assert response.status_code == 200, response.data
         assert "scout_trial" not in response.json()["metadata"]
+        assert "trial_state" not in response.json()
         assert self.client.get(f"{self.trial_runs_url}{self.other.id}/").status_code == 404
         configs = self.client.get(f"/api/projects/{self.team.id}/signals/scout/configs/")
         assert configs.status_code == 200, configs.data
@@ -221,13 +230,32 @@ class TestScoutTrialAPI(APIBaseTest):
         assert response.status_code == 400, response.data
         assert response.json()["detail"] == f"report {own_id} not found"
 
-    def test_trial_scope_without_bound_run_fails_closed(self) -> None:
-        _authenticate_as_scout(
-            self, scopes="signals_scout_experiment", sandbox_task_id=self.production.task_run.task_id
-        )
+    @parameterized.expand(["ordinary_run", "unregistered_token", "wrong_token", "sibling_run"])
+    def test_trial_scope_without_bound_run_fails_closed(self, binding: str) -> None:
+        if binding == "ordinary_run":
+            _authenticate_as_scout(
+                self, scopes="signals_scout_experiment", sandbox_task_id=self.production.task_run.task_id
+            )
+        else:
+            self._as_trial()
+            run = self.trial_run.task_run
+            run.refresh_from_db()
+            if binding == "sibling_run":
+                TaskRun.objects.create(
+                    task=run.task,
+                    team=self.team,
+                    status=TaskRun.Status.IN_PROGRESS,
+                    state={"sandbox_oauth_token_ids": run.state["sandbox_oauth_token_ids"]},
+                )
+            TaskRun.update_state_atomic(
+                run.id, updates={"sandbox_oauth_token_ids": [str(uuid4())] if binding == "wrong_token" else []}
+            )
+        response = self.client.get(self.memory_url)
+        assert response.status_code == 403, response.data
         response = self.client.post(self.memory_url, {"key": "untrusted", "content": "Must not persist"})
         assert response.status_code == 403, response.data
         assert not SignalScratchpad.objects.filter(team=self.team, key="untrusted").exists()
+        assert ScoutTrialStore(self.trial_run).search_memory(key="untrusted") == []
 
 
 @override_settings(
@@ -425,14 +453,23 @@ class TestScoutTrialLaunch(APIBaseTest):
         valid.task_run.task.created_by = self.user
         valid.task_run.task.origin_key = f"scout-trial:{launch.id}"
         valid.task_run.task.save(update_fields=["created_by", "origin_key"])
-        valid.task_run.state = {"scout_trial": marker, "model": "Changed during execution"}
+        valid.task_run.state = {"model": "Changed during execution"}
         valid.task_run.save(update_fields=["state"])
-        other_operator = _make_run(self.team, scout_config=self.config, metadata={"scout_trial": marker})
+        other_operator = _make_run(
+            self.team,
+            scout_config=self.config,
+            metadata={"scout_trial": {**marker, "launch_id": str(uuid4())}},
+        )
         other_operator.task_run.task.created_by = self._create_user("another-operator@example.com")
         other_operator.task_run.task.save(update_fields=["created_by"])
-        invalid = _make_run(self.team, scout_config=self.config, metadata={"scout_trial": marker})
+        invalid = _make_run(
+            self.team,
+            scout_config=self.config,
+            metadata={"scout_trial": {**marker, "launch_id": str(uuid4())}},
+        )
         invalid.task_run.task.created_by = self.user
-        invalid.task_run.task.save(update_fields=["created_by"])
+        invalid.task_run.task.origin_key = "ordinary-task"
+        invalid.task_run.task.save(update_fields=["created_by", "origin_key"])
         _make_run(self.team, scout_config=self.config)
         self.trials_flag.return_value = False
         response = self.client.get(f"{base}trial_history/")
@@ -447,7 +484,31 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert history["has_more"] is False
         assert "skill_body" not in history["results"][0]
 
-    def test_candidate_first_preserves_baseline_and_retry_identity(self) -> None:
+    @parameterized.expand([1, 2048])
+    def test_candidate_first_preserves_baseline_and_retry_identity(self, memory_entry_count: int) -> None:
+        self.user.first_name = "Synthetic"
+        self.user.last_name = "Operator"
+        self.user.save(update_fields=["first_name", "last_name"])
+        source_run = _make_run(self.team)
+        content = "Synthetic shared observation. " + "a" * 40_960
+        SignalScratchpad.objects.bulk_create(
+            [
+                SignalScratchpad(
+                    team=self.team,
+                    key=f"finding:synthetic-{index}",
+                    content=content,
+                    created_by_run=source_run,
+                )
+                for index in range(memory_entry_count)
+            ]
+        )
+        expired_note = SignalScoutNote.objects.create(
+            team=self.team,
+            skill_name=source_run.skill_name,
+            content="Synthetic historical guidance.",
+            created_by=self.user,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
         launch_id = uuid4()
         candidate = create_trial_launch(
             config=self.config,
@@ -456,6 +517,17 @@ class TestScoutTrialLaunch(APIBaseTest):
             skill_body="Trace dependencies before reporting.",
             reasoning_effort="high",
         )
+        saved_context = load_trial_context(self.team.id, candidate.context_id)
+        assert len(saved_context.memory) == memory_entry_count
+        assert all(entry["content"] == content for entry in saved_context.memory)
+        assert all(entry["created_by_skill"] == source_run.skill_name for entry in saved_context.memory)
+        assert all(str(source_run.task_run_id) in str(entry["created_by_run_url"]) for entry in saved_context.memory)
+        assert saved_context.notes[0]["id"] == str(expired_note.id)
+        assert saved_context.notes[0]["created_by_name"] == "Synthetic Operator"
+        if memory_entry_count > 1:
+            assert len(saved_context.model_dump_json().encode()) > 80 * 1024 * 1024
+        SignalScratchpad.objects.for_team(self.team.id).filter(key="finding:synthetic-0").update(content="Live change.")
+        expired_note.delete()
         baseline = create_trial_launch(
             config=self.config, user=self.user, launch_id=uuid4(), context_id=candidate.context_id
         )
@@ -471,6 +543,12 @@ class TestScoutTrialLaunch(APIBaseTest):
             reasoning_effort="high",
         )
         assert retry == candidate
+        assert baseline.context_id == candidate.context_id
+        assert load_trial_context(self.team.id, baseline.context_id) == saved_context
+        trial_run = _make_run(
+            self.team, metadata={"scout_trial": {"version": 1, "context_id": str(candidate.context_id)}}
+        )
+        assert ScoutTrialStore(trial_run).search_memory(key="finding:synthetic-0")[0].content == content
         with self.assertRaisesMessage(ScoutTrialLaunchError, "different settings"):
             create_trial_launch(config=self.config, user=self.user, launch_id=launch_id, skill_body="Another prompt")
         self.skill.refresh_from_db()
@@ -484,6 +562,25 @@ class TestScoutTrialLaunch(APIBaseTest):
             create_trial_launch(config=self.config, user=self.user, launch_id=rejected_id, reasoning_effort="invented")
         with self.assertRaisesMessage(ScoutTrialLaunchError, "different comparison note"):
             create_trial_launch(config=self.config, user=self.user, launch_id=rejected_id, note="A changed note")
+        context = load_trial_context(
+            self.team.id, create_trial_launch(config=self.config, user=self.user, launch_id=uuid4()).context_id
+        )
+        evidence_bytes = sum(
+            len(text.encode()) for text in (context.skill_body, context.note, trial_context_evidence(context))
+        )
+        oversized_id = uuid4()
+        with patch("products.signals.backend.scout_harness.trial_launch.MAX_EVIDENCE_BYTES", evidence_bytes):
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), context_id=context.id)
+            with self.assertRaisesMessage(ScoutTrialLaunchError, "judge attachment limit"):
+                create_trial_launch(
+                    config=self.config,
+                    user=self.user,
+                    launch_id=oversized_id,
+                    context_id=context.id,
+                    skill_body=f"{context.skill_body} Check one more source.",
+                )
+        with self.assertRaisesMessage(ScoutTrialLaunchError, "was not found"):
+            read_trial_launch(self.team.id, oversized_id)
         self.config.write_scopes = ["dashboard:write"]
         self.config.save()
         with self.assertRaisesMessage(ScoutTrialLaunchError, "do not support"):
@@ -558,7 +655,15 @@ class TestScoutTrialLaunch(APIBaseTest):
     @parameterized.expand(
         [
             ("completed_task_cancelled_runner", "completed", "cancelled", False, "unknown"),
-            ("failed_task_cancelled_runner", "failed", "cancelled", False, "unknown"),
+            (
+                "failed_task_cancelled_runner",
+                "failed",
+                "cancelled",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                None,
+            ),
             ("task_still_ending", "in_progress", "cancelled", False, "unknown"),
             ("recover_missing_export", "completed", None, False, "completed"),
             ("concurrent_runner_export", "completed", "cancelled", True, "completed"),
@@ -570,8 +675,52 @@ class TestScoutTrialLaunch(APIBaseTest):
             ("scout_finished_task_not_started", "not_started", "completed", False, "unknown"),
             ("scout_finished_task_queued", "queued", "completed", False, "unknown"),
             ("scout_finished_task_active", "in_progress", "completed", False, "unknown"),
-            ("scout_finished_task_failed", "failed", "completed", False, "unknown"),
+            (
+                "scout_finished_task_failed",
+                "failed",
+                "completed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=no_turn_output)",
+                "The scout timed out after about 30 minutes. This run was not judged.",
+            ),
             ("scout_finished_task_cancelled", "cancelled", "completed", False, "unknown"),
+            (
+                "saved_timeout",
+                "failed",
+                "failed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                "The scout timed out after about 30 minutes. This run was not judged.",
+            ),
+            (
+                "recovered_timeout",
+                "failed",
+                None,
+                False,
+                "failed",
+                "custom_prompt - poll_for_turn: timed out after 900s (stage=stalled_after_output)",
+                "The scout timed out after about 15 minutes. This run was not judged.",
+            ),
+            (
+                "private_task_failure",
+                "failed",
+                "failed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget) Private task detail.",
+                None,
+            ),
+            (
+                "completed_task_stale_timeout",
+                "completed",
+                "completed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                None,
+            ),
         ]
     )
     def test_poll_preserves_terminal_result(
@@ -581,6 +730,8 @@ class TestScoutTrialLaunch(APIBaseTest):
         saved_status: str | None,
         concurrent_export: bool,
         workflow_status: Literal["unknown", "completed", "pending", "failed", "cancelled"],
+        task_error: str | None = None,
+        expected_error: str | None = None,
     ) -> None:
         self._internal_scout_base()
         launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
@@ -600,7 +751,8 @@ class TestScoutTrialLaunch(APIBaseTest):
             "reasoning_effort": launch.reasoning_effort,
             "service_tier": launch.service_tier,
         }
-        run.task_run.save(update_fields=["state"])
+        run.task_run.error_message = task_error or ""
+        run.task_run.save(update_fields=["state", "error_message"])
         concurrent_read = _label == "runner_export_after_row_read"
         if saved_status is not None and not concurrent_export and not concurrent_read:
             export_trial_result(run, status=saved_status)
@@ -654,6 +806,9 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result["status"] == expected_status
             assert result["task_status"] == task_status
             assert result["export_error"] is None
+            if task_error is not None:
+                assert result["error"] == expected_error
+                assert task_error not in json.dumps(result)
             if concurrent_read:
                 assert result["summary"] == run.summary
                 assert result["input_tokens"] == 120
@@ -686,6 +841,86 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert second.json() == result
         assert self.documents[result["result_key"]] == saved_content
 
+    @parameterized.expand(
+        [
+            ("missing_completed_controller", None, "completed", None, "completed", "completed"),
+            ("missing_completed_controller_active_task", None, "in_progress", None, "completed", "in_progress"),
+            ("missing_completed_controller_failed_task", None, "failed", None, "completed", "failed"),
+            ("missing_failed_controller", None, "in_progress", None, "failed", "failed"),
+            ("missing_expired_controller", None, "failed", None, "not_started", "failed"),
+            ("malformed_unknown_controller", {"reports": []}, "completed", None, "unknown", "completed"),
+            ("malformed_active_controller", {"reports": []}, "in_progress", None, "pending", "in_progress"),
+            ("missing_saved_result", None, "completed", "cancelled", "unknown", "cancelled"),
+            ("malformed_saved_result", {"memory": []}, "completed", "completed", "unknown", "completed"),
+        ]
+    )
+    def test_poll_preserves_run_details_when_private_state_is_unavailable(
+        self,
+        _label: str,
+        private_state: dict[str, list[object]] | None,
+        task_status: str,
+        saved_status: str | None,
+        workflow_status: Literal["unknown", "completed", "pending", "failed", "not_started"],
+        expected_status: str,
+    ) -> None:
+        base = self._internal_scout_base()
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        run = _make_run(
+            self.team,
+            scout_config=self.config,
+            skill_name=self.skill.name,
+            task_run_status=task_status,
+            summary="The scout's saved observation.",
+            metadata={"scout_trial": {"version": 1, "launch_id": str(launch.id), "context_id": str(launch.context_id)}},
+        )
+        run.task_run.task.created_by = self.user
+        run.task_run.task.save(update_fields=["created_by"])
+        legacy_report = TrialReport(id=str(uuid4()), document={"title": "Legacy task state must not be restored"})
+        original_task_state = {
+            "runtime_adapter": launch.runtime_adapter,
+            "model": launch.model,
+            "reasoning_effort": launch.reasoning_effort,
+            "service_tier": launch.service_tier,
+            "token_usage": {"input_tokens": 120, "output_tokens": 30},
+            "scout_trial_private": {"reports": {legacy_report.id: legacy_report.model_dump(mode="json")}},
+        }
+        run.task_run.state = original_task_state
+        run.task_run.save(update_fields=["state"])
+        expected_summary = run.summary
+        if saved_status is not None:
+            export_trial_result(run, status=saved_status)
+            run.summary = "A later row summary must not replace the saved result."
+        run.trial_state = private_state
+        run.save(update_fields=["trial_state", "summary"])
+        saved_documents = dict(self.documents)
+
+        with patch(
+            "products.signals.backend.scout_harness.trial_views.get_trial_workflow_status",
+            return_value=TrialWorkflowStatus(status=workflow_status),
+        ):
+            response = self.client.get(f"{base}trial_result/", {"launch_id": str(launch.id)})
+
+        assert response.status_code == 200, response.data
+        result = response.json()
+        assert result["status"] == expected_status
+        assert result["task_status"] == task_status
+        assert result["summary"] == expected_summary
+        assert result["run_id"] == str(run.id)
+        assert result["task_id"] == str(run.task_run.task_id)
+        assert result["task_run_id"] == str(run.task_run_id)
+        assert result["input_tokens"] == 120
+        assert result["output_tokens"] == 30
+        assert result["invalid_reason"] == "Saved run data is unavailable. This run cannot be judged."
+        assert result["reports"] == []
+        assert result["memory"] == {}
+        assert result["export_error"] is None
+        assert (result["result_key"] is not None) == (saved_status is not None)
+        run.refresh_from_db()
+        run.task_run.refresh_from_db()
+        assert run.trial_state == private_state
+        assert run.task_run.state == original_task_state
+        assert self.documents == saved_documents
+
     def test_evaluation_endpoints_save_exact_request_and_reject_another_operator(self) -> None:
         base = self._internal_scout_base()
         launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), variant="Baseline")
@@ -703,7 +938,6 @@ class TestScoutTrialLaunch(APIBaseTest):
         run.task_run.task.origin_key = f"scout-trial:{launch.id}"
         run.task_run.task.save(update_fields=["created_by", "origin_product", "origin_key"])
         run.task_run.state = {
-            "scout_trial": marker,
             "runtime_adapter": launch.runtime_adapter,
             "model": launch.model,
             "reasoning_effort": launch.reasoning_effort,
@@ -889,8 +1123,13 @@ class TestScoutTrialLaunch(APIBaseTest):
                 f"{module}.get_trial_comparison_status", return_value=TrialWorkflowStatus(status="not_started")
             ) as workflow_status,
         ):
+            storage_reads = cast(MagicMock, object_storage.read)
+            storage_reads.reset_mock()
             interrupted = self.client.post(f"{base}trial_comparison/", payload, format="json")
             assert interrupted.status_code == 500
+            context_key = f"signals/scout-trials/{self.team.id}/contexts/{comparison_id}.json"
+            context_reads = [call for call in storage_reads.call_args_list if call.args[0] == context_key]
+            assert len(context_reads) <= 2, context_reads
             history = self.client.get(f"{base}trial_comparison_history/")
             assert history.status_code == 200, history.data
             assert [item["comparison_id"] for item in history.json()["results"]] == [comparison_id]
@@ -1007,6 +1246,71 @@ class TestScoutTrialLaunch(APIBaseTest):
                 connect.assert_not_called()
                 start_run.assert_not_called()
 
+    def test_obsolete_judge_plan_starts_no_remaining_scout_runs(self) -> None:
+        base = self._internal_scout_base(real_fleet_gates=True)
+        self.config.rubrics = {
+            "revision": 1,
+            "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+            "reference_context": _reference_context(
+                skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+            ).model_dump(mode="json"),
+            "reference_generation_id": str(uuid4()),
+        }
+        self.config.save(update_fields=["rubrics"])
+        comparison_id = str(uuid4())
+        variant_id = str(uuid4())
+        launch_ids = [str(uuid4()), str(uuid4())]
+        payload = {
+            "comparison_id": comparison_id,
+            "baseline_variant_id": variant_id,
+            "variants": [
+                {
+                    "id": variant_id,
+                    "label": "Baseline",
+                    "launch_ids": launch_ids,
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "medium",
+                }
+            ],
+        }
+        module = "products.signals.backend.temporal.agentic.scout_trial_comparison"
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 10}},
+            ),
+            patch(f"{module}.start_trial_comparison", return_value="synthetic-workflow") as dispatch,
+            patch(f"{module}.get_trial_comparison_status", return_value=TrialWorkflowStatus(status="not_started")),
+        ):
+            assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 202
+            dispatch.assert_called_once()
+            _make_run(self.team, metadata={"scout_trial": {"version": 1, "launch_id": launch_ids[0]}})
+            plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
+            self.documents[plan_key] = json.dumps(
+                {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-3"}
+            )
+
+            resumed = self.client.post(
+                f"{base}trial_comparison_resume/", {"comparison_id": comparison_id}, format="json"
+            )
+            retry = self.client.post(f"{base}trial_comparison/", payload, format="json")
+            for response in (resumed, retry):
+                assert response.status_code == 400, response.data
+                assert "obsolete judge" in str(response.data)
+            dispatch.assert_called_once()
+            with (
+                patch("products.signals.backend.scout_harness.trial_comparison.sync_connect") as connect,
+                patch(
+                    "products.signals.backend.temporal.agentic.scout_scheduler.start_trial_signals_scout_run"
+                ) as start_run,
+                self.assertRaisesMessage(TrialEvaluationError, "obsolete judge"),
+            ):
+                dispatch_trial_comparison(self.team.id, UUID(comparison_id))
+            connect.assert_not_called()
+            start_run.assert_not_called()
+            saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_id})
+            assert saved.status_code == 200, saved.data
+
     @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id", "stale_version"])
     def test_comparison_rejects_unusable_setup_before_any_run_dispatch(self, invalid: str) -> None:
         base = self._internal_scout_base()
@@ -1054,6 +1358,172 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result.status_code == (404 if invalid == "nonstaff" else 400), result.data
             dispatch.assert_not_called()
         assert not self.documents
+
+    @parameterized.expand([True, False])
+    def test_finished_trials_can_be_archived_and_restored_without_changing_their_runs(
+        self, trials_enabled: bool
+    ) -> None:
+        base = self._internal_scout_base()
+        self.config.rubrics = {
+            "revision": 1,
+            "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+            "reference_context": _reference_context(
+                skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+            ).model_dump(mode="json"),
+            "reference_generation_id": str(uuid4()),
+        }
+        self.config.save(update_fields=["rubrics"])
+        storage_client = MagicMock()
+        storage_client.list_objects_v2.side_effect = lambda **kwargs: {
+            "Contents": [
+                {"Key": key}
+                for key in sorted(self.documents)
+                if key.startswith(kwargs["Prefix"]) and key > kwargs.get("StartAfter", "")
+            ][: kwargs["MaxKeys"]]
+        }
+        module = "products.signals.backend.temporal.agentic.scout_trial_comparison"
+        with (
+            patch(f"{module}.start_trial_comparison", return_value="synthetic-workflow") as dispatch,
+            patch(
+                f"{module}.get_trial_comparison_status", return_value=TrialWorkflowStatus(status="pending")
+            ) as workflow,
+            patch.object(
+                object_storage, "object_storage_client", return_value=object_storage.ObjectStorage(storage_client)
+            ),
+        ):
+            comparison_ids: list[str] = []
+            payload: dict[str, object] = {}
+            created_at = timezone.now()
+            for index in range(3):
+                variant_id = str(uuid4())
+                comparison_id = str(uuid4())
+                payload = {
+                    "comparison_id": comparison_id,
+                    "baseline_variant_id": variant_id,
+                    "variants": [
+                        {
+                            "id": variant_id,
+                            "label": "Baseline",
+                            "launch_ids": [str(uuid4())],
+                            "model": "gpt-5.5",
+                            "reasoning_effort": "medium",
+                        }
+                    ],
+                }
+                with patch(
+                    "products.signals.backend.scout_harness.trial_comparison.timezone.now",
+                    return_value=created_at + timedelta(seconds=index),
+                ):
+                    created = self.client.post(f"{base}trial_comparison/", payload, format="json")
+                assert created.status_code == 202, created.data
+                comparison_ids.append(comparison_id)
+            history_url = f"{base}trial_comparison_history/"
+            first_page = self.client.get(history_url, {"limit": 1})
+            assert first_page.status_code == 200, first_page.data
+            assert [row["comparison_id"] for row in first_page.json()["results"]] == comparison_ids[-1:]
+            assert first_page.json()["has_more"] is True
+            cursor = first_page.json()["next_cursor"]
+            assert cursor is not None
+            for index, comparison_id in enumerate(reversed(comparison_ids[:-1])):
+                page = self.client.get(history_url, {"limit": "1", "cursor": cursor})
+                assert page.status_code == 200, page.data
+                assert [row["comparison_id"] for row in page.json()["results"]] == [comparison_id]
+                assert page.json()["has_more"] is (index == 0)
+                cursor = page.json()["next_cursor"]
+            assert cursor is None
+            assert self.client.get(history_url, {"cursor": "../another-history/"}).status_code == 400
+            self.trials_flag.return_value = trials_enabled
+            archive_url = f"{base}trial_comparison_archive/"
+            archive_request = {"comparison_id": comparison_ids[-1], "archived": True}
+            before_archive = dict(self.documents)
+            active = self.client.post(archive_url, archive_request, format="json")
+            assert active.status_code == 400, active.data
+            workflow.return_value = TrialWorkflowStatus(status="unknown")
+            unknown = self.client.post(archive_url, archive_request, format="json")
+            assert unknown.status_code == 400, unknown.data
+            assert self.documents == before_archive
+
+            workflow.return_value = TrialWorkflowStatus(status="failed", error="The trial could not finish.")
+            for comparison_id in comparison_ids:
+                save_comparison_progress(self.team.id, UUID(comparison_id), TrialComparisonProgress(status="failed"))
+            frozen_documents = {
+                key: value for key, value in self.documents.items() if "/comparison-history/" not in key
+            }
+            workflow.return_value = TrialWorkflowStatus(status="unknown")
+            assert self.client.post(archive_url, archive_request, format="json").status_code == 400
+            for index, comparison_id in enumerate(comparison_ids[1:]):
+                workflow.return_value = TrialWorkflowStatus(status="not_started" if index == 0 else "failed")
+                response = self.client.post(
+                    archive_url, {"comparison_id": comparison_id, "archived": True}, format="json"
+                )
+                assert response.status_code == 200, response.data
+                assert response.json()["archived"] is True
+                assert response.json()["status"] == "failed"
+            save_comparison_progress(self.team.id, UUID(comparison_ids[-1]), TrialComparisonProgress(status="failed"))
+
+            history = self.client.get(history_url, {"limit": 1})
+            assert history.status_code == 200, history.data
+            assert [row["comparison_id"] for row in history.json()["results"]] == comparison_ids[:1]
+            assert history.json()["has_more"] is False
+            assert history.json()["next_cursor"] is None
+            assert any("StartAfter" in call.kwargs for call in storage_client.list_objects_v2.call_args_list)
+            included = self.client.get(history_url, {"limit": "1", "include_archived": "true"})
+            assert included.status_code == 200, included.data
+            assert included.json()["results"][0]["comparison_id"] == comparison_ids[-1]
+            assert included.json()["results"][0]["archived"] is True
+            assert included.json()["has_more"] is True
+            older = self.client.get(
+                history_url,
+                {"limit": "1", "include_archived": "true", "cursor": included.json()["next_cursor"]},
+            )
+            assert older.status_code == 200, older.data
+            assert older.json()["results"][0]["comparison_id"] == comparison_ids[1]
+            assert older.json()["results"][0]["archived"] is True
+            unarchived = self.client.get(history_url, {"cursor": included.json()["next_cursor"]})
+            assert unarchived.status_code == 200, unarchived.data
+            assert [row["comparison_id"] for row in unarchived.json()["results"]] == comparison_ids[:1]
+            assert unarchived.json()["next_cursor"] is None
+            saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_ids[-1]})
+            assert saved.status_code == 200, saved.data
+            assert saved.json()["archived"] is True
+            assert self.client.post(
+                f"{base}trial_comparison_resume/", {"comparison_id": comparison_ids[-1]}, format="json"
+            ).status_code == (400 if trials_enabled else 403)
+            assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == (
+                400 if trials_enabled else 403
+            )
+            restored = self.client.post(archive_url, {**archive_request, "archived": False}, format="json")
+            assert restored.status_code == 200, restored.data
+            assert restored.json()["archived"] is False
+            history = self.client.get(history_url)
+            assert [row["comparison_id"] for row in history.json()["results"]] == [
+                comparison_ids[-1],
+                comparison_ids[0],
+            ]
+            assert dispatch.call_count == 3
+            assert {
+                key: value for key, value in self.documents.items() if "/comparison-history/" not in key
+            } == frozen_documents
+
+            self.user.is_staff = False
+            self.user.save(update_fields=["is_staff"])
+            assert self.client.post(archive_url, archive_request, format="json").status_code == 404
+            self.user.is_staff = True
+            self.user.save(update_fields=["is_staff"])
+            other_team = Team.objects.create(organization=self.organization, name="Other example")
+            assert (
+                self.client.post(
+                    archive_url.replace("/projects/2/", f"/projects/{other_team.id}/"), archive_request, format="json"
+                ).status_code
+                == 404
+            )
+            other_user = self._create_user("other-trial-operator@example.com")
+            other_user.is_staff = True
+            other_user.save(update_fields=["is_staff"])
+            self.client.force_login(other_user)
+            before_denied = dict(self.documents)
+            assert self.client.post(archive_url, archive_request, format="json").status_code == 404
+            assert self.documents == before_denied
 
 
 class TestScoutTrialsGate(SimpleTestCase):

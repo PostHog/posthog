@@ -9,6 +9,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -126,6 +127,47 @@ describe('broadcastWizardLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('prefills the audience, name and source from a link without creating a draft', async () => {
+        const properties: AnyPropertyFilter[] = [
+            { key: 'id', type: PropertyFilterType.Cohort, value: 7, operator: PropertyOperator.In },
+        ]
+        logic.unmount()
+        router.actions.push(urlForNewBroadcastWithAudience({ properties, name: 'Fix shipped', source: 'cohort' }))
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['prefillFromLink', 'loadBlastRadius'])
+            .toNotHaveDispatchedActions(['ensureDraft'])
+        expect(logic.values.audienceProperties).toEqual(properties)
+        expect(logic.values.name).toEqual('Fix shipped')
+        expect(logic.values.entrySource).toEqual('cohort')
+        expect(router.values.searchParams).toEqual({})
+    })
+
+    it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
+        logic.unmount()
+        router.actions.push(
+            `/broadcasts/new?audience=${encodeURIComponent('[{"key":"email","type":"person","operator":"exact"}]')}&name=Fix%20shipped`
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['rejectLinkAudience']).toNotHaveDispatchedActions(['ensureDraft'])
+        expect(logic.values.name).toEqual('Fix shipped')
+        expect(logic.values.stepValidationErrors.recipients).toEqual(['Choose who gets this email'])
+
+        logic.actions.setAudienceProperties([
+            { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsSet },
+        ])
+        expect(logic.values.stepValidationErrors.recipients).toEqual([])
+        logic.actions.setAudienceProperties([])
+        expect(logic.values.stepValidationErrors.recipients).toEqual(['Choose who gets this email'])
+
+        logic.actions.sendToEveryoneAfterRejectedLink()
+        expect(logic.values.stepValidationErrors.recipients).toEqual([])
     })
 
     test.each([
@@ -334,6 +376,39 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it('stops a launch while an uploaded list in the audience is still matching', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/cohorts/:id/': {
+                    id: 42,
+                    name: 'Spring list',
+                    is_static: true,
+                    is_calculating: true,
+                },
+            },
+        })
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            subject: 'Spring sale',
+            html: '<p>Hi</p>',
+        })
+        logic.actions.setAudienceProperties([
+            { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        ])
+        logic.actions.setStep('review')
+
+        await expectLogic(logic, () => {
+            logic.actions.launchBroadcast()
+        })
+            .toDispatchActions(['setAudienceCohortLaunchErrors', 'launchBroadcastFinished'])
+            .toNotHaveDispatchedActions(['saveBroadcastFinished'])
+
+        expect(logic.values.stepValidationErrors.review).toEqual([
+            '"Spring list" is still matching people. You can launch when it finishes.',
+        ])
+    })
+
     it.each([
         { sender: 'a sender that still exists', integrationId: 1, integrationIds: undefined, expected: [] },
         { sender: 'a deleted sender', integrationId: 7, integrationIds: undefined, expected: [DELETED_SENDER_ERROR] },
@@ -358,6 +433,20 @@ describe('broadcastWizardLogic', () => {
 
         expect(logic.values.stepValidationErrors.content).toEqual(expected)
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
+    })
+
+    it('starts a new broadcast with the only verified sender without creating a draft', async () => {
+        const createDraft = jest.fn()
+        useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => createDraft() } })
+        integrationsLogic.mount()
+
+        await expectLogic(logic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['defaultSenderApplied'])
+
+        expect(logic.values.email.from).toEqual({ integrationId: 1 })
+        expect(logic.values.stepValidationErrors.content).not.toContain('Choose an email sender')
+        expect(createDraft).not.toHaveBeenCalled()
     })
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {

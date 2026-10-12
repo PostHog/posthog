@@ -77,6 +77,7 @@ from .appsignal.source import AppsignalSource
 from .appstack.source import AppstackSource
 from .apptivo.source import ApptivoSource
 from .appwrite.source import AppwriteSource
+from .arcade.source import ArcadeSource
 from .argocd.source import ArgocdSource
 from .arxiv.source import ArxivSource
 from .asaas.source import AsaasSource
@@ -242,6 +243,7 @@ from .chatwoot.source import ChatwootSource
 from .checkly.source import ChecklySource
 from .checkmarx.source import CheckmarxSource
 from .checkout_com.source import CheckoutComSource
+from .chess_com.source import ChessComSource
 from .chift.source import ChiftSource
 from .chorus.source import ChorusSource
 from .churnkey.source import ChurnkeySource
@@ -723,6 +725,7 @@ from .logrocket.source import LogrocketSource
 from .logz_io.source import LogzIOSource
 from .lokalise.source import LokaliseSource
 from .looker.source import LookerSource
+from .loom.source import LoomSource
 from .loop_returns.source import LoopReturnsSource
 from .loops.source import LoopsSource
 from .lovable.source import LovableSource
@@ -817,6 +820,7 @@ from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
 from .nebius_ai.source import NebiusAISource
+from .neo4j.source import Neo4jSource
 from .neon.source import NeonSource
 from .neon_crm.source import NeonCrmSource
 from .netlify.source import NetlifySource
@@ -1022,6 +1026,7 @@ from .retently.source import RetentlySource
 from .revenuecat.source import RevenueCatSource
 from .reverb.source import ReverbSource
 from .revolut_merchant.source import RevolutMerchantSource
+from .rewardful.source import RewardfulSource
 from .ringcentral.source import RingCentralSource
 from .rippling.source import RipplingSource
 from .rki_covid.source import RKICovidSource
@@ -1058,6 +1063,7 @@ from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
 from .schematic.source import SchematicSource
+from .scrunch.source import ScrunchSource
 from .search_ads_360.source import SearchAds360Source
 from .sec_edgar.source import SecEdgarSource
 from .secoda.source import SecodaSource
@@ -1159,6 +1165,7 @@ from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
+from .steam.source import SteamSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
@@ -1209,6 +1216,7 @@ from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
 from .tessitura.source import TessituraSource
+from .testdino.source import TestDinoSource
 from .testrail.source import TestrailSource
 from .thinkific.source import ThinkificSource
 from .thinkific_courses.source import ThinkificCoursesSource
@@ -1276,6 +1284,7 @@ from .us_census.source import USCensusSource
 from .us_eia.source import UsEiaSource
 from .us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
 from .user_com.source import UserComSource
+from .userback.source import UserbackSource
 from .usersnap.source import UsersnapSource
 from .uservoice.source import UservoiceSource
 from .vanta.source import VantaSource
@@ -1287,6 +1296,7 @@ from .vendr.source import VendrSource
 from .veracode.source import VeracodeSource
 from .vercel.source import VercelSource
 from .vespa.source import VespaSource
+from .vimeo.source import VimeoSource
 from .virtuous.source import VirtuousSource
 from .visma_economic.source import VismaEconomicSource
 from .vitally.source import VitallySource

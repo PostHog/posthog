@@ -3,17 +3,15 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import datetime
-from typing import Literal, TypedDict, TypeVar
+from typing import Literal, TypedDict
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
 import structlog
 import posthoganalytics
-from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -60,6 +58,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
@@ -93,7 +92,6 @@ from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
 
-_M = TypeVar("_M", bound=BaseModel)
 
 # The posture minted for an autostarted implementation run. Named once because two things depend
 # on it: the token the sandbox holds, and the memory protocol rendered into the task description.
@@ -357,7 +355,7 @@ def _build_autostart_task_description(
     supersede: SupersedeDecision = NO_SUPERSEDE,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    report_link = build_report_url(team_id, report_id, ReportLinkSource.TASK)
     source_links = ", ".join(f"[{ref.label}]({ref.url})" for ref in source_references or [])
     source_issues_line = f"Source issues: {source_links}\n\n" if source_links else ""
     source_reference_instruction = (
@@ -1070,7 +1068,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
                 "pending_user_message": (
                     "The report has fresh research. Read its latest research artefacts, then reassess the existing "
                     "implementation. Update the existing pull request when appropriate.\n\n"
-                    f"Report: {settings.SITE_URL}/project/{request.team_id}/inbox/reports/{request.report_id}\n"
+                    f"Report: {build_report_url(request.team_id, request.report_id, ReportLinkSource.TASK)}\n"
                     f"Title: {current.title}\n\nSummary:\n{current.summary}"
                 ),
             },
@@ -1588,26 +1586,6 @@ async def maybe_autostart_implementation_task(
     return AutostartOutcome(status="started")
 
 
-async def _latest_artefact_as(
-    report_id: str, artefact_type: str, model_cls: type[_M], *, written_after: datetime | None = None
-) -> _M | None:
-    """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins).
-
-    ``written_after`` ignores an artefact written before that moment, for a type whose content
-    describes one research pass and must not be read on a later one.
-    """
-    artefacts = SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
-    if written_after is not None:
-        artefacts = artefacts.filter(created_at__gte=written_after)
-    artefact = await artefacts.order_by("-created_at").afirst()
-    if artefact is None:
-        return None
-    try:
-        return model_cls.model_validate_json(artefact.content)
-    except ValidationError:
-        return None
-
-
 async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerContent], int | None]:
     """Latest suggested-reviewers list, plus the id of the user who last edited it (if any).
 
@@ -1698,8 +1676,8 @@ async def maybe_autostart_from_report_artefacts(
         )
         return AutostartOutcome(status="cancelled", reason="Report is missing or has no summary")
 
-    actionability = await _latest_artefact_as(
-        report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+    actionability = await SignalReportArtefact.alatest_content(
+        team_id=team_id, report_id=report_id, model=ActionabilityAssessment
     )
     if actionability is None:
         logger.info(
@@ -1709,8 +1687,8 @@ async def maybe_autostart_from_report_artefacts(
             reason="no actionability artefact",
         )
         return AutostartOutcome(status="blocked", reason="No actionability assessment")
-    repo_selection = await _latest_artefact_as(
-        report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION, RepoSelectionResult
+    repo_selection = await SignalReportArtefact.alatest_content(
+        team_id=team_id, report_id=report_id, model=RepoSelectionResult
     )
     repository = repo_selection.repository if repo_selection is not None else None
     if repo_selection is None or not repository:
@@ -1721,8 +1699,8 @@ async def maybe_autostart_from_report_artefacts(
             reason="no repository selected",
         )
         return AutostartOutcome(status="blocked", reason="No repository selected")
-    priority = await _latest_artefact_as(
-        report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+    priority = await SignalReportArtefact.alatest_content(
+        team_id=team_id, report_id=report_id, model=PriorityAssessment
     )
     # Only the pass that is the report's latest may supersede. `run_count` rises when the next pass
     # *starts*, so it re-opens the supersede gate before that pass has concluded anything, and this
@@ -1730,11 +1708,8 @@ async def maybe_autostart_from_report_artefacts(
     # earlier pass's decision then would open a replacement for a replacement, and the handover
     # would close the pull request that is already under review. `last_run_at` is stamped when a
     # pass starts, so a decision older than it belongs to a pass the report has moved on from.
-    implementation_decision = await _latest_artefact_as(
-        report_id,
-        SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION,
-        ImplementationDecision,
-        written_after=report.last_run_at,
+    implementation_decision = await SignalReportArtefact.alatest_content(
+        team_id=team_id, report_id=report_id, model=ImplementationDecision, created_after=report.last_run_at
     )
     # Empty / unresolved reviewers no longer short-circuit here: `maybe_autostart_implementation_task`
     # falls back to the member who enabled signals for the team (for the system/scout path, gated by

@@ -244,6 +244,25 @@ BACKGROUND_BANDS = (1, 2, 3, 4)
 
 
 @dataclass(frozen=True)
+class BackgroundBackoff:
+    """Parsed `background.backoff`: each background run that nobody engages with multiplies the
+    interval to the next run by `factor`, up to `max_interval_minutes`."""
+
+    factor: int
+    max_interval_minutes: int
+
+    def effective_interval_minutes(self, base_minutes: int, level: int | None) -> int:
+        return min(base_minutes * self.factor ** (level or 0), max(base_minutes, self.max_interval_minutes))
+
+    def next_level(self, base_minutes: int, level: int | None) -> int:
+        """One level up, but never past the first level that reaches the cap, so the level stays bounded."""
+        current = level or 0
+        if self.effective_interval_minutes(base_minutes, current) >= self.max_interval_minutes:
+            return current
+        return current + 1
+
+
+@dataclass(frozen=True)
 class BackgroundEnrollment:
     """Parsed `background` block from the `signals-scout` flag payload.
 
@@ -259,6 +278,8 @@ class BackgroundEnrollment:
     max_new_teams_per_tick: int
     # Only the bands with a valid entry. A missing band samples no project.
     bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
+    # `None` turns the backoff off, so every background config runs at its band interval.
+    backoff: BackgroundBackoff | None = None
 
     def band_interval_minutes(self, band: int | None) -> int | None:
         entry = self.bands.get(band) if band is not None else None
@@ -292,6 +313,23 @@ def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
     return bands
 
 
+def _parse_background_backoff(raw: object) -> BackgroundBackoff | None:
+    """Parse `background.backoff`. A missing, disabled, or malformed block turns the backoff off."""
+    if not isinstance(raw, dict) or raw.get("enabled") is not True:
+        return None
+    factor = _positive_int_or_none(raw.get("factor"))
+    max_interval_minutes = _positive_int_or_none(raw.get("max_interval_minutes"))
+    if factor is None or factor < 2 or max_interval_minutes is None:
+        return None
+    return BackgroundBackoff(factor=factor, max_interval_minutes=max_interval_minutes)
+
+
+def resolve_background_backoff() -> BackgroundBackoff | None:
+    """One flag-payload read of `background.backoff`, for callers outside the coordinator."""
+    background = _parse_background(_read_flag_payload())
+    return background.backoff if background is not None else None
+
+
 def background_sample_bucket(team_id: int) -> int:
     """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
 
@@ -302,6 +340,39 @@ def background_sample_bucket(team_id: int) -> int:
     return int.from_bytes(digest[:8], "big") % 100
 
 
+# Payload key: a `{skill_name: percent}` map. It sets the share of projects (0-100) whose scout uses
+# the default pre-check its canonical skill ships. A skill that is absent reads as 0, so a new
+# default stays off until the flag names it, and the rest of the projects form the control group.
+PRECHECK_DEFAULT_ROLLOUT_KEY = "precheck_default_rollout"
+
+
+def _parse_precheck_default_rollout(payload: dict | None) -> dict[str, int]:
+    raw = (payload or {}).get(PRECHECK_DEFAULT_ROLLOUT_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        name: max(0, min(100, percent))
+        for name, percent in raw.items()
+        if isinstance(name, str) and isinstance(percent, int) and not isinstance(percent, bool)
+    }
+
+
+def precheck_default_rollout_percent(skill_name: str) -> int:
+    """The share of projects (0-100) that use this skill's default pre-check. 0 when the payload is unreadable."""
+    return _parse_precheck_default_rollout(_read_flag_payload()).get(skill_name, 0)
+
+
+def precheck_default_rollout_bucket(team_id: int, skill_name: str) -> int:
+    """The stable 0-99 bucket of a project for one skill's default pre-check.
+
+    A project uses the default when its bucket is below the skill's rollout percent, so a wider
+    rollout keeps every project a narrower one included. The skill name is in the hash, so each
+    skill gets its own control group.
+    """
+    digest = hashlib.sha256(f"signals-scout-precheck-default:{skill_name}:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+
 def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     """Parse the `background` block, or return `None` when the coordinator must not act on it.
 
@@ -309,7 +380,8 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
     `team_ids` must not read as an empty list, because an empty list pauses every background
     config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
-    `max_new_teams_per_tick`, or `bands` entry falls back to its default and does not invalidate the block.
+    `max_new_teams_per_tick`, `bands` entry, or `backoff` falls back to its default and does not
+    invalidate the block.
     """
     if payload is None:
         return None
@@ -335,6 +407,7 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
         max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
         bands=_parse_background_bands(raw.get("bands")),
+        backoff=_parse_background_backoff(raw.get("backoff")),
     )
 
 

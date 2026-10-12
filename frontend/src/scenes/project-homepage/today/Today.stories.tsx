@@ -12,11 +12,10 @@ import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportH
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
-import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
+import { sessionPreview } from '~/layout/today/todayPreviewCards'
 import { DEFAULT_RECENT_FILTERS } from '~/layout/today/todayRecentFilters'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
 import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelectionLogic'
-import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
@@ -28,7 +27,7 @@ import {
     reportMetricsFixture,
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -233,6 +232,44 @@ const LIBRARY = [
     { id: 'fs-3', path: 'Unfiled/Feature flags/one-page-checkout', type: 'feature_flag', ref: '7' },
 ]
 
+const RECENTLY_VIEWED = [
+    {
+        id: 'fs-recent-1',
+        path: 'Unfiled/Insights/Checkout funnel',
+        type: 'insight',
+        ref: 'abc123',
+        href: '/insights/abc123',
+        last_viewed_at: '2026-09-28T16:20:00Z',
+        created_at: '2026-08-12T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-2',
+        path: 'Unfiled/Dashboards/Growth overview',
+        type: 'dashboard',
+        ref: '12',
+        href: '/dashboard/12',
+        last_viewed_at: '2026-09-28T11:05:00Z',
+        created_at: '2026-07-02T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-3',
+        path: 'Unfiled/Feature flags/one-page-checkout',
+        type: 'feature_flag',
+        ref: '7',
+        href: '/feature_flags/7',
+        last_viewed_at: '2026-09-27T15:40:00Z',
+        created_at: '2026-09-01T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-4',
+        path: 'Unfiled/Cohorts/Power users',
+        type: 'cohort',
+        ref: '3',
+        href: '/cohorts/3',
+        last_viewed_at: '2026-09-26T09:10:00Z',
+        created_at: '2026-06-20T10:00:00Z',
+    },
+]
 const USER = { id: 1, uuid: 'user-1', first_name: 'Ada', email: 'ada@example.com' }
 
 const VIEW_CANVASES = [
@@ -665,7 +702,11 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
-                    const type = new URL(request.url).searchParams.get('type')
+                    const params = new URL(request.url).searchParams
+                    if (params.get('order_by') === '-last_viewed_at') {
+                        return [200, { results: RECENTLY_VIEWED, count: RECENTLY_VIEWED.length }]
+                    }
+                    const type = params.get('type')
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
@@ -817,25 +858,9 @@ export const ReportInANarrowWindow: Story = {
     parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
-export const SpacesPane: Story = {
+export const ChatsPane: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
-    },
-}
-
-// A hovered space row shows no buttons, so the faces keep their place.
-// Its actions, New session first, are in the hover card that opens beside it.
-export const SpacesPaneHoveringSpaceRow: Story = {
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByLabelText('Spaces'))
-        const labels = await canvas.findAllByText('checkout')
-        const row = labels.find((label) => label.closest('[data-attr="today-space-row"]'))
-        if (row) {
-            await userEvent.hover(row)
-            // The card opens in a portal outside the story's canvas.
-            await within(document.body).findByText('New session')
-        }
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
     },
 }
 
@@ -849,7 +874,7 @@ export const NewSessionPage: Story = {
 }
 
 // A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
-export const SpacesPaneWithSelectedSessions: Story = {
+export const ChatsPaneWithSelectedSessions: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
@@ -858,7 +883,7 @@ export const SpacesPaneWithSelectedSessions: Story = {
 }
 
 // The narrowed filters show their values in the primary color, and Clear filters shows at the end.
-export const SpacesPaneWithRecentFilterMenu: Story = {
+export const ChatsPaneWithRecentFilterMenu: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
@@ -910,27 +935,17 @@ async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: st
 }
 
 // Right-clicking a session row opens the same actions as its hover card.
-export const SpacesPaneSessionContextMenu: Story = {
+export const ChatsPaneChatContextMenu: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
         rightClick(row)
         await within(document.body).findByText('Open in new tab')
     },
 }
 
-// Right-clicking a space row opens its actions, New session first, like its hover card.
-export const SpacesPaneSpaceContextMenu: Story = {
-    play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
-        const row = await sidebarRow(canvasElement, 'checkout', 'today-space-row')
-        rightClick(row)
-        await within(document.body).findByText('New session')
-    },
-}
-
 // With two sessions picked, right-clicking one of them offers the selection's actions instead of the row's.
-export const SpacesPaneSelectedSessionsContextMenu: Story = {
+export const ChatsPaneSelectedSessionsContextMenu: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
@@ -995,6 +1010,11 @@ export const PhoneWidthMorePane: Story = {
     },
 }
 
+// A root page: the phone header shows the title and a sidebar button, and the scene title row keeps only its actions.
+export const PhoneWidthListScene: Story = {
+    parameters: { pageUrl: urls.featureFlags(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
@@ -1035,26 +1055,6 @@ export const SessionHoverCard: Story = {
                     }
                 )}
                 onAction={noop}
-                onSubmenuOpenChange={noop}
-            />
-        </HoverCardFrame>
-    ),
-}
-
-export const SpaceHoverCard: Story = {
-    render: () => (
-        <HoverCardFrame>
-            <TodaySpaceHoverCard
-                preview={spacePreview(
-                    {
-                        ...SPACES[2],
-                        repositories: ['example-org/web', 'example-org/billing', 'example-org/api', 'example-org/docs'],
-                    } as ChannelDTOApi,
-                    'checkout',
-                    { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
-                    '2026-09-28T18:28:00Z'
-                )}
-                onAction={noop}
             />
         </HoverCardFrame>
     ),
@@ -1089,9 +1089,9 @@ export const ReportHoverCardResolved: Story = {
 }
 
 // The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
-export const SpacesPaneWithListItemDetails: Story = {
+export const ChatsPaneWithListItemDetails: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todayListAppearanceLogic.actions.setFields(['repository', 'activity'])
     },
@@ -1099,7 +1099,7 @@ export const SpacesPaneWithListItemDetails: Story = {
 
 export const ListItemAppearanceDialog: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todayListAppearanceLogic.actions.setFields(['space', 'branch'])
         todayListAppearanceLogic.actions.openAppearanceDialog()

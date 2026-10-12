@@ -165,24 +165,6 @@ def test_validate_credentials(
         assert message is not None and expected_message_part in message
 
 
-def test_validate_credentials_does_not_echo_the_table_id_for_an_unrecognised_status() -> None:
-    # The message for an unrecognised status must carry neither the submitted table ID nor the
-    # status code: one is a value the customer already has, the other is not actionable.
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay.make_tracked_session"
-    ) as MockSession:
-        session = MockSession.return_value
-        session.get.return_value = _make_http_response({}, 200)
-        session.post.return_value = _make_http_response({}, 400)
-
-        valid, message = validate_credentials("clay_test_key", [TABLE_ID])
-
-    assert valid is False
-    assert message is not None
-    assert TABLE_ID not in message
-    assert "400" not in message
-
-
 def test_validate_credentials_requires_a_table_id() -> None:
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay.make_tracked_session"

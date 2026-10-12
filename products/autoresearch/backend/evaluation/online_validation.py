@@ -3,8 +3,9 @@ Online validation: join autoresearch_prediction events to realized target outcom
 after the prediction horizon has elapsed.
 
 Computes per model: realized AUC with a 95% interval, Brier score, expected calibration
-error (ECE), quantile calibration bins, mean predicted probability, and lift@k, for every
-model that emitted predictions on a date.
+error (ECE), quantile calibration bins, mean predicted probability, lift@k, average
+precision, and confusion counts at three cutoffs, for every model that emitted predictions
+on a date.
 
 Architecture:
 - Pure activity functions called by AutoresearchValidationWorkflow (Temporal)
@@ -41,6 +42,9 @@ from products.autoresearch.backend.dataset.labeling import (
     _own_events_excluded_clause,
     build_target_condition,
 )
+from products.autoresearch.backend.evaluation.history import latest_validation_runs
+from products.autoresearch.backend.evaluation.maturity import matures_at
+from products.autoresearch.backend.evaluation.segment_thresholds import BASE_RATE_DATES, segment_thresholds
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
@@ -51,12 +55,6 @@ logger = structlog.get_logger(__name__)
 # is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
 # died mid-run and the exception handler never ran. Neither kind may hold a date forever.
 STALE_RUN_AFTER = timedelta(hours=6)
-
-# An outcome event timestamped just before the window closes can still be in the ingestion
-# queue when the window closes. Maturity waits this long past the window end so it lands
-# first; a completed date is never revisited, so a positive that arrives later than this
-# reads as a negative.
-OUTCOME_INGESTION_GRACE = timedelta(hours=1)
 
 # A live run stamps its events at emission time, which can cross midnight UTC before the
 # batch goes out; a backfill stamps noon UTC of the date. Both fall within this many days
@@ -200,7 +198,9 @@ def find_pending_validation_dates(pipeline: AutoresearchPipeline) -> list[Pendin
     return [
         item
         for item in _scored_groups(pipeline)
-        if item.key not in scoring and not _is_blocked(item, state) and item.window_end + OUTCOME_INGESTION_GRACE <= now
+        if item.key not in scoring
+        and not _is_blocked(item, state)
+        and matures_at(item.prediction_date, item.horizon_days) <= now
     ]
 
 
@@ -344,11 +344,18 @@ def _validate_claimed_date(
             user=user,
             query_context=query_context,
         )
+        # The cut point the Predictions tab showed for this date comes from the dates checked before it.
+        thresholds = segment_thresholds(
+            latest_validation_runs(team.pk, pipeline, limit=BASE_RATE_DATES, before=pending.prediction_date)
+        )
         per_model = {
             model_id: _ModelValidation(
                 emitted_role=model.emitted_role,
                 metrics=_compute_validation_metrics(
-                    model.p_y_by_person, realized, prediction_date=pending.prediction_date
+                    model.p_y_by_person,
+                    realized,
+                    prediction_date=pending.prediction_date,
+                    likely_threshold=thresholds.likely,
                 ),
             )
             for model_id, model in predictions.items()
@@ -626,14 +633,16 @@ def _compute_validation_metrics(
     realized_labels: frozenset[str],
     *,
     prediction_date: date,
+    likely_threshold: float,
 ) -> dict[str, Any]:
     """
-    AUC with its 95% interval, Brier score, ECE, quantile calibration bins, and lift@k
-    from scored predictions against realized labels.
+    AUC with its 95% interval, Brier score, ECE, quantile calibration bins, lift@k,
+    average precision, and confusion counts from scored predictions against realized labels.
+    The ``likely`` counts flag scores at or above ``likely_threshold``, which is kept with them.
 
-    Only the AUC and its interval need both classes. The other metrics are computed for a
-    single-class date too, because an all-negative day is exactly where calibration
-    matters for a rare target.
+    Only the AUC and its interval need both classes, and average precision needs a positive.
+    The other metrics are computed for a single-class date too, because an all-negative day
+    is exactly where calibration matters for a rare target.
     """
     person_ids = list(predictions.keys())
     y_score = np.array([predictions[pid] for pid in person_ids], dtype=np.float64)
@@ -655,7 +664,7 @@ def _compute_validation_metrics(
     metrics["mean_p_y"] = round(float(y_score.mean()), 4)
 
     # Deferred to keep the heavy dependency off the import path.
-    from sklearn.metrics import brier_score_loss, roc_auc_score  # noqa: PLC0415
+    from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score  # noqa: PLC0415
 
     if n_pos == 0 or n_neg == 0:
         metrics["warning"] = "single_class_no_auc"
@@ -670,7 +679,45 @@ def _compute_validation_metrics(
     metrics["calibration_bins"] = _quantile_calibration_bins(y_true, y_score)
     metrics["lift_at_10"] = round(_lift_at_k(y_true, y_score, k=0.10), 4)
     metrics["lift_at_20"] = round(_lift_at_k(y_true, y_score, k=0.20), 4)
+    metrics["average_precision"] = round(float(average_precision_score(y_true, y_score)), 4) if n_pos > 0 else None
+    metrics["confusion"] = {
+        "top_10": _confusion_counts(y_true, _top_k_flags(y_score, k=0.10)),
+        "top_20": _confusion_counts(y_true, _top_k_flags(y_score, k=0.20)),
+        "likely": _confusion_counts(y_true, y_score >= likely_threshold),
+    }
+    metrics["likely_threshold"] = likely_threshold
     return metrics
+
+
+def _top_k_flags(y_score: np.ndarray, k: float) -> np.ndarray:
+    """
+    Flag the top-k fraction of scored users, plus every user tied with the last one.
+
+    The counts stay whole people and do not depend on row order, so the flagged count can
+    be a little above k. ``_lift_at_k`` splits the tie fractionally instead.
+    """
+    cutoff = max(1, math.ceil(len(y_score) * k))
+    boundary = float(np.sort(y_score)[::-1][cutoff - 1])
+    return y_score >= boundary
+
+
+def _confusion_counts(y_true: np.ndarray, flagged: np.ndarray) -> dict[str, Any]:
+    """Confusion counts for one cutoff. Precision or recall is None when its denominator is 0."""
+    positive = y_true == 1
+    tp = int((flagged & positive).sum())
+    n_flagged = int(flagged.sum())
+    n_positive = int(positive.sum())
+    fp = n_flagged - tp
+    fn = n_positive - tp
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": len(y_true) - tp - fp - fn,
+        "n_flagged": n_flagged,
+        "precision": round(tp / n_flagged, 4) if n_flagged else None,
+        "recall": round(tp / n_positive, 4) if n_positive else None,
+    }
 
 
 def _expected_calibration_error(y_true: np.ndarray, y_score: np.ndarray, n_bins: int = 10) -> float:

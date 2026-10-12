@@ -77,7 +77,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
     ):
         report = self._create_report(report_status=source_status)
         if with_actor:
-            report._transition_actor_user_id = self.user.id  # type: ignore[attr-defined]
+            report._transition_actor = ArtefactAttribution.from_user(self.user.id)  # type: ignore[attr-defined]
         with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, new_status, **transition_kwargs)
         mock_task.delay.assert_called_once_with(
@@ -353,7 +353,7 @@ class TestCloseImplementationPrForReport(BaseTest):
         if login != "octocat":
             assert "@" not in comment_body
         # The report link carries the attribution GitHub cannot: it names everyone who acted.
-        assert f"/project/{self.team.id}/inbox/reports/{self.report.id})" in comment_body
+        assert f"/project/{self.team.id}/inbox/reports/{self.report.id}?link_source=github_pr)" in comment_body
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
         self.assignment.pr_url = None

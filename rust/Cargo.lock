@@ -2311,6 +2311,7 @@ dependencies = [
  "opentelemetry-proto 0.29.0",
  "prometheus-rw-proto",
  "prost 0.13.5",
+ "redis",
  "rustls 0.23.37",
  "serde",
  "serde_json",
@@ -3973,7 +3974,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -9597,7 +9598,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.5.0"
+version = "0.5.2"
 dependencies = [
  "serde",
  "thiserror 2.0.18",

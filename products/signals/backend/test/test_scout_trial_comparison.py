@@ -66,24 +66,32 @@ class TestTrialCoordinator(SimpleTestCase):
 
 
 class TestScoutTrialComparisonWorkflow(SimpleTestCase):
-    @parameterized.expand([False, True])
-    async def test_background_comparison_waits_for_runs_and_report_or_records_timeout(self, times_out: bool) -> None:
+    @parameterized.expand(
+        [
+            ("runs_finish_quickly", timedelta(seconds=10)),
+            ("queued_runs_use_full_trial_runtime", timedelta(minutes=7 + 29)),
+            ("runs_never_finish", None),
+        ]
+    )
+    async def test_background_comparison_waits_for_runs_and_report_or_records_timeout(
+        self, _name: str, runs_finish_after: timedelta | None
+    ) -> None:
+        times_out = runs_finish_after is None
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
+        started = now
         prepared = False
         finished = False
         failed = False
-        prepare_calls = 0
         report_calls = 0
 
         async def execute(function: Callable[..., object], payload: object, **options: object) -> object:
-            nonlocal prepared, finished, failed, prepare_calls, report_calls
+            nonlocal prepared, finished, failed, report_calls
             assert payload == inputs
             if function is dispatch_scout_trial_comparison_activity:
                 return None
             if function is prepare_scout_trial_comparison_evaluation_activity:
-                prepare_calls += 1
-                prepared = prepare_calls > 1 and not times_out
+                prepared = runs_finish_after is not None and now - started >= runs_finish_after
                 return prepared
             if function is finish_scout_trial_comparison_activity:
                 assert prepared
@@ -113,7 +121,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
                 assert prepared and finished and not failed
 
     async def test_judging_wait_bounds_sandbox_evaluation_workflows(self) -> None:
-        expected_minutes = 2427
+        expected_minutes = 4437
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
         started = now
@@ -158,7 +166,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
-            assert call.kwargs["execution_timeout"] == timedelta(minutes=2492)
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=4522)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))
@@ -232,28 +240,36 @@ class TestScoutTrialComparisonSerializer(SimpleTestCase):
 
 
 class TestScoutTrialComparisonStorage(SimpleTestCase):
-    @parameterized.expand(["empty", "populated", "failure"])
+    @parameterized.expand(["empty", "populated", "next_page", "invalid_page", "failure"])
     def test_history_listing_is_bounded_and_does_not_hide_storage_failures(self, scenario: str) -> None:
         prefix = "signals/scout-trials/2/comparison-history/17/example/"
+        start_after = prefix + "example.json" if scenario in {"next_page", "invalid_page"} else None
         client = MagicMock()
         client.list_objects_v2.return_value = (
-            {"Contents": [{"Key": prefix + "example.json"}]} if scenario == "populated" else {}
+            {"Contents": [{"Key": prefix + "example.json"}]} if scenario in {"populated", "invalid_page"} else {}
         )
+        if scenario == "next_page":
+            client.list_objects_v2.return_value = {"Contents": [{"Key": prefix + "next.json"}]}
         if scenario == "failure":
             client.list_objects_v2.side_effect = RuntimeError("Synthetic private storage failure")
         with patch.object(object_storage, "object_storage_client", return_value=object_storage.ObjectStorage(client)):
-            if scenario == "failure":
+            if scenario in {"failure", "invalid_page"}:
                 with self.assertRaisesMessage(
                     object_storage.ObjectStorageError, "history could not be loaded"
                 ) as failure:
-                    list_comparison_history_keys(prefix, 10)
+                    list_comparison_history_keys(prefix, 10, start_after=start_after)
                 assert "private" not in str(failure.exception)
             else:
-                assert list_comparison_history_keys(prefix, 10) == (
-                    [prefix + "example.json"] if scenario == "populated" else []
+                assert list_comparison_history_keys(prefix, 10, start_after=start_after) == (
+                    [prefix + "example.json"]
+                    if scenario == "populated"
+                    else [prefix + "next.json"]
+                    if scenario == "next_page"
+                    else []
                 )
         assert client.list_objects_v2.call_args.kwargs["MaxKeys"] == 11
         assert client.list_objects_v2.call_args.kwargs["Prefix"] == prefix
+        assert client.list_objects_v2.call_args.kwargs.get("StartAfter") == start_after
 
     @parameterized.expand(["comparison", "evaluation"])
     def test_manual_and_automatic_evaluations_cannot_claim_the_same_identity(self, first_kind: str) -> None:

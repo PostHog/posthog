@@ -34,6 +34,7 @@ from .ast_helpers import (
     decorator_name,
     get_imported_module_names,
     get_model_names,
+    get_public_function_names,
     has_any_function_defs,
     iter_public_callables,
     lazy_reexport_map,
@@ -154,12 +155,6 @@ def has_contracts_module(backend_dir: Path) -> bool:
     """The Strict rung: a contracts module turns on the strict lint. The file alone is no evidence of
     isolation, because an empty contracts.py satisfies it."""
     return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
-
-
-def has_real_facade(backend_dir: Path) -> bool:
-    """A real facade defines functions; a re-export shim from logic does not count."""
-    facade_api = backend_dir / "facade" / "api.py"
-    return facade_api.exists() and has_any_function_defs(facade_api)
 
 
 def has_routes_module(backend_dir: Path) -> bool:
@@ -589,6 +584,7 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("customer_analytics", "TeamCustomerAnalyticsConfig"),
         ("tasks", "Task"),
+        ("workflows", "TeamWorkflowsConfig"),
     }
 )
 
@@ -617,6 +613,7 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
         ("warehouse_sources", "PendingSourceCredential"),
         ("warehouse_sources", "WarehouseColumnAnnotation"),
         ("warehouse_sources", "WarehouseColumnStatistics"),
+        ("workflows", "HogFlow"),
     }
 )
 
@@ -718,6 +715,65 @@ def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
     for path in sorted(facade_dir.rglob("*.py")):
         if "__pycache__" not in path.parts and not _is_test_module(path.name):
             yield path
+
+
+_NON_LOGIC_FACADE_MODULES = frozenset({"contracts.py", "enums.py", "testing.py"})
+
+
+def iter_facade_logic_modules(backend_dir: Path) -> Iterator[Path]:
+    """Facade modules that can hold facade logic: every module except contracts, enums and testing.
+
+    Products split their facade across submodules, so the walk is recursive. The three names are
+    skipped at any depth: they hold types and test helpers, never the facade surface."""
+    for path in _iter_facade_modules(backend_dir):
+        if path.name in _NON_LOGIC_FACADE_MODULES:
+            continue
+        # A contracts/ package holds types like contracts.py does.
+        if "contracts" in path.relative_to(backend_dir / "facade").parts[:-1]:
+            continue
+        yield path
+
+
+def facade_function_names(backend_dir: Path) -> list[str]:
+    """Public functions defined across the facade modules; re-export-only modules add none."""
+    names: list[str] = []
+    for path in iter_facade_logic_modules(backend_dir):
+        names.extend(get_public_function_names(path))
+    return names
+
+
+_FACADE_MODULE_PATTERN = re.compile(r"\.backend\.facade(\.|$)")
+
+
+def _api_reexports_internals(api_path: Path) -> bool:
+    """`api.py` defines nothing and re-exports from outside the facade package, e.g. `from ..logic import x`."""
+    if has_any_function_defs(api_path):
+        return False
+    tree = ast_parse_safe(api_path)
+    if tree is None:
+        return False
+    # Only runtime imports at module level count. An `if TYPE_CHECKING:` import is a type hint.
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level >= 2:
+            return True
+        module = node.module or ""
+        if node.level == 0 and ".backend." in module and not _FACADE_MODULE_PATTERN.search(module):
+            return True
+    return False
+
+
+def has_real_facade(backend_dir: Path) -> bool:
+    """A real facade defines functions in any of its modules; a re-export shim from logic does not count.
+
+    An `api.py` that only re-exports internals marks the whole facade as a shim, so one helper in a
+    sibling module does not promote it. Private functions count, so a facade with only helpers is not
+    read as a shim."""
+    api_path = backend_dir / "facade" / "api.py"
+    if api_path.exists() and _api_reexports_internals(api_path):
+        return False
+    return any(has_any_function_defs(path) for path in iter_facade_logic_modules(backend_dir))
 
 
 def _facade_module_key(backend_dir: Path, path: Path) -> str:

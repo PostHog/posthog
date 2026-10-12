@@ -14,9 +14,12 @@ import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isBIVisualizationNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
+import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/home/InsightHomeGuide'
+
 import { teamLogic } from '../teamLogic'
 import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
 import { insightDataLogic } from './insightDataLogic'
+import { InsightFlagCalledBanner } from './InsightFlagCalledBanner'
 import { insightLogic } from './insightLogic'
 import { InsightQueryScanBanner } from './InsightQueryScanBanner'
 import { InsightSceneHeader } from './InsightSceneHeader'
@@ -91,7 +94,11 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                     <InsightSceneHeader insightLogicProps={insightProps} />
                 )}
 
+                {insightId === 'new' && isEditing && <InsightHomeGuide query={query} />}
+
                 <InsightRetentionBanner insightProps={insightProps} />
+
+                <InsightFlagCalledBanner insightProps={insightProps} />
 
                 {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
 

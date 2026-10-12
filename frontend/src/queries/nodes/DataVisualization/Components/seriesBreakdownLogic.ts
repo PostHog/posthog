@@ -318,7 +318,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                     return visibleBreakdownValues.map<AxisBreakdownSeries<number | null>>((value) => {
                         const valueLabel = humanizeEventColumnValue(breakdownColumn.name, value) || '[No value]'
-                        const seriesName = multipleYSeries ? `${selectedYAxis.name} - ${valueLabel}` : valueLabel
+                        const measureLabel = selectedYAxis.settings.display?.label || selectedYAxis.name
+                        const seriesName = multipleYSeries ? `${measureLabel} - ${valueLabel}` : valueLabel
                         const breakdownValue = getBreakdownValueKey(value)
                         const customColorToken = resultCustomizations[breakdownValue]?.color
                         const customColor =

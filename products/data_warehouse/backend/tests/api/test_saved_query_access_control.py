@@ -204,6 +204,39 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.saved_query.refresh_from_db()
         self.assertEqual(self.saved_query.query, {"kind": "HogQLQuery", "query": "select 1"})
 
+    @parameterized.expand(
+        [
+            ("allowed", "editor", "This name already refers to the model my_view. Choose a different name."),
+            # Refused all the same, but without confirming a model the caller cannot read.
+            ("denied", "none", "A table or view with this name already exists. Choose a different name."),
+        ]
+    )
+    def test_a_models_name_is_refused_while_an_authored_model_answers_to_it(
+        self, _case: str, object_access: str, detail: str
+    ) -> None:
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user,
+            resource="warehouse_view",
+            resource_id=str(self.saved_query.id),
+            access_level=object_access,
+        )
+        self.client.force_login(self.editor_user)
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda flag, *_args, **_kwargs: flag == "hogql-warehouse-access-control",
+        ):
+            response = self.client.post(
+                self._list_url(),
+                data={"name": "models.my_view", "query": {"kind": "HogQLQuery", "query": "select 2"}},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["detail"], detail)
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="models.my_view").exists())
+
     def test_resource_level_row_on_child_alone_has_no_effect(self):
         # Contract: warehouse_view inherits from warehouse_objects, so resource-level rows
         # keyed on warehouse_view (without resource_id) are intentionally bypassed — only

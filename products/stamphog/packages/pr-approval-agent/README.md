@@ -1,7 +1,7 @@
 # PR approval agent
 
 A Python package that reviews one pull request and returns a verdict.
-It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets a Claude Agent SDK reviewer look for showstoppers.
+It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets an LLM reviewer look for showstoppers.
 
 The package reads its policy from the `.stamphog/` directory of the checked-out tree it runs in.
 It writes nothing to GitHub.
@@ -25,7 +25,15 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 | ERROR    | The run could not produce a verdict                                                                                |
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
-The nested LLM reviewer answers with `APPROVE` and `REFUSE`, and the pipeline maps those onto the names above.
+The nested LLM reviewer does not choose a verdict.
+It reports facts in a fixed schema: the risky territory the diff enters, the reviews on the current head, whether the author is on the owning team or has STRONG familiarity, the unresolved substantive concerns, and any other refusal ground the policy names.
+`verdict_rule.py` derives `APPROVE`, `REFUSE` or `ESCALATE` from those facts, and the pipeline maps that onto the names above:
+
+- any refusal ground or unresolved concern: `REFUSE`
+- risky territory with no current-head review, no owning-team author and no STRONG familiarity: `ESCALATE`
+- everything else: `APPROVE`
+
+Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
 
 `WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
@@ -51,7 +59,8 @@ uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 --output-
 uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 -v
 ```
 
-`review_pr.py` requires the `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
+`review_pr.py` requires the `gh` CLI authenticated and `OPENAI_API_KEY` in your environment, or `AI_GATEWAY_URL` with `AI_GATEWAY_API_KEY`.
+`ANTHROPIC_API_KEY` is only needed with `STAMPHOG_REVIEWER_ENGINE=claude`.
 It uses PEP 723 inline metadata, so `uv run` handles dependencies automatically.
 
 ## How it works
@@ -117,7 +126,11 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   │
   ▼
 LLM Review
-  - Claude Agent SDK with Read/Grep/Glob tools
+  - GPT-6.1 Sol at low effort in an OpenAI Responses tool loop (openai_reviewer.py), with
+    read_file/grep/glob tools confined to the checkout
+  - STAMPHOG_REVIEWER_ENGINE=claude on the worker switches to the Claude Agent SDK reviewer
+    (Opus 5.5 low, Read/Grep/Glob) as a rollback without a deploy
+  - Reports facts, not a verdict; verdict_rule.py derives the verdict (see Verdicts)
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
   - Receives the PR description (untrusted) and verifies the diff matches the
@@ -277,8 +290,10 @@ How the head tree is materialized differs per entrypoint:
   Symbolic links the PR adds or repoints fail closed, so a PR path cannot resolve outside the worktree.
 
 **The explored tree is PR-authored content.**
-The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
+The Claude rollback reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
 Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
+The OpenAI reviewer discovers no SDK settings, hooks or MCP servers from the tree. Like the Claude reviewer, its prompt still reads the trusted `.stamphog/review-guidance.md` and optional `.stamphog/steering.md`.
+Its tools search through git, which never follows a symbolic link, and refuse any path that resolves outside the checkout.
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
@@ -379,7 +394,7 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - Stamphog version and PR metadata (number, author, title)
 - Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
 - Gate results (each gate's pass/fail status and message)
-- Reviewer output (verdict, reasoning, risk, issues)
+- Reviewer output (derived verdict, reasoning, risk, issues, change summary, and the raw `facts` the verdict came from)
 - Final verdict
 
 ## Architecture
@@ -389,7 +404,9 @@ Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) co
 - `policy.py` - policy loader, resolver, and the untrusted-text sanitizer
 - `gates.py` - deterministic classification and deny-list logic
 - `github.py` - GitHub data fetching via `gh` CLI
-- `reviewer.py` - Claude Agent SDK reviewer (showstoppers prompt)
+- `reviewer.py` - the shared prompt and the Claude Agent SDK rollback reviewer (reports facts)
+- `openai_reviewer.py` - the GPT-6.1 Sol reviewer: Responses tool loop and the read-only repo tools
+- `verdict_rule.py` - the facts schema and the rule that derives the verdict from it
 
 ## Empirical basis
 

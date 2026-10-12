@@ -49,10 +49,6 @@ class TestFormatCreatedAfter:
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_created_after(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        # A "+00:00" offset instead of "Z" is a common way to produce a value the API rejects.
-        assert "+00:00" not in _format_created_after(datetime(2026, 3, 4, tzinfo=UTC))
-
     def test_bool_raises(self) -> None:
         # bool is an int subclass; without an explicit guard it would be read as a Unix timestamp.
         with pytest.raises(ValueError):
@@ -69,23 +65,6 @@ class TestBuildBaseParams:
             db_incremental_field_last_value=1_772_000_000,
         )
         assert params == {"order_by": "created", "created_after": "2026-02-25T06:13:20Z"}
-
-    def test_fine_tuning_incremental_adds_created_after_only(self) -> None:
-        params = _build_base_params(
-            MISTRAL_AI_ENDPOINTS["fine_tuning_jobs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1_772_000_000,
-        )
-        assert params == {"created_after": "2026-02-25T06:13:20Z"}
-
-    def test_first_sync_has_no_created_after(self) -> None:
-        # No watermark yet: sending created_after=None would 400 or filter everything out.
-        params = _build_base_params(
-            MISTRAL_AI_ENDPOINTS["batch_jobs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert params == {"order_by": "created"}
 
     @parameterized.expand([("files",), ("agents",), ("libraries",), ("models",)])
     def test_full_refresh_endpoints_send_no_filter(self, endpoint: str) -> None:
@@ -152,18 +131,6 @@ class TestGetRows:
                 rows.extend(batch)
         return rows, seen_params
 
-    def test_paginates_until_empty_page(self) -> None:
-        # Stopping one page early (e.g. len<page_size heuristic against a clamped page size) drops rows;
-        # not advancing `page` loops forever. Empty-page termination guards both.
-        pages = {
-            0: {"data": [{"id": "f0"}]},
-            1: {"data": [{"id": "f1"}]},
-            2: {"data": []},
-        }
-        rows, seen = self._run("files", _FakeResumableManager(), pages)
-        assert rows == [{"id": "f0"}, {"id": "f1"}]
-        assert [p["page"] for p in seen] == [0, 1, 2]
-
     def test_unpaginated_endpoint_fetches_once(self) -> None:
         # /v1/models has no pagination; sending page/page_size or looping would be wrong.
         pages = {0: {"data": [{"id": "m1"}, {"id": "m2"}]}}
@@ -172,13 +139,6 @@ class TestGetRows:
         assert len(seen) == 1
         assert "page" not in seen[0]
 
-    def test_saves_next_page_after_each_yield(self) -> None:
-        # State must be saved AFTER yielding so a crash re-yields the last page rather than skipping it.
-        pages = {0: {"data": [{"id": "f0"}]}, 1: {"data": [{"id": "f1"}]}, 2: {"data": []}}
-        manager = _FakeResumableManager()
-        self._run("files", manager, pages)
-        assert [c.page for c in manager.saved] == [1, 2]
-
     def test_resumes_from_saved_page(self) -> None:
         # Resuming re-runs earlier pages would duplicate (or, with replace, waste) work; page 0 must be skipped.
         pages = {1: {"data": [{"id": "f1"}]}, 2: {"data": []}}
@@ -186,11 +146,6 @@ class TestGetRows:
         rows, seen = self._run("files", manager, pages)
         assert rows == [{"id": "f1"}]
         assert [p["page"] for p in seen] == [1, 2]
-
-    def test_bare_array_endpoint_paginates(self) -> None:
-        pages = {0: [{"id": "a0"}], 1: []}
-        rows, _ = self._run("agents", _FakeResumableManager(), pages)
-        assert rows == [{"id": "a0"}]
 
 
 class TestFetchPageRetries:

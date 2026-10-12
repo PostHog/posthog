@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     persist_primary_keys,
     report_heartbeat_timeout,
     reset_rows_synced_if_needed,
+    resets_table_before_extraction,
     resolve_primary_keys,
     should_check_shutdown,
     trim_source_job_inputs,
@@ -713,6 +714,69 @@ class TestHandleResetOrFullRefresh:
         schema.refresh_from_db()
         assert schema.initial_sync_complete is True
         assert "incremental_field_last_value" not in schema.sync_type_config
+
+
+def _reset_inputs() -> list[tuple[str, bool, bool, str, bool]]:
+    return [
+        (
+            f"reset_{reset}_resume_{resume}_{sync_type}_webhook_only_{webhook_only}",
+            reset,
+            resume,
+            sync_type,
+            webhook_only,
+        )
+        for reset in (False, True)
+        for resume in (False, True)
+        for sync_type in (ExternalDataSchema.SyncType.FULL_REFRESH, ExternalDataSchema.SyncType.INCREMENTAL)
+        for webhook_only in (False, True)
+    ]
+
+
+class TestCorruptionCheckBeforeAReset:
+    def _schema(self, sync_type: str, swap: dict | None = None) -> MagicMock:
+        schema = MagicMock(sync_type=sync_type, sync_type_config={}, delta_revive_required=None)
+        schema.repartition_swap = swap
+        return schema
+
+    def _logger(self) -> MagicMock:
+        return MagicMock(awarning=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock(), adebug=AsyncMock())
+
+    @parameterized.expand(_reset_inputs())
+    def test_prediction_matches_what_the_reset_step_does(
+        self, _name: str, reset_pipeline: bool, should_resume: bool, sync_type: str, webhook_only: bool
+    ) -> None:
+        schema = self._schema(sync_type)
+        table_ref = MagicMock(reset_table=AsyncMock())
+
+        with patch("products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"):
+            async_to_sync(handle_reset_or_full_refresh)(
+                reset_pipeline, should_resume, schema, table_ref, self._logger(), webhook_only=webhook_only
+            )
+
+        predicted = resets_table_before_extraction(reset_pipeline, should_resume, schema, webhook_only)
+        assert predicted is (table_ref.reset_table.await_count == 1)
+
+    @parameterized.expand(
+        [
+            # (name, table_will_be_reset, staged swap, the table is opened for the check)
+            ("incremental_run_checks", False, None, True),
+            ("run_that_resets_the_table_skips_the_open", True, None, False),
+            ("staged_swap_is_still_checked_before_a_reset", True, {"state": "ready"}, True),
+        ]
+    )
+    def test_open_for_the_corruption_check(
+        self, _name: str, table_will_be_reset: bool, swap: dict | None, expect_open: bool
+    ) -> None:
+        schema = self._schema(ExternalDataSchema.SyncType.FULL_REFRESH, swap)
+        table_ref = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
+
+        revived = async_to_sync(handle_corrupted_delta_log)(
+            schema, MagicMock(), table_ref, self._logger(), table_will_be_reset=table_will_be_reset
+        )
+
+        assert revived is False
+        assert table_ref.is_table_corrupted.await_count == int(expect_open)
+        table_ref.reset_table.assert_not_awaited()
 
 
 class TestValidateIncrementalSync:

@@ -321,6 +321,12 @@ export type DashboardWriteOpenApiApiPersistedFilters = { [key: string]: unknown 
  */
 export type DashboardWriteOpenApiApiPersistedVariables = { [key: string]: unknown } | null
 
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * @nullable
+ */
+export type DashboardWriteOpenApiApiGroupTitles = { [key: string]: string } | null
+
 export type DashboardWriteOpenApiApiTilesItem = { [key: string]: unknown }
 
 /**
@@ -391,6 +397,11 @@ export const LayoutCompactionEnumApi = {
     Stable: 'stable',
 } as const
 
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
+
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
      *
@@ -406,6 +417,8 @@ export interface DashboardCustomizationApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardCustomizationApiGroupTitles
 }
 
 /**
@@ -500,6 +513,11 @@ export interface DashboardWriteOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    group_titles?: DashboardWriteOpenApiApiGroupTitles
     /** @nullable */
     readonly tiles: readonly DashboardWriteOpenApiApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -530,6 +548,12 @@ export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
  * @nullable
  */
 export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
+
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * @nullable
+ */
+export type DashboardApiGroupTitles = { [key: string]: string } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -624,6 +648,11 @@ export interface DashboardApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    group_titles?: DashboardApiGroupTitles
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -638,15 +667,11 @@ export interface DashboardApi {
     _create_in_folder?: string
 }
 
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    level: RestrictionLevelEnumApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ * @nullable
+ */
+export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
 
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
@@ -703,7 +728,19 @@ export interface _DashboardPatchTileLayoutsOpenApiApi {
 }
 
 /**
+ * * `winner` - Winner
+ * * `cheeky-hog` - Cheeky hog
+ */
+export type DashboardTileBadgeEnumApi = (typeof DashboardTileBadgeEnumApi)[keyof typeof DashboardTileBadgeEnumApi]
+
+export const DashboardTileBadgeEnumApi = {
+    Winner: 'winner',
+    CheekyHog: 'cheeky-hog',
+} as const
+
+/**
  * * `activity_events_list` - activity_events_list
+ * * `canvas_app` - canvas_app
  * * `conversations_recent_tickets` - conversations_recent_tickets
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
@@ -718,6 +755,7 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ActivityEventsList: 'activity_events_list',
+    CanvasApp: 'canvas_app',
     ConversationsRecentTickets: 'conversations_recent_tickets',
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
@@ -1165,6 +1203,11 @@ export interface ConversationsRecentTicketsWidgetConfigApi {
     savedViewId?: string | null
 }
 
+export interface CanvasAppWidgetConfigApi {
+    /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
+    canvasId?: string | null
+}
+
 export type DashboardWidgetConfigApi =
     | NotebookWidgetConfigApi
     | ActivityEventsListWidgetConfigApi
@@ -1175,6 +1218,7 @@ export type DashboardWidgetConfigApi =
     | SurveyResultsWidgetConfigApi
     | LogsListWidgetConfigApi
     | ConversationsRecentTicketsWidgetConfigApi
+    | CanvasAppWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -1182,6 +1226,7 @@ export interface DashboardPatchWidgetOpenApiApi {
     /** Widget type identifier (cannot be changed on update).
      *
      * * `activity_events_list` - activity_events_list
+     * * `canvas_app` - canvas_app
      * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
@@ -1208,6 +1253,19 @@ export interface DashboardPatchTileOpenApiApi {
     id?: number
     /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
     layouts?: _DashboardPatchTileLayoutsOpenApiApi
+    /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
+    show_description?: boolean
+    /**
+     * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+     * @maxLength 100
+     * @nullable
+     */
+    group_key?: string | null
+    /** Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.
+     *
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog */
+    badge?: DashboardTileBadgeEnumApi | null
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
@@ -1264,6 +1322,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    group_titles?: PatchedPatchedDashboardOpenApiApiGroupTitles
     /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
@@ -2130,7 +2193,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -2912,6 +2975,7 @@ export const ChartDisplayTypeApi = {
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsDonut: 'ActionsDonut',
+    ActionsProportionBar: 'ActionsProportionBar',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -4913,6 +4977,8 @@ export interface HogQLNoticeApi {
     fix?: string | null
     message: string
     start?: number | null
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string | null
 }
 
 export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
@@ -9201,9 +9267,9 @@ export const ValueDisplayApi = {
 } as const
 
 export interface PieChartSettingsApi {
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean | null
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: SliceContentApi | null
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
     valueDisplay?: ValueDisplayApi | null
@@ -9287,7 +9353,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
@@ -9367,6 +9433,25 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export interface BICategoryGroupApi {
+    name: string
+    values: string[]
+}
+
+export interface BILocalFieldDefinition1Api {
+    expression: string
+    groups: BICategoryGroupApi[]
+    kind?: 'groups'
+    other: string
+}
+
+export interface BILocalFieldDefinition2Api {
+    expression: string
+    kind?: 'bins'
+    origin: number
+    width: number
+}
+
 export interface BIDataSourceApi {
     connectionId?: string | null
     table: string
@@ -9398,10 +9483,17 @@ export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
     expression: string
     id: string
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi
 }
+
+export type ComparisonPeriodApi = (typeof ComparisonPeriodApi)[keyof typeof ComparisonPeriodApi]
+
+export const ComparisonPeriodApi = {
+    Previous: 'previous',
+} as const
 
 export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
 
@@ -9438,6 +9530,50 @@ export const BIQueryLimitApi = {
     Number10000: 10000,
     Number50000: 50000,
 } as const
+
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
+} as const
+
+export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
+
+export const Operator1Api = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export interface BIConditionGroupApi {
+    filters: string[]
+    groups: BIConditionGroupApi[]
+    operator: Operator1Api
+}
+
+export type Operator2Api = (typeof Operator2Api)[keyof typeof Operator2Api]
+
+export const Operator2Api = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    GreaterThanOrEqual: 'greater_than_or_equal',
+    LessThanOrEqual: 'less_than_or_equal',
+    Between: 'between',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface BIResultFilterApi {
+    enabled?: boolean | null
+    id: string
+    /** @minimum 0 */
+    measureIndex: number
+    operator: Operator2Api
+    value: string
+    valueTo?: string | null
+}
 
 export type BISortDirectionApi = (typeof BISortDirectionApi)[keyof typeof BISortDirectionApi]
 
@@ -9492,6 +9628,8 @@ export const BITableCalculationTypeApi = {
 export interface BITableCalculationApi {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
     type: BITableCalculationTypeApi
     /** Number of points, including the current point, in a trailing moving average. */
     window?: number | null
@@ -9500,7 +9638,9 @@ export interface BITableCalculationApi {
 export interface BIValueApi {
     aggregation: BIAggregationApi
     customExpression?: string | null
+    display?: ChartSettingsDisplayApi | null
     field: BIFieldApi
+    formatting?: ChartSettingsFormattingApi | null
     label?: string | null
     tableCalculation?: BITableCalculationApi | null
 }
@@ -9509,11 +9649,20 @@ export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: ComparisonPeriodApi | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIFieldApi[] | null
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
+    resultFilterGroup?: BIConditionGroupApi | null
+    resultFilters?: BIResultFilterApi[] | null
+    rowFilterGroup?: BIConditionGroupApi | null
     rows: BIFieldApi[]
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISortApi | null
@@ -9591,6 +9740,30 @@ export interface DashboardTileBasicApi {
  */
 export type _InsightResultWarningsApi = (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[]
 
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     date_from?: string | null
@@ -9600,6 +9773,8 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
+    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    metricFilters?: MetricsQueryFilterApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -9899,6 +10074,12 @@ export interface DashboardTileApi {
     show_description?: boolean | null
     /** @nullable */
     transparent_background?: boolean | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    group_key?: string | null
+    badge?: DashboardTileBadgeEnumApi | null
 }
 
 export interface DeleteTileRequestApi {
@@ -10278,6 +10459,31 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
     config: ConversationsRecentTicketsWidgetConfigApi
 }
 
+export type CanvasAppWidgetAddRequestOpenApiApiWidgetType =
+    (typeof CanvasAppWidgetAddRequestOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetAddRequestOpenApiApiWidgetType]
+
+export const CanvasAppWidgetAddRequestOpenApiApiWidgetType = {
+    CanvasApp: 'canvas_app',
+} as const
+
+export interface CanvasAppWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _TileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: CanvasAppWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the canvas app widget. */
+    config: CanvasAppWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | NotebookWidgetAddRequestOpenApiApi
     | ActivityEventsListWidgetAddRequestOpenApiApi
@@ -10288,13 +10494,14 @@ export type AddDashboardWidgetRequestApi =
     | SurveyResultsWidgetAddRequestOpenApiApi
     | LogsListWidgetAddRequestOpenApiApi
     | ConversationsRecentTicketsWidgetAddRequestOpenApiApi
+    | CanvasAppWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -10513,6 +10720,29 @@ export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
     config?: ConversationsRecentTicketsWidgetConfigApi
 }
 
+export type CanvasAppWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof CanvasAppWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const CanvasAppWidgetUpdateRequestOpenApiApiWidgetType = {
+    CanvasApp: 'canvas_app',
+} as const
+
+export interface CanvasAppWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: CanvasAppWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the canvas app widget. Omit to leave unchanged. */
+    config?: CanvasAppWidgetConfigApi
+}
+
 export type UpdateDashboardWidgetRequestApi =
     | NotebookWidgetUpdateRequestOpenApiApi
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
@@ -10523,6 +10753,7 @@ export type UpdateDashboardWidgetRequestApi =
     | SurveyResultsWidgetUpdateRequestOpenApiApi
     | LogsListWidgetUpdateRequestOpenApiApi
     | ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi
+    | CanvasAppWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -10778,6 +11009,27 @@ export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
     live: boolean
 }
 
+export type CanvasAppWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof CanvasAppWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof CanvasAppWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const CanvasAppWidgetCatalogEntryOpenApiApiWidgetType = {
+    CanvasApp: 'canvas_app',
+} as const
+
+export interface CanvasAppWidgetCatalogEntryOpenApiApi {
+    widget_type: CanvasAppWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: CanvasAppWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
+}
+
 export type WidgetCatalogEntryApi =
     | NotebookWidgetCatalogEntryOpenApiApi
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
@@ -10788,6 +11040,7 @@ export type WidgetCatalogEntryApi =
     | SurveyResultsWidgetCatalogEntryOpenApiApi
     | LogsListWidgetCatalogEntryOpenApiApi
     | ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi
+    | CanvasAppWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -10911,6 +11164,15 @@ export type ConversationsRecentTicketsWidgetTypeEnumApi =
 
 export const ConversationsRecentTicketsWidgetTypeEnumApi = {
     ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+/**
+ * * `canvas_app` - canvas_app
+ */
+export type CanvasAppWidgetTypeEnumApi = (typeof CanvasAppWidgetTypeEnumApi)[keyof typeof CanvasAppWidgetTypeEnumApi]
+
+export const CanvasAppWidgetTypeEnumApi = {
+    CanvasApp: 'canvas_app',
 } as const
 
 export type DashboardTemplatesListParams = {

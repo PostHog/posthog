@@ -386,7 +386,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
-        # GitHub event or API. See products/tasks/docs/LOOPS.md.
+        # GitHub event or API.
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
@@ -661,17 +661,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             (SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX)
         )
 
-    @property
-    def is_scout_trial_judge(self) -> bool:
-        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
-            SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX
-        )
-
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
-        if self.is_scout_experiment:
-            return
         # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
         # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
@@ -2144,8 +2136,7 @@ class ChannelStar(TeamScopedRootMixin):
 class Loop(ModelActivityMixin, TeamScopedRootMixin):
     """A named, cloud-executed agent automation: instructions plus model config,
     fired by schedule/GitHub/API triggers. Each firing spawns an internal Task
-    that runs on the standard tasks pipeline as the loop's owner (created_by).
-    See products/tasks/docs/LOOPS.md."""
+    that runs on the standard tasks pipeline as the loop's owner (created_by)."""
 
     class Visibility(models.TextChoices):
         PERSONAL = "personal", "Personal"
@@ -2192,7 +2183,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Binding to a context (a "#channel" / desktop folder) this loop is attached to, or {} when
     # unattached. Shape: {folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}.
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
-    # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
+    # injected into every run's prompt.
     context_target = models.JSONField(default=dict, blank=True)
     # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
     # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
@@ -3168,8 +3159,18 @@ class TaskRun(models.Model):
             # local/cloud value under an unclobbered name too.
             "run_environment": self.environment,
             "mode": self.mode,
+            "slack_session_id": self._slack_session_id(),
             **self._analytics_usage_properties(),
         }
+
+    def _slack_session_id(self) -> str | None:
+        """The Slack thread this run answers, in the shape the Slack app's mention and reply events use."""
+        if self.task.origin_product != Task.OriginProduct.SLACK:
+            return None
+        from products.slack_app.backend.analytics import slack_session_id  # noqa: PLC0415
+
+        thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
+        return slack_session_id(*thread) if thread else None
 
     def capture_event(
         self,
@@ -3184,8 +3185,6 @@ class TaskRun(models.Model):
         work — but the outcome is reported so callers tracking event loss can count it.
         """
         try:
-            if self.task.is_scout_experiment:
-                return False
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
             distinct_id = distinct_id_override or (

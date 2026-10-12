@@ -8,11 +8,17 @@ from botocore.exceptions import EndpointConnectionError
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.models.team import Team
 
 from products.workflows.backend.facade.tasks import refresh_pending_email_senders
 
 
 class TestEmailSenderVerification(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        Team.workflows_config.fget.cache_clear()
+        self.addCleanup(Team.workflows_config.fget.cache_clear)
+
     @parameterized.expand(
         [
             ("verified", "Success", True, True, "feedback.example.com", False, False, True),
@@ -89,6 +95,12 @@ class TestEmailSenderVerification(APIBaseTest):
             "ResourceTenants": [{"TenantName": f"team-{self.team.id}"}] if has_tenant else []
         }
         if edit_during_check:
+            sibling = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="sibling@example.com",
+                config={**integration.config, "email": "sibling@example.com"},
+            )
 
             def edit_sender(**kwargs: str) -> dict[str, list[dict[str, str]]]:
                 Integration.objects.filter(id=integration.id).update(
@@ -112,6 +124,15 @@ class TestEmailSenderVerification(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == 200
         assert response.json()["config"]["verified"] is expected_verified
+        project = self.client.get(f"/api/environments/{self.team.id}/")
+        assert project.status_code == 200
+        expected_default = integration.id if expected_verified else None
+        assert project.json()["workflows_config"]["default_email_integration_id"] == expected_default
+        if edit_during_check:
+            assert (
+                self.client.get(f"/api/projects/{self.team.id}/integrations/{sibling.id}/").json()["config"]["verified"]
+                is True
+            )
         checked_domains = [
             call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list
         ]

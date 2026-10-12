@@ -138,7 +138,7 @@ class BriefingItemSerializer(DataclassSerializer):
         dataclass = BriefingItem
         extra_kwargs = {
             "state": {
-                "help_text": "`done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, else `open`. Pull requests always stay `open`."
+                "help_text": "`done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`."
             },
         }
 

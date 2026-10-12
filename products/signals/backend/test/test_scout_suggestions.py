@@ -28,6 +28,8 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
+    ACTIVITY_READ_MAX_ROWS,
+    ACTIVITY_READ_MAX_ROWS_READ,
     MAX_DESCRIPTION_CHARS,
     PlannedSuggestionRun,
     ScoutSuggestionBatch,
@@ -43,6 +45,7 @@ from products.signals.backend.scout_harness.suggestions import (
     read_team_activity,
     reserved_scout_names,
     select_teams_to_scan,
+    set_up_team_q,
     stamp_requested,
     team_is_active_enough,
     visible_items,
@@ -97,6 +100,7 @@ class TestSuggestionSettings(SimpleTestCase):
             ("overridden", {"activity_window_days": 7, "min_events_in_window": 50}, 7, 50, 3),
             ("checks_off", {"min_events_in_window": 0, "min_active_days_in_window": 0}, 14, 0, 0),
             ("clamped", {"activity_window_days": 900, "min_active_days_in_window": -1}, 90, 100, 0),
+            ("events_clamped", {"min_events_in_window": 10**9}, 14, ACTIVITY_READ_MAX_ROWS, 3),
         ]
     )
     def test_activity_knobs(self, _name, extra, window_days, min_events, min_days):
@@ -332,6 +336,35 @@ class TestPlanSuggestionRuns(BaseTest):
 
         tier_one_only = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=1), self.now)
         self.assertEqual([run.team_id for run in tier_one_only], [engaged_overdue.id])
+
+    @parameterized.expand(
+        [
+            ("background_only", [("signals-scout-general", True)], False),
+            ("operational_only", [("signals-scout-inbox-validation", False)], False),
+            (
+                "background_plus_seeded_operational",
+                [("signals-scout-general", True), ("signals-scout-inbox-validation", False)],
+                False,
+            ),
+            ("person_enabled_specialist", [("signals-scout-general", False)], True),
+            (
+                "person_enabled_specialist_plus_operational",
+                [("signals-scout-apm", False), ("signals-scout-inbox-validation", False)],
+                True,
+            ),
+        ]
+    )
+    def test_set_up_ignores_background_and_operational_scouts(self, _name, scouts, expected_set_up):
+        team = self._team("candidate")
+        for skill_name, background in scouts:
+            SignalScoutConfig.objects.create(
+                team=team,
+                skill_name=skill_name,
+                enabled=True,
+                managed_by=SignalScoutConfig.ManagedBy.BACKGROUND if background else SignalScoutConfig.ManagedBy.TEAM,
+            )
+
+        self.assertEqual(Team.objects.filter(set_up_team_q(), id=team.id).exists(), expected_set_up)
 
     def test_a_scout_a_person_created_counts_as_engagement(self):
         # Creation stamps `created_by` but no status transition, so `status_changed_by` stays
@@ -665,6 +698,28 @@ class TestSelectTeamsToScan(BaseTest):
         self.assertEqual(selection.skipped_team_ids, ())
         self.assertIsNone(self._status(self.quiet))
 
+    def test_each_read_outcome_is_counted(self):
+        broken = self._team("broken-read")
+        reads = {
+            self.quiet.id: TeamActivity(event_count=12, active_days=1, capped=False),
+            self.busy.id: TeamActivity(event_count=ACTIVITY_READ_MAX_ROWS, active_days=0, capped=True),
+        }
+
+        def _read(team_id, **_):
+            if team_id == broken.id:
+                raise Exception("clickhouse is down")
+            return reads[team_id]
+
+        with patch("products.signals.backend.scout_harness.suggestions.read_team_activity", side_effect=_read):
+            selection = select_teams_to_scan(
+                self._planned(self.quiet, self.busy, broken), self.suggestion_settings, limit=10
+            )
+
+        self.assertEqual(
+            (selection.reads_answered, selection.reads_capped, selection.reads_failed),
+            (1, 1, 1),
+        )
+
 
 class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
     def test_counts_the_project_and_its_environments_inside_the_window(self):
@@ -698,6 +753,8 @@ class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertGreater(kwargs["settings"]["max_execution_time"], 0)
         self.assertEqual(kwargs["settings"]["timeout_overflow_mode"], "throw")
+        self.assertEqual(kwargs["settings"]["max_rows_to_read"], ACTIVITY_READ_MAX_ROWS_READ)
+        self.assertGreater(ACTIVITY_READ_MAX_ROWS_READ, ACTIVITY_READ_MAX_ROWS)
 
     def test_the_read_is_attributed_to_the_product(self):
         seen: list[QueryTags] = []

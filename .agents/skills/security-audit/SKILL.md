@@ -222,7 +222,8 @@ Once the report is delivered, ask the user whether they want the findings fixed.
 - Run any adjacent existing tests for the affected module to catch regressions.
 - Report back which findings were fixed, which tests pass, and anything that needs follow-up.
 
-Do not start fixing without explicit approval — the user may want to triage, file tickets, or fix in a separate branch.
+Do not start fixing without explicit approval — the user may want to triage or file tickets first.
+Route each approved fix and its reproducer test by merge status and disclosure risk. Fix a weakness introduced only by an open public PR in that PR. Keep an existing exploitable weakness private when publishing the fix would disclose it before deployment. See [Routing security fixes](../../security.md#routing-security-fixes).
 
 ## Output format
 

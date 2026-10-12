@@ -51,7 +51,11 @@ from products.signals.backend.models import (
     SignalScoutSuggestionSet,
     SignalSourceConfig,
 )
-from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    CanonicalSkillParseError,
+    canonical_operational_scout_names,
+    discover_canonical_skills,
+)
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
@@ -76,12 +80,18 @@ MAX_DESCRIPTION_CHARS = SPEC_DESCRIPTION_MAX_LENGTH
 # Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"
 
-# Row cap on the per-candidate activity read, so the check stays cheap on a large project. The
-# read refuses at the cap rather than truncating: the cap counts rows read while the query counts
-# the rows that pass the window filter, so a truncated read would come back as a small count that
-# reads like a quiet project. A project whose window does not fit the cap is active whatever the
-# refusal hid, and only a read that finishes has numbers — the small projects the check is about.
+# High bound for `min_events_in_window`. An event line above it would ask the check to tell
+# apart projects that the read cannot answer for anyway.
 ACTIVITY_READ_MAX_ROWS = 100_000
+
+# ClickHouse `max_rows_to_read` guard on the per-candidate activity read, so the check stays cheap
+# on a large project. The guard counts rows read, not rows that pass the filter. ClickHouse reads
+# whole granules (up to 8,192 rows), and a quiet project's 14-day window touches about one granule
+# in each of 60 to 100 parts, which other teams' rows mostly fill. So a quiet project reads several
+# hundred thousand rows to count a few dozen events, and the guard must sit well above that. The
+# read refuses at the guard rather than truncating, because a truncated count reads like a quiet
+# project. A project that trips the guard is active, and only a read that finishes has numbers.
+ACTIVITY_READ_MAX_ROWS_READ = 5_000_000
 
 # Wall-clock cap on the same read. `sync_execute` adds none of its own and the pooled client's
 # socket timeout is effectively infinite in production, so a stalled read would hold its worker
@@ -292,12 +302,15 @@ def set_up_team_q() -> Q:
 
     Source configs are environment-scoped, so a project whose Signals setup lives in a child
     environment counts through that child's parent; scout configs already canonicalize.
-    A background-managed scout is not set up: nobody on the project turned it on.
+    A background-managed scout or an operational scout is not set up: nobody on the project turned
+    it on. The first inbox visit seeds the operational scouts enabled, so counting them would drop a
+    background-only project out of the background bands the night after that visit.
     """
     source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
     user_scout_teams = (
         SignalScoutConfig.all_teams.filter(enabled=True)
         .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+        .exclude(skill_name__in=canonical_operational_scout_names())
         .values("team_id")
     )
     return (
@@ -536,7 +549,7 @@ def stamp_requested(team_ids: list[int], now: datetime | None = None) -> None:
 LOW_ACTIVITY_SKIP_REASON = "low_activity"
 
 # TOO_MANY_ROWS / TOO_MANY_ROWS_OR_BYTES: what `read_overflow_mode: throw` raises at
-# `ACTIVITY_READ_MAX_ROWS`. Any other failure belongs to the caller's dispatch-anyway path.
+# `ACTIVITY_READ_MAX_ROWS_READ`. Any other failure belongs to the caller's dispatch-anyway path.
 _READ_CAP_ERROR_CODES = (158, 396)
 
 
@@ -546,7 +559,7 @@ class TeamActivity:
 
     event_count: int
     active_days: int
-    # The read refused at `ACTIVITY_READ_MAX_ROWS` rather than answer with a truncated count, so
+    # The read refused at `ACTIVITY_READ_MAX_ROWS_READ` rather than answer with a truncated count, so
     # the two fields above hold nothing the check may read.
     capped: bool
 
@@ -555,6 +568,11 @@ class TeamActivity:
 class ActivitySelection:
     dispatch: tuple[PlannedSuggestionRun, ...]
     skipped_team_ids: tuple[int, ...]
+    # How each activity read ended. A capped read and an answered read look the same downstream,
+    # so these counts are the only place a guard that trips on quiet projects shows.
+    reads_answered: int = 0
+    reads_capped: int = 0
+    reads_failed: int = 0
 
 
 def activity_check_enabled(settings: SuggestionSettings) -> bool:
@@ -590,7 +608,7 @@ def read_team_activity(team_id: int, *, window_days: int) -> TeamActivity:
             # candidate after another, and the per-tick cap is flag-tunable.
             workload=Workload.OFFLINE,
             settings={
-                "max_rows_to_read": ACTIVITY_READ_MAX_ROWS,
+                "max_rows_to_read": ACTIVITY_READ_MAX_ROWS_READ,
                 "read_overflow_mode": "throw",
                 "max_execution_time": ACTIVITY_READ_MAX_EXECUTION_S,
                 # Both overflow modes throw for the same reason: a partial aggregate reads as a
@@ -635,6 +653,7 @@ def select_teams_to_scan(
     exempt = canonical_team_ids(settings.team_allowlist)
     dispatch: list[PlannedSuggestionRun] = []
     skipped: list[int] = []
+    answered = capped = failed = 0
     for run in candidates:
         if len(dispatch) >= limit:
             break
@@ -646,14 +665,25 @@ def select_teams_to_scan(
         except Exception:
             # A read that cannot answer must not cost the project its refresh window.
             logger.warning("scout_suggestions: activity read failed", team_id=run.team_id, exc_info=True)
+            failed += 1
             dispatch.append(run)
             continue
+        if activity.capped:
+            capped += 1
+        else:
+            answered += 1
         if team_is_active_enough(activity, settings):
             dispatch.append(run)
             continue
         skipped.append(run.team_id)
         _record_low_activity(run.team_id, activity=activity, settings=settings, tier=run.tier)
-    return ActivitySelection(dispatch=tuple(dispatch), skipped_team_ids=tuple(skipped))
+    return ActivitySelection(
+        dispatch=tuple(dispatch),
+        skipped_team_ids=tuple(skipped),
+        reads_answered=answered,
+        reads_capped=capped,
+        reads_failed=failed,
+    )
 
 
 def _skip_event_uuid(team_id: int, *, requested_at: datetime | None) -> str:
@@ -1068,6 +1098,7 @@ def mark_stale_if_fleet_changed(team_id: int) -> None:
 
 __all__ = [
     "ACTIVITY_READ_MAX_ROWS",
+    "ACTIVITY_READ_MAX_ROWS_READ",
     "LOW_ACTIVITY_SKIP_REASON",
     "MAX_SUGGESTIONS_PER_BATCH",
     "SIGNALS_SCOUT_SUGGESTIONS_FLAG",

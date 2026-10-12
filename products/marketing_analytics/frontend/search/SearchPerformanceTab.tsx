@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -28,17 +27,14 @@ export function SearchPerformanceTab(): JSX.Element {
         sourceNotices,
         readySources,
         displayMetrics,
-        hasPaidSources,
-        showPosition,
-        canShowPosition,
+        conversionsDisabledReason,
         search,
         query,
         breakdown,
         channel,
         hasActiveFilters,
-        hasSelectedBingSource,
     } = useValues(searchPerformanceLogic)
-    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, setShowPosition, clearFilters } =
+    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, clearFilters } =
         useActions(searchPerformanceLogic)
     const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
 
@@ -80,12 +76,6 @@ export function SearchPerformanceTab(): JSX.Element {
             ) : (
                 <>
                     {!hasActiveFilters && <SearchSourceSuggestions />}
-                    {breakdown === 'page' && channel !== 'organic' && hasSelectedBingSource && (
-                        <LemonBanner type="info">
-                            Bing Ads landing page metrics are not available in this view. Its keyword metrics are
-                            available under Keywords and queries.
-                        </LemonBanner>
-                    )}
                     {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
                             key={sourceId}
@@ -111,14 +101,6 @@ export function SearchPerformanceTab(): JSX.Element {
                                     data-attr="marketing-search-keyword-filter"
                                 />
                                 <div className="flex flex-wrap items-center gap-3">
-                                    {canShowPosition && (
-                                        <LemonCheckbox
-                                            checked={showPosition}
-                                            onChange={setShowPosition}
-                                            label="Show position"
-                                            data-attr="marketing-search-show-position"
-                                        />
-                                    )}
                                     <LemonSegmentedButton
                                         value={displayMetrics}
                                         onChange={setMetrics}
@@ -126,10 +108,8 @@ export function SearchPerformanceTab(): JSX.Element {
                                             { value: 'traffic', label: 'Traffic' },
                                             {
                                                 value: 'conversions',
-                                                label: 'Spend and conversions',
-                                                disabledReason: !hasPaidSources
-                                                    ? 'Spend and conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
-                                                    : undefined,
+                                                label: 'Conversions',
+                                                disabledReason: conversionsDisabledReason ?? undefined,
                                             },
                                         ]}
                                     />
@@ -138,7 +118,6 @@ export function SearchPerformanceTab(): JSX.Element {
                             <SearchPerformanceTable
                                 query={query}
                                 metrics={displayMetrics}
-                                showPosition={showPosition}
                                 onSelect={selectRow}
                                 emptyState={
                                     <div className="flex flex-col items-center gap-2 py-4">
@@ -159,9 +138,9 @@ export function SearchPerformanceTab(): JSX.Element {
                                 Top 100 results by clicks, grouped by platform, match type and currency.{' '}
                                 {breakdown === 'keyword' &&
                                     'Paid rows show targeted keywords; organic rows show actual Google queries. '}
-                                Conversions use the ad platform's attribution. Google Search Console does not report
-                                spend or conversions, and can omit low-volume queries. Organic positions are weighted by
-                                impressions. Hover over a change to see its comparison value.
+                                Reported conversions use the ad platform's attribution. Google Search Console does not
+                                report spend or conversions, and can omit low-volume queries. Organic positions are
+                                weighted by impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}
