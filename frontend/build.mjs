@@ -20,6 +20,7 @@ import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
 import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
+import { zodJitlessEsbuildPlugin } from './plugins/zodJitless.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -49,6 +50,7 @@ const common = {
     absWorkingDir: __dirname,
     bundle: true,
     writeMetaFile: !isDev,
+    extraPlugins: [zodJitlessEsbuildPlugin()],
 }
 
 await buildInParallel(

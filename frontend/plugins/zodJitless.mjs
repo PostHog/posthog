@@ -10,6 +10,8 @@
 // object, so it is on before any schema exists, in every chunk and every entry point. A `z.config()`
 // call in app code cannot promise that: a shared chunk can build a schema before the entry body that
 // makes the call runs, and an entry that calls it eagerly loads zod on pages that use no schema.
+import fs from 'node:fs/promises'
+
 export const ZOD_CORE_FILE = /[\\/]zod[\\/]v4[\\/]core[\\/]core\.js$/
 
 const DEFAULT_CONFIG = 'export const globalConfig = {};'
@@ -21,4 +23,16 @@ export function withJitlessZod(source, filePath) {
         throw new Error(`zod-jitless: no '${DEFAULT_CONFIG}' found in ${filePath}`)
     }
     return contents
+}
+
+export function zodJitlessEsbuildPlugin() {
+    return {
+        name: 'zod-jitless',
+        setup(build) {
+            build.onLoad({ filter: ZOD_CORE_FILE }, async (args) => ({
+                contents: withJitlessZod(await fs.readFile(args.path, 'utf8'), args.path),
+                loader: 'js',
+            }))
+        },
+    }
 }

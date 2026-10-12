@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite'
 
-import { ZOD_CORE_FILE, withJitlessZod } from '../../common/esbuilder/zodJitless.mjs'
+import { ZOD_CORE_FILE, withJitlessZod } from './zodJitless.mjs'
 
 export function zodJitlessPlugin(): Plugin {
     return {
