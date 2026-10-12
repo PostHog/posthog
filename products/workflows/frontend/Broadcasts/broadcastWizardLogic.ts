@@ -15,7 +15,16 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter, Breadcrumb, IntegrationType, ResourceEditedEvent, TeamPublicType, TeamType } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    IntegrationType,
+    PropertyFilterType,
+    PropertyOperator,
+    ResourceEditedEvent,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
@@ -40,6 +49,7 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import type { MissingRecipientEmailBannerProps } from '../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import {
     DEFAULT_STATE,
     ONE_TIME_RRULE,
@@ -50,6 +60,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from './audience/audienceList'
 import {
@@ -242,9 +253,13 @@ export interface broadcastWizardLogicValues {
     isReadOnly: boolean
     launching: boolean
     linkAudienceRejected: boolean
+    missingRecipientEmail: MissingRecipientEmailBannerProps | null
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
+    recipientEmailProperty: string | null
+    recipientsWithoutEmail: number | null
+    recipientsWithoutEmailLoading: boolean
     recurringRepeating: boolean
     recurringStartsAt: string | null
     saving: boolean
@@ -360,6 +375,21 @@ export interface broadcastWizardLogicActions {
     }
     loadExternalEdit: () => {
         value: true
+    }
+    loadRecipientsWithoutEmail: (_: any) => any
+    loadRecipientsWithoutEmailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecipientsWithoutEmailSuccess: (
+        recipientsWithoutEmail: number | null,
+        payload?: any
+    ) => {
+        recipientsWithoutEmail: number | null
+        payload?: any
     }
     moveToDraft: () => {
         value: true
@@ -496,6 +526,12 @@ export interface broadcastWizardLogicMeta {
         ) => BroadcastStatus
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
+        recipientEmailProperty: (email: BroadcastEmailValue) => string | null
+        missingRecipientEmail: (
+            recipientEmailProperty: string | null,
+            recipientsWithoutEmail: number | null,
+            blastRadius: BlastRadiusApi | null
+        ) => MissingRecipientEmailBannerProps | null
         selectedSender: (email: BroadcastEmailValue, integrations: IntegrationType[] | null) => IntegrationType | null
         stepValidationErrors: (
             goalEnabled: boolean,
@@ -609,7 +645,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         duplicateBroadcastFinished: true,
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         broadcast: [
             null as HogFlowApi | null,
             {
@@ -632,6 +668,42 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         filters: { properties: values.audienceProperties },
                         dedupe_key: 'email',
                     })
+                },
+            },
+        ],
+        recipientsWithoutEmail: [
+            null as number | null,
+            {
+                loadRecipientsWithoutEmail: async (_, breakpoint) => {
+                    await breakpoint(300)
+                    const key = values.recipientEmailProperty
+                    cache.checkedRecipientEmailProperty = key
+                    // Checked only right before launch, and never for an unfiltered audience: its size is a
+                    // cached total, and this count would be a scan of every person in the project.
+                    if (
+                        !values.currentProjectId ||
+                        !key ||
+                        values.currentStep !== 'review' ||
+                        values.audienceProperties.length === 0
+                    ) {
+                        return null
+                    }
+                    try {
+                        const missing = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
+                            filters: {
+                                properties: [
+                                    ...values.audienceProperties,
+                                    { key, type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+                                ],
+                            },
+                        })
+                        breakpoint()
+                        return missing.affected
+                    } catch {
+                        breakpoint()
+                        // A failed check must not block the send; it only drops the warning.
+                        return null
+                    }
                 },
             },
         ],
@@ -987,6 +1059,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (s) => [s.scheduleTimezone, s.currentTeam],
             (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null): string =>
                 scheduleTimezone ?? currentTeam?.timezone ?? dayjs.tz.guess(),
+        ],
+        recipientEmailProperty: [
+            (s) => [s.email],
+            (email: BroadcastEmailValue): string | null => recipientEmailProperty(email.to?.email),
+        ],
+        missingRecipientEmail: [
+            (s) => [s.recipientEmailProperty, s.recipientsWithoutEmail, s.blastRadius],
+            (
+                property: string | null,
+                missing: number | null,
+                blastRadius: BlastRadiusApi | null
+            ): MissingRecipientEmailBannerProps | null =>
+                property && missing ? { property, missing, audienceSize: blastRadius?.affected } : null,
         ],
         selectedSender: [
             (s) => [s.email, s.integrations],
@@ -1789,6 +1874,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         loadBroadcastFailure: () => {
             lemonToast.error("Couldn't load the broadcast. Refresh the page to try again.")
+        },
+    })),
+
+    listeners(({ actions, values, cache }) => ({
+        loadBlastRadius: () => {
+            actions.loadRecipientsWithoutEmail(null)
+        },
+        setEmail: () => {
+            if (
+                values.currentStep === 'review' &&
+                values.recipientEmailProperty !== cache.checkedRecipientEmailProperty
+            ) {
+                actions.loadRecipientsWithoutEmail(null)
+            }
         },
     })),
 

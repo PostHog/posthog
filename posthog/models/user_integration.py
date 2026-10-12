@@ -207,6 +207,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
     """
 
     integration: UserIntegration
+    is_user_integration = True
 
     def __init__(
         self, integration: UserIntegration, *, source: str | None = None, priority: Priority | None = None

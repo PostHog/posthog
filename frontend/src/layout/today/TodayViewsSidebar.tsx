@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
@@ -159,7 +159,15 @@ export function TodayViewsSidebar(): JSX.Element {
                                         key={`${item.type}-${item.id}`}
                                         value={`view:${item.type}-${item.id}`}
                                         label={item.name}
-                                        icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
+                                        icon={
+                                            building ? (
+                                                <Spinner />
+                                            ) : (
+                                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO[item.type].color]}>
+                                                    <ViewTypeIcon type={item.type} />
+                                                </ProductIconWrapper>
+                                            )
+                                        }
                                         meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
                                         to={item.href}
                                         active={path === removeProjectIdIfPresent(item.href)}
