@@ -10,7 +10,6 @@ import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
-import { repoPath } from './frontend/lib/repoPaths'
 
 export const manifest: ProductManifest = {
     name: 'VisualReview',
@@ -105,14 +104,23 @@ export const manifest: ProductManifest = {
         // workspace. Sidebar/nav callers stay zero-arg as before.
         visualReviewRuns: (): string => '/visual_review',
         visualReviewSettings: (): string => '/visual_review/settings',
-        // Without a repo this is the old run URL, which forwards once the run names its repo.
-        visualReviewRun: (runId: string, repoFullName?: string): string =>
-            repoFullName ? `${repoPath(repoFullName)}/runs/${runId}` : `/visual_review/runs/${runId}`,
-        visualReviewRepoRuns: (repoFullName: string): string => `${repoPath(repoFullName)}/runs`,
-        visualReviewSnapshotOverview: (repoFullName: string): string => `${repoPath(repoFullName)}/snapshots`,
-        visualReviewFlakiness: (repoFullName: string): string => `${repoPath(repoFullName)}/flakiness`,
-        visualReviewSnapshotHistory: (repoFullName: string, runType: string, identifier: string): string =>
-            `${repoPath(repoFullName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
+        // The run path that names no repository. It forwards once the run says which repository it belongs to.
+        visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+        visualReviewRepoRun: (repoOwner: string, repoName: string, runId: string): string =>
+            `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs/${runId}`,
+        visualReviewRepoRuns: (repoOwner: string, repoName: string): string =>
+            `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs`,
+        visualReviewSnapshotOverview: (repoOwner: string, repoName: string): string =>
+            `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/snapshots`,
+        visualReviewFlakiness: (repoOwner: string, repoName: string): string =>
+            `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/flakiness`,
+        visualReviewSnapshotHistory: (
+            repoOwner: string,
+            repoName: string,
+            runType: string,
+            identifier: string
+        ): string =>
+            `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

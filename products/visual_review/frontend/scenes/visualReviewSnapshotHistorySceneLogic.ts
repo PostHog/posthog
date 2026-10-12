@@ -15,6 +15,7 @@ import {
 } from '../generated/api'
 import type { QuarantinedIdentifierEntryApi, RepoApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import { resolveRepoId } from '../lib/repoIds'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export interface VisualReviewSnapshotHistorySceneLogicProps {
@@ -341,7 +342,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                 {
                     key: ['visual_review_snapshots', repoFullName],
                     name: 'Snapshots',
-                    path: urls.visualReviewSnapshotOverview(repoFullName),
+                    path: urls.visualReviewSnapshotOverview(...splitRepoFullName(repoFullName)),
                 },
                 { key: ['visual_review_snapshot_history', identifier], name: identifier },
             ],

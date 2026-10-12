@@ -12,7 +12,6 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -24,7 +23,7 @@ import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
-import { repoFullNameFromParams } from '../lib/repoPaths'
+import { repoFullNameFromParams, runPath } from '../lib/repoPaths'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -454,10 +453,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 <LemonBanner type="warning" className="mb-4">
                     This run has been superseded by a newer run.{' '}
                     {run.superseded_by_id && (
-                        <Link
-                            to={urls.visualReviewRun(run.superseded_by_id, repoFullName ?? undefined)}
-                            className="font-semibold"
-                        >
+                        <Link to={runPath(run.superseded_by_id, repoFullName ?? undefined)} className="font-semibold">
                             View latest run
                         </Link>
                     )}

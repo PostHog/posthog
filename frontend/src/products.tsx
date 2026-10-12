@@ -48,7 +48,6 @@ import type { LogsSceneActiveTab } from '../../products/logs/frontend/logsSceneL
 import type { MetricsSceneActiveTab } from '../../products/metrics/frontend/metricsSceneLogic'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { TracingSceneTab } from '../../products/tracing/frontend/tracingSceneLogic'
-import { repoPath } from '../../products/visual_review/frontend/lib/repoPaths'
 import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
@@ -1855,13 +1854,17 @@ export const productUrls = {
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
     visualReviewRuns: (): string => '/visual_review',
     visualReviewSettings: (): string => '/visual_review/settings',
-    visualReviewRun: (runId: string, repoFullName?: string): string =>
-        repoFullName ? `${repoPath(repoFullName)}/runs/${runId}` : `/visual_review/runs/${runId}`,
-    visualReviewRepoRuns: (repoFullName: string): string => `${repoPath(repoFullName)}/runs`,
-    visualReviewSnapshotOverview: (repoFullName: string): string => `${repoPath(repoFullName)}/snapshots`,
-    visualReviewFlakiness: (repoFullName: string): string => `${repoPath(repoFullName)}/flakiness`,
-    visualReviewSnapshotHistory: (repoFullName: string, runType: string, identifier: string): string =>
-        `${repoPath(repoFullName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
+    visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+    visualReviewRepoRun: (repoOwner: string, repoName: string, runId: string): string =>
+        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs/${runId}`,
+    visualReviewRepoRuns: (repoOwner: string, repoName: string): string =>
+        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/runs`,
+    visualReviewSnapshotOverview: (repoOwner: string, repoName: string): string =>
+        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/snapshots`,
+    visualReviewFlakiness: (repoOwner: string, repoName: string): string =>
+        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/flakiness`,
+    visualReviewSnapshotHistory: (repoOwner: string, repoName: string, runType: string, identifier: string): string =>
+        `/visual_review/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     etlOverview: (): string => '/etl',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,

@@ -30,7 +30,7 @@ import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { FlakinessEntryApi } from '../generated/api.schemas'
-import { repoFullNameFromParams } from '../lib/repoPaths'
+import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import {
     DecoratedEntry,
     VisualReviewFlakinessSceneLogicProps,
@@ -241,7 +241,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                             <div className="min-w-0">
                                                 <Link
                                                     to={urls.visualReviewSnapshotHistory(
-                                                        repoFullName,
+                                                        ...splitRepoFullName(repoFullName),
                                                         entry.run_type,
                                                         entry.identifier
                                                     )}

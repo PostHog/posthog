@@ -7,6 +7,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import type { RepoApi } from '../generated/api.schemas'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from '../scenes/visualReviewRepoLogic'
 import type { VisualReviewTabKey } from './VisualReviewTabs'
 
@@ -18,9 +19,9 @@ interface RepoSwitcherProps {
 }
 
 const TAB_TO_PATH: Record<VisualReviewTabKey, (repoFullName: string) => string> = {
-    runs: (repoFullName) => urls.visualReviewRepoRuns(repoFullName),
-    snapshots: (repoFullName) => urls.visualReviewSnapshotOverview(repoFullName),
-    flakiness: (repoFullName) => urls.visualReviewFlakiness(repoFullName),
+    runs: (repoFullName) => urls.visualReviewRepoRuns(...splitRepoFullName(repoFullName)),
+    snapshots: (repoFullName) => urls.visualReviewSnapshotOverview(...splitRepoFullName(repoFullName)),
+    flakiness: (repoFullName) => urls.visualReviewFlakiness(...splitRepoFullName(repoFullName)),
 }
 
 export function RepoSwitcher({ repoFullName, activeTab }: RepoSwitcherProps): JSX.Element | null {

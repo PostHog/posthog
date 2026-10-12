@@ -1,6 +1,8 @@
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { urls } from 'scenes/urls'
 
+import { splitRepoFullName } from '../lib/repoPaths'
+
 export type VisualReviewTabKey = 'runs' | 'snapshots' | 'flakiness'
 
 // Top-level tab strip for a repo workspace. All tabs are repo-scoped and
@@ -23,17 +25,17 @@ export function VisualReviewTabs({
                 {
                     key: 'runs' satisfies VisualReviewTabKey,
                     label: 'Runs',
-                    link: urls.visualReviewRepoRuns(repoFullName),
+                    link: urls.visualReviewRepoRuns(...splitRepoFullName(repoFullName)),
                 },
                 {
                     key: 'snapshots' satisfies VisualReviewTabKey,
                     label: 'Snapshots',
-                    link: urls.visualReviewSnapshotOverview(repoFullName),
+                    link: urls.visualReviewSnapshotOverview(...splitRepoFullName(repoFullName)),
                 },
                 {
                     key: 'flakiness' satisfies VisualReviewTabKey,
                     label: 'Flakiness',
-                    link: urls.visualReviewFlakiness(repoFullName),
+                    link: urls.visualReviewFlakiness(...splitRepoFullName(repoFullName)),
                 },
             ]}
         />

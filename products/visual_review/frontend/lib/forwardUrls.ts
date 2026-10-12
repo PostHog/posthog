@@ -2,6 +2,7 @@ import { urls } from 'scenes/urls'
 
 import type { RepoApi } from '../generated/api.schemas'
 import { findRepoByFullName } from './repoIds'
+import { runPath, splitRepoFullName } from './repoPaths'
 
 export type RepoPage = 'runs' | 'snapshots' | 'flakiness'
 
@@ -22,16 +23,16 @@ function legacyPath(route: LegacyRoute, repoFullName: string): string {
     switch (route.kind) {
         case 'repoPage':
             if (route.page === 'snapshots') {
-                return urls.visualReviewSnapshotOverview(repoFullName)
+                return urls.visualReviewSnapshotOverview(...splitRepoFullName(repoFullName))
             }
             if (route.page === 'flakiness') {
-                return urls.visualReviewFlakiness(repoFullName)
+                return urls.visualReviewFlakiness(...splitRepoFullName(repoFullName))
             }
-            return urls.visualReviewRepoRuns(repoFullName)
+            return urls.visualReviewRepoRuns(...splitRepoFullName(repoFullName))
         case 'snapshotHistory':
-            return urls.visualReviewSnapshotHistory(repoFullName, route.runType, route.identifier)
+            return urls.visualReviewSnapshotHistory(...splitRepoFullName(repoFullName), route.runType, route.identifier)
         case 'run':
-            return urls.visualReviewRun(route.runId, repoFullName)
+            return runPath(route.runId, repoFullName)
     }
 }
 

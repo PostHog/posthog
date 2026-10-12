@@ -17,6 +17,7 @@ import type {
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
 import { QuarantineLiftOnMerge } from './QuarantineLiftOnMerge'
@@ -531,7 +532,7 @@ export function SnapshotDiffViewer({
                                 {repoFullName && runType ? (
                                     <Link
                                         to={urls.visualReviewSnapshotHistory(
-                                            repoFullName,
+                                            ...splitRepoFullName(repoFullName),
                                             runType,
                                             snapshot.identifier
                                         )}
@@ -564,7 +565,7 @@ export function SnapshotDiffViewer({
                                     {repoFullName && runType ? (
                                         <Link
                                             to={urls.visualReviewSnapshotHistory(
-                                                repoFullName,
+                                                ...splitRepoFullName(repoFullName),
                                                 runType,
                                                 snapshot.identifier
                                             )}
@@ -586,7 +587,7 @@ export function SnapshotDiffViewer({
                                     {repoFullName && runType ? (
                                         <Link
                                             to={urls.visualReviewSnapshotHistory(
-                                                repoFullName,
+                                                ...splitRepoFullName(repoFullName),
                                                 runType,
                                                 snapshot.identifier
                                             )}
@@ -606,7 +607,7 @@ export function SnapshotDiffViewer({
                                 <div className="pt-1">
                                     <Link
                                         to={urls.visualReviewSnapshotHistory(
-                                            repoFullName,
+                                            ...splitRepoFullName(repoFullName),
                                             runType,
                                             snapshot.identifier
                                         )}

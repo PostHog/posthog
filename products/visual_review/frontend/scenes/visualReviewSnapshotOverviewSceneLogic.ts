@@ -14,7 +14,7 @@ import type { BaselineEntryApi, BaselineOverviewApi } from '../generated/api.sch
 import type { RepoApi } from '../generated/api.schemas'
 import { parseArea, parseTheme, runTypeLabel } from '../lib/parseIdentifier'
 import { resolveRepoId } from '../lib/repoIds'
-import { repoFullNameFromParams } from '../lib/repoPaths'
+import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export interface VisualReviewSnapshotOverviewSceneLogicProps {
@@ -541,7 +541,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             }
             return out
         }
-        const path = urls.visualReviewSnapshotOverview(props.repoFullName)
+        const path = urls.visualReviewSnapshotOverview(...splitRepoFullName(props.repoFullName))
         return {
             setStatPreset: () => [path, {}, buildHash()],
             toggleType: () => [path, {}, buildHash()],

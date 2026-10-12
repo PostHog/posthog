@@ -18,7 +18,7 @@ import {
 import type { FlakinessEntryApi, FlakinessOverviewApi, RepoApi } from '../generated/api.schemas'
 import { parseArea, runTypeLabel } from '../lib/parseIdentifier'
 import { resolveRepoId } from '../lib/repoIds'
-import { repoFullNameFromParams } from '../lib/repoPaths'
+import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
 export interface VisualReviewFlakinessSceneLogicProps {
@@ -593,7 +593,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             }
             return hash
         }
-        const path = urls.visualReviewFlakiness(props.repoFullName)
+        const path = urls.visualReviewFlakiness(...splitRepoFullName(props.repoFullName))
         const toUrl = (): [string, Record<string, string>, Record<string, string>] => [path, {}, buildHash()]
         return {
             setPreset: toUrl,

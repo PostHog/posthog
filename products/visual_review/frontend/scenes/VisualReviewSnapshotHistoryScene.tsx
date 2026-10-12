@@ -9,7 +9,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -19,7 +18,7 @@ import type { OnQuarantine } from '../components/QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
-import { repoFullNameFromParams } from '../lib/repoPaths'
+import { repoFullNameFromParams, runPath } from '../lib/repoPaths'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -98,7 +97,7 @@ function ThemePane({
 // reads `snapshot` from the URL hash (see `urlToAction` in visualReviewRunSceneLogic),
 // not from the query string — using `?` here would land on the run overview instead.
 function runUrl(entry: SnapshotHistoryEntryApi, repoFullName: string): string {
-    return `${urls.visualReviewRun(entry.run_id, repoFullName)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
+    return `${runPath(entry.run_id, repoFullName)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
 }
 
 function HistoryRow({
@@ -254,7 +253,7 @@ function QuarantineSection({
                         <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span>Originally failed on</span>
                             <Link
-                                to={urls.visualReviewRun(sourceRun.id, repoFullName)}
+                                to={runPath(sourceRun.id, repoFullName)}
                                 className="font-mono text-default"
                                 data-attr="visual-review-quarantine-source-run"
                             >

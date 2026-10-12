@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -41,6 +40,7 @@ import {
     liftRequestsByIdentifier,
 } from '../lib/liftOnMerge'
 import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
+import { runPath } from '../lib/repoPaths'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
@@ -1115,7 +1115,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     actionToUrl(({ props, values }) => ({
         setSelectedSnapshotId: ({ snapshotId }) => {
-            const path = urls.visualReviewRun(props.runId, values.repoFullName ?? undefined)
+            const path = runPath(props.runId, values.repoFullName ?? undefined)
             // The hash now carries the selection, so an old `?snapshot=` must not outlive it.
             const { snapshot: _oldSnapshot, ...searchParams } = router.values.searchParams
             if (snapshotId) {

@@ -24,7 +24,7 @@ import { RepoSwitcher } from '../components/RepoSwitcher'
 import { RunSummaryStats } from '../components/RunSummaryStats'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { RunApi } from '../generated/api.schemas'
-import { repoFullNameFromParams } from '../lib/repoPaths'
+import { repoFullNameFromParams, runPath } from '../lib/repoPaths'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { ReviewState, VisualReviewRunsSceneLogicProps, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
 
@@ -125,7 +125,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                         size="xsmall"
                         onClick={(e) => {
                             e.stopPropagation()
-                            router.actions.push(urls.visualReviewRun(run.id, repoFullName))
+                            router.actions.push(runPath(run.id, repoFullName))
                         }}
                     >
                         {needsReview ? 'Review' : 'View'}
@@ -218,7 +218,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                 nouns={['run', 'runs']}
                 emptyState={searchQuery.trim() ? `No runs match “${searchQuery.trim()}”.` : EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({
-                    onClick: () => router.actions.push(urls.visualReviewRun(run.id, repoFullName)),
+                    onClick: () => router.actions.push(runPath(run.id, repoFullName)),
                     className: 'cursor-pointer',
                 })}
             />

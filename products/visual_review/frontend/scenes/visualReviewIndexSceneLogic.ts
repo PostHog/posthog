@@ -9,6 +9,7 @@ import { Breadcrumb } from '~/types'
 import { visualReviewReposList, visualReviewRunsRetrieve } from '../generated/api'
 import { ForwardUrl, LegacyRoute, legacyForwardUrl, pickLandingRepo } from '../lib/forwardUrls'
 import { RepoNotFoundError, resolveRepoFullName } from '../lib/repoIds'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
 export type ForwardRoute = { kind: 'index' } | LegacyRoute
@@ -85,7 +86,9 @@ export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>(
                         : null
                     const repo = pickLandingRepo(response.results, lastRepoFullName)
                     destination = {
-                        path: repo ? urls.visualReviewRepoRuns(repo.repo_full_name) : urls.visualReviewSettings(),
+                        path: repo
+                            ? urls.visualReviewRepoRuns(...splitRepoFullName(repo.repo_full_name))
+                            : urls.visualReviewSettings(),
                         searchParams: {},
                         hashParams: {},
                     }

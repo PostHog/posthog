@@ -8,13 +8,14 @@ import { initKeaTests } from '~/test/init'
 
 import type { FlakinessOverviewApi, RepoApi } from '../generated/api.schemas'
 import { clearRepoIdCache } from '../lib/repoIds'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewFlakinessSceneLogic } from './visualReviewFlakinessSceneLogic'
 
 const REPO_ID = '00000000-0000-0000-0000-0000000000bb'
 const REPO_FULL_NAME = 'posthog/posthog'
 const FLAKINESS_URL = `/api/projects/:team_id/visual_review/repos/${REPO_ID}/flakiness/`
 const REPOS_URL = '/api/projects/:team_id/visual_review/repos/'
-const FLAKINESS_PAGE = urls.visualReviewFlakiness(REPO_FULL_NAME)
+const FLAKINESS_PAGE = urls.visualReviewFlakiness(...splitRepoFullName(REPO_FULL_NAME))
 
 const repo: RepoApi = {
     id: REPO_ID,
