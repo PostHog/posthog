@@ -33,10 +33,11 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
+from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
+from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
@@ -266,6 +267,8 @@ class ReviewMeta:
     lens_chunks_capped: bool = False
     # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
+    # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
+    skip_agent_review: bool = False
 
 
 @dataclass(frozen=False)
@@ -610,6 +613,8 @@ class StatusCommentInput:
     report_id: str
     review_mode: str = REVIEW_MODE_FULL
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # The failed turn, for the failure edit. None in payloads from before the field existed.
+    run_index: int | None = None
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -794,8 +799,16 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         merge_base_sha=fetched.merge_base_sha,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
+    # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
+    # delivery, so the webhook payload can miss the label.
+    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
+        fetched.pr_metadata.labels
+    )
+    if skip_agent_review:
+        observe_dispatch("label_skipped")
     if already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or fetched.pr_metadata.state != "open")
+        input.trigger_source == TRIGGER_AUTOMATIC
+        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
     ):
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
             status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
@@ -823,6 +836,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
+        skip_agent_review=skip_agent_review,
     )
 
 
@@ -2240,25 +2254,28 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
     await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
     report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
-    if report is not None:
-        record_run_outcome(
-            team_id,
-            report_id,
-            stage=RUN_STAGE_REVIEW,
-            outcome=RUN_OUTCOME_FAILED,
-            reason=REVIEW_FAILED_REASON,
-            # A run that dies in the publish window already counts its turn in `run_count`.
-            run_index=report.run_count if in_publish_window(report) else report.run_count + 1,
-            review_mode=review_mode,
-            head_sha=report.head_sha,
-        )
-    fail_status_comment(team_id, report_id, review_mode=review_mode)
+    if report is None:
+        return
+    if run_index is None:
+        # A run that dies in the publish window already counts its turn in `run_count`.
+        run_index = report.run_count if in_publish_window(report) else report.run_count + 1
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_FAILED,
+        reason=REVIEW_FAILED_REASON,
+        run_index=run_index,
+        review_mode=review_mode,
+        head_sha=report.head_sha,
+    )
+    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
@@ -2270,7 +2287,9 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(
+        input.team_id, input.report_id, input.review_mode, input.run_index
+    )
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

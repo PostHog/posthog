@@ -37,13 +37,29 @@ def _pr_metadata() -> PRMetadata:
 
 
 class TestFetchDecidesTheTier(BaseTest):
-    @parameterized.expand([(None, "open", False), ("sha1", "open", True), (None, "closed", False)])
+    @parameterized.expand(
+        [
+            (None, "open", [], False, False),
+            # A ready_for_review turn after the draft's automatic review at the same head.
+            ("sha1", "open", [], True, False),
+            (None, "closed", [], False, False),
+            # `gh pr create --label` adds the label after the `opened` delivery.
+            (None, "open", ["Skip-Agent-Review"], False, True),
+        ]
+    )
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.PRFetcher")
     def test_automatic_completion_requires_a_successful_publication_step(
-        self, automatic_head: str | None, state: str, complete: bool, mock_fetcher: MagicMock, _auth: MagicMock
+        self,
+        automatic_head: str | None,
+        state: str,
+        labels: list[str],
+        complete: bool,
+        skipped: bool,
+        mock_fetcher: MagicMock,
+        _auth: MagicMock,
     ) -> None:
-        metadata = _pr_metadata().model_copy(update={"state": state})
+        metadata = _pr_metadata().model_copy(update={"state": state, "labels": labels})
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
             pr_metadata=metadata, pr_comments=[], pr_files=[], diff=""
         )
@@ -69,7 +85,8 @@ class TestFetchDecidesTheTier(BaseTest):
         assert meta.already_completed is complete
         assert meta.pr_open is (state == "open")
         assert meta.automatic_reviewed_head_sha == automatic_head
-        expected_status = "closed" if state == "closed" else "idle" if complete else "active"
+        assert meta.skip_agent_review is skipped
+        expected_status = "closed" if state == "closed" else "idle" if complete or skipped else "active"
         assert report.status == expected_status
 
     @parameterized.expand([("flash", REVIEW_MODE_FLASH, 1), ("full", REVIEW_MODE_FULL, 0)])

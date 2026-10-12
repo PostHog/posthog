@@ -513,6 +513,10 @@ class ReviewPRWorkflow:
         if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
             workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
             return report_id
+        # The patch keeps a history written before the label check on its old command sequence.
+        if workflow.patched("reviewhog-skip-agent-review-label-2026-10") and meta.skip_agent_review:
+            workflow.logger.info("Automatic review skipped: the PR has the skip-agent-review label")
+            return report_id
 
         # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit
         # override the CLI and inbox triggers set. The label trigger falls back to the default run
@@ -798,6 +802,7 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             review_mode=inputs.review_mode,
                             review_design=review_design,
+                            run_index=meta.run_index,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
