@@ -69,6 +69,7 @@ def _commit_probes(mock_request: MagicMock) -> list[str]:
 
 @patch(_PAGINATED)
 @patch(_REQUEST)
+@pytest.mark.django_db
 class TestPostGithubReview:
     def test_uses_passed_token_and_pins_review_to_head_sha(
         self, mock_request: MagicMock, mock_paginated: MagicMock

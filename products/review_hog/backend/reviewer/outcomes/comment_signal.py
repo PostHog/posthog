@@ -63,7 +63,7 @@ def engagement_method(
     treating its own follow-up as engagement would let the feature grade its own homework. A fix it
     lands itself still shows up, as a commit in the post-review compare that the judge rules on —
     engagement is not where that belongs. Note `is_app_bot_author` can only single out our bot when
-    `REVIEWHOG_GITHUB_BOT_LOGIN` is set. Unset, local runs fall back to "any bot", which ignores
+    the `GITHUB_APP_SLUG` instance setting is set. Unset, local runs fall back to "any bot", which ignores
     every bot reply, and production trusts no bot, which counts our own replies as agent replies.
 
     A human reply beats an agent one when both are present, and a reaction beats both: it is the

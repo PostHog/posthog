@@ -1,6 +1,7 @@
 from typing import Any
 
-from django.test import override_settings
+import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -57,8 +58,10 @@ class TestFindFindingComment:
 
 _OUR_BOT: dict[str, Any] = {"login": "reviewhog[bot]", "type": "Bot"}
 _OTHER_BOT: dict[str, Any] = {"login": "greptile-apps[bot]", "type": "Bot"}
+_OUR_SLUG = patch("products.review_hog.backend.app_identity.get_instance_setting", new=lambda key: "reviewhog")
 
 
+@pytest.mark.django_db
 class TestEngagementMethod:
     @parameterized.expand(
         [
@@ -67,7 +70,7 @@ class TestEngagementMethod:
             ("our_own_queue_marker", _OUR_BOT, None),
         ]
     )
-    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN=_OUR_BOT["login"])
+    @_OUR_SLUG
     def test_a_reaction_counts_unless_it_is_ours(self, _name: str, user: dict[str, Any], expected: str | None):
         comment: dict[str, Any] = {"id": 1}
         reactions = [{"user": user, "content": "eyes"}]
@@ -78,7 +81,7 @@ class TestEngagementMethod:
         reply: dict[str, Any] = {"id": 2, "in_reply_to_id": 1, "user": {"login": "alice", "type": "User"}}
         assert engagement_method(comment=comment, review_comments=[comment, reply], reactions=[]) == "comment_reply"
 
-    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN=_OUR_BOT["login"])
+    @_OUR_SLUG
     def test_our_own_reply_is_never_engagement(self):
         # ReviewHog posts the finding comment itself, so counting its own follow-up would let the
         # feature grade its own homework. A fix it lands is captured as a commit the judge rules on.
@@ -86,7 +89,7 @@ class TestEngagementMethod:
         reply: dict[str, Any] = {"id": 2, "in_reply_to_id": 1, "user": _OUR_BOT}
         assert engagement_method(comment=comment, review_comments=[comment, reply], reactions=[]) is None
 
-    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN=_OUR_BOT["login"])
+    @_OUR_SLUG
     def test_another_agents_reply_is_engagement_tagged_as_agent(self):
         # A reviewer's own bot answering on their behalf is a real response to the finding. Dropping
         # it under-reports engagement, so the actor rides in the method instead of being filtered out.
@@ -96,7 +99,7 @@ class TestEngagementMethod:
             engagement_method(comment=comment, review_comments=[comment, reply], reactions=[]) == "comment_reply_agent"
         )
 
-    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN=_OUR_BOT["login"])
+    @_OUR_SLUG
     def test_human_reply_wins_over_an_agent_reply(self):
         # Both are engagement, but "a human responded" has to stay answerable once agents do more of
         # the replying, so the human actor takes the thread.
@@ -108,7 +111,7 @@ class TestEngagementMethod:
         )
 
     def test_agent_replies_are_ignored_when_our_bot_login_is_unconfigured(self):
-        # Outside production `is_app_bot_author` falls back to "any bot" without REVIEWHOG_GITHUB_BOT_LOGIN,
+        # Outside production `is_app_bot_author` falls back to "any bot" without GITHUB_APP_SLUG,
         # so a stranger's bot is never credited as engagement on a deployment that cannot tell it from
         # ours — the signal degrades to the old ignore-every-bot behaviour rather than misattributing.
         comment: dict[str, Any] = {"id": 1}

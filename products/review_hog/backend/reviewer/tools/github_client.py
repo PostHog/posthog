@@ -22,6 +22,8 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 
+from products.review_hog.backend.app_identity import posthog_app_login
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +32,7 @@ def is_app_bot_author(user: dict[str, Any] | None) -> bool:
 
     Guards the marker-based idempotency scans: on a public repo anyone can paste a marker, and a
     spoofed match suppresses a publish or gets a stranger's comment PATCHed. `type == "Bot"` blocks
-    human spoofers; when `REVIEWHOG_GITHUB_BOT_LOGIN` is configured (the app's `<slug>[bot]` login),
+    human spoofers; when the `GITHUB_APP_SLUG` instance setting is set (the app's `<slug>[bot]` login),
     markers pasted by OTHER installed bots are rejected too. Unset, it fails closed in production,
     because any installed bot would pass. Local development and tests fall back to the type check:
     the app's own login isn't derivable from an installation token without extra API calls.
@@ -38,12 +40,12 @@ def is_app_bot_author(user: dict[str, Any] | None) -> bool:
     author = user or {}
     if author.get("type") != "Bot":
         return False
-    expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
+    expected = posthog_app_login()
     if expected:
-        return author.get("login") == expected
+        return str(author.get("login") or "").lower() == expected
     if settings.DEBUG or settings.TEST:
         return True
-    logger.warning("REVIEWHOG_GITHUB_BOT_LOGIN is not set; no GitHub author counts as the ReviewHog app")
+    logger.warning("GITHUB_APP_SLUG is not set; no GitHub author counts as the ReviewHog app")
     return False
 
 

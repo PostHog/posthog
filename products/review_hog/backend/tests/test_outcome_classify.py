@@ -10,7 +10,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -133,7 +132,7 @@ class TestClassifyReportDecision:
             ("only_our_queue_marker", {"login": "reviewhog[bot]", "type": "Bot"}, "addressed", "judge_confirmed"),
         ]
     )
-    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="reviewhog[bot]")
+    @patch("products.review_hog.backend.app_identity.get_instance_setting", new=lambda key: "reviewhog")
     def test_a_reaction_takes_precedence_unless_it_is_ours(
         self, _name: str, reactor: dict[str, Any], outcome: str, method: str
     ):

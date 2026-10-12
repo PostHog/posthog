@@ -2,12 +2,11 @@ import json
 import logging
 from collections.abc import Collection, Sequence
 
-from django.conf import settings
-
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
@@ -52,8 +51,8 @@ class AlreadyRaised:
 def _is_review_hog_finding(comment: PRComment) -> bool:
     """ReviewHog's own finding comment. The marker is public, so it only counts on a bot's comment, and on
     ReviewHog's own app when its login is configured; otherwise anyone could paste it to leave the list."""
-    expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
-    by_review_hog = comment.user == expected if expected else comment.user.endswith("[bot]")
+    expected = posthog_app_login()
+    by_review_hog = comment.user.lower() == expected if expected else comment.user.endswith("[bot]")
     return by_review_hog and REVIEW_HOG_FINDING_MARKER in comment.body
 
 
