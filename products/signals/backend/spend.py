@@ -3,12 +3,13 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Count, Q, Sum
+from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend, SignalSpendMetadata
 from products.signals.backend.pricing import cost_to_spend
 
 logger = structlog.get_logger(__name__)
@@ -38,6 +39,23 @@ def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
     return str(signal_id) if signal_id else None
 
 
+def mark_spend_metadata_dirty(*, team_id: int, signal_id: str, emitted: bool = False) -> None:
+    if not emitted:
+        SignalSpendMetadata.objects.for_team(team_id).filter(signal_id=signal_id).update(
+            needs_refresh=True, updated_at=timezone.now()
+        )
+        return
+    try:
+        with transaction.atomic():
+            SignalSpendMetadata.objects.for_team(team_id).update_or_create(
+                team_id=team_id, signal_id=signal_id, defaults={"needs_refresh": True}
+            )
+    except Exception:
+        logger.exception(
+            "signals.spend.accounting_failed", stage="persist_metadata", team_id=team_id, signal_id=signal_id
+        )
+
+
 def record_llm_request(
     request_id: str | None,
     *,
@@ -60,6 +78,7 @@ def record_llm_request(
                     "accounting_failed": request_id is None,
                 },
             )
+            mark_spend_metadata_dirty(team_id=team_id, signal_id=signal_id)
         if request_id is None:
             logger.warning("signals.spend.generation_unaccounted", stage=stage, team_id=team_id, signal_id=signal_id)
     except Exception:
@@ -87,6 +106,8 @@ def record_task_spend(
         is_task=True,
         defaults={"signal_id": signal_id, "scout_run_id": scout_run_id, "task_id": task_id, "stage": stage},
     )
+    if signal_id:
+        mark_spend_metadata_dirty(team_id=team_id, signal_id=signal_id)
 
 
 def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, SignalSpendSummary]:
@@ -142,6 +163,8 @@ def refresh_task_spend(*, spend_id: UUID, team_id: int) -> None:
         spend.accounting_failed = cost is None
         spend.needs_refresh = cost is None
         spend.save(update_fields=["token_cost_microusd", "accounting_failed", "needs_refresh", "updated_at"])
+        if spend.signal_id:
+            mark_spend_metadata_dirty(team_id=team_id, signal_id=str(spend.signal_id))
         if cost is None:
             logger.warning(
                 "signals.spend.generation_unaccounted",

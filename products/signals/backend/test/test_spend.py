@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
@@ -17,6 +17,8 @@ from fakeredis import FakeRedis
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
+from posthog.schema import EmbeddingModelName
+
 from posthog.llm.gateway_usage import GatewayRequestCost
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -25,10 +27,15 @@ from posthog.token_bucket import TEST_reset_scripts
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.emission.pipeline import check_actionability
 from products.signals.backend.emission.registry import SignalEmitterOutput
-from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend, SignalSpendMetadata
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
-from products.signals.backend.spend import record_llm_request, signal_spend_summaries, signal_spend_totals
+from products.signals.backend.spend import (
+    mark_spend_metadata_dirty,
+    record_llm_request,
+    signal_spend_summaries,
+    signal_spend_totals,
+)
 from products.signals.backend.spend_tasks import reconcile_signal_spend
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.temporal.llm import call_llm
@@ -43,6 +50,89 @@ class TestSpendPricing(SimpleTestCase):
 
 
 class TestSignalSpend(BaseTest):
+    @parameterized.expand([("generation",), ("task",)])
+    def test_clickhouse_spend_retries_until_visible_and_tracks_later_costs(self, source: str) -> None:
+        driver = str(uuid4())
+        record_llm_request("first", team_id=self.team.id, signal_id=driver, stage="actionability")
+        mark_spend_metadata_dirty(team_id=self.team.id, signal_id=driver, emitted=True)
+        entry = SignalSpendMetadata.objects.for_team(self.team.id).get(signal_id=driver)
+        now = timezone.now()
+        metadata = {"report_id": "moved-report", "deleted": True, "extra": {"example": 1}, "total_spend": 0}
+        rows: dict[str, list] = {}
+        producer = Mock()
+        scope = MagicMock()
+        scope.__enter__.return_value = producer
+        with (
+            patch("products.signals.backend.spend_tasks.get_client", return_value=FakeRedis()),
+            patch("products.signals.backend.spend_metadata.producer_scope", return_value=scope) as produce_scope,
+            patch(
+                "products.signals.backend.spend_metadata.execute_hogql_query",
+                side_effect=lambda **kwargs: Mock(results=rows.get(kwargs["placeholders"]["model_name"].value, [])),
+            ),
+            patch(
+                "products.signals.backend.spend_tasks.fetch_gateway_cost",
+                new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
+            ),
+        ):
+            reconcile_signal_spend()
+            entry.refresh_from_db()
+            assert entry.needs_refresh
+            assert not SignalSpend.objects.for_team(self.team.id).get(source_id="first").needs_refresh
+            for model in EmbeddingModelName:
+                rows[model.value] = [(driver, ("Example finding", json.dumps(metadata), now, [0.5]))]
+
+            produce_scope.side_effect = RuntimeError("Kafka unavailable")
+            with capture_logs() as logs:
+                reconcile_signal_spend()
+            entry.refresh_from_db()
+            assert entry.needs_refresh
+            assert any(log.get("stage") == "persist_metadata" for log in logs)
+            produce_scope.side_effect = None
+
+            reconcile_signal_spend()
+            entry.refresh_from_db()
+            assert entry.needs_refresh
+            assert producer.produce.call_count == len(EmbeddingModelName)
+            for call in producer.produce.call_args_list:
+                payload = call.kwargs["data"]
+                assert json.loads(payload["metadata"]) == {
+                    **metadata,
+                    "total_spend": 0.0123,
+                    "spend_accounting_failed_stages": [],
+                }
+                assert payload["content"] == "Example finding"
+                assert payload["embedding"] == [0.5]
+                assert payload["timestamp"] == now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                rows[payload["model_name"]] = [(driver, (payload["content"], payload["metadata"], now, [0.5]))]
+            producer.reset_mock()
+            reconcile_signal_spend()
+            entry.refresh_from_db()
+            assert not entry.needs_refresh
+            producer.produce.assert_not_called()
+
+            if source == "generation":
+                record_llm_request("later", team_id=self.team.id, signal_id=driver, stage="report_safety_judge")
+                expected = 0.0246
+            else:
+                report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+                run = self._run(report=report)
+                self._set_task_cost(run, 123)
+                expected = 4.0246
+            reconcile_signal_spend()
+            assert producer.produce.call_count == len(EmbeddingModelName)
+            for call in producer.produce.call_args_list:
+                payload = call.kwargs["data"]
+                assert json.loads(payload["metadata"])["total_spend"] == expected
+                rows[payload["model_name"]] = [(driver, (payload["content"], payload["metadata"], now, [0.5]))]
+            record_llm_request(None, team_id=self.team.id, signal_id=driver, stage="summarization")
+            producer.reset_mock()
+            reconcile_signal_spend()
+            assert producer.produce.call_count == len(EmbeddingModelName)
+            assert all(
+                json.loads(call.kwargs["data"]["metadata"])["spend_accounting_failed_stages"] == ["summarization"]
+                for call in producer.produce.call_args_list
+            )
+
     @parameterized.expand([("invalid_json",), ("invalid_message",)])
     @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
     async def test_unreadable_generation_preserves_request_id_or_records_failed_stage(self, failure: str) -> None:

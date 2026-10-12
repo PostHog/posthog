@@ -3458,6 +3458,21 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
 
 
+class SignalSpendMetadata(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    signal_id = models.UUIDField()
+    needs_refresh = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "signal_id"], name="signals_spend_metadata_unique")]
+        indexes = [
+            models.Index(
+                fields=["updated_at"], condition=models.Q(needs_refresh=True), name="signals_spend_metadata_pending"
+            )
+        ]
+
+
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
     """One absolute cost observation per gateway request or task run."""
 
