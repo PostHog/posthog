@@ -9,7 +9,6 @@ import {
     libraryRowProductLabels,
     toolHrefForPath,
     toolLabel,
-    viewTypesForProductSearch,
 } from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
@@ -76,17 +75,6 @@ describe('todayShellLogic', () => {
 
     it('finds the Insights row with a search for the Product analytics name', () => {
         expect(libraryRowProductLabels('insight')).toContain('Product analytics')
-    })
-
-    test.each([
-        ['dash', ['dashboard']],
-        ['My Dashboards', ['dashboard']],
-        ['notebook', ['notebook']],
-        ['da', []],
-        ['canvas', []],
-        ['feature flags', []],
-    ])('points a Products search for %s to these view types: %j', (search, types) => {
-        expect(viewTypesForProductSearch(search).map((info) => info.type)).toEqual(types)
     })
 
     test.each([

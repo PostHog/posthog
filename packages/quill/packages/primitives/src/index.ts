@@ -205,6 +205,7 @@ export {
     FieldTitle,
 } from './field'
 export { Heading, headingVariants } from './heading'
+export { IconStack, IconStackItem } from './icon-stack'
 export { Input } from './input'
 export {
     NumberFieldRoot,

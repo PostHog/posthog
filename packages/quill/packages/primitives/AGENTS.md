@@ -148,6 +148,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | Avatar       | —                                                                                        | lg, default, sm, xs                                       | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                                                                                                                                                        |
 | ChatGlobe    | —                                                                                        | —                                                         | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                                                                                                                                               |
 | AvatarGroup  | —                                                                                        | default, sm, xs                                           | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children                                                                                                                          |
+| IconStack    | —                                                                                        | —                                                         | Fanned colored icon tiles (`IconStackItem`, `color` per product, grey default); spreads on hover. The Empty icon, or a trailing set of items after text                                                                                         |
 
 ---
 
@@ -696,6 +697,29 @@ Vertical: `<ButtonGroup orientation="vertical">`
   </EmptyContent>
 </Empty>
 ```
+
+For the icon, prefer `IconStack` with one `IconStackItem` per product or type the empty state is about, over `EmptyMedia variant="icon"`.
+A stack of one tile is fine. Inside an Empty the stack centers its hover spread.
+Give each tile its product's color through `color` (in the web app, `var(--color-product-<product>-light)`).
+Leave `color` out when the empty state belongs to no product; the tile stays grey.
+When the stack sits on a surface other than the app background, set `--quill-icon-stack-ring` to that surface so the tile rings match it.
+
+```tsx
+<EmptyHeader>
+  <IconStack>
+    <IconStackItem color="var(--color-product-notebooks-light)">
+      <IconNotebook />
+    </IconStackItem>
+    <IconStackItem color="var(--color-product-dashboards-light)">
+      <IconDashboard />
+    </IconStackItem>
+  </IconStack>
+  <EmptyTitle>No views yet</EmptyTitle>
+</EmptyHeader>
+```
+
+Outside an Empty, the same stack can trail a line of text for the items the line is about.
+Tiles are decorative by default; `render={<button aria-label="…" />}` makes one clickable, and `active` lifts it while its item is hovered elsewhere.
 
 ### Item List
 

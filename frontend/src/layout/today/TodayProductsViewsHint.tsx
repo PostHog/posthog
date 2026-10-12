@@ -1,11 +1,20 @@
-import { IconGridMasonry } from '@posthog/icons'
-import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@posthog/quill'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    IconStack,
+    IconStackItem,
+} from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { ViewTypeInfo } from 'scenes/views/viewsUtils'
+import { VIEW_TYPES, ViewTypeInfo } from 'scenes/views/viewsUtils'
+import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
-/** Points a Products search for dashboards or notebooks to the Views pane, where those types live. */
+/** Points a Products search for a view type to the Views pane, where those types live. */
 export function TodayProductsViewsHint({ viewTypes }: { viewTypes: ViewTypeInfo[] }): JSX.Element {
     const title = viewTypes
         .map((info, index) => (index === 0 ? info.pluralLabel : info.pluralLabel.toLowerCase()))
@@ -13,13 +22,15 @@ export function TodayProductsViewsHint({ viewTypes }: { viewTypes: ViewTypeInfo[
     return (
         <Empty className="mt-2 gap-3 p-4" data-attr="today-products-views-hint">
             <EmptyHeader>
-                <EmptyMedia variant="icon">
-                    <IconGridMasonry />
-                </EmptyMedia>
+                <IconStack>
+                    {VIEW_TYPES.map((info) => (
+                        <IconStackItem key={info.type} color={info.color}>
+                            <ViewTypeIcon type={info.type} />
+                        </IconStackItem>
+                    ))}
+                </IconStack>
                 <EmptyTitle>{`${title} are in Views`}</EmptyTitle>
-                <EmptyDescription>
-                    Dashboards and notebooks show your data, so they live in Views with your canvases.
-                </EmptyDescription>
+                <EmptyDescription>Canvases, notebooks and dashboards live in Views.</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
                 <Button
