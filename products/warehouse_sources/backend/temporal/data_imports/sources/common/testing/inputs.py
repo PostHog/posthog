@@ -1,4 +1,5 @@
 import structlog
+from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -18,6 +19,7 @@ def source_inputs(
     db_incremental_field_earliest_value: object | None = None,
     reset_pipeline: bool = False,
     api_version: str | None = None,
+    logger: FilteringBoundLogger | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -35,7 +37,7 @@ def source_inputs(
         incremental_field=incremental_field,
         incremental_field_type=incremental_field_type,
         job_id=job_id,
-        logger=structlog.get_logger(_LOGGER_NAME),
+        logger=logger if logger is not None else structlog.get_logger(_LOGGER_NAME),
         reset_pipeline=reset_pipeline,
         api_version=api_version,
     )

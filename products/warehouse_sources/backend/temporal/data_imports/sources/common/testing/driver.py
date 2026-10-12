@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import (
+    SCRIPTED_REQUEST_LIMIT,
     RecordedRequest,
     RunStopped,
     fake_environment,
@@ -39,6 +40,8 @@ class DriveResult:
     saved_states: list[Any]
     # Each cursor that reached storage, so a cursor saved after the last row does not appear.
     committed_states: list[Any]
+    # The cursor left in storage when the run ended. None when the source cleared it, or never saved one.
+    final_state: Any
     raised: BaseException | None
     # What `source_for_pipeline` returned: the name, the keys, the partitioning and the sort mode.
     response: SourceResponse | None
@@ -89,7 +92,7 @@ class SourceDriver:
         `script` answers the requests, in order or by request. `resume_state` is a cursor a previous
         attempt left behind, so the source resumes from it. Other keywords go to `source_inputs`.
         """
-        with fake_environment(ScriptedResponder(script)) as network:
+        with fake_environment(ScriptedResponder(script), SCRIPTED_REQUEST_LIMIT) as network:
             built = source_inputs(schema_name, **inputs)
             saved: list[Any] = []
             committed: list[Any] = []
@@ -146,6 +149,7 @@ class SourceDriver:
                 requests=list(network.requests_log),
                 saved_states=saved,
                 committed_states=committed,
+                final_state=manager.load_state() if manager is not None else None,
                 raised=raised,
                 response=response,
                 session_options=list(network.session_options),

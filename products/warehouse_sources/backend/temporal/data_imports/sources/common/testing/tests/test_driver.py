@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 import requests
 
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
     always,
+    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -160,6 +162,25 @@ class TestSourceDriver:
 
         assert len(result.requests) > 1
         assert isinstance(result.raised, requests.ConnectionError)
+
+    def test_the_result_carries_the_cursor_left_in_storage(self) -> None:
+        result = _driver().run("rows", [_page(1), _page()])
+
+        # The double saves a cursor after its last row, which never commits, so page 1 stays stored.
+        assert result.final_state == _Cursor(page=1)
+
+    def test_a_long_walk_is_not_cut_short(self) -> None:
+        pages = [_page(i) for i in range(1, 60)] + [_page()]
+
+        result = _driver().run("rows", pages)
+
+        assert result.raised is None
+        assert len(result.rows) == 59
+
+    def test_a_logger_reaches_the_source_inputs(self) -> None:
+        logger = MagicMock()
+
+        assert source_inputs("rows", logger=logger).logger is logger
 
 
 class TestScriptedResponse:
