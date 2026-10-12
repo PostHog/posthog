@@ -9,7 +9,7 @@ use dashmap::DashMap;
 use metrics::{counter, histogram};
 use tokio::sync::Mutex;
 
-use crate::cache::{CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey};
+use crate::cache::{CachedVersion, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey};
 use crate::warming::{fetch_writer_committed_offsets, ConsumerPool};
 
 /// One prune pass: fetch committed offsets, prune applied marks of the
@@ -81,10 +81,9 @@ pub async fn drop_settled_death_documents(
         // Skip lock-free only on a live or newer entry. An absent entry
         // must take the lock: a recovery holding it may be about to
         // install this very death document.
-        let settled = |entry: &Arc<CachedPerson>| entry.is_deleted && entry.version == mark.version;
+        let settled = |entry: CachedVersion| entry.is_deleted && entry.version == mark.version;
         if cache
             .peek(mark.partition, key)
-            .as_ref()
             .is_some_and(|entry| !settled(entry))
         {
             continue;
@@ -94,11 +93,7 @@ pub async fn drop_settled_death_documents(
             let _guard = mutex.lock().await;
             // Re-proved under the lock so a concurrent commit's newer entry
             // is never dropped.
-            if cache
-                .peek(mark.partition, key)
-                .as_ref()
-                .is_some_and(settled)
-            {
+            if cache.peek(mark.partition, key).is_some_and(settled) {
                 cache.remove(mark.partition, key);
                 counter!("personhog_leader_death_documents_settled_total").increment(1);
             }
@@ -112,7 +107,7 @@ pub async fn drop_settled_death_documents(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::approx_person_bytes;
+    use crate::cache::CachedPerson;
 
     fn death_person(version: i64) -> CachedPerson {
         CachedPerson {
@@ -125,7 +120,6 @@ mod tests {
             is_identified: true,
             is_deleted: true,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(0),
         }
     }
 

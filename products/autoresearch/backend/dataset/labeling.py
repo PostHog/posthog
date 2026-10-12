@@ -215,19 +215,25 @@ class RollingSelection:
     scored_lookback_days: int
 
 
-def rolling_selection(*, eligible: int, pipeline_id: str, cadence_days: int) -> RollingSelection | None:
+def scored_lookback_days(*, eligible: int, cadence_days: int) -> int:
     """
-    The rolling subset for a scoring population of ``eligible`` persons, or None when it scores whole.
+    How far back the ranking reads the pipeline's own predictions for a population of ``eligible`` persons.
     ``cadence_days`` is the pipeline's days between runs, so the history window covers a cycle in days.
     """
     limit = rolling_score_limit(eligible)
+    runs = 1 if limit is None else rolling_rescore_runs(eligible=eligible, scored=limit)
+    return max(ROLLING_SCORE_MIN_LOOKBACK_DAYS, 2 * runs * max(cadence_days, 1))
+
+
+def rolling_selection(*, eligible: int, pipeline_id: str, cadence_days: int) -> RollingSelection | None:
+    """The rolling subset for a scoring population of ``eligible`` persons, or None when it scores whole."""
+    limit = rolling_score_limit(eligible)
     if limit is None:
         return None
-    cycle_days = rolling_rescore_runs(eligible=eligible, scored=limit) * max(cadence_days, 1)
     return RollingSelection(
         pipeline_id=pipeline_id,
         limit=limit,
-        scored_lookback_days=max(ROLLING_SCORE_MIN_LOOKBACK_DAYS, 2 * cycle_days),
+        scored_lookback_days=scored_lookback_days(eligible=eligible, cadence_days=cadence_days),
     )
 
 
@@ -990,6 +996,23 @@ def build_eligible_count_sql(
     return sql, values
 
 
+def _last_scored_sql(cutoff_expr: str) -> str:
+    """
+    One row per person with the pipeline's newest non-shadow prediction before the cutoff, as ``last_scored_ts``.
+    Binds ``rolling_scored_lookback`` and ``rolling_pipeline_id``.
+    """
+    return f"""
+        SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_scored_ts
+        FROM events
+        WHERE event = '{PREDICTION_EVENT_NAME}'
+          AND timestamp >= {cutoff_expr} - toIntervalDay({{rolling_scored_lookback}})
+          AND timestamp < {cutoff_expr}
+          AND properties.$autoresearch_pipeline_id = {{rolling_pipeline_id}}
+          AND ifNull(properties.$autoresearch_model_role, '') != '{SHADOW_MODEL_ROLE}'
+        GROUP BY person_id
+    """
+
+
 def build_inference_anchors_sql(
     *,
     lookback_days: int,
@@ -1063,16 +1086,7 @@ def build_inference_anchors_sql(
         sql = f"""
             SELECT a.person_id AS person_id, a.cutoff_ts AS cutoff_ts
             FROM ({sql}) AS a
-            LEFT JOIN (
-                SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_scored_ts
-                FROM events
-                WHERE event = '{PREDICTION_EVENT_NAME}'
-                  AND timestamp >= {cutoff_expr} - toIntervalDay({{rolling_scored_lookback}})
-                  AND timestamp < {cutoff_expr}
-                  AND properties.$autoresearch_pipeline_id = {{rolling_pipeline_id}}
-                  AND ifNull(properties.$autoresearch_model_role, '') != '{SHADOW_MODEL_ROLE}'
-                GROUP BY person_id
-            ) AS s ON a.person_id = s.person_id
+            LEFT JOIN ({_last_scored_sql(cutoff_expr)}) AS s ON a.person_id = s.person_id
             LEFT JOIN (
                 SELECT person_id, toInt(toUnixTimestamp(max(timestamp))) AS last_active_ts
                 FROM events
@@ -1088,6 +1102,51 @@ def build_inference_anchors_sql(
         """
         values["rolling_scored_lookback"] = rolling.scored_lookback_days
         values["rolling_pipeline_id"] = rolling.pipeline_id
+    return sql, values
+
+
+def build_prediction_coverage_sql(
+    *,
+    lookback_days: int,
+    inference_population: dict[str, Any] | None,
+    cutoff_ts: int,
+    pipeline_id: str,
+    scored_lookback_days: int,
+    target_event: str = "",
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
+) -> tuple[str, dict[str, Any]]:
+    """
+    Build a HogQL query that returns one row: how much of the inference population has a score, and how old it is.
+
+    The query joins the inference anchors to the same last-score subquery that the rolling ranking
+    reads, so ``never_scored`` counts the people that the ranking puts first. Shadow predictions do
+    not count. Ages are in days before the cutoff, and are null when nobody has a score.
+    """
+    anchors_sql, values = build_inference_anchors_sql(
+        lookback_days=lookback_days,
+        inference_population=inference_population,
+        cutoff_ts=cutoff_ts,
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
+    )
+    sql = f"""
+        SELECT
+            count() AS population,
+            countIf(scored) AS with_score,
+            avgIf(age_days, scored) AS age_days_avg,
+            quantileIf(0.5)(age_days, scored) AS age_days_p50,
+            quantileIf(0.9)(age_days, scored) AS age_days_p90,
+            maxIf(age_days, scored) AS age_days_max
+        FROM (
+            SELECT ifNull(s.last_scored_ts, 0) AS last_scored_ts, last_scored_ts > 0 AS scored, (a.cutoff_ts - last_scored_ts) / 86400 AS age_days
+            FROM ({anchors_sql}) AS a
+            LEFT JOIN ({_last_scored_sql("fromUnixTimestamp({cutoff_ts})")}) AS s ON a.person_id = s.person_id
+        )
+    """
+    values["rolling_scored_lookback"] = scored_lookback_days
+    values["rolling_pipeline_id"] = pipeline_id
     return sql, values
 
 

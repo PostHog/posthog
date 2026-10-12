@@ -877,6 +877,18 @@ def test_patch_hogql_model_batch_export(
         assert args["batch_export_model"]["hogql_query"] == new_hogql_query
         assert args["batch_export_model"]["hogql_modifiers"] == hogql_modifiers
 
+    # A modifier removed from the schema after the export stored it is not returned, so sending back what was read
+    # still saves.
+    source = BatchExport.objects.get(id=batch_export["id"]).source
+    assert source is not None
+    source.hogql_modifiers = {"convertToProjectTimezone": False, "removedModifier": True}
+    source.save()
+
+    read_modifiers = get_batch_export_ok(client, team.pk, batch_export["id"])["hogql_modifiers"]
+    assert read_modifiers == {"convertToProjectTimezone": False}
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_modifiers": read_modifiers})
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
 @pytest.mark.parametrize("access_level,include_query", [("viewer", False), ("none", False), ("none", True)])

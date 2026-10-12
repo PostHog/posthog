@@ -9,7 +9,7 @@ import re
 import json
 import time
 import uuid
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -27,10 +27,11 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.limiter import remember_observed_core_limit
+from posthog.egress.github.limiter import github_installation_pace_seconds, remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
@@ -50,6 +51,23 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 
 # Branch cache: 10-minute staleness, 24-hour eviction timeout.
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
+GITHUB_BRANCH_REFRESH_MAX_WAIT_SECONDS = 60.0
+# Outlives a paced refresh and its retries, so picker views do not queue a second one meanwhile.
+GITHUB_BRANCH_REFRESH_LOCK_SECONDS = 60 * 60
+
+# Token-checked lock operations, so only the refresh that holds the lock renews or releases it.
+_RENEW_OWNED_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("expire", KEYS[1], ARGV[2])
+end
+return 0
+"""
+_RELEASE_OWNED_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
@@ -207,6 +225,8 @@ class GitHubIntegrationBase:
     """Installation-token operations shared between team and user GitHub integrations."""
 
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
+    # Names the table `integration` lives in, so a background task can load the row again.
+    is_user_integration: bool = False
     # Per-subsystem attribution on the shared egress metrics. Product callers construct their client
     # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
     # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
@@ -2407,7 +2427,9 @@ class GitHubIntegrationBase:
             "comments": feedback,
         }
 
-    def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
+    def list_repositories(
+        self, *, page: int = 1, per_page: int = 100, priority: Priority | None = None
+    ) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.
 
         Uses GitHub's ``page`` and ``per_page`` query parameters
@@ -2445,6 +2467,7 @@ class GitHubIntegrationBase:
             "GET",
             f"/installation/repositories?page={page}&per_page={per_page}",
             endpoint="/installation/repositories",
+            priority=priority,
         )
         try:
             body = response.json()
@@ -2467,14 +2490,14 @@ class GitHubIntegrationBase:
         )
         raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
 
-    def list_all_repositories(self) -> list[dict]:
-        """Fetch all accessible repositories, paginating through GitHub's API."""
+    def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
+        """Fetch all accessible repositories, paginating through GitHub's API. ``priority`` overrides the client's lane."""
         all_repositories: list[dict] = []
         page = 1
         per_page = 100
 
         while True:
-            repositories, has_more = self.list_repositories(page=page, per_page=per_page)
+            repositories, has_more = self.list_repositories(page=page, per_page=per_page, priority=priority)
             all_repositories.extend(repositories)
 
             if not has_more or not repositories:
@@ -2569,13 +2592,19 @@ class GitHubIntegrationBase:
 
         return result, has_more
 
-    def list_all_branches(self, repo: str) -> list[str]:
-        """Fetch all branches for a repository, paginating through GitHub's API."""
+    def list_all_branches(self, repo: str, *, before_page: Callable[[], None] | None = None) -> list[str]:
+        """Fetch all branches for a repository, paginating through GitHub's API.
+
+        A large repository takes hundreds of pages. ``before_page`` runs before each one, so a
+        background refresh can wait for room in the installation's budget and keep its lock alive.
+        """
         all_branches: list[str] = []
         offset = 0
         page_size = 100
 
         while True:
+            if before_page is not None:
+                before_page()
             branches, has_more = self.list_branches(repo, limit=page_size, offset=offset)
             all_branches.extend(branches)
 
@@ -2666,7 +2695,9 @@ class GitHubIntegrationBase:
             return True
         return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 
-    def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
+    def sync_repository_cache(
+        self, min_refresh_interval_seconds: int | None = None, *, priority: Priority | None = None
+    ) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
         updated_at = self.integration.repository_cache_updated_at
         if (
@@ -2677,7 +2708,7 @@ class GitHubIntegrationBase:
         ):
             return cached_repositories
 
-        repositories = self.list_all_repositories()
+        repositories = self.list_all_repositories(priority=priority)
         refreshed_at = timezone.now()
         update_fields = ["repository_cache_updated_at"]
         if repositories != cached_repositories:
@@ -2789,8 +2820,18 @@ class GitHubIntegrationBase:
             return True
         return time.time() - float(cached["updated_at"]) >= GITHUB_BRANCH_CACHE_TTL_SECONDS
 
-    def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
-        branches = self.list_all_branches(repo)
+    def _wait_for_budget(self) -> None:
+        installation_id = self.github_installation_id
+        if not installation_id:
+            return
+        pace = github_installation_pace_seconds(installation_id, priority=self.priority)
+        if pace > 0:
+            time.sleep(min(pace, GITHUB_BRANCH_REFRESH_MAX_WAIT_SECONDS))
+
+    def sync_branch_cache(
+        self, repo: str, *, before_page: Callable[[], None] | None = None
+    ) -> tuple[list[str], str | None]:
+        branches = self.list_all_branches(repo, before_page=before_page)
         cached = self._get_branch_cache(repo)
         cached_default_branch = None if cached is None else cast(str | None, cached.get("default_branch"))
 
@@ -2822,6 +2863,57 @@ class GitHubIntegrationBase:
 
         return branches, default_branch
 
+    def _branch_refresh_lock_key(self, repo: str) -> str:
+        return f"{self._get_branch_cache_key(repo)}:refreshing"
+
+    def _schedule_branch_cache_refresh(self, repo: str) -> None:
+        lock_token = uuid.uuid4().hex
+        try:
+            acquired = get_redis_client().set(
+                self._branch_refresh_lock_key(repo), lock_token, nx=True, ex=GITHUB_BRANCH_REFRESH_LOCK_SECONDS
+            )
+        except Exception:
+            # The person still gets the cached list; the next picker view tries the refresh again.
+            logger.warning(
+                "GitHubIntegration: failed to take the branch refresh lock",
+                integration_id=self.integration.id,
+                repo=repo,
+                exc_info=True,
+            )
+            return
+        if not acquired:
+            return
+        # The tasks module imports the integration models, so a module-level import is circular.
+        from posthog.tasks.integrations import refresh_github_branch_cache  # noqa: PLC0415
+
+        try:
+            refresh_github_branch_cache.delay(str(self.integration.id), repo, self.is_user_integration, lock_token)
+        except Exception:
+            self.release_branch_refresh_lock(repo, lock_token)
+            logger.warning(
+                "GitHubIntegration: failed to schedule branch cache refresh",
+                integration_id=self.integration.id,
+                repo=repo,
+                exc_info=True,
+            )
+
+    def release_branch_refresh_lock(self, repo: str, lock_token: str) -> None:
+        # Only the owner releases, and atomically, so a refresh cannot free a newer refresh's lock.
+        get_redis_client().eval(_RELEASE_OWNED_LOCK_SCRIPT, 1, self._branch_refresh_lock_key(repo), lock_token)
+
+    def refresh_branch_cache(self, repo: str, lock_token: str) -> None:
+        """List the branches at the budget's pace and store them, for the background refresh."""
+        lock_key = self._branch_refresh_lock_key(repo)
+
+        def before_page() -> None:
+            self._wait_for_budget()
+            # A paced refresh of a large repository can outlast the lock, so each page renews it.
+            get_redis_client().eval(
+                _RENEW_OWNED_LOCK_SCRIPT, 1, lock_key, lock_token, str(GITHUB_BRANCH_REFRESH_LOCK_SECONDS)
+            )
+
+        self.sync_branch_cache(repo, before_page=before_page)
+
     def list_cached_branches(
         self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[str], str | None, bool]:
@@ -2829,13 +2921,9 @@ class GitHubIntegrationBase:
         should_refresh = cached is None or self.branch_cache_is_stale(repo)
         self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
 
-        if should_refresh:
+        if cached is None:
             try:
                 branches, default_branch = self.sync_branch_cache(repo)
-                cached = {
-                    "branches": branches,
-                    "default_branch": default_branch,
-                }
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh branch cache",
@@ -2843,10 +2931,16 @@ class GitHubIntegrationBase:
                     repo=repo,
                     exc_info=True,
                 )
-                if cached is None:
-                    raise
+                raise
+            cached = {
+                "branches": branches,
+                "default_branch": default_branch,
+            }
+        elif should_refresh:
+            # A large repository takes hundreds of pages to list. The person gets the cached list now,
+            # and a background task refreshes it.
+            self._schedule_branch_cache_refresh(repo)
 
-        assert cached is not None
         branches = cast(list[str], cached["branches"])
         default_branch = cast(str | None, cached.get("default_branch"))
 
@@ -2967,12 +3061,13 @@ class GitHubIntegrationBase:
             return response
         raise GitHubIntegrationError(f"GitHubIntegration: api_request exhausted retries on {path}")
 
-    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
+    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10, priority: Priority | None = None) -> dict:
         """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
 
         Dict-or-raise sugar over :meth:`api_request`: any non-2xx (or non-dict body) becomes a
-        :class:`GitHubIntegrationError`; rate limits propagate as :class:`GitHubRateLimitError`."""
-        response = self.api_request("GET", path, endpoint=endpoint, timeout=timeout)
+        :class:`GitHubIntegrationError`; rate limits propagate as :class:`GitHubRateLimitError`.
+        ``priority`` overrides the client's lane for this call, as on :meth:`api_request`."""
+        response = self.api_request("GET", path, endpoint=endpoint, timeout=timeout, priority=priority)
         if response.status_code < 200 or response.status_code >= 300:
             logger.warning(
                 "GitHubIntegration: _gh_api_get non-2xx response",
