@@ -270,7 +270,6 @@ describe('WorkerIngestServer', () => {
             [2, SubBatchStatus.OK, 1],
             [1, SubBatchStatus.OK, 2],
         ])
-        // An OK ack claims every message, so the disposition list stays empty.
         expect(collected.acks.every((ack) => ack.timedOut.length === 0)).toBe(true)
         expect(server.streamCount).toBe(0)
     })
@@ -359,9 +358,6 @@ describe('WorkerIngestServer', () => {
     })
 
     it('arms the frame budget at read time, before the sub-batch waits for admission', async () => {
-        // A sub-batch parked behind a full pipeline has already spent part of
-        // its allowance, so the arming point has to be the frame read rather
-        // than the feed.
         const source = new FrameSource()
         const collected = collect(server, source)
 
@@ -589,10 +585,9 @@ describe('WorkerIngestServer', () => {
         await until(() => driver.feeds.length === 2)
         const streamId = driver.feeds[0].streamId
 
-        // The consumer commits what a PARTIAL ack accepts, so the ack waits
-        // until the finished events' writes settle.
+        // The consumer commits what a PARTIAL ack accepts.
         const settled = new Deferred<void>()
-        driver.complete({ streamId, seq: 1, accepted: 3, timedOut: [1] }, settled.promise)
+        driver.complete({ streamId, seq: 1, accepted: 3, timedOut: [{ partition: 0, offset: 11 }] }, settled.promise)
         driver.complete({ streamId, seq: 2, accepted: 1 })
         await until(() => collected.acks.length >= 1)
         expect(collected.acks.map((ack) => ack.seq)).toEqual([2n])
@@ -605,16 +600,11 @@ describe('WorkerIngestServer', () => {
         expect(collected.acks.map((ack) => ack.seq)).toEqual([2n, 1n])
         const ack = collected.acks[1]
         expect(ack.status).toBe(SubBatchStatus.PARTIAL)
-        expect(ack.timedOut).toEqual([1])
-        // The invariant the consumer validates fail-closed: a non-empty
-        // timed-out list, and every message accounted for exactly once.
-        expect(ack.timedOut.length).toBeGreaterThan(0)
+        expect(ack.timedOut).toMatchObject([{ partition: 0, offset: 11n }])
         expect(ack.accepted + ack.timedOut.length).toBe(4)
     })
 
     it('acks a parked sub-batch PARTIAL when its soft budget runs out before a slot frees', async () => {
-        // Nothing entered the pipeline, so there is no worker state to reconcile:
-        // every message goes back to the consumer for redelivery.
         const budgeted = new WorkerIngestServer(
             { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
             { driver, feedOrderSentinel: sentinel, onFatal }
@@ -635,7 +625,10 @@ describe('WorkerIngestServer', () => {
             expect(ack.seq).toBe(2n)
             expect(ack.status).toBe(SubBatchStatus.PARTIAL)
             expect(ack.accepted).toBe(0)
-            expect(ack.timedOut).toEqual([0, 1])
+            expect(ack.timedOut).toMatchObject([
+                { partition: 0, offset: 11n },
+                { partition: 0, offset: 12n },
+            ])
             expect(driver.feeds.map((feed) => feed.seq)).toEqual([1])
 
             // The stream stays usable: the reader moved on to the next frame.

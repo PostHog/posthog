@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_ingestion_worker_v1_worker: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKgAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQSFgoOc29mdF9idWRnZXRfbXMYBiABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUigQEKFEluZ2VzdFN0cmVhbVJlc3BvbnNlEjEKBXJlYWR5GAEgASgLMiAuaW5nZXN0aW9uLndvcmtlci52MS5TdHJlYW1SZWFkeUgAEi8KA2FjaxgCIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hBY2tIAEIFCgNtc2ciDQoLU3RyZWFtUmVhZHkigwEKC1N1YkJhdGNoQWNrEgsKA3NlcRgBIAEoBBIzCgZzdGF0dXMYAiABKA4yIy5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoU3RhdHVzEhAKCGFjY2VwdGVkGAMgASgNEg0KBWVycm9yGAQgASgJEhEKCXRpbWVkX291dBgFIAMoDSqhAQoOU3ViQmF0Y2hTdGF0dXMSIAocU1VCX0JBVENIX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE1NVQl9CQVRDSF9TVEFUVVNfT0sQARIbChdTVUJfQkFUQ0hfU1RBVFVTX0ZBSUxFRBACEhkKFVNVQl9CQVRDSF9TVEFUVVNfQlVTWRADEhwKGFNVQl9CQVRDSF9TVEFUVVNfUEFSVElBTBAEMncKDFdvcmtlckluZ2VzdBJnCgxJbmdlc3RTdHJlYW0SKC5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlcXVlc3QaKS5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlc3BvbnNlKAEwAWIGcHJvdG8z'
+        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKgAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQSFgoOc29mdF9idWRnZXRfbXMYBiABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUiLwoKTWVzc2FnZVJlZhIRCglwYXJ0aXRpb24YASABKAUSDgoGb2Zmc2V0GAIgASgDIoEBChRJbmdlc3RTdHJlYW1SZXNwb25zZRIxCgVyZWFkeRgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtUmVhZHlIABIvCgNhY2sYAiABKAsyIC5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoQWNrSABCBQoDbXNnIg0KC1N0cmVhbVJlYWR5IqQBCgtTdWJCYXRjaEFjaxILCgNzZXEYASABKAQSMwoGc3RhdHVzGAIgASgOMiMuaW5nZXN0aW9uLndvcmtlci52MS5TdWJCYXRjaFN0YXR1cxIQCghhY2NlcHRlZBgDIAEoDRINCgVlcnJvchgEIAEoCRIyCgl0aW1lZF9vdXQYBSADKAsyHy5pbmdlc3Rpb24ud29ya2VyLnYxLk1lc3NhZ2VSZWYqoQEKDlN1YkJhdGNoU3RhdHVzEiAKHFNVQl9CQVRDSF9TVEFUVVNfVU5TUEVDSUZJRUQQABIXChNTVUJfQkFUQ0hfU1RBVFVTX09LEAESGwoXU1VCX0JBVENIX1NUQVRVU19GQUlMRUQQAhIZChVTVUJfQkFUQ0hfU1RBVFVTX0JVU1kQAxIcChhTVUJfQkFUQ0hfU1RBVFVTX1BBUlRJQUwQBDJ3CgxXb3JrZXJJbmdlc3QSZwoMSW5nZXN0U3RyZWFtEiguaW5nZXN0aW9uLndvcmtlci52MS5Jbmdlc3RTdHJlYW1SZXF1ZXN0GikuaW5nZXN0aW9uLndvcmtlci52MS5Jbmdlc3RTdHJlYW1SZXNwb25zZSgBMAFiBnByb3RvMw'
     )
 
 /**
@@ -128,12 +128,9 @@ export type SubBatch = Message<'ingestion.worker.v1.SubBatch'> & {
     assignmentEpoch: bigint
 
     /**
-     * Time allowance for processing this sub-batch, milliseconds. The worker
-     * derives its budget from this field alone; it has no sizing config of its
-     * own. 0 = unlimited — which is also what a consumer predating the field
-     * sends, so compatibility is automatic. Soft: past it the worker stops
-     * starting new work but never interrupts a running step, so the consumer's
-     * ack watchdog stays the hard limit.
+     * Milliseconds after which the worker stops starting new work. It never
+     * interrupts a running step, so the ack watchdog stays the hard limit.
+     * 0, or a value above 2^31 - 1, means unlimited.
      *
      * @generated from field: uint64 soft_budget_ms = 6;
      */
@@ -200,6 +197,29 @@ export const KafkaMessageSchema: GenMessage<KafkaMessage> =
     messageDesc(file_ingestion_worker_v1_worker, 3)
 
 /**
+ * The consumer reads one topic, so a partition and an offset identify a message.
+ *
+ * @generated from message ingestion.worker.v1.MessageRef
+ */
+export type MessageRef = Message<'ingestion.worker.v1.MessageRef'> & {
+    /**
+     * @generated from field: int32 partition = 1;
+     */
+    partition: number
+
+    /**
+     * @generated from field: int64 offset = 2;
+     */
+    offset: bigint
+}
+
+/**
+ * Describes the message ingestion.worker.v1.MessageRef.
+ * Use `create(MessageRefSchema)` to create a new message.
+ */
+export const MessageRefSchema: GenMessage<MessageRef> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 4)
+
+/**
  * IngestStreamResponse is one frame on the worker-to-consumer stream.
  *
  * @generated from message ingestion.worker.v1.IngestStreamResponse
@@ -237,7 +257,7 @@ export type IngestStreamResponse = Message<'ingestion.worker.v1.IngestStreamResp
  */
 export const IngestStreamResponseSchema: GenMessage<IngestStreamResponse> =
     /*@__PURE__*/
-    messageDesc(file_ingestion_worker_v1_worker, 4)
+    messageDesc(file_ingestion_worker_v1_worker, 5)
 
 /**
  * StreamReady carries no data yet; it is the slot where the worker could
@@ -251,7 +271,7 @@ export type StreamReady = Message<'ingestion.worker.v1.StreamReady'> & {}
  * Describes the message ingestion.worker.v1.StreamReady.
  * Use `create(StreamReadySchema)` to create a new message.
  */
-export const StreamReadySchema: GenMessage<StreamReady> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 5)
+export const StreamReadySchema: GenMessage<StreamReady> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 6)
 
 /**
  * SubBatchAck acks one sub-batch.
@@ -273,7 +293,7 @@ export type SubBatchAck = Message<'ingestion.worker.v1.SubBatchAck'> & {
 
     /**
      * Messages accepted into the pipeline. Meaningful only on
-     * SUB_BATCH_STATUS_OK.
+     * SUB_BATCH_STATUS_OK and SUB_BATCH_STATUS_PARTIAL.
      *
      * @generated from field: uint32 accepted = 3;
      */
@@ -287,18 +307,21 @@ export type SubBatchAck = Message<'ingestion.worker.v1.SubBatchAck'> & {
     error: string
 
     /**
-     * Indices into SubBatch.messages the budget cut off. Set only on PARTIAL.
+     * Messages the budget cut off. Set only on PARTIAL, never empty. Every other
+     * message is done, as on OK. The listed messages need not be the last of
+     * their routing key, because a worker may process one key's messages in
+     * independent groups.
      *
-     * @generated from field: repeated uint32 timed_out = 5;
+     * @generated from field: repeated ingestion.worker.v1.MessageRef timed_out = 5;
      */
-    timedOut: number[]
+    timedOut: MessageRef[]
 }
 
 /**
  * Describes the message ingestion.worker.v1.SubBatchAck.
  * Use `create(SubBatchAckSchema)` to create a new message.
  */
-export const SubBatchAckSchema: GenMessage<SubBatchAck> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 6)
+export const SubBatchAckSchema: GenMessage<SubBatchAck> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 7)
 
 /**
  * SubBatchStatus is the outcome of processing one sub-batch.
@@ -341,8 +364,8 @@ export enum SubBatchStatus {
     BUSY = 3,
 
     /**
-     * Some messages were processed and acked; the rest timed out and must be
-     * redelivered. `SubBatchAck.timed_out` lists them.
+     * The budget cut the sub-batch short. Messages not in `SubBatchAck.timed_out`
+     * are done as on OK, and the consumer redelivers exactly the listed ones.
      *
      * @generated from enum value: SUB_BATCH_STATUS_PARTIAL = 4;
      */

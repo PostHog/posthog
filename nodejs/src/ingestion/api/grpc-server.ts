@@ -9,6 +9,7 @@ import {
     IngestStreamResponse,
     IngestStreamResponseSchema,
     KafkaMessage,
+    MessageRefSchema,
     StreamHello,
     StreamReadySchema,
     SubBatchAckSchema,
@@ -66,18 +67,14 @@ const grpcConnectionsRejected = new Counter({
     labelNames: ['reason'],
 })
 
-/**
- * A batch the pipeline finished processing. The two counts are the ack's
- * disposition of every message: `accepted` is what the consumer may commit,
- * and the index list is what it must redeliver.
- */
+export type MessageCoordinates = Pick<SerializedKafkaMessage, 'partition' | 'offset'>
+
+/** A batch the pipeline finished processing. */
 export interface CompletedSubBatch {
     streamId: number
     seq: number
-    /** `messages.length - timedOut.length`. */
     accepted: number
-    /** Positions in the sub-batch's messages the budget cut off, in feed order. */
-    timedOut: number[]
+    timedOut: MessageCoordinates[]
     /**
      * Resolves when the batch's side effects are durably done — the ack
      * barrier. Kept as a promise (not awaited inside `next()`) so the pump
@@ -87,18 +84,10 @@ export interface CompletedSubBatch {
     settled: Promise<void>
 }
 
-/**
- * A sub-batch's time allowance, as it arrived on the wire and when it was
- * armed. The consumer sizes it; the worker has no sizing config of its own, so
- * these two numbers are the whole input to its budget.
- */
 export interface SubBatchBudget {
-    /**
-     * Epoch milliseconds at frame read. The allowance counts from here, so
-     * time the sub-batch spends parked in the admission queue counts too.
-     */
+    /** Epoch milliseconds at frame read, so the wait for an admission slot counts. */
     armedAt: number
-    /** Milliseconds of work before the pipeline stops starting more; `0` means no soft deadline. */
+    /** `0` means no deadline. */
     softBudgetMs: number
 }
 
@@ -328,7 +317,7 @@ function okAck(seq: number, accepted: number): IngestStreamResponse {
     })
 }
 
-function partialAck(seq: number, accepted: number, timedOut: number[]): IngestStreamResponse {
+function partialAck(seq: number, accepted: number, timedOut: MessageCoordinates[]): IngestStreamResponse {
     return create(IngestStreamResponseSchema, {
         msg: {
             case: 'ack',
@@ -336,7 +325,9 @@ function partialAck(seq: number, accepted: number, timedOut: number[]): IngestSt
                 seq: BigInt(seq),
                 status: SubBatchStatus.PARTIAL,
                 accepted,
-                timedOut,
+                timedOut: timedOut.map(({ partition, offset }) =>
+                    create(MessageRefSchema, { partition, offset: BigInt(offset) })
+                ),
             }),
         },
     })
@@ -629,8 +620,6 @@ export class WorkerIngestServer {
             return
         }
         stream.inFlight.delete(completed.seq)
-        // A timed-out message makes the whole ack PARTIAL: `accepted` alone
-        // cannot say which messages the consumer must redeliver.
         if (completed.timedOut.length > 0) {
             stream.acks.push(partialAck(completed.seq, completed.accepted, completed.timedOut))
             grpcSubBatches.inc({ status: 'partial' })
@@ -642,15 +631,10 @@ export class WorkerIngestServer {
         this.maybeFinish(stream)
     }
 
-    /**
-     * A sub-batch that ran out of soft budget while parked never entered the
-     * pipeline, so no worker state exists for it: ack every message timed out
-     * and let the consumer redeliver the whole sub-batch.
-     */
-    private expireParked(stream: StreamState, seq: number, messageCount: number): void {
+    private expireParked(stream: StreamState, seq: number, messages: SerializedKafkaMessage[]): void {
         grpcAdmissionExpired.inc()
         stream.inFlight.delete(seq)
-        stream.acks.push(partialAck(seq, 0, messageIndices(messageCount)))
+        stream.acks.push(partialAck(seq, 0, messages))
         grpcSubBatches.inc({ status: 'partial' })
         this.maybeFinish(stream)
     }
@@ -765,9 +749,6 @@ export class WorkerIngestServer {
                 }
 
                 const subBatch = request.msg.value
-                // Arm the allowance the moment the frame is read, before the
-                // admission wait, so time parked in the queue counts against
-                // the budget the pipeline mints later.
                 const budget: SubBatchBudget = {
                     armedAt: Date.now(),
                     softBudgetMs: Number(subBatch.softBudgetMs),
@@ -804,9 +785,7 @@ export class WorkerIngestServer {
                 // order because a retry race here let busy streams starve
                 // quiet ones, wedging whole consumers.
                 stream.inFlight.add(seq)
-                // The budget bounds the wait itself: a sub-batch that spends its
-                // whole soft allowance parked here is given up rather than
-                // started with nothing left.
+                // A sub-batch that spends its whole allowance waiting here is given up, not started.
                 const softAt = budgetDeadline(budget.armedAt, budget.softBudgetMs)
                 const parkedTooLong = new AbortController()
                 const expiryTimer =
@@ -817,7 +796,7 @@ export class WorkerIngestServer {
                 } catch (error) {
                     if (error instanceof SlotAcquisitionAborted) {
                         if (parkedTooLong.signal.aborted && !admissionSignal.aborted) {
-                            this.expireParked(stream, seq, serialized.length)
+                            this.expireParked(stream, seq, serialized)
                             continue
                         }
                         this.finishReader(stream, seq)
@@ -899,11 +878,6 @@ export class WorkerIngestServer {
         logger.warn('⚠️', 'WorkerIngest protocol violation', { streamId: stream.id, kind, message })
         return new ConnectError(message, Code.FailedPrecondition)
     }
-}
-
-/** Every position of a sub-batch's messages, for an ack that covers all of them. */
-function messageIndices(count: number): number[] {
-    return Array.from({ length: count }, (_, index) => index)
 }
 
 function sleep(ms: number): Promise<void> {

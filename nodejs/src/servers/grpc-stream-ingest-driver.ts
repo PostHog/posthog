@@ -1,5 +1,5 @@
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { CompletedSubBatch, StreamIngestDriver, SubBatchBudget } from '~/ingestion/api/grpc-server'
+import { CompletedSubBatch, MessageCoordinates, StreamIngestDriver, SubBatchBudget } from '~/ingestion/api/grpc-server'
 import { deserializeKafkaMessage } from '~/ingestion/api/kafka-message-converter'
 import { SerializedKafkaMessage } from '~/ingestion/api/types'
 import { BatchBudget, budgetDeadline } from '~/ingestion/framework/batch-budget'
@@ -44,10 +44,6 @@ export class GrpcStreamIngestDriver implements StreamIngestDriver {
         return this.pipeline.feed(batch, { grpcStreamId: streamId, grpcSeq: seq }, this.wireBudget(budget))
     }
 
-    /**
-     * Turn what the consumer sent into the batch's budget, and nothing else:
-     * the worker has no sizing config of its own.
-     */
     private wireBudget({ armedAt, softBudgetMs }: SubBatchBudget): BatchBudget {
         const softAt = budgetDeadline(armedAt, softBudgetMs)
         return softAt === null ? BatchBudget.unlimited() : BatchBudget.softDeadline(softAt)
@@ -64,14 +60,12 @@ export class GrpcStreamIngestDriver implements StreamIngestDriver {
             await Promise.all(result.sideEffects ?? [])
             await this.promiseScheduler.waitForAll()
         })()
-        // The elements are in feed order, so their positions are the message
-        // positions the consumer sent.
-        const timedOut: number[] = []
-        result.elements.forEach((element, index) => {
-            if (isTimeoutResult(element.result)) {
-                timedOut.push(index)
+        const timedOut: MessageCoordinates[] = []
+        for (const { result: elementResult, context } of result.elements) {
+            if (isTimeoutResult(elementResult)) {
+                timedOut.push({ partition: context.message.partition, offset: context.message.offset })
             }
-        })
+        }
         return {
             streamId: result.batchContext.grpcStreamId,
             seq: result.batchContext.grpcSeq,

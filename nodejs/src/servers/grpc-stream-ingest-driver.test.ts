@@ -5,12 +5,14 @@ import { PipelineResult, drop, ok, timeout } from '~/ingestion/framework/results
 
 import { GrpcIngestPipeline, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
 
-/** A completed batch carrying one result per message, in feed order. */
 function completedBatch(results: PipelineResult<unknown>[]): GrpcIngestPipeline {
     return {
         next: () =>
             Promise.resolve({
-                elements: results.map((result) => ({ result, context: {} })),
+                elements: results.map((result, index) => ({
+                    result,
+                    context: { message: { partition: 3, offset: 100 + index } },
+                })),
                 batchContext: { grpcStreamId: 7, grpcSeq: 3 },
                 sideEffects: [],
             }),
@@ -18,9 +20,7 @@ function completedBatch(results: PipelineResult<unknown>[]): GrpcIngestPipeline 
 }
 
 describe('GrpcStreamIngestDriver dispositions', () => {
-    it('reports each timed-out element by its feed position and counts the rest accepted', async () => {
-        // The consumer redelivers exactly what this list names, so an accepted
-        // count that includes them resends acked messages.
+    it('reports each timed-out element by its partition and offset and counts the rest accepted', async () => {
         const driver = new GrpcStreamIngestDriver(
             completedBatch([ok({}), timeout('budget exceeded before step'), drop('not interesting')]),
             new PromiseScheduler()
@@ -30,7 +30,7 @@ describe('GrpcStreamIngestDriver dispositions', () => {
 
         expect(completed.streamId).toBe(7)
         expect(completed.seq).toBe(3)
-        expect(completed.timedOut).toEqual([1])
+        expect(completed.timedOut).toEqual([{ partition: 3, offset: 101 }])
         // A dropped element is handled, not redelivered, so it counts as accepted.
         expect(completed.accepted).toBe(2)
     })
@@ -45,7 +45,6 @@ describe('GrpcStreamIngestDriver dispositions', () => {
     })
 })
 
-/** A pipeline that records the budget each feed was given. */
 function recordingPipeline(fed: BatchBudget[]): GrpcIngestPipeline {
     return {
         feed: (_elements: unknown, _batchContext: unknown, budget: BatchBudget) => {
@@ -71,8 +70,11 @@ describe('GrpcStreamIngestDriver budgets', () => {
         expect(budget.softAt).toBe(1_200)
     })
 
-    it('reads a zero allowance as an unlimited budget', async () => {
-        const budget = await fedBudget({ armedAt: 1_000, softBudgetMs: 0 })
+    it.each([
+        ['zero', 0],
+        ['longer than a timer can wait', 2 ** 31],
+    ])('reads a %s allowance as an unlimited budget', async (_label, softBudgetMs) => {
+        const budget = await fedBudget({ armedAt: 1_000, softBudgetMs })
 
         expect(budget.softAt).toBe(Infinity)
     })
