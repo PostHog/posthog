@@ -225,6 +225,28 @@ class ExternalDataJob:
     source_prefix: str | None
 
 
+@dataclass(frozen=True)
+class SyncAlertContext:
+    """What a sync alert event reports about one schema and, when given, one run.
+
+    `latest_error` is already redacted, so it holds no stored credential of the source.
+    """
+
+    source_id: UUID
+    source_type: str
+    source_prefix: str | None
+    schema_id: UUID
+    schema_name: str
+    schema_label: str | None
+    status: str | None
+    latest_error: str | None
+    sync_halted: bool
+    failed_runs_in_a_row: int
+    job_id: UUID | None
+    rows_synced: int | None
+    finished_at: datetime | None
+
+
 # --- Column annotation ---
 
 

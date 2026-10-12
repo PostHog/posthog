@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -33,15 +34,19 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
-from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
+from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
+from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
+from products.review_hog.backend.preferences import ReviewPreferences
+from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
+from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
-    DEFAULT_URGENCY_THRESHOLD,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -97,6 +102,14 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_deduplicated_findings,
     replace_dropped_findings,
     upsert_review_report,
+)
+from products.review_hog.backend.reviewer.progress import (
+    REVIEW_FAILED_REASON,
+    RUN_OUTCOME_FAILED,
+    RUN_OUTCOME_SKIPPED,
+    RUN_STAGE_REVIEW,
+    in_publish_window,
+    record_run_outcome,
 )
 from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -256,9 +269,11 @@ class ReviewMeta:
     lens_chunks_capped: bool = False
     # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
+    # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
+    skip_agent_review: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResolveActingUserInput:
     team_id: int
     author_login: str
@@ -273,6 +288,16 @@ class ResolveActingUserInput:
     # drift from the identity the sandboxes execute under. Defaulted for old in-flight payloads.
     trigger_source: str = TRIGGER_MANUAL
     default_user_id: int | None = None
+    # `owner/name` of the PR, for the automatic trigger's re-check of the repository rules. None in
+    # payloads serialized before the field existed, which fails that re-check closed.
+    repository: str | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
+    # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
+    # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
+    head_branch: str | None = None
+    # Full in older payloads, which keeps them off the Flash-after-Full check below.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass(frozen=False)
@@ -280,24 +305,29 @@ class ResolveActingUserResult:
     # The user whose enabled perspectives drive this review; None when nothing in the resolution
     # chain maps to a PostHog org user — the parent then skips the review.
     acting_user_id: int | None
-    # The acting user's `ReviewUserSettings`, snapshotted here so mid-run edits don't flip gates
-    # between stages. Defaults match the model's (and cover payloads serialized before these existed).
-    # `review_labeled_prs` is the AUTHOR's opt-out: when the acting user is the default-user
-    # fallback, it is forced True — a borrowed user's personal switch never governs someone else's PR.
+    # The acting user's preferences, snapshotted here so mid-run edits don't flip gates between
+    # stages. Defaults match the code defaults (and cover payloads serialized before these existed).
+    # `review_labeled_prs` is always True: no setting turns the label trigger off. The field stays,
+    # because recorded workflow histories carry it and their replay still reads it.
     review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
-    # Whether a published review of this user's PRs chains into the resolution stage. Defaults False
-    # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
-    # new workflow command; old runs must never reach it on replay). The model default is True.
+    # Whether a published Full review chains into the resolution stage: the PR owner opted in and the
+    # project has the internal features (`ResolutionGate`). Defaults False, the SKIP value, so
+    # pre-field histories replay deterministically (the chained dispatch is a workflow command).
     resolve_comments: bool = False
     # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
     # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
     celebrate_clean_reviews: bool = True
+    # Whether the repository rules allow this automatic review. False for every other trigger. The
+    # name predates the rules and stays, because recorded workflow histories carry it.
     review_authored_prs: bool = False
+    # Always the default effort. The field stays, because recorded workflow histories carry it.
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    # The PR owner (`pr_owner.py`): the resolution stage runs under their criteria. None when the PR has no owner.
+    owner_user_id: int | None = None
 
 
 @dataclass
@@ -585,6 +615,8 @@ class StatusCommentInput:
     report_id: str
     review_mode: str = REVIEW_MODE_FULL
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # The failed turn, for the failure edit. None in payloads from before the field existed.
+    run_index: int | None = None
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -769,8 +801,16 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         merge_base_sha=fetched.merge_base_sha,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
+    # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
+    # delivery, so the webhook payload can miss the label.
+    skip_agent_review = input.trigger_source == TRIGGER_AUTOMATIC and has_skip_agent_review_label(
+        fetched.pr_metadata.labels
+    )
+    if skip_agent_review:
+        observe_dispatch("label_skipped")
     if already_published or (
-        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or fetched.pr_metadata.state != "open")
+        input.trigger_source == TRIGGER_AUTOMATIC
+        and (already_completed or skip_agent_review or fetched.pr_metadata.state != "open")
     ):
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
             status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
@@ -798,6 +838,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
+        skip_agent_review=skip_agent_review,
     )
 
 
@@ -821,77 +862,111 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     return user.id if user is not None else None
 
 
+def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
+    """Whether the rules still give this PR its automatic Flash review when the turn starts."""
+    if acting_user_id is None or input.repository is None:
+        return False
+    if input.report_id is not None:
+        report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
+        if full_review_published(report):
+            return False
+    return automatic_flash_allowed(
+        team_id=input.team_id,
+        repository=input.repository,
+        user_id=acting_user_id,
+        author_login=input.author_login,
+        installation_id=input.installation_id,
+        github_repo_id=input.github_repo_id,
+    )
+
+
+def _flash_after_full(input: ResolveActingUserInput) -> bool:
+    """Whether a queued Flash request now follows a Full review published while it waited."""
+    if input.review_mode != REVIEW_MODE_FLASH or input.report_id is None:
+        return False
+    return full_review_published(ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first())
+
+
+def _record_flash_after_full(team_id: int, report_id: str) -> None:
+    """Record the dropped Standard request, so a status reader sees it ended instead of waiting forever."""
+    report = ReviewReport.objects.for_team(team_id).filter(id=report_id).only("run_count", "head_sha").first()
+    if report is None:
+        return
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_SKIPPED,
+        reason=ReviewRequestRefusal.FLASH_AFTER_FULL.value,
+        run_index=report.run_count + 1,
+        review_mode=REVIEW_MODE_FLASH,
+        head_sha=report.head_sha,
+    )
+
+
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
-    # Resolved even on override runs: the clean-review media switch keys off the mapped author's own
-    # preference, not the requester's, so an override run still needs this identity to load it.
-    author_user_id = _login_to_user_id(input.team_id, input.author_login)
+    # Resolved even on override runs: the owner decides resolution and the clean-review media,
+    # whoever asked for the review.
+    owner = PullRequestOwnerResolver.resolve(
+        input.team_id,
+        repository=input.repository or "",
+        author_login=input.author_login,
+        head_branch=input.head_branch if input.repository else None,
+    )
     acting_user_id: int | None
     if input.override_user_id is not None:
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
-        acting_user_id, resolved_from = author_user_id, "author"
-        # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
-        # the trigger already resolved. Other triggers keep the author-only contract and skip.
+        acting_user_id, resolved_from = owner.user_id, "author"
+        # Label-trigger fallback: someone explicitly asked for this review, so borrow the run user
+        # the trigger already resolved. Other triggers keep the owner-only contract and skip.
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
-    if input.trigger_source == TRIGGER_AUTOMATIC and (
-        acting_user_id is None or not authored_reviews_enabled(team_id=input.team_id, user_id=acting_user_id)
-    ):
+    automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
+    flash_after_full = _flash_after_full(input)
+    if (input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed) or flash_after_full:
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
                 status=ReviewReport.Status.IDLE
             )
+        if flash_after_full and input.report_id is not None:
+            _record_flash_after_full(input.team_id, input.report_id)
         return ResolveActingUserResult(acting_user_id=None)
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
     if resolved_from == "default":
-        logger.info(
-            "PR author %r has no PostHog user; acting as the default user %s", input.author_login, acting_user_id
-        )
+        logger.info("PR %r has no owner; acting as the default user %s", input.author_login, acting_user_id)
     if input.report_id is not None:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
-    # celebrate_clean_reviews follows the author, who can differ from the acting user on an
-    # override run, so load both rows in one query instead of a second round trip below.
-    extra_settings_ids = [author_user_id] if author_user_id is not None and author_user_id != acting_user_id else []
-    settings_by_user = ReviewUserSettings.load_many(input.team_id, [acting_user_id, *extra_settings_ids])
-    settings = settings_by_user[acting_user_id]
+    # A review that runs as a borrowed user (the run user on a label without an owner, or the user
+    # who connected GitHub on an automatic bot review) gets the default settings: that user's own
+    # preferences must not shape someone else's pull request.
+    borrowed = resolved_from == "default" or (
+        input.trigger_source == TRIGGER_AUTOMATIC and acting_user_id != owner.user_id
+    )
+    # celebrate_clean_reviews follows the owner, who can differ from the acting user on an override
+    # run, so load both users in one query instead of a second round trip below.
+    extra_settings_ids = [owner.user_id] if owner.user_id is not None and owner.user_id != acting_user_id else []
+    preferences_by_user = ReviewUserSettings.load_preferences_many(input.team_id, [acting_user_id, *extra_settings_ids])
+    defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
+    preferences = defaults if borrowed else preferences_by_user[acting_user_id]
+    owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
+    resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
-        # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
-        # user never imports their personal switch into someone else's PR.
-        review_labeled_prs=settings.review_labeled_prs if resolved_from in ("author", "override") else True,
-        # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
-        # must hold the plain value. A default-resolved run gates at the built-in default, never the
-        # borrowed run user's saved threshold — the same "borrowed settings must not leak into
-        # someone else's PR" rule that forces review_labeled_prs above.
-        urgency_threshold=(
-            str(settings.urgency_threshold)
-            if resolved_from in ("author", "override")
-            else DEFAULT_URGENCY_THRESHOLD.value
-        ),
-        review_inbox_prs=settings.review_inbox_prs,
+        review_labeled_prs=True,
+        # .value unwraps the TextChoices member, because the payload must hold the plain value.
+        urgency_threshold=preferences.urgency_threshold.value,
+        review_inbox_prs=preferences.review_inbox_prs,
         resolved_from=resolved_from,
-        # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
-        # switch never governs someone else's PR — an unmapped author gets the default posture (on).
-        resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
-        # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
-        # it to "your pull requests". A teammate-triggered override still honors the mapped author's
-        # own preference. Only an unmapped author falls back to the default.
-        celebrate_clean_reviews=(
-            settings.celebrate_clean_reviews
-            if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
-            else (
-                settings_by_user[author_user_id].celebrate_clean_reviews
-                if resolved_from == "override" and author_user_id is not None
-                else True
-            )
-        ),
-        review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
-        flash_reasoning_effort=(
-            str(settings.flash_reasoning_effort)
-            if resolved_from in ("author", "override")
-            else ReasoningEffort.MEDIUM.value
-        ),
+        # The workflow also requires a publishing Full turn, because only it knows the turn's mode.
+        resolve_comments=resolution.allows(REVIEW_MODE_FULL),
+        # Unlike the values above, this one follows the OWNER, not the requester: its copy scopes
+        # it to "your pull requests". Only a PR without an owner falls back to the default.
+        celebrate_clean_reviews=owner_preferences.celebrate_clean_reviews,
+        review_authored_prs=automatic_allowed,
+        flash_reasoning_effort=ReasoningEffort.MEDIUM.value,
+        owner_user_id=owner.user_id,
     )
 
 
@@ -1272,8 +1347,8 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
 # --- Single-agent review (the main Flash session and its lens sessions) ---------------------------
 
 
-def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool) -> str:
-    """The task prompt of the main session, or of one lens session on lens part `chunk_id`."""
+def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
+    """The prompt of the main session, or of one lens session on lens part `chunk_id`."""
     snapshot = load_pr_snapshot(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
     )
@@ -1293,6 +1368,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
+        guidelines=guidelines,
         scope_files=scope_files,
         for_lens=for_lens,
     ).render()
@@ -1304,7 +1380,7 @@ async def _run_single_agent_session(
     pass_number: int,
     chunk_id: int,
     source: str,
-    system_prompt: str,
+    guidelines: str,
     step_name: str,
     for_lens: bool,
 ) -> None:
@@ -1326,7 +1402,7 @@ async def _run_single_agent_session(
         logger.info("Reusing the persisted %s result for this turn", step_name)
         return
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input, chunk_id, for_lens
+        input, chunk_id, for_lens, guidelines
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         try:
@@ -1336,7 +1412,8 @@ async def _run_single_agent_session(
                 repository=input.repository,
                 branch=input.branch,
                 prompt=prompt,
-                system_prompt=system_prompt,
+                # The guidelines sit inside the prompt, after the part sibling sessions share.
+                system_prompt="",
                 model_to_validate=SingleAgentReview,
                 step_name=step_name,
                 workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
@@ -1370,7 +1447,7 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
         pass_number=SINGLE_AGENT_PASS_NUMBER,
         chunk_id=SINGLE_AGENT_CHUNK_ID,
         source=SINGLE_AGENT_SOURCE,
-        system_prompt=load_core_prompt(),
+        guidelines=load_core_prompt(),
         step_name="single-agent-review",
         for_lens=False,
     )
@@ -1387,7 +1464,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
         pass_number=lens.pass_number,
         chunk_id=input.chunk_id,
         source=lens.source,
-        system_prompt=load_prompt_file(lens_prompt_path(lens.prompt_file)),
+        guidelines=load_prompt_file(lens_prompt_path(lens.prompt_file)),
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
     )
@@ -1396,7 +1473,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 # The reviews API shows this as the finding's validator note, so it says that no validator ran.
-SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
+SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. A Standard review publishes its findings directly."
 
 
 def _is_final_attempt() -> bool:
@@ -1545,7 +1622,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
-            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
+            app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments, app_login)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1800,6 +1878,13 @@ def _publish(input: PublishInput) -> PublishResult:
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
+def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
+    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
+    if error.retry_after is None:
+        return error
+    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1809,29 +1894,35 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
-    try:
-        github_api_request(
-            "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/reviewhog",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-            installation_id=installation_id,
-        )
-    except GitHubAPIError as error:
-        if error.status != 404:
-            raise
+    # The run does not know which label started it, and a label added during the run joins it, so the
+    # run removes every review label.
+    for label in sorted(REVIEW_LABELS):
+        try:
+            github_api_request(
+                "DELETE",
+                f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{label}",
+                token=token,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+                installation_id=installation_id,
+            )
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the label that started a label-triggered review, if it is still present."""
+    """Remove the review labels that started a label-triggered review, if they are still present."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
@@ -2178,15 +2269,34 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    try:
+        await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
-    fail_status_comment(team_id, report_id, review_mode=review_mode)
+    report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+    if report is None:
+        return
+    if run_index is None:
+        # A run that dies in the publish window already counts its turn in `run_count`.
+        run_index = report.run_count if in_publish_window(report) else report.run_count + 1
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_FAILED,
+        reason=REVIEW_FAILED_REASON,
+        run_index=run_index,
+        review_mode=review_mode,
+        head_sha=report.head_sha,
+    )
+    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
@@ -2198,7 +2308,9 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(
+        input.team_id, input.report_id, input.review_mode, input.run_index
+    )
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

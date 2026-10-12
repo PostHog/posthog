@@ -16,7 +16,7 @@ from posthog.temporal.data_modeling.activities.preempt_dag_run import (
     preempt_dag_run_activity,
 )
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -67,6 +67,7 @@ async def _run_activity(
     team_id: int,
     node_ids: list[str] | None,
     workflow_status: dict[str, WorkflowExecutionStatus | Exception] | None = None,
+    engine: DataModelingJobEngine | None = None,
 ) -> list[str]:
     """Run the activity against a stubbed Temporal client, returning the workflows it cancelled.
 
@@ -103,9 +104,44 @@ async def _run_activity(
     ):
         await ActivityEnvironment().run(
             preempt_dag_run_activity,
-            PreemptDAGRunInputs(team_id=team_id, dag_id=DAG_ID, node_ids=node_ids),
+            PreemptDAGRunInputs(
+                team_id=team_id,
+                dag_id=DAG_ID,
+                node_ids=node_ids,
+                **({"engine": engine} if engine is not None else {}),
+            ),
         )
     return cancelled
+
+
+@pytest.mark.parametrize(
+    "preempting_engine,spared_engine",
+    [
+        (DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobEngine.CLICKHOUSE),
+        (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE),
+    ],
+)
+async def test_preempt_only_cancels_the_runs_own_engine(
+    preempting_engine: DataModelingJobEngine, spared_engine: DataModelingJobEngine, ateam
+) -> None:
+    jobs = {
+        engine: await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJobStatus.RUNNING,
+            engine=engine,
+            workflow_id=f"materialize-view-{DAG_ID}-{NODE_HOURLY}-{engine}-2026-07-24T13:00:00",
+            parent_workflow_id=PARENT_HOURLY,
+        )
+        for engine in (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)
+    }
+
+    cancelled = await _run_activity(ateam.pk, [NODE_HOURLY], engine=preempting_engine)
+
+    for job in jobs.values():
+        await database_sync_to_async(job.refresh_from_db)()
+    assert cancelled == [jobs[preempting_engine].workflow_id]
+    assert jobs[preempting_engine].status == DataModelingJobStatus.FAILED
+    assert jobs[spared_engine].status == DataModelingJobStatus.RUNNING
 
 
 @pytest.mark.parametrize(

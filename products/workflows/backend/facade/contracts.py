@@ -7,6 +7,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDraftFallbackReason,
+    EmailDraftOrigin,
     HogFlowBatchJobState,
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
@@ -641,3 +643,23 @@ class DataSuggestionNotFound(Exception):
 
 class DataSuggestionBuildFailed(Exception):
     """The AI plan for a suggestion did not produce a valid workflow."""
+
+
+class EmailDraftSourceNotFound(Exception):
+    """The project has no entity with that ID for the requested source."""
+
+
+class EmailDraftSourceForbidden(Exception):
+    """The user may not view the source entity, so its text must not be drafted from."""
+
+
+@frozen
+class EmailDraft:
+    """A first draft of an email about an error, feature, survey, flag or cohort. Nothing is saved."""
+
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    generated_by: EmailDraftOrigin
+    fallback_reason: EmailDraftFallbackReason | None = None

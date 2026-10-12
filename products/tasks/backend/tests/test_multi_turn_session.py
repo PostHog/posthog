@@ -1435,7 +1435,19 @@ class TestMultiTurnSessionStartCleanup:
     inactivity timeout."""
 
     @pytest.mark.asyncio
-    async def test_cleans_up_when_initial_poll_fails(self):
+    @pytest.mark.parametrize(
+        "poll_error,expected_failure_error_type",
+        [
+            (RuntimeError("storage explode"), None),
+            (
+                TurnPollTimeout(
+                    "storage explode", stage="silent", elapsed=1, stale_seconds=1, total_lines=0, turn_relevant_lines=0
+                ),
+                "poll_timeout",
+            ),
+        ],
+    )
+    async def test_cleans_up_when_initial_poll_fails(self, poll_error, expected_failure_error_type):
         fake_task = MagicMock()
         fake_task.id = "task-id"
         fake_run = MagicMock()
@@ -1456,8 +1468,11 @@ class TestMultiTurnSessionStartCleanup:
             ),
             patch(
                 "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
-                new=AsyncMock(side_effect=RuntimeError("storage explode")),
+                new=AsyncMock(side_effect=poll_error),
             ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.record_run_failure_cause"
+            ) as record_cause,
             pytest.raises(RuntimeError, match="storage explode"),
         ):
             await MultiTurnSession.start(
@@ -1468,6 +1483,11 @@ class TestMultiTurnSessionStartCleanup:
 
         # session.end() must have signalled the workflow exactly once on the cleanup path.
         mock_handle.signal.assert_called_once()
+        assert mock_handle.signal.call_args.kwargs["args"] == ["failed", "storage explode"]
+        if expected_failure_error_type is None:
+            record_cause.assert_not_called()
+        else:
+            record_cause.assert_called_once_with("run-id", expected_failure_error_type)
 
 
 @pytest.mark.django_db(transaction=True)

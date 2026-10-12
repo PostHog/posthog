@@ -27,15 +27,15 @@ export function IssueWorkflowButton({ issueId }: { issueId: string }): JSX.Eleme
     return (
         <ButtonPrimitive
             fullWidth
-            tooltip="Open a new workflow that runs each time someone hits this issue"
+            tooltip="Open a workflow that emails people each time they hit this issue"
             onClick={() => {
                 captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId)))
+                router.actions.push(urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId), SOURCE))
             }}
             data-attr="issue-panel-start-workflow"
         >
             <IconSend />
-            Start a workflow on this issue
+            Email anyone who hits this
         </ButtonPrimitive>
     )
 }
