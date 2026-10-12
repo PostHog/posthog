@@ -2852,9 +2852,9 @@ Today (4): `agents`, `conversations`, `history`, `voices`
 Diffed against: <https://api.elevenlabs.io/openapi.json>
 
 - [ ] `/v1/usage/character-stats` — the vendor's headline usage metric — character/credit consumption over time, broken down by voice, model and workspace user (high)
-- [ ] `/v1/models` — lookup table resolving the model_id carried on history items and conversations (high)
-- [ ] `/v1/workspace/members (and /v1/workspace/groups)` — lookup resolving the workspace user ids attached to history, conversations and usage rows (high)
-- [ ] `/v1/convai/tools and /v1/convai/tools/{tool_id}/executions` — agent tool catalog plus per-execution records — the analytical detail behind agent conversations (medium)
+- [x] `/v1/models` — lookup table resolving the model_id carried on history items and conversations (high)
+- [x] `/v1/workspace/members (and /v1/workspace/groups)` — lookup resolving the workspace user ids attached to history, conversations and usage rows (high)
+- [x] `/v1/convai/tools and /v1/convai/tools/{tool_id}/executions` — agent tool catalog plus per-execution records — the analytical detail behind agent conversations (medium)
 - [ ] `/v1/convai/phone-numbers` — lookup resolving the phone number a Conversational AI call came in on (medium)
 - [ ] `/v1/convai/batch-calling/workspace` — batch calling jobs, the campaign-level grouping over outbound conversations (medium)
 - [ ] `/v1/user/subscription` — plan quota and current-period usage, needed to turn character stats into utilization (medium)
