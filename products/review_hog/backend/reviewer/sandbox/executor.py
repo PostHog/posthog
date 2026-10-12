@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 from products.review_hog.backend.reviewer.constants import REVIEW_MCP_SCOPES
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 from products.tasks.backend.facade.api import TaskOriginProduct
+from products.tasks.backend.facade.contracts import SessionFile
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -26,6 +28,7 @@ async def _run_prompt(
     branch: str | None = None,
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    files: Sequence[SessionFile] = (),
 ) -> _ModelT:
     """Spawn a single-turn sandbox agent and return its validated end-of-turn.
 
@@ -52,6 +55,7 @@ async def _run_prompt(
             internal=True,
             ai_stage=step_name or None,
             json_retry_prompt=JSON_RETRY_PROMPT,
+            files=files,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -77,6 +81,7 @@ async def run_sandbox_review(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    files: Sequence[SessionFile] = (),
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -94,7 +99,7 @@ async def run_sandbox_review(
     default (Claude). ``model_to_validate`` is the output *schema*, unrelated to ``model``.
     ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
-    not auto-approve MCP tool calls).
+    not auto-approve MCP tool calls). ``files`` go into the sandbox before the first turn.
     """
     full_prompt = "\n\n".join(part for part in (system_prompt, prompt) if part)
     context = CustomPromptSandboxContext(
@@ -115,6 +120,7 @@ async def run_sandbox_review(
         branch=branch,
         step_name=step_name,
         workflow_id_prefix=workflow_id_prefix,
+        files=files,
     )
 
 

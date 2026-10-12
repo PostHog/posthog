@@ -35,8 +35,10 @@ from products.review_hog.backend.reviewer.models.single_agent_review import Sing
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
+from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
+    CoordinatorReviewInput,
     LensReviewInput,
     LoadedPerspectiveDTO,
     ReviewChunkInput,
@@ -44,6 +46,7 @@ from products.review_hog.backend.temporal.activities import (
     SelectPerspectivesInput,
     _current_pr_comments,
     dedup_activity,
+    coordinator_review_activity,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -598,6 +601,56 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
         (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
         (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failed_task,expect_raise",
+    [("contracts_security_1", False), ("main_1", True)],
+)
+async def test_coordinator_persists_each_sub_agent_under_its_session_key(failed_task: str, expect_raise: bool) -> None:
+    # Dedup reads each unit by its separate session's key, so a sub-agent stored under another key loses its
+    # findings. The persisted lens part needs no sub-agent again, and only a failed main review fails the turn.
+    finding = SingleAgentFinding(title="Guard the empty list", priority="P1", file="a.py", line_start=4, body="b")
+    tasks = ["main_1", "performance_reliability_1", "contracts_security_1", "contracts_security_2"]
+    review = CoordinatorReview(
+        results=[
+            CoordinatorResult(task=task, status="failed" if task == failed_task else "ok", findings=[finding])
+            for task in tasks
+        ]
+    )
+    mock_review = AsyncMock(return_value=review)
+    mock_persist = MagicMock()
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_perspective_results", return_value={(2001, 2): IssuesReview(issues=[])}),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        run = ActivityEnvironment().run(
+            coordinator_review_activity, CoordinatorReviewInput(**_single_agent_stage(lens_chunk_count=2))
+        )
+        if expect_raise:
+            with pytest.raises(ApplicationError, match="main review"):
+                await run
+        else:
+            result = await run
+            assert result.lens_failures == 1
+
+    assert [file.name for file in mock_review.call_args.kwargs["files"]] == [f"{task}.prompt.md" for task in tasks]
+    persisted = mock_persist.call_args.kwargs["results"]
+    assert {key: review.issues[0].source_perspective for key, review in persisted.items()} == {
+        key: source
+        for key, source, task in [
+            ((2000, 1), "flash-single-agent", "main_1"),
+            ((2001, 1), "flash-lens-performance-reliability", "performance_reliability_1"),
+            ((2002, 1), "flash-lens-contracts-security", "contracts_security_1"),
+            ((2002, 2), "flash-lens-contracts-security", "contracts_security_2"),
+        ]
+        if task != failed_task
+    }
 
 
 def _comment(comment_id: int, line: int | None) -> PRComment:

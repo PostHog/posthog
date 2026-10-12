@@ -47,6 +47,8 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import Persp
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
+    CoordinatorReviewInput,
+    CoordinatorReviewResult,
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
@@ -78,6 +80,7 @@ from products.review_hog.backend.temporal.activities import (
     ValidateIntegrationInput,
     append_code_review_artefact_activity,
     build_body_activity,
+    coordinator_review_activity,
     dedup_activity,
     fail_status_comment_activity,
     fetch_pr_data_activity,
@@ -634,6 +637,7 @@ class ReviewPRWorkflow:
                         flash_reasoning_effort=acting.flash_reasoning_effort,
                         review_design=review_design,
                         review_design_reason=meta.review_design_reason,
+                        coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -716,7 +720,14 @@ class ReviewPRWorkflow:
                 review_design=review_design,
             )
 
-            if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
+            if (
+                review_design == REVIEW_DESIGN_SINGLE_AGENT
+                and workflow.patched("flash-coordinator-2026-10")
+                and meta.coordinator
+            ):
+                flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
+            elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
                 flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
@@ -1050,6 +1061,37 @@ class ReviewPRWorkflow:
             lens_failures=lens_failures,
             lens_timeouts=lens_timeouts,
             slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
+        )
+
+    @staticmethod
+    async def _review_with_coordinator(stage: SandboxStageInput, lens_chunk_count: int) -> FlashSessionStats:
+        """Stages 2 and 3 of the single-agent design, with every session a sub-agent of one coordinator session."""
+        workflow.logger.info(f"STAGE 2-3/7 · Coordinated review: the main review and {lens_chunk_count} lens part(s)")
+        started = workflow.now()
+        result: CoordinatorReviewResult = await workflow.execute_activity(
+            coordinator_review_activity,
+            CoordinatorReviewInput(
+                team_id=stage.team_id,
+                user_id=stage.user_id,
+                report_id=stage.report_id,
+                head_sha=stage.head_sha,
+                repository=stage.repository,
+                branch=stage.branch,
+                run_index=stage.run_index,
+                review_mode=stage.review_mode,
+                flash_reasoning_effort=stage.flash_reasoning_effort,
+                review_design=stage.review_design,
+                lens_chunk_count=lens_chunk_count,
+            ),
+            start_to_close_timeout=_SANDBOX_TIMEOUT,
+            heartbeat_timeout=_SANDBOX_HEARTBEAT,
+            retry_policy=_RETRY,
+        )
+        return FlashSessionStats(
+            lens_failures=result.lens_failures,
+            lens_timeouts=0,
+            slowest_session_seconds=round((workflow.now() - started).total_seconds(), 1),
+            coordinator=True,
         )
 
     @staticmethod
