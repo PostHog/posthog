@@ -1330,9 +1330,10 @@ class TestResolver(BaseTest):
     def test_visit_hogqlx_unknown_tag_raises_exposed_error(self, _name: str, query: str, tag: str):
         with pytest.raises(QueryError) as exc_info:
             resolve_types(self._select(query), self.context, dialect="clickhouse")
-        assert str(exc_info.value) == (
-            f"Unknown tag <{tag} />. HogQL does not support HTML tags. Remove <{tag} /> from the query."
-        )
+        message = str(exc_info.value)
+        assert message.startswith(f"Unknown tag <{tag} />. In a column, HogQL supports only these tags: ")
+        assert "pre, code" in message
+        assert "Sparkline" in message
 
     def test_visit_hogqlx_recording_button(self):
         node = self._select("select <RecordingButton sessionId={'12345-6789'} />")

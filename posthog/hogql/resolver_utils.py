@@ -28,6 +28,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS
 
 
 def lookup_field_by_name(
@@ -311,7 +312,8 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
                 new_attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
                 return klass(**new_attributes)
         raise QueryError(
-            f"Unknown tag <{expr.kind} />. HogQL does not support HTML tags. Remove <{expr.kind} /> from the query.",
+            f"Unknown tag <{expr.kind} />. In a column, HogQL supports only these tags: {', '.join(HOGQLX_TAGS + HOGQLX_COMPONENTS)}. "
+            f"Remove <{expr.kind} /> or replace it with a supported tag.",
             start=expr.start,
             end=expr.end,
         )
