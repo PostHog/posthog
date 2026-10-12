@@ -118,14 +118,14 @@ export interface destinationsLogicActions {
 export interface destinationsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        hasUnsavedChanges: (attachedDestinationIds: string[], savedDestinationIds: string[]) => boolean
-        saveDisabledReason: (attachedDestinationIds: string[], hasUnsavedChanges: boolean) => string | null
-        addedDestinationIds: (attachedDestinationIds: string[], savedDestinationIds: string[]) => string[]
-        syncedSchemas: (sourceSchemas: ExternalDataSourceSchema[]) => ExternalDataSourceSchema[]
         unhealthyDestinations: (
             destinations: ExternalDataDestinationApi[],
             savedDestinationIds: string[]
         ) => ExternalDataDestinationApi[]
+        hasUnsavedChanges: (attachedDestinationIds: string[], savedDestinationIds: string[]) => boolean
+        saveDisabledReason: (attachedDestinationIds: string[], hasUnsavedChanges: boolean) => string | null
+        addedDestinationIds: (attachedDestinationIds: string[], savedDestinationIds: string[]) => string[]
+        syncedSchemas: (sourceSchemas: ExternalDataSourceSchema[]) => ExternalDataSourceSchema[]
     }
 }
 

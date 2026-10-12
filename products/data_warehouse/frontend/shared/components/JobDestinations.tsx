@@ -65,7 +65,10 @@ export function JobDestinations({
     return (
         <div className="flex items-center gap-1">
             {logos.map(({ key, type, title }) => (
-                <Tooltip key={key} title={key === failedDestinationId ? `${title}. Could not deliver this run.` : title}>
+                <Tooltip
+                    key={key}
+                    title={key === failedDestinationId ? `${title}. Could not deliver this run.` : title}
+                >
                     <span
                         className={cn('flex items-center justify-center size-5', {
                             'rounded ring-2 ring-danger': key === failedDestinationId,

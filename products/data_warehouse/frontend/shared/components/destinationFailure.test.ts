@@ -24,7 +24,9 @@ const WAREHOUSE: ExternalDataDestinationApi = {
     is_posthog_warehouse: true,
 }
 const REGEX_NAME: ExternalDataDestinationApi = { ...PROD, id: 'regex', name: 'Prod [a+b].* (db)?' }
-const BY_ID = Object.fromEntries([PROD, MY_PROD, WAREHOUSE, REGEX_NAME].map((destination) => [destination.id, destination]))
+const BY_ID = Object.fromEntries(
+    [PROD, MY_PROD, WAREHOUSE, REGEX_NAME].map((destination) => [destination.id, destination])
+)
 
 describe('failedDestinationFor', () => {
     test.each<{

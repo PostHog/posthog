@@ -16,8 +16,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
 
-import { JobDestinations } from 'products/data_warehouse/frontend/shared/components/JobDestinations'
 import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
+import { JobDestinations } from 'products/data_warehouse/frontend/shared/components/JobDestinations'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 
 import { sourceSettingsLogic } from './sourceSettingsLogic'

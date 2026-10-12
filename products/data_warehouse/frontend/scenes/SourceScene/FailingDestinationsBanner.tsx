@@ -18,10 +18,7 @@ export function FailingDestinationsBanner({ sourceId }: { sourceId: string }): J
             {unhealthyDestinations.map((destination) => {
                 const paused = destination.status === 'paused'
                 const nameLink = (
-                    <Link
-                        to={urls.warehouseDestination(destination.id)}
-                        data-attr="warehouse-destination-banner-link"
-                    >
+                    <Link to={urls.warehouseDestination(destination.id)} data-attr="warehouse-destination-banner-link">
                         {destination.name}
                     </Link>
                 )
