@@ -283,6 +283,44 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     assert schema.latest_error == "could not create the sync job"
 
 
+@pytest.mark.django_db(transaction=True)
+def test_finalization_of_a_deleted_job_does_not_raise() -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+    job_id = str(job.id)
+    job.delete()
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=job_id,
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        internal_error=None,
+        latest_error=None,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+            return_value=0,
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"
+        ) as mock_capture_exception,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    mock_capture_exception.assert_not_called()
+
+
 # transaction=True for the same reason as the test above: the activity resolves the source through
 # database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
 @parameterized.expand(
