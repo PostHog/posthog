@@ -24,19 +24,17 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.pr_status import PRStatus, PRStatusLookup, ReviewPRState, ReviewRequestOutcomeStatus
-from products.review_hog.backend.preferences import UrgencyThreshold
-from products.review_hog.backend.requested_reviews import (
+from products.review_hog.backend.facade.contracts import (
     RUN_MODE_FLASH,
     RUN_MODE_RESOLVE_ONLY,
     RUN_MODE_REVIEW,
     RUN_MODE_REVIEW_ONLY,
-    PRReviewRequestStatus,
-    ResolveSkipReason,
-    request_pr_review,
 )
-from products.review_hog.backend.review_request_rules import ReviewRequestRefusal
+from products.review_hog.backend.facade.enums import PRReviewRequestStatus, ResolveSkipReason, ReviewRequestRefusal
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.pr_status import PRStatus, PRStatusLookup, ReviewPRState, ReviewRequestOutcomeStatus
+from products.review_hog.backend.preferences import UrgencyThreshold
+from products.review_hog.backend.requested_reviews import request_pr_review
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
     ReviewIssueCategory,
