@@ -92,6 +92,28 @@ Bad entry: key `note-1`, content "we have errors today, FYI". No actionability,
 no entity, no condition, key carries no category — the next run can't find it
 or act on it.
 
+## Check funnel step order before you call a drop a defect
+
+A funnel can show a large drop because its step order cannot occur in the
+product. The product is not broken; the query is. Before you report a funnel
+drop as a product defect, do these checks:
+
+1. **Confirm what each step event means.** Read its properties with
+   `read-data-schema` and look at sample events. If the code or the docs are
+   available, find where the event fires.
+2. **Confirm the step order against the real user journey.** Pull a few
+   converted and dropped persons with `query-funnel-actors`. Read their events
+   in time order (`execute-sql` on `events`, filtered by `person_id`, ordered by
+   `timestamp`). If almost no person does the steps in your order, your order
+   is wrong.
+3. **Build the funnel from the journey that users actually follow.** Then
+   measure the drop again.
+
+If the drop goes away when you correct the order, it is a query error, not a
+finding. Do not file it. Record the correct order with a `pattern:` key (for
+example `pattern:product-analytics:funnel-order:<flow>`), so that later runs
+build the funnel correctly.
+
 ## Cross-project noise patterns
 
 These are noise across all PostHog projects. Skip them unless you see a real
