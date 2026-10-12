@@ -54,7 +54,7 @@ const DEFAULT_SORT_FIELD: InboxSortField = 'recommended'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
 /** Whether a stored sort is the old default, which a user who never picked a sort gets moved off. */
-export function isLegacyDefaultSort(field: InboxSortField, direction: InboxSortDirection): boolean {
+function isLegacyDefaultSort(field: InboxSortField, direction: InboxSortDirection): boolean {
     return field === 'priority' && direction === 'asc'
 }
 
