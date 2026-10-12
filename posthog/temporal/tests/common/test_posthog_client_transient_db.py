@@ -1,9 +1,13 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
+import temporalio.exceptions
+from databricks.sql.exc import RequestError
 from parameterized import parameterized
 from temporalio.worker import ExecuteActivityInput
 
@@ -13,6 +17,16 @@ from posthog.temporal.common.posthog_client import _PostHogClientActivityInbound
 
 def _wrapped_by_django(message: str, cause: Exception, error_cls: type[Exception] = OperationalError) -> Exception:
     error = error_cls(message)
+    error.__cause__ = cause
+    return error
+
+
+def _databricks_request_error(original: Exception) -> RequestError:
+    # The driver passes the original error as a positional arg and keeps only its str in the context.
+    return RequestError("Error during request to server", {"original-exception": str(original)}, None, original)
+
+
+def _raised_from(error: Exception, cause: BaseException) -> Exception:
     error.__cause__ = cause
     return error
 
@@ -99,4 +113,21 @@ class TestTransientDatabaseErrorReporting:
     )
     async def test_other_database_errors_are_still_reported(self, _name, error):
         mock_capture = await _run_and_capture(error)
+        mock_capture.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestWrappedCancellationReporting:
+    @parameterized.expand(
+        [
+            ("databricks_request_error", _databricks_request_error(temporalio.exceptions.CancelledError("Cancelled"))),
+            ("raised_from_cancellation", _raised_from(RuntimeError("driver failed"), asyncio.CancelledError())),
+        ]
+    )
+    async def test_wrapped_cancellations_are_not_reported(self, _name, error):
+        mock_capture = await _run_and_capture(error)
+        mock_capture.assert_not_called()
+
+    async def test_databricks_request_error_without_cancellation_is_still_reported(self):
+        mock_capture = await _run_and_capture(_databricks_request_error(ConnectionResetError("connection reset")))
         mock_capture.assert_called_once()
