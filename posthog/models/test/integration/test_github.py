@@ -2331,7 +2331,7 @@ class TestGitHubIntegrationModel(BaseTest):
         )
         repo = "posthog/posthog"
         cache.set(
-            GitHubIntegration(integration)._get_branch_cache_key(repo),
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)._get_branch_cache_key(repo),
             {
                 "branches": ["main", "develop"],
                 "default_branch": "main",
@@ -2339,7 +2339,9 @@ class TestGitHubIntegrationModel(BaseTest):
             },
         )
 
-        branches, _, _ = GitHubIntegration(integration).list_cached_branches(repo)
+        branches, _, _ = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_cached_branches(
+            repo
+        )
 
         assert branches == ["main", "develop"]
 
