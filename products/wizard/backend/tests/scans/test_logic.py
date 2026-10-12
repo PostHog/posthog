@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from unittest.mock import patch
 
 from posthog.models import Team
 
@@ -107,3 +108,19 @@ def test_scan_of_one_workspace_leaves_other_workspaces_alone(team: Team) -> None
     _scan(team, "s2", 1, [], workspace=OTHER_WORKSPACE)
 
     assert _tools(team)["Stripe"].removed_at is None
+
+
+@pytest.mark.django_db
+def test_reports_competitor_changes_once_per_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+    with patch("posthoganalytics.capture") as capture:
+        for session_id, hours, kinds in [("s1", 0, ["Amplitude", "Stripe"]), ("s2", 1, []), ("s2", 2, ["Amplitude"])]:
+            with django_capture_on_commit_callbacks(execute=True):
+                _scan(team, session_id, hours, kinds)
+
+    events = [(call.kwargs["event"], call.kwargs["properties"]) for call in capture.call_args_list]
+    assert [(event, properties["kind"]) for event, properties in events] == [
+        ("competitor detected", "Amplitude"),
+        ("competitor removed", "Amplitude"),
+    ]
+    assert events[0][1]["first_detection"] is True
+    assert events[0][1]["competes_with"] == ["product_analytics"]
