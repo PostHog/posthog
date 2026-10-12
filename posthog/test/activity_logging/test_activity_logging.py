@@ -1,7 +1,9 @@
 import hmac
+import json
 import time
 import hashlib
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -104,6 +106,38 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    @parameterized.expand(
+        [
+            ("small_detail_is_sent_unchanged", "x" * 100, False),
+            ("oversized_detail_drops_change_values", "x" * (2 * 1024 * 1024), True),
+        ]
+    )
+    def test_internal_event_detail_stays_under_kafka_limit(self, _name: str, after: str, truncated: bool) -> None:
+        change = Change(type="FeatureFlag", field="filters", action="changed", before=None, after=after)
+        with (
+            patch("posthog.cdp.internal_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=6,
+                scope="FeatureFlag",
+                activity="updated",
+                detail=Detail(name="my flag", changes=[change]),
+            )
+
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert len(json.dumps(properties).encode("utf-8")) < 1024 * 1024
+        assert properties["detail"]["name"] == "my flag"
+        assert properties.get("detail_truncated", False) is truncated
+        expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
+        if not truncated:
+            expected_change.update(before=None, after=after)
+        assert properties["detail"]["changes"] == [expected_change]
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")

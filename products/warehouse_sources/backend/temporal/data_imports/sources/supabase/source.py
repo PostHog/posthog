@@ -1,6 +1,11 @@
 import re
 from typing import Optional
 
+from posthog.security.postgres_hosts import (
+    SUPABASE_DIRECT_HOST_IPV4_HINT as _SUPABASE_DIRECT_HOST_IPV4_HINT,
+    SUPABASE_DIRECT_HOST_RE as _SUPABASE_DIRECT_HOST_RE,
+)
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -21,11 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
     PostgresSource,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-# Supabase's direct connection host (`db.<ref>.supabase.co`) is IPv6-only and so is
-# unreachable from PostHog's IPv4 egress — by far the biggest cause of Supabase
-# connection failures. Users need the connection pooler host instead.
-_SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNORECASE)
 
 # The Supabase dashboard shows `https://<ref>.supabase.co` as the "Project URL" — that's the
 # REST/API endpoint, not a Postgres host. Pasting it (often with the scheme) into the host field
@@ -60,13 +60,6 @@ _SUPABASE_POOLER_HOST_CAPTION = (
     "For **change data capture (CDC)** you must use **Direct connection** instead and "
     "enable Supabase's **IPv4 add-on**, because logical replication doesn't work through "
     "the pooler."
-)
-
-_SUPABASE_DIRECT_HOST_IPV4_HINT = (
-    "Couldn't reach the Supabase direct host (db.<ref>.supabase.co). It's IPv6-only unless you "
-    "enable Supabase's IPv4 add-on (Project settings → Add-ons), which is required for change "
-    "data capture. For standard (non-CDC) syncs, use the Session pooler host instead "
-    "(aws-0-<region>.pooler.supabase.com) with username postgres.<project-ref>."
 )
 
 # Supabase Realtime stores messages in daily partitions of its internal `realtime.messages` table

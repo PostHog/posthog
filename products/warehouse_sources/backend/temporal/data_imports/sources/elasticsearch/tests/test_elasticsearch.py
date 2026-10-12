@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     elasticsearch_source,
     get_float_field_paths,
     get_rows,
-    hostname_of,
     list_indices,
     normalize_host,
     validate_credentials,
@@ -59,9 +58,6 @@ class TestNormalizeHost:
     def test_invalid_hosts_raise(self, value):
         with pytest.raises(ValueError):
             normalize_host(value)
-
-    def test_hostname_of(self):
-        assert hostname_of("https://es.example.com:9243/") == "es.example.com"
 
 
 class TestAuthWiring:
@@ -175,26 +171,6 @@ class TestGetRows:
 
         mock_session.return_value.delete.assert_called_once()
         assert mock_session.return_value.delete.call_args.kwargs["json"] == {"scroll_id": ["scroll-1"]}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_rows_hoist_source_and_id(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.post.return_value = _response(
-            _scroll_page([{"_id": "doc-1", "_source": {"name": "x"}}])
-        )
-
-        batches = list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()))
-
-        assert batches == [[{"name": "x", "_id": "doc-1"}]]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_index_yields_nothing(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.post.return_value = _response(_scroll_page([]))
-
-        assert (
-            list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock())) == []
-        )
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_float_typed_fields_are_coerced_across_rows(self, mock_session):

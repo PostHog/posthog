@@ -41,10 +41,11 @@ class HoneybadgerResumeConfig:
     project_id: int | None = None
     fault_id: int | None = None
     site_id: str | None = None
+    alarm_id: str | None = None
 
 
 # Fan-out parent list under a project -> the child row column / resume bookmark holding its id.
-_FAN_OUT_PARENT_KEYS = {"faults": "fault_id", "sites": "site_id"}
+_FAN_OUT_PARENT_KEYS = {"faults": "fault_id", "sites": "site_id", "alarms": "alarm_id"}
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -138,11 +139,11 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
-def _parse_page(data: Any) -> tuple[list[Any], str | None]:
+def _parse_page(data: Any, data_selector: str = "results") -> tuple[list[Any], str | None]:
     """Split a response into (results, next_url). Some endpoints return a bare array with no paging."""
     if isinstance(data, list):
         return data, None
-    return data.get("results") or [], (data.get("links") or {}).get("next")
+    return data.get(data_selector) or [], (data.get("links") or {}).get("next")
 
 
 def _collect_items(session: requests.Session, first_url: str, logger: FilteringBoundLogger) -> list[dict]:
@@ -219,12 +220,13 @@ def _iter_pages(
     session: requests.Session,
     first_url: str,
     logger: FilteringBoundLogger,
+    data_selector: str = "results",
 ) -> Iterator[tuple[list[dict], str | None]]:
     """Yield (results, next_url) per page. The docs note a `next` link may point at an empty
     page, so empty results don't terminate the walk — only a missing `next` link does."""
     url: str | None = first_url
     while url:
-        results, next_url = _parse_page(_fetch_page(session, url, logger))
+        results, next_url = _parse_page(_fetch_page(session, url, logger), data_selector)
         if next_url == url:
             next_url = None
         yield results, next_url
@@ -276,7 +278,7 @@ def _get_project_child_rows(
         )
         resume_url = None  # only the resumed-into project uses the saved URL
 
-        for results, next_url in _iter_pages(session, first_url, logger):
+        for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
             if not results:
                 continue
             if config.time_series:
@@ -302,7 +304,7 @@ def _get_nested_rows(
     params: dict[str, Any],
     parent_params: dict[str, Any],
 ) -> Iterator[list[dict]]:
-    """Two-level fan-out: projects -> faults or sites -> {endpoint}.
+    """Two-level fan-out: projects -> faults, sites, or alarms -> {endpoint}.
 
     On incremental syncs of fault children, the watermark also bounds the fault enumeration
     (`occurred_after`): only faults whose last notice is newer than the watermark can have new
@@ -347,7 +349,7 @@ def _get_nested_rows(
             )
             resume_url = None
 
-            for results, next_url in _iter_pages(session, first_url, logger):
+            for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
                 if not results:
                     continue
                 yield [

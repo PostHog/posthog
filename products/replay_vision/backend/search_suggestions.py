@@ -433,7 +433,6 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmQueri
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=_LlmQueries.model_json_schema(),
-        temperature=0.4,
     )
     try:
         response = client.models.generate_content(

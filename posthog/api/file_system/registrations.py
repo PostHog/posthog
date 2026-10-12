@@ -320,25 +320,7 @@ def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> No
         name=_first_non_blank(getattr(feature_flag, "name", None), getattr(feature_flag, "key", None))
         or "Untitled feature flag",
         object_type="feature flag",
-        extra_changes=[Change(type="FeatureFlag", action="changed", field="active", before=False, after=True)],
     )
-
-
-def _feature_flag_pre_delete(context: DeletionContext, feature_flag: Any) -> None:
-    # Deferred: the flag facade pulls FeatureFlagSerializer, which drags posthog.schema and the
-    # LLM SDKs in. This module is imported from AppConfig.ready(), so a module-level import would
-    # put all of that on every process's startup path.
-    from products.feature_flags.backend.facade.api import deactivate_trashed_flag  # noqa: PLC0415
-
-    deactivate_trashed_flag(feature_flag.id, team_id=feature_flag.team_id)
-    feature_flag.refresh_from_db(fields=["active"])
-
-
-def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
-    from products.feature_flags.backend.facade.api import reactivate_restored_flag  # noqa: PLC0415
-
-    reactivate_restored_flag(feature_flag.id, team_id=feature_flag.team_id)
-    feature_flag.refresh_from_db(fields=["active"])
 
 
 def register_core_file_system_types() -> None:
@@ -366,8 +348,6 @@ def register_core_file_system_types() -> None:
         "FeatureFlag",
         undo_message="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
     )
-    register_pre_delete_hook("feature_flag", _feature_flag_pre_delete)
-    register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_delete_hook("feature_flag", _feature_flag_post_delete)
     register_post_restore_hook("feature_flag", _feature_flag_post_restore)
 

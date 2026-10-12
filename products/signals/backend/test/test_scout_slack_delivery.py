@@ -219,7 +219,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "[#93147 fix(checkout): retry 500s](https://example.com/pull/93147)" in markdown
         actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
         assert actions_block["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}?link_source=slack_scout"
         )
         assert call["blocks"][-1]["type"] == "context"
         assert fake_client.chat_postMessage.call_count == 1
@@ -270,7 +270,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "failed for many users" not in markdown
         actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
         assert actions_block["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}?link_source=slack_scout"
         )
 
     def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:

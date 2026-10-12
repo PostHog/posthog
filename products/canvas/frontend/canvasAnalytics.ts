@@ -10,7 +10,7 @@ export const CANVAS_EVENTS = {
 } as const
 
 // pinned: `surface` values, shared with PostHog Desktop
-export type CanvasSurface = 'web_new_canvas_page' | 'web_canvas_scene' | 'web_canvas_side_panel'
+export type CanvasSurface = 'web_new_canvas_page' | 'web_canvas_scene' | 'web_canvas_side_panel' | 'web_canvases_list'
 
 // pinned: `action_type` values of the Dashboard action event. "revert" and "edit_toggle" are shared
 // with PostHog Desktop. The rest name web actions Desktop does not track yet, so Desktop should reuse them.
@@ -41,6 +41,8 @@ export type CanvasDashboardActionType =
     | 'build_pin'
     | 'build_unpin'
     | 'fix_request'
+    | 'make_public_opened'
+    | 'visibility_change'
 
 /** Captures a canvas action from the scene or its side panel. Never pass prompt, comment, or source text. */
 export function captureCanvasAction(
@@ -63,6 +65,10 @@ export function captureCanvasAction(
         method?: 'click' | 'drag'
         /** edit_conflict_resolve: whether the author kept their edits over the newer version. */
         keep_local?: boolean
+        /** visibility_change: who can see the canvas after the change. */
+        visibility?: 'private' | 'public'
+        /** visibility_change: whether the change undid the one before. */
+        undo?: boolean
     }
 ): void {
     posthog.capture(CANVAS_EVENTS.dashboardAction, {

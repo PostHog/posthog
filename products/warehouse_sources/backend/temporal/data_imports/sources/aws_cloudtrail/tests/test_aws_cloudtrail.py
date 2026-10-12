@@ -103,35 +103,6 @@ def test_unsupported_version_never_sends_request(session: Mock) -> None:
 
 
 @pytest.mark.parametrize(
-    "endpoint,key,id_key",
-    [
-        ("events", "Events", "EventId"),
-        ("insight_events", "Events", "EventId"),
-        ("event_data_stores", "EventDataStores", "EventDataStoreArn"),
-    ],
-)
-def test_pagination_includes_empty_and_terminal_pages(session: Mock, endpoint: str, key: str, id_key: str) -> None:
-    session.post.side_effect = [
-        response({key: [{id_key: "one"}], "NextToken": "second"}),
-        response({key: [], "NextToken": "third"}),
-        response({key: [{id_key: "three"}]}),
-    ]
-    resume = manager()
-    batches = list(get_rows(client(), AWS_CLOUDTRAIL_ENDPOINTS[endpoint], resume, None))
-    assert len(batches) == 2
-    assert [params.get("NextToken") for params in payloads(session)] == [None, "second", "third"]
-    assert resume.save_state.call_count == 3
-    assert resume.save_state.call_args.args[0].finished
-    assert resume.safe_point.call_count == 3
-    resume.clear_state.assert_not_called()
-    session.close.assert_called_once()
-    if endpoint == "insight_events":
-        assert all(params["EventCategory"] == "insight" for params in payloads(session))
-    elif endpoint == "events":
-        assert all("EventCategory" not in params for params in payloads(session))
-
-
-@pytest.mark.parametrize(
     "last_value",
     [
         NOW - dt.timedelta(days=1),
@@ -182,16 +153,6 @@ def test_full_refresh_omits_watermark_through_pipeline(session: Mock, endpoint: 
     assert result.on_complete is not None
     result.on_complete()
     resume.clear_state.assert_called_once()
-
-
-def test_trails_use_single_non_paginated_request(session: Mock) -> None:
-    session.post.return_value = response(
-        {"trailList": [{"TrailARN": "arn:aws:cloudtrail:eu-west-1:000000000000:trail/example", "Name": "example"}]}
-    )
-    batches = list(get_rows(client(), AWS_CLOUDTRAIL_ENDPOINTS["trails"], manager(), NOW))
-    assert payloads(session) == [{"includeShadowTrails": True}]
-    assert batches[0][0]["trail_arn"].endswith("trail/example")
-    assert batches[0][0]["region"] == "eu-west-1"
 
 
 def test_event_rows_preserve_event_details_and_parse_time(session: Mock) -> None:

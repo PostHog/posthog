@@ -36,9 +36,6 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         enabled=configuration.enabled,
         source_kind=configuration.source_kind,
         source_config=configuration.source_config,
-        threshold_count=configuration.threshold_count,
-        threshold_operator=configuration.threshold_operator,
-        window_minutes=configuration.window_minutes,
         check_interval_minutes=configuration.check_interval_minutes,
         recurrence_unit=configuration.recurrence_unit,
         anchor_time=configuration.anchor_time,
@@ -92,3 +89,13 @@ def get_configuration(
     """One configuration, or None when it does not exist or the caller may not read its kind."""
     row = _readable(team_id, source_kinds).filter(id=configuration_id).first()
     return None if row is None else _configuration_view(row)
+
+
+def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> PlatformAlertSnapshot | None:
+    """One group's current runtime state, or None when the platform has recorded none."""
+    alert = (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, grouping_key=grouping_key)
+        .first()
+    )
+    return instance_view(alert) if alert is not None else None

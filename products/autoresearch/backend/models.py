@@ -470,6 +470,11 @@ class AutoresearchRun(PipelineScopedModel):
     )
     run_type = models.CharField(max_length=20, choices=RunType.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    scheduled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the daily sweep started this run. False for a manual run or a command.",
+    )
 
     rows_scored = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     metrics = models.JSONField(default=dict)

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark import roark
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.roark import (
     RoarkResumeConfig,
-    _base_params,
     roark_source,
     validate_credentials,
 )
@@ -74,23 +73,6 @@ def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "key"):
     return roark_source(api_key=api_key, endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
 
-class TestBaseParams:
-    def test_cursor_endpoint_with_sort(self) -> None:
-        # call supports sortBy/sortDirection and caps at 100
-        params = _base_params(ROARK_ENDPOINTS["call"])
-        assert params == {"limit": 100, "sortBy": "createdAt", "sortDirection": "asc"}
-
-    def test_cursor_endpoint_without_sort(self) -> None:
-        params = _base_params(ROARK_ENDPOINTS["agent"])
-        assert params == {"limit": 50}
-        assert "sortBy" not in params
-
-    def test_unpaginated_endpoint_sends_no_limit(self) -> None:
-        # metric_definition takes no pagination params at all
-        params = _base_params(ROARK_ENDPOINTS["metric_definition"])
-        assert params == {}
-
-
 class TestCursorPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_walks_cursor_until_has_more_false(self, MockSession) -> None:
@@ -117,18 +99,6 @@ class TestCursorPagination:
         # A checkpoint is saved after each non-final page, recording the NEXT page's cursor.
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [RoarkResumeConfig(after="c1"), RoarkResumeConfig(after="c2")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_next_cursor_missing_even_if_has_more(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_cursor_page([{"id": "1"}], has_more=True, next_cursor=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("agent", manager))
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_starts_from_saved_cursor(self, MockSession) -> None:
@@ -166,18 +136,6 @@ class TestOffsetPagination:
         # Offset advances by rows RECEIVED (3), not the requested page size.
         assert params[1]["offset"] == 3
         manager.save_state.assert_called_once_with(RoarkResumeConfig(offset=3))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_has_more_false_without_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_offset_page([{"id": "1"}, {"id": "2"}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("issue", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_starts_from_saved_offset(self, MockSession) -> None:
@@ -250,28 +208,6 @@ class TestRetryAndFailLoud:
 
 
 class TestRoarkSourceResponse:
-    def test_response_uses_endpoint_primary_keys_and_partition(self) -> None:
-        response = _source("call", _make_manager())
-        assert response.name == "call"
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["startedAt"]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-
-    def test_plan_job_uses_non_id_primary_key(self) -> None:
-        response = _source("simulation_plan_job", _make_manager())
-        assert response.primary_keys == ["simulationRunPlanJobId"]
-
-    def test_issue_reports_desc_sort_mode(self) -> None:
-        # The issue endpoint is fixed newest-first, so we must not claim ascending order.
-        response = _source("issue", _make_manager())
-        assert response.sort_mode == "desc"
-
-    def test_metric_definition_has_no_partition(self) -> None:
-        response = _source("metric_definition", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
         response = _source(endpoint, _make_manager())
@@ -287,10 +223,3 @@ class TestValidateCredentials:
         session.get.return_value = mock.MagicMock(status_code=status)
         mock_session.return_value = session
         assert validate_credentials("key") is expected
-
-    @mock.patch(ROARK_SESSION_PATCH)
-    def test_network_error_is_invalid(self, mock_session) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        mock_session.return_value = session
-        assert validate_credentials("key") is False

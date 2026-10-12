@@ -4,14 +4,16 @@ description: >
   Internal PostHog developer frontend/browser QA skill. Use only when a PostHog
   developer explicitly asks to run frontend QA, browser-test a PR, verify a UI
   flow against the local PostHog stack, use qa-frontend, or QA current frontend
-  changes with browser/runtime evidence. Do not use for generic code review, PR
-  review, "check my changes", CI debugging, or security audit; use qa-team,
+  changes with browser/runtime evidence, or to make a feature reel (see reel
+  mode below). Do not use for generic code review, PR review, "check my
+  changes", CI debugging, or security audit; use qa-team,
   debugging-ci-failures, or security-audit instead. QA runs in PR mode or local
   mode, plans adaptive browser and visual checks, drives browser MCP/tooling
   such as Playwright MCP or Chrome DevTools MCP, captures evidence, and applies
   only approved/narrow fixes. Reel mode makes a feature reel instead: a short,
-  sharp animated WebP of a new UI flow from Storybook stills, for a PR
-  description. Use it when asked for a reel, GIF, or animated demo of a flow.
+  sharp animated WebP of one UI flow for a PR description. Use it when asked
+  for a reel, GIF, or animated demo, or when writing-pr-descriptions calls for
+  a reel: a new action and its effect that one screenshot cannot show.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*, mcp__chrome-devtools__*, mcp__phrocs__*
 ---
 
@@ -21,7 +23,7 @@ Run the code, not just the diff. This is a repo-local skill for PostHog develope
 
 - **PR mode** - user references a specific PR (URL, number, or branch). The skill checks out the PR, runs QA, optionally uploads final evidence after approval, and posts a single PR comment after approval. Requires a clean working tree.
 - **Local mode** - user asks to QA their current work with no PR reference. The skill QAs the current checkout against the repo's default branch (`origin/HEAD`) by default, or an explicit local base ref when the user provides one, plus staged, unstaged, and untracked changes. It writes a report locally and does **not** upload evidence or touch GitHub. A dirty working tree is fine in this mode.
-- **Reel mode** - user asks for a reel, GIF, or animated demo of a UI flow for a PR description. The skill skips the QA loop and follows `references/feature-reel.md`: Storybook stills become an animated WebP with a cursor and zoom. It needs Storybook, not the local stack.
+- **Reel mode** - user asks for a reel, GIF, or animated demo of a UI flow for a PR description, or "Screenshots and reels" in `/writing-pr-descriptions` calls for one. The skill skips the QA loop and follows `references/feature-reel.md`: stills from a Storybook story or a test workspace in the running app become an animated WebP with a cursor and zoom.
 
 Use this skill only for explicit frontend/browser/runtime QA or a feature reel. If the prompt is a generic review, code-review, "check my changes", CI-debugging, or security-audit request, use the more specific repo skill instead.
 
@@ -73,7 +75,7 @@ Load these files only when the matching phase starts:
 - `references/evidence-and-output.md` - evidence upload, verdict artifacts, and PR/local report rendering.
 - `references/pr-comment-template.md` - final PR comment structure.
 - `references/cleanup.md` - checkout, browser session, stack, and generated-file cleanup after the report is written.
-- `references/feature-reel.md` - reel mode: shot list, Storybook capture, render, and upload of a feature reel.
+- `references/feature-reel.md` - reel mode: when a reel earns its place, shot list, capture, render, and upload of a feature reel.
 
 Skill scripts live next to this file (under `scripts/`). When Claude Code activates this skill, it emits a line at the top of the prompt:
 

@@ -223,6 +223,37 @@ export function SnapshotDiffViewer({
         })
     }
 
+    // Accepting writes this picture into the baseline for every branch. On a pull request that does
+    // not touch the story, the picture is usually the flake the quarantine is hiding.
+    const openAcceptQuarantinedDialog = (): void => {
+        // The dialog stays clickable during its close transition, so a double click would approve twice.
+        let submitted = false
+        LemonDialog.open({
+            title: 'Accept a change to a quarantined snapshot?',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <code className="break-all">{snapshot.identifier}</code>
+                    <p className="m-0">
+                        This snapshot is quarantined because it renders inconsistently, so its change does not block
+                        your pull request. Accept it only if your pull request changes this story. Otherwise leave it as
+                        it is: accepting it makes this picture the baseline for everyone.
+                    </p>
+                </div>
+            ),
+            primaryButton: {
+                children: 'Accept change',
+                onClick: () => {
+                    if (!submitted) {
+                        submitted = true
+                        onApprove?.()
+                    }
+                },
+                'data-attr': 'visual-review-snapshot-accept-quarantined-confirm',
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     // Parse identifier for display (e.g., "Feature-Flags-settings--e2e-test--dark--1440x900")
     const parts = snapshot.identifier.split('--')
     const pageName = parts[0]?.replace(/-/g, ' ') || snapshot.identifier
@@ -289,9 +320,9 @@ export function SnapshotDiffViewer({
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={onApprove}
+                            onClick={openAcceptQuarantinedDialog}
                             loading={isApproving}
-                            tooltip="This change does not block the PR because the story is quarantined. Accept it to make this picture the baseline when you finalize the run."
+                            tooltip="This change does not block the pull request because the story is quarantined. Accept it only if your pull request changes this story."
                             data-attr="visual-review-snapshot-accept-quarantined"
                         >
                             Accept change

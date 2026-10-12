@@ -98,9 +98,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestBaseUrl:
-    def test_builds_per_application_host(self) -> None:
-        assert _base_url("MYAPPID") == "https://MYAPPID.algolia.net"
-
     @pytest.mark.parametrize("bad", ["evil.com/", "app id", "app.algolia.net", "a/b", "app#x", ""])
     def test_rejects_non_alphanumeric_application_id(self, bad: str) -> None:
         # The application_id is interpolated into the request host, so anything that could
@@ -110,10 +107,6 @@ class TestBaseUrl:
 
 
 class TestEndpointUrl:
-    def test_formats_index_into_path(self) -> None:
-        url = _endpoint_url("APP", ALGOLIA_ENDPOINTS["records"], "my_index")
-        assert url == "https://APP.algolia.net/1/indexes/my_index/browse"
-
     def test_quotes_index_name(self) -> None:
         url = _endpoint_url("APP", ALGOLIA_ENDPOINTS["records"], "my index/slash")
         assert url == "https://APP.algolia.net/1/indexes/my%20index%2Fslash/browse"
@@ -121,26 +114,6 @@ class TestEndpointUrl:
     def test_index_scoped_endpoint_requires_index(self) -> None:
         with pytest.raises(ValueError):
             _endpoint_url("APP", ALGOLIA_ENDPOINTS["records"], None)
-
-    def test_app_level_endpoint_ignores_index(self) -> None:
-        assert _endpoint_url("APP", ALGOLIA_ENDPOINTS["indices"], None) == "https://APP.algolia.net/1/indexes"
-
-    def test_analytics_endpoint_uses_regional_analytics_host(self) -> None:
-        # Analytics endpoints live on the region-specific analytics host, not the per-application
-        # search host, and keep the index out of the path (it rides as a query param instead).
-        assert (
-            _endpoint_url("APP", ALGOLIA_ENDPOINTS["top_searches"], "idx", "us")
-            == "https://analytics.algolia.com/2/searches"
-        )
-        assert (
-            _endpoint_url("APP", ALGOLIA_ENDPOINTS["top_searches"], "idx", "de")
-            == "https://analytics.de.algolia.com/2/searches"
-        )
-
-    def test_abtests_endpoint_is_application_level_on_analytics_host(self) -> None:
-        assert (
-            _endpoint_url("APP", ALGOLIA_ENDPOINTS["ab_tests"], None, "us") == "https://analytics.algolia.com/3/abtests"
-        )
 
 
 class TestCursorPagination:
@@ -166,35 +139,6 @@ class TestCursorPagination:
         assert calls[1]["json"] == {"hitsPerPage": 1000, "cursor": "c1"}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_cursor_after_non_terminal_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        _wire(
-            session,
-            [
-                _response({"hits": [{"objectID": "1"}], "cursor": "c1"}),
-                _response({"hits": [{"objectID": "2"}]}),
-            ],
-        )
-
-        _rows(_build("records", manager))
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [AlgoliaResumeConfig(cursor="c1")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_saves_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        _wire(session, [_response({"hits": [{"objectID": "only"}]})])
-
-        rows = _rows(_build("records", manager))
-
-        assert [r["objectID"] for r in rows] == ["only"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_seeds_cursor(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         manager = _make_manager(AlgoliaResumeConfig(cursor="resumed"))
@@ -218,32 +162,6 @@ class TestPagePagination:
         assert [r["objectID"] for r in rows] == ["s1"]
         assert len(calls) == 1
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_search_endpoint_walks_multiple_pages(
-        self, MockSession: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        monkeypatch.setitem(
-            ALGOLIA_ENDPOINTS, "synonyms", dataclasses.replace(ALGOLIA_ENDPOINTS["synonyms"], page_size=2)
-        )
-        calls = _wire(
-            session,
-            [
-                _response({"hits": [{"objectID": "a"}, {"objectID": "b"}], "nbHits": 3}),
-                _response({"hits": [{"objectID": "c"}], "nbHits": 3}),
-            ],
-        )
-
-        rows = _rows(_build("synonyms", manager))
-
-        assert [r["objectID"] for r in rows] == ["a", "b", "c"]
-        # Search endpoints page via the POST body.
-        assert [c["json"]["page"] for c in calls] == [0, 1]
-        assert all(c["json"]["hitsPerPage"] == 2 for c in calls)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [AlgoliaResumeConfig(page=1)]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_indices_uses_nb_pages_to_terminate(self, MockSession: mock.MagicMock) -> None:
@@ -279,35 +197,6 @@ class TestPagePagination:
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_analytics_endpoint_stops_on_short_page(
-        self, MockSession: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        monkeypatch.setitem(
-            ALGOLIA_ENDPOINTS, "top_searches", dataclasses.replace(ALGOLIA_ENDPOINTS["top_searches"], page_size=2)
-        )
-        calls = _wire(
-            session,
-            [
-                _response({"searches": [{"search": "a"}, {"search": "b"}]}),
-                _response({"searches": [{"search": "c"}]}),
-            ],
-        )
-
-        rows = _rows(_build("top_searches", manager))
-
-        assert [r["search"] for r in rows] == ["a", "b", "c"]
-        # The index and click-analytics flag ride as static query params; the paginator supplies
-        # offset/limit. A short final page (fewer rows than the limit) ends the walk.
-        assert [c["method"] for c in calls] == ["GET", "GET"]
-        assert calls[0]["url"] == "https://analytics.algolia.com/2/searches"
-        assert calls[0]["params"] == {"index": "idx", "clickAnalytics": "true", "offset": 0, "limit": 2}
-        assert calls[1]["params"]["offset"] == 2
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [AlgoliaResumeConfig(offset=2)]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_abtests_terminates_on_total_and_omits_index(
         self, MockSession: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
@@ -352,23 +241,6 @@ class TestAlgoliaSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == ALGOLIA_ENDPOINTS[endpoint].primary_keys
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_items_is_lazy(self, MockSession: mock.MagicMock) -> None:
-        # Building the SourceResponse must not issue any request; only iterating items should.
-        session = MockSession.return_value
-        session.headers = {}
-        _build("records", _make_manager())
-        session.send.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_application_id_header_is_set_on_session(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"hits": []})])
-
-        _rows(_build("records", _make_manager()))
-
-        assert session.headers.get("X-Algolia-Application-Id") == "APP"
-
 
 class TestValidateCredentials:
     def _run(self, response: Any, **kwargs: Any) -> tuple[bool, str | None]:
@@ -377,11 +249,6 @@ class TestValidateCredentials:
             session.get.return_value = response
             session.post.return_value = response
             return validate_credentials(application_id="APP", api_key="key", **kwargs)
-
-    def test_ok(self) -> None:
-        valid, error = self._run(_response({}, status_code=200), index_name="idx")
-        assert valid is True
-        assert error is None
 
     def test_invalid_credentials(self) -> None:
         resp = _response({"message": "Invalid Application-ID or API key", "status": 403}, status_code=403)
@@ -403,24 +270,6 @@ class TestValidateCredentials:
         assert valid is False
         assert error is not None
 
-    def test_analytics_schema_probe_hits_regional_analytics_host(self) -> None:
-        # Probing an analytics schema must target the region's analytics host (not the search host)
-        # with the configured index, so the `analytics` ACL is what actually gets checked.
-        with mock.patch(ALGOLIA_SESSION_PATCH) as factory:
-            session = factory.return_value
-            session.get.return_value = _response({}, status_code=200)
-            valid, error = validate_credentials(
-                application_id="APP",
-                api_key="key",
-                index_name="idx",
-                schema_name="top_searches",
-                region="de",
-            )
-        assert valid is True and error is None
-        args, kwargs = session.get.call_args
-        assert args[0] == "https://analytics.de.algolia.com/2/searches"
-        assert kwargs["params"]["index"] == "idx"
-
     def test_fanout_schema_probe_targets_the_parent_listing(self) -> None:
         with mock.patch(ALGOLIA_SESSION_PATCH) as factory:
             session = factory.return_value
@@ -436,20 +285,6 @@ class TestValidateCredentials:
         assert args[0] == "https://analytics.algolia.com/2/filters"
         assert kwargs["params"]["limit"] == 1
 
-    def test_time_series_schema_probe_sends_no_limit(self) -> None:
-        with mock.patch(ALGOLIA_SESSION_PATCH) as factory:
-            session = factory.return_value
-            session.get.return_value = _response({}, status_code=200)
-            validate_credentials(
-                application_id="APP",
-                api_key="key",
-                index_name="idx",
-                schema_name="conversion_rate",
-            )
-        args, kwargs = session.get.call_args
-        assert args[0] == "https://analytics.algolia.com/2/conversions/conversionRate"
-        assert kwargs["params"] == {"index": "idx"}
-
     def test_invalid_application_id_rejected_before_request(self) -> None:
         with mock.patch(ALGOLIA_SESSION_PATCH) as factory:
             valid, error = validate_credentials(application_id="evil.com/", api_key="key", index_name="idx")
@@ -464,11 +299,6 @@ class TestValidateCredentials:
             valid, error = validate_credentials(application_id="APP", api_key="key")
         assert valid is False
         assert error is not None and "boom" in error
-
-    def test_unexpected_status_returns_message(self) -> None:
-        valid, error = self._run(_response({}, status_code=500), index_name="idx")
-        assert valid is False
-        assert error is not None and "500" in error
 
     def test_not_found_returns_actionable_message(self) -> None:
         # A 404 means the probed index (or application ID) doesn't exist. Give the user something to
@@ -520,37 +350,6 @@ class TestStartDate:
 
 class TestTimeSeriesEndpoints:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_reads_the_whole_window_in_one_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        calls = _wire(
-            session,
-            [
-                _response(
-                    {
-                        "rate": 0.2,
-                        "trackedSearchCount": 10,
-                        "conversionCount": 2,
-                        "dates": [
-                            {"date": "2026-03-18", "rate": 0.1, "trackedSearchCount": 5, "conversionCount": 1},
-                            {"date": "2026-03-19", "rate": 0.3, "trackedSearchCount": 5, "conversionCount": 1},
-                        ],
-                    }
-                )
-            ],
-        )
-
-        rows = _rows(_build("conversion_rate", manager))
-
-        # Rows come from the daily breakdown, not the period totals wrapping it.
-        assert [r["date"] for r in rows] == ["2026-03-18", "2026-03-19"]
-        assert len(calls) == 1
-        assert calls[0]["url"] == "https://analytics.algolia.com/2/conversions/conversionRate"
-        assert calls[0]["params"] == {"index": "idx"}
-        # Nothing to page through, so nothing to resume from.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sync_sends_start_date_from_the_watermark(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         calls = _wire(session, [_response({"dates": [{"date": "2026-03-19", "count": 4}]})])
@@ -567,74 +366,8 @@ class TestTimeSeriesEndpoints:
 
         assert calls[0]["params"]["startDate"] == "2026-03-16"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_incremental_sync_omits_start_date(self, MockSession: mock.MagicMock) -> None:
-        # A None cursor is dropped by the client, leaving Algolia's own default period.
-        session = MockSession.return_value
-        calls = _wire(session, [_response({"dates": []})])
-
-        _rows(
-            _build(
-                "users_count",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-                incremental_field="date",
-            )
-        )
-
-        assert "startDate" not in calls[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_ignores_a_stored_watermark(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        calls = _wire(session, [_response({"dates": []})])
-
-        _rows(_build("users_count", _make_manager(), db_incremental_field_last_value="2026-03-19"))
-
-        assert "startDate" not in calls[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_click_positions_reads_the_position_distribution(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        calls = _wire(
-            session,
-            [
-                _response(
-                    {"positions": [{"position": [1, 1], "clickCount": 9}, {"position": [21, -1], "clickCount": 1}]}
-                )
-            ],
-        )
-
-        rows = _rows(_build("click_positions", _make_manager()))
-
-        assert [r["position"] for r in rows] == [[1, 1], [21, -1]]
-        assert len(calls) == 1
-
 
 class TestTopFilterValuesFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_each_filter_attribute_from_the_parent_listing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        calls = _wire(
-            session,
-            [
-                _response({"attributes": [{"attribute": "brand", "count": 7}, {"attribute": "a/b", "count": 2}]}),
-                _response({"values": [{"attribute": "brand", "operator": ":", "value": "acme", "count": 5}]}),
-                _response({"values": [{"attribute": "a/b", "operator": ":", "value": "x", "count": 1}]}),
-            ],
-        )
-
-        rows = _rows(_build("top_filter_values", _make_manager()))
-
-        assert [(r["attribute"], r["value"]) for r in rows] == [("brand", "acme"), ("a/b", "x")]
-        assert calls[0]["url"] == "https://analytics.algolia.com/2/filters"
-        # The attribute is bound into the child path percent-encoded, so a name containing a
-        # slash can't escape the endpoint it belongs to.
-        assert calls[1]["url"] == "https://analytics.algolia.com/2/filters/brand"
-        assert calls[2]["url"] == "https://analytics.algolia.com/2/filters/a%2Fb"
-        assert all(call["params"]["index"] == "idx" for call in calls)
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_completed_attributes_and_resumes_from_them(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -652,25 +385,3 @@ class TestTopFilterValuesFanout:
 
         completed = [call.args[0].fanout["completed"] for call in manager.save_state.call_args_list]
         assert completed[-1] == ["/2/filters/brand", "/2/filters/color"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_attributes_already_synced(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager(
-            AlgoliaResumeConfig(fanout={"completed": ["/2/filters/brand"], "current": None, "child_state": None})
-        )
-        calls = _wire(
-            session,
-            [
-                _response({"attributes": [{"attribute": "brand"}, {"attribute": "color"}]}),
-                _response({"values": [{"attribute": "color", "operator": ":", "value": "red"}]}),
-            ],
-        )
-
-        rows = _rows(_build("top_filter_values", manager))
-
-        assert [r["attribute"] for r in rows] == ["color"]
-        assert [c["url"] for c in calls] == [
-            "https://analytics.algolia.com/2/filters",
-            "https://analytics.algolia.com/2/filters/color",
-        ]

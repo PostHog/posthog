@@ -138,6 +138,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             user=user,
             run=manual_run,
             query_context=BATCH_QUERY,
+            scheduled=manual_run is None,
         )
     return RunInferenceResult(
         run_id=str(run.pk),
@@ -191,7 +192,9 @@ def inference_workflow_id(pipeline_id: str, prediction_date: str) -> str:
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
 # Scoring can take minutes for large populations. The recipe path runs at most five batch
-# queries in sequence, so one attempt covers all of them at the full limit.
+# queries in sequence (50 minutes at the full limit). Shadow scoring then starts models for up to
+# SHADOW_TIME_BUDGET_S (20 minutes), and the last model it starts runs an anchor count, a feature
+# query, and a predict sandbox (about 30 minutes at worst). One attempt covers all of it.
 _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A lost worker is detected in minutes rather than at the end of a multi-hour attempt.
@@ -288,12 +291,13 @@ class RunValidationResult:
 # Validation does all its work (HogQL + sklearn) inside a single activity to
 # keep the Temporal payload small — we only return summary counts, not raw data.
 _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
-# Each date runs two batch queries of up to HOGQL_INCREASED_MAX_EXECUTION_TIME (600 s) each.
-# An attempt claims another date only while that worst case, plus the metrics and writes, still
-# fits in the attempt. The rest of a larger backlog stays pending for the next sweep, so the
-# attempt completes instead of timing out part-way.
+# Each date runs one predictions query per model that scored it, up to the five models of a
+# shadow set, plus one realized-labels query. Each takes up to HOGQL_INCREASED_MAX_EXECUTION_TIME
+# (600 s). An attempt claims another date only while that worst case, plus the metrics and
+# writes, still fits in the attempt. The rest of a larger backlog stays pending for the next
+# sweep, so the attempt completes instead of timing out part-way.
 _VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=2)
-_VALIDATION_DATE_RESERVE = timedelta(minutes=30)
+_VALIDATION_DATE_RESERVE = timedelta(minutes=70)
 # Covers both attempts plus their backoff, as for inference.
 _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=5)
 

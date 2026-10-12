@@ -1203,6 +1203,37 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
+            ("traversal_in_repository", "PostHog/posthog/../../orgs/PostHog/members", "alice"),
+            ("path_in_login", "PostHog/posthog", "alice/../../members"),
+        ]
+    )
+    def test_is_assignable_refuses_unsafe_paths_without_calling_github(self, _name: str, repository: str, login: str):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_get") as mock_get:
+            result = github.is_assignable(repository, login)
+        assert result["success"] is False
+        mock_get.assert_not_called()
+
+    def test_list_assignees_searches_every_page_and_caches_the_list(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"login": "alice"}, {"login": "bob"}]
+        second = MagicMock(status_code=200)
+        second.json.return_value = [{"login": "Alicia"}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], True)
+        ) as mock_pages:
+            first_search = github.list_assignees("PostHog/posthog", "ali")
+            second_search = github.list_assignees("PostHog/posthog", "bob")
+
+        assert [assignee.id for assignee in first_search] == ["alice", "Alicia"]
+        assert [assignee.id for assignee in second_search] == ["bob"]
+        mock_pages.assert_called_once()
+
+    @parameterized.expand(
+        [
             ("every_page_read", True, {"success": True, "logins": ["alice", "bob"]}),
             # A partial member list would make a random pick skip part of the team.
             ("a_page_failed", False, {"success": False}),

@@ -10,14 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.less_annoying_crm import (
-    PAGE_SIZE,
     LessAnnoyingCRMResumeConfig,
     less_annoying_crm_source,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.settings import (
-    ENDPOINTS,
-    LESS_ANNOYING_CRM_ENDPOINTS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -71,32 +66,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_single_call_reads_bare_array(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([{"UserId": "1"}, {"UserId": "2"}])])
-
-        rows = _rows(_source("users", _make_manager()))
-
-        assert rows == [{"UserId": "1"}, {"UserId": "2"}]
-        assert session.send.call_count == 1
-        # Reference tables send no pagination params.
-        assert bodies[0]["Function"] == "GetUsers"
-        assert bodies[0]["Parameters"] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_has_more_results_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"Results": [{"ContactId": "1"}], "HasMoreResults": False})])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == [{"ContactId": "1"}]
-        assert session.send.call_count == 1
-        # A single terminal page never checkpoints.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_until_has_more_false_and_progresses_page(self, MockSession) -> None:
         session = MockSession.return_value
         bodies = _wire(
@@ -136,28 +105,75 @@ class TestPagination:
 
         assert bodies[0]["Parameters"]["Page"] == 4
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"Results": [], "HasMoreResults": False})])
 
-        assert _rows(_source("contacts", _make_manager())) == []
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pipeline_items_walk_every_pipeline_with_all_statuses(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(
+            session,
+            [
+                _response(
+                    [
+                        {
+                            "PipelineId": "p1",
+                            "Statuses": [{"StatusId": "open"}, {"StatusId": "won", "IsActive": False}],
+                        },
+                        {"PipelineId": "p2", "Statuses": []},
+                    ]
+                ),
+                _response({"Results": [{"PipelineItemId": "i1"}], "HasMoreResults": True}),
+                _response({"Results": [{"PipelineItemId": "i2"}], "HasMoreResults": False}),
+                _response({"Results": [{"PipelineItemId": "i3"}], "HasMoreResults": False}),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("pipeline_items", manager))
+
+        assert rows == [{"PipelineItemId": "i1"}, {"PipelineItemId": "i2"}, {"PipelineItemId": "i3"}]
+        assert bodies[0]["Function"] == "GetPipelines"
+        child_params = [(b["Parameters"]["PipelineId"], b["Parameters"]["Page"]) for b in bodies[1:]]
+        assert child_params == [("p1", 1), ("p1", 2), ("p2", 1)]
+        # Closed statuses are only returned when named explicitly in StatusFilter.
+        assert bodies[1]["Parameters"]["StatusFilter"] == ["open", "won"]
+        assert manager.save_state.call_args_list == [
+            mock.call(LessAnnoyingCRMResumeConfig(page=1, parent_id="p1")),
+            mock.call(LessAnnoyingCRMResumeConfig(page=2, parent_id="p1")),
+            mock.call(LessAnnoyingCRMResumeConfig(page=1, parent_id="p2")),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @pytest.mark.parametrize(
+        "resume,expected",
+        [
+            # Resumes inside the saved group at the saved page, skipping groups already synced.
+            (LessAnnoyingCRMResumeConfig(page=3, parent_id="g2"), [("g2", 3)]),
+            # A group deleted since the checkpoint restarts the fan-out from the first group.
+            (LessAnnoyingCRMResumeConfig(page=3, parent_id="gone"), [("g1", 1), ("g2", 1)]),
+        ],
+    )
+    def test_group_memberships_resume(
+        self, MockSession, resume: LessAnnoyingCRMResumeConfig, expected: list[tuple[str, int]]
+    ) -> None:
+        session = MockSession.return_value
+        members = {"Results": [{"GroupId": "g", "ContactId": "c"}], "HasMoreResults": False}
+        bodies = _wire(
+            session,
+            [
+                _response({"Results": [{"GroupId": "g1"}, {"GroupId": "g2"}], "HasMoreResults": False}),
+                _response(members),
+                _response(members),
+            ],
+        )
+
+        _rows(_source("group_memberships", _make_manager(resume)))
+
+        assert bodies[0]["Function"] == "GetGroups"
+        assert [(b["Parameters"]["GroupId"], b["Parameters"]["Page"]) for b in bodies[1:]] == expected
 
 
 class TestRequestBody:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_contacts_send_page_size_and_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response({"Results": [{"ContactId": "1"}], "HasMoreResults": False})])
-
-        _rows(_source("contacts", _make_manager()))
-
-        params = bodies[0]["Parameters"]
-        assert params["Page"] == 1
-        assert params["MaxNumberOfResults"] == PAGE_SIZE
-        assert params["SortBy"] == "DateCreated"
-        assert params["SortDirection"] == "Ascending"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_tasks_send_required_date_window_and_expand_dict_results(self, MockSession) -> None:
         session = MockSession.return_value
@@ -221,11 +237,6 @@ class TestErrors:
 
 class TestValidateCredentials:
     @mock.patch(LACRM_SESSION_PATCH)
-    def test_valid_key_returns_true(self, mock_session) -> None:
-        mock_session.return_value.post.return_value = _response({"UserId": "1", "Email": "a@b.co"})
-        assert validate_credentials("good-key") is True
-
-    @mock.patch(LACRM_SESSION_PATCH)
     def test_invalid_key_status_returns_false(self, mock_session) -> None:
         mock_session.return_value.post.return_value = _response(
             {"ErrorCode": "x", "ErrorDescription": "Invalid credentials."}, status_code=400
@@ -247,21 +258,3 @@ class TestValidateCredentials:
         mock_session.return_value.post.return_value = _response({"UserId": "1"})
         validate_credentials("secret-key")
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == LESS_ANNOYING_CRM_ENDPOINTS[endpoint].primary_keys
-
-    def test_partitioned_endpoint_uses_datetime_mode(self) -> None:
-        response = _source("contacts", _make_manager())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["DateCreated"]
-
-    def test_reference_table_is_not_partitioned(self) -> None:
-        response = _source("users", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None

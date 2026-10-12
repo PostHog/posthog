@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { IntegrationType } from '~/types'
 
@@ -283,6 +284,8 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         verifyDomainSuccess: ({ verification }) => {
             if (verification?.status === 'success') {
                 actions.loadIntegrations()
+                // Verifying the first sender makes it the project default on the server.
+                teamLogic.findMounted()?.actions.loadCurrentTeam()
             }
         },
     })),

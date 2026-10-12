@@ -12,7 +12,8 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import upsert_configuration
-from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
+from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
+from products.logs.backend.alert_source_cycle import LogsAlertCondition
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -40,10 +41,14 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None) -> Bac
                 name=configuration.name,
                 enabled=configuration.enabled,
                 source_kind=SourceKind.LOGS,
-                source_config=configuration.filters,
-                threshold_count=configuration.threshold_count,
-                threshold_operator=configuration.threshold_operator,
-                window_minutes=configuration.window_minutes,
+                source_config={
+                    **configuration.filters,
+                    SOURCE_CONDITION_KEY: LogsAlertCondition(
+                        threshold_count=configuration.threshold_count,
+                        threshold_operator=configuration.threshold_operator,
+                        window_minutes=configuration.window_minutes,
+                    ).as_source_config(),
+                },
                 check_interval_minutes=configuration.check_interval_minutes,
                 evaluation_periods=configuration.evaluation_periods,
                 datapoints_to_alarm=configuration.datapoints_to_alarm,

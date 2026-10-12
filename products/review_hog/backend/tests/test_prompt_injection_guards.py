@@ -18,6 +18,7 @@ from products.review_hog.backend.reviewer.tools.issue_validation import (
 from products.review_hog.backend.reviewer.tools.issues_review import build_review_prompt
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 from products.review_hog.backend.reviewer.tools.select_perspectives import generate_selection_prompt
+from products.review_hog.backend.reviewer.tools.single_agent_review import SingleAgentPrompt
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import generate_chunking_prompt
 
 
@@ -71,6 +72,10 @@ def _issues_review_prompt() -> str:
         pr_files=[],
         prior_findings=[],
     )
+
+
+def _single_agent_prompt() -> str:
+    return SingleAgentPrompt(repository="o/r", pr_metadata=_pr_metadata(), pr_files=[], prior_findings=[]).render()
 
 
 def _chunking_prompt() -> str:
@@ -132,6 +137,7 @@ class TestPromptInjectionGuards:
     @parameterized.expand(
         [
             ("issues_review", _issues_review_prompt),
+            ("single_agent_review", _single_agent_prompt),
             ("chunking", _chunking_prompt),
             ("perspective_selection", _selection_prompt),
             ("issue_validation", _validation_prompt),

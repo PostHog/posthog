@@ -312,6 +312,12 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 )
             ]
 
+    def test_empty_scopes_omit_posthog_mcp(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = "https://mcp.example.com/mcp"
+            mock_settings.MCP_SERVER_URL = "https://fallback.example.com/mcp"
+            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=[]) == []
+
     def test_returns_empty_list_when_no_mcp_server_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
@@ -743,9 +749,10 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_EMAIL": "jane@example.com",
         }
 
-    def test_user_created_with_explicit_bot_mode_returns_empty(self) -> None:
+    @parameterized.expand([(Task.OriginProduct.USER_CREATED,), (Task.OriginProduct.POSTHOG_AI,)])
+    def test_user_authorable_origin_with_explicit_bot_mode_returns_empty(self, origin_product: str) -> None:
         user = self._make_user()
-        task = self._make_task(Task.OriginProduct.USER_CREATED, user=user)
+        task = self._make_task(origin_product, user=user)
         assert get_git_identity_env_vars(task, {"pr_authorship_mode": "bot"}) == {}
 
     def test_non_user_created_with_explicit_user_mode_returns_user_identity(self) -> None:
@@ -783,6 +790,11 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_NAME": "Slack User",
             "GIT_COMMITTER_EMAIL": "slack@example.com",
         }
+
+    def test_posthog_ai_without_marker_returns_empty(self) -> None:
+        user = self._make_user()
+        task = self._make_task(Task.OriginProduct.POSTHOG_AI, user=user)
+        assert get_git_identity_env_vars(task) == {}
 
     def test_user_created_without_user_returns_empty(self) -> None:
         task = self._make_task(Task.OriginProduct.USER_CREATED, user=None)

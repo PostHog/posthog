@@ -1,6 +1,6 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
@@ -12,31 +12,17 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
+import { identifierToHuman } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { AvailableFeature, TeamBasicType } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { newAccountMenuLogic } from './newAccountMenuLogic'
+import { CreateProjectItem, ListItem, newAccountMenuLogic, ProjectListItem } from './newAccountMenuLogic'
 import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
-
-interface ProjectListItem {
-    type: 'project'
-    id: number
-    team: TeamBasicType
-    isCurrent: boolean
-}
-
-interface CreateProjectItem {
-    type: 'create'
-    id: 'create-new-project'
-    label: string
-}
-
-type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -44,51 +30,14 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
-    const [searchValue, setSearchValue] = useState('')
+    const { closeProjectSwitcher, setAccountMenuOpen, setProjectSearchValue } = useActions(newAccountMenuLogic)
+    const {
+        projectSearchValue: searchValue,
+        filteredProjectItems: filteredItems,
+        projectGroups,
+        hasProjectGroups,
+    } = useValues(newAccountMenuLogic)
     const inputRef = useRef<HTMLInputElement>(null!)
-
-    const allProjectItems: ProjectListItem[] = useMemo(() => {
-        const items: ProjectListItem[] = []
-
-        if (currentOrganization?.teams) {
-            for (const team of currentOrganization.teams) {
-                items.push({
-                    type: 'project',
-                    id: team.id,
-                    team,
-                    isCurrent: team.id === currentTeam?.id,
-                })
-            }
-        }
-
-        return items
-    }, [currentOrganization?.teams, currentTeam?.id])
-
-    const filteredItems = useMemo(() => {
-        const searchLower = searchValue.trim().toLowerCase()
-
-        // Filter project items
-        const filteredProjects = searchLower
-            ? allProjectItems.filter((item) => item.team.name.toLowerCase().includes(searchLower))
-            : allProjectItems
-
-        // Create the "create" item - show different label based on search
-        const createItem: CreateProjectItem = {
-            type: 'create',
-            id: 'create-new-project',
-            label: 'New project',
-            // TODO: Uncomment this when we have a way to create projects with a name
-            // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
-        }
-
-        return [...filteredProjects, createItem] as ListItem[]
-    }, [allProjectItems, searchValue])
-
-    const currentProject = filteredItems.find((p): p is ProjectListItem => p.type === 'project' && p.isCurrent)
-    const otherProjects = filteredItems
-        .filter((p): p is ProjectListItem => p.type === 'project' && !p.isCurrent)
-        .sort((a, b) => a.team.name.localeCompare(b.team.name))
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
@@ -178,7 +127,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         <Combobox.Input
                             ref={inputRef}
                             value={searchValue}
-                            onChange={(e) => setSearchValue(e.target.value)}
+                            onChange={(e) => setProjectSearchValue(e.target.value)}
                             aria-label="Search projects"
                             placeholder="Search projects..."
                             className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
@@ -190,7 +139,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                     <ButtonPrimitive
                                         iconOnly
                                         size="sm"
-                                        onClick={() => setSearchValue('')}
+                                        onClick={() => setProjectSearchValue('')}
                                         aria-label="Clear search"
                                         className="-mr-1"
                                     >
@@ -212,31 +161,13 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
                         tabIndex={-1}
                     >
-                        {/* Current Project */}
-                        {currentProject && (
-                            <Combobox.Group items={[currentProject]}>
-                                <Combobox.Collection>
-                                    {(item: ProjectListItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
-                                                    <IconCheck className="text-tertiary" />
-                                                    <ProjectName team={item.team} className="flex-1 min-w-0" />
-                                                    <ProjectFreshnessIndicator teamId={item.team.id} />
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
-
-                        {/* Other Projects */}
-                        {otherProjects.length > 0 && (
-                            <Combobox.Group items={otherProjects}>
+                        {projectGroups.map(({ name, projects }) => (
+                            <Combobox.Group key={name === null ? 'ungrouped' : `group:${name}`} items={projects}>
+                                {hasProjectGroups && (
+                                    <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
+                                        {name ? identifierToHuman(name, 'sentence') : 'Other projects'}
+                                    </Combobox.GroupLabel>
+                                )}
                                 <Combobox.Collection>
                                     {(item: ProjectListItem) => (
                                         <Combobox.Item
@@ -247,11 +178,16 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                 <ButtonPrimitive
                                                     {...props}
                                                     menuItem
+                                                    active={item.isCurrent}
                                                     className="flex-1"
                                                     tabIndex={-1}
                                                     hasSideActionRight
                                                 >
-                                                    <IconBlank />
+                                                    {item.isCurrent ? (
+                                                        <IconCheck className="text-tertiary" />
+                                                    ) : (
+                                                        <IconBlank />
+                                                    )}
                                                     <ProjectName team={item.team} className="flex-1 min-w-0" />
                                                     <ProjectFreshnessIndicator teamId={item.team.id} />
                                                 </ButtonPrimitive>
@@ -260,7 +196,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                     )}
                                 </Combobox.Collection>
                             </Combobox.Group>
-                        )}
+                        ))}
 
                         <MenuSeparator />
 

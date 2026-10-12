@@ -21,6 +21,47 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
 WORKFLOW_NAME = "error-tracking-issue-reopened"
 
 
+async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -> None:
+    """Alert, internal event and signal for a reopened issue.
+
+    Shared with the issue-created workflow, which reaches this state when auto-merge moves a
+    new fingerprint onto a dormant issue.
+    """
+    # Patched: executions in flight when this activity shipped replay the old sequence.
+    # Dispatch runs alongside the other side effects and is always awaited, so a
+    # failure on either side never suppresses the other. Its open-ended retry covers
+    # a Temporal outage; starts are idempotent on the notification id.
+    dispatch = (
+        asyncio.create_task(
+            workflow.execute_activity(
+                "dispatch_issue_reopened_alert_activity",
+                inputs,
+                schedule_to_close_timeout=ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ALERT_DISPATCH_RETRY_POLICY,
+            )
+        )
+        if workflow.patched(ALERT_DISPATCH_PATCH)
+        else None
+    )
+    try:
+        await workflow.execute_activity(
+            "emit_issue_reopened_internal_event_activity",
+            inputs,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        await workflow.execute_activity(
+            "emit_issue_reopened_signal_activity",
+            inputs,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+    finally:
+        if dispatch is not None:
+            await dispatch
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class ErrorTrackingIssueReopenedWorkflow(PostHogWorkflow):
     @staticmethod
@@ -39,37 +80,5 @@ class ErrorTrackingIssueReopenedWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: IssueReopenedWorkflowInputs) -> IssueReopenedWorkflowResult:
-        # Patched: executions in flight when this activity shipped replay the old sequence.
-        # Dispatch runs alongside the other side effects and is always awaited, so a
-        # failure on either side never suppresses the other. Its open-ended retry covers
-        # a Temporal outage; starts are idempotent on the notification id.
-        dispatch = (
-            asyncio.create_task(
-                workflow.execute_activity(
-                    "dispatch_issue_reopened_alert_activity",
-                    inputs,
-                    schedule_to_close_timeout=ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
-                    start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-                    retry_policy=ALERT_DISPATCH_RETRY_POLICY,
-                )
-            )
-            if workflow.patched(ALERT_DISPATCH_PATCH)
-            else None
-        )
-        try:
-            await workflow.execute_activity(
-                "emit_issue_reopened_internal_event_activity",
-                inputs,
-                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
-            await workflow.execute_activity(
-                "emit_issue_reopened_signal_activity",
-                inputs,
-                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
-        finally:
-            if dispatch is not None:
-                await dispatch
+        await run_issue_reopened_side_effects(inputs)
         return IssueReopenedWorkflowResult(notified=True)

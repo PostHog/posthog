@@ -18,7 +18,7 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
   `create_autoresearch_daily_schedule()` registers schedule `autoresearch-daily-coordinator` driving workflow id `autoresearch-coordinator`.
   Overlap policy is **SKIP** — a tick that is still running causes the next one to be dropped rather than queued, so a slow day cannot pile up a backlog of duplicate scoring runs.
   An update keeps the schedule's live state, so a deploy does not resume a schedule an operator paused.
-  The queue defaults to the general-purpose fleet. Deploy a worker polling `autoresearch-task-queue` before you set `AUTORESEARCH_TASK_QUEUE` to it.
+  The queue defaults to `self-driving-task-queue`, which the temporal-worker-self-driving fleet polls. Deploy a worker that polls a new queue before you set `AUTORESEARCH_TASK_QUEUE` to it, or the schedule strands its runs.
 - `__init__.py`
   The registration surface. `WORKFLOWS` and `ACTIVITIES` are what the worker reads; a workflow that is not in these lists does not exist as far as production is concerned.
 

@@ -222,7 +222,6 @@ export type SettingId =
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
-    | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'

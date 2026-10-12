@@ -66,9 +66,8 @@ from products.feature_flags.backend.persisted_flags import get_dynamic_persisted
 
 tracer = trace.get_tracer(__name__)
 
-# Cardinality is bounded: render_template is only called with the literal template
-# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
-# states = 6 series total.
+# Cardinality is bounded because every render_template caller passes a literal template
+# name, so each template adds one series per auth state.
 TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
     "posthog_template_context_duration_seconds",
     "Time spent building the SPA template context (get_context_for_template).",
@@ -629,6 +628,13 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            team = user.team
+            if team and not user_access_control.has_project_access:
+                user.current_team = None
+                user.team = None
+                user.save(update_fields=["current_team"])
+                user_permissions = UserPermissions(user=user, team=None)
+                user_access_control = UserAccessControl(user=user, team=None)
             with tracer.start_as_current_span("template.rbac.effective"):
                 effective_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
@@ -975,7 +981,7 @@ async def initialize_self_capture_api_token():
     if local_api_key is not None:
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
-        posthoganalytics.host = settings.SITE_URL
+        posthoganalytics.host = settings.SELF_CAPTURE_HOST or settings.SITE_URL
 
         # ready() wires the flag-definition provider only when posthoganalytics is enabled at
         # that point — true for WSGI but NOT for ASGI, where self-capture is deferred to here.

@@ -42,6 +42,10 @@ confirmation before creating. This is the heart of the skill; the rest is suppor
 
 ### Step 1: What should the scanner do?
 
+If the question, type, or prompt is still vague, run [[designing-replay-vision-scanners]] first. It turns a wish
+into one visible question with a fixed answer shape, a proof rule, and permission to say inconclusive. Come back
+here once those are settled.
+
 Pick a `scanner_type` and write its `scanner_config`. Every type needs a `prompt`; the rest is type-specific:
 
 | Type         | What it produces                                                  | `scanner_config` shape                                                                                                                                                      |

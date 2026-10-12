@@ -19,6 +19,9 @@ function nodeLineageUrl(node: DataModelingNode): string {
     return lineageNodeUrl(node, 'lineage')
 }
 
+// Without a cap, a two-node graph scales up to fill the panel and the cards look oversized
+const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
+
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     const nodesDraggable = useFeatureFlag('DATA_MODELING_LINEAGE_NODE_DRAGGING')
     const {
@@ -85,7 +88,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
+            <div className="h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
                 <LineageGraph
                     nodes={nodes}
                     edges={lineageGraph?.edges ?? []}
@@ -95,6 +98,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                     loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
                     variant="full"
                     interactive
+                    fitViewOptions={LINEAGE_FIT_VIEW_OPTIONS}
                     nodesDraggable={nodesDraggable}
                     nodePositions={nodesDraggable ? lineageNodePositions : undefined}
                     nodeOpenUrl={nodesDraggable ? nodeLineageUrl : undefined}

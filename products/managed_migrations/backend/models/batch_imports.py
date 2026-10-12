@@ -323,6 +323,7 @@ class BatchImportConfigBuilder:
         access_key_key: str = "api_key",
         secret_key_key: str = "secret_key",
         is_eu_region: bool = False,
+        mixpanel_project_id: int | None = None,
     ) -> Self:
         # there is a bunch of annoying business logic around how each endpoint behaves (what requests an endpoint expects, what it responds with, etc.)
         # jam a bunch of that messy configuration here to keep it off the batch-import-worker and out of the client
@@ -354,10 +355,20 @@ class BatchImportConfigBuilder:
                     base_url = "https://data-eu.mixpanel.com/api/2.0/export"
                 else:
                     base_url = "https://data.mixpanel.com/api/2.0/export"
-                auth_config = {
-                    "type": "mixpanel_auth",
-                    "secret_key_secret": secret_key_key,
-                }
+                if mixpanel_project_id is not None:
+                    # Service accounts can span several Mixpanel projects, so the export API needs the project ID.
+                    # The worker keeps query params already in base_url when it adds the date range.
+                    base_url = f"{base_url}?project_id={mixpanel_project_id}"
+                    auth_config = {
+                        "type": "basic_auth",
+                        "username_secret": access_key_key,
+                        "password_secret": secret_key_key,
+                    }
+                else:
+                    auth_config = {
+                        "type": "mixpanel_auth",
+                        "secret_key_secret": secret_key_key,
+                    }
                 additional_config = {
                     "extractor_type": "plain_gzip",
                     "is_compressed": True,

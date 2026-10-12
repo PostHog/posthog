@@ -79,7 +79,7 @@ export function TodayViewsSidebar(): JSX.Element {
     )
 
     return (
-        <div className="TodayPane" data-quill>
+        <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
             <TodayPaneSearchList
                 query={recentQuery}
                 onQueryChange={setRecentQuery}

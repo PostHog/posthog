@@ -68,6 +68,7 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
@@ -150,11 +151,10 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
-    get_app_org_rate_limiter,
     get_materialized_endpoints_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
@@ -193,7 +193,6 @@ from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
-    QUERY_FAILURE_CACHING_FLAG,
     Budget,
     QueryFailureCache,
     QueryFailureRecord,
@@ -330,6 +329,9 @@ class QueryRun:
 
     cache_key: str
     query_identity: QueryIdentity
+    # The query as the runner received it, serialized as the cache key serializes it (defaults
+    # and None dropped, tags removed), so the events can be queried by what was asked.
+    query: dict[str, Any]
     query_id: Optional[str]
     execution_mode: ExecutionMode
     query_type: str
@@ -343,7 +345,7 @@ class QueryRun:
     def elapsed_ms(self) -> float:
         return round((perf_counter() - self.start_time) * 1000, 2)
 
-    def event_properties(self) -> dict[str, Any]:
+    def event_properties(self, modifiers: HogQLQueryModifiers) -> dict[str, Any]:
         return {
             "query_hash": self.query_identity.query_hash,
             "runtime_hash": self.query_identity.runtime_hash,
@@ -356,6 +358,11 @@ class QueryRun:
             "query_type": self.query_type,
             "cache_key": self.cache_key,
             "request_trigger": self.trigger,
+            "query": self.query,
+            # The modifiers in effect for the run, set keys only, the same dict the ClickHouse log
+            # comment carries. Passed in rather than stored, because the fresh path adds the user's
+            # modifiers after the cache key, and the event has to say what the run actually used.
+            "modifiers": {k: v for k, v in modifiers.model_dump(mode="json").items() if v is not None},
         }
 
 
@@ -578,6 +585,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
@@ -622,7 +630,7 @@ def get_query_runner(
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
-    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+    if kind in ("DataTableNode", "DataVisualizationNode", "BIVisualizationNode", "InsightVizNode"):
         source = get_from_dict_or_attr(query, "source")
         return get_query_runner(
             query=source,
@@ -1586,6 +1594,15 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
+            MarketingAnalyticsSearchQueryRunner,
+        )
+
+        return MarketingAnalyticsSearchQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
+        )
+
     if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
             MarketingAnalyticsRetentionQueryRunner,
@@ -2068,7 +2085,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raw_results: Optional[bytes] = None
         # The breaker record is only needed here to gate async dispatch; blocking execution is
         # gated once, inside _execute_and_cache_blocking.
-        include_failure = self._query_failure_caching_enabled and execution_mode in (
+        include_failure = execution_mode in (
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
@@ -2200,10 +2217,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return None
 
     @cached_property
-    def _query_failure_caching_enabled(self) -> bool:
-        return self._team_flag_enabled_locally(QUERY_FAILURE_CACHING_FLAG)
-
-    @cached_property
     def _query_single_flight_enabled(self) -> bool:
         return self._team_flag_enabled_locally(QUERY_SINGLE_FLIGHT_FLAG)
 
@@ -2288,15 +2301,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(
-                    get_app_org_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
-                        limit=get_org_app_concurrency_limit(self.team.organization_id),
-                    )
-                )
+                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
                 limiter_stack.enter_context(
                     get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
@@ -2405,6 +2410,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_run = QueryRun(
                 cache_key=cache_key,
                 query_identity=self._query_identity,
+                query=self._query_for_events,
                 query_id=self.query_id,
                 execution_mode=execution_mode,
                 query_type=query_type,
@@ -2476,8 +2482,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # The forced dispatch skips the result cache, but not the breaker: the
                         # enqueued job runs under the async budget, so only failures that cover
                         # that budget forbid it.
-                        if self._query_failure_caching_enabled:
-                            self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
+                        self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
                         # We should always kick off async calculation and disregard the cache.
                         # cache_hit is left unset on this path because the cache wasn't consulted.
                         slo.tag(execution_path="async_dispatched")
@@ -2580,15 +2585,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _raise_if_breaker_forbids(self, cache_manager: QueryCache, user: Optional[User]) -> None:
-        if not self._query_failure_caching_enabled:
-            return
         self._raise_if_failure_fresh_for(
             cache_manager.open_failure(), budget_for_limit_context(self.limit_context), user
         )
 
     def _record_breaker_failure(self, cache_manager: QueryCache, exc: Exception) -> None:
-        if not self._query_failure_caching_enabled:
-            return
         # Transient error classes classify to None and are never recorded.
         failure_kind = classify_failure(exc, self.team.pk)
         if failure_kind is not None:
@@ -2659,7 +2660,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
-            **query_run.event_properties(),
+            **query_run.event_properties(self.modifiers),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
             "response_time_ms": query_run.elapsed_ms(),
@@ -2667,6 +2668,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
             "clickhouse_workload": None,
             "clickhouse_query_count": None,
+            "warehouse_tables_referenced": None,
+            "saved_queries_referenced": None,
+            "direct_connection_source_ids": None,
             **cache_tracking_props,
             **phase_times,
         }
@@ -2689,7 +2693,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             stats = phase.stats
             refused = getattr(error, "served_from_query_failure_cache", False)
             query_failed_props = {
-                **query_run.event_properties(),
+                **query_run.event_properties(self.modifiers),
                 "calculation_trigger": query_run.trigger,
                 "failed_in": phase.name,
                 "outcome": "refused" if refused else "failed",
@@ -2897,7 +2901,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
 
-            if not has_error and self._query_failure_caching_enabled:
+            if not has_error:
                 # Deliberately outside the cache-write condition above: a successful export or
                 # debug run doesn't cache its result but must still close the failure breaker.
                 cache_manager.clear_failure()
@@ -2908,7 +2912,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self._serve_query_scan(response, query_run.user)
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
-                **query_run.event_properties(),
+                **query_run.event_properties(self.modifiers),
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
@@ -2921,6 +2925,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "clickhouse_duration_ms": round(query_stats.duration_ms),
                 "clickhouse_workload": query_stats.workload(),
                 "clickhouse_query_count": query_stats.query_count,
+                "warehouse_tables_referenced": sorted(query_stats.warehouse_table_ids),
+                "saved_queries_referenced": sorted(query_stats.saved_query_ids),
+                "direct_connection_source_ids": sorted(query_stats.direct_source_ids),
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **phase_times,
@@ -3182,6 +3189,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
         # fresh run agree, and the payload is built once per run.
         self._query_identity = self._query_identity_for(payload, variant)
+        self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"
 
     def get_cache_key_variant(self) -> str:

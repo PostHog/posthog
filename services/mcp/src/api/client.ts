@@ -361,6 +361,8 @@ export class ApiClient {
                     body: errorText,
                     url,
                     method: opts.method,
+                    retryAfterSeconds:
+                        response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
                 })
             }
             return (await response.text()) as T
@@ -605,11 +607,20 @@ export class ApiClient {
             body: errorText,
             url,
             method,
+            retryAfterSeconds:
+                response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
         })
     }
 
-    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
+    /** Pass `idempotent` for a non-GET request that has no upstream effect, so
+     *  a transport fault retries it like a safe method. */
+    private async fetchJson<T>(
+        url: string,
+        options?: RequestInit,
+        { idempotent = false }: { idempotent?: boolean } = {}
+    ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
+        const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
@@ -623,7 +634,6 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
-                const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
                 const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
@@ -753,14 +763,19 @@ export class ApiClient {
     oauth(): Endpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
-                return this.fetchJson<ApiOAuthIntrospection>(`${this.baseUrl}/oauth/introspect`, {
-                    method: 'POST',
-                    body: JSON.stringify({ token }),
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`,
+                // RFC 7662 introspection only reads the token state.
+                return this.fetchJson<ApiOAuthIntrospection>(
+                    `${this.baseUrl}/oauth/introspect`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ token }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`,
+                        },
                     },
-                })
+                    { idempotent: true }
+                )
             },
         }
     }
@@ -809,7 +824,7 @@ export class ApiClient {
                     const response = await this.fetch(url)
 
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), url, 'GET')
                     }
 
                     const data = (await response.json()) as { results: ApiPropertyDefinition[] }
@@ -845,7 +860,7 @@ export class ApiClient {
                     const response = await this.fetch(requestUrl)
 
                     if (!response.ok) {
-                        throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), requestUrl, 'GET')
                     }
 
                     const data = (await response.json()) as { results: ApiEventDefinition[] }
@@ -907,7 +922,7 @@ export class ApiClient {
                     }
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const eventDef = (await findResponse.json()) as ApiEventDefinition
@@ -921,7 +936,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiEventDefinition
@@ -965,7 +980,7 @@ export class ApiClient {
                     const findResponse = await this.fetch(findUrl)
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find property definition: ${findResponse.statusText}`)
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const findData = (await findResponse.json()) as { results: ApiPropertyDefinition[] }
@@ -988,7 +1003,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update property definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiPropertyDefinition
@@ -1317,16 +1332,14 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
+                    const response = await this.fetch(url, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ deleted: true }),
+                    })
 
                     if (!response.ok) {
-                        throw new Error(`Failed to delete insight: ${response.statusText}`)
+                        throw this.buildApiError(response, await response.text(), url, 'PATCH')
                     }
 
                     return {
@@ -1683,7 +1696,7 @@ export class ApiClient {
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {
-            throw new Error(result.error.message)
+            throw result.error
         }
         return result.data
     }
@@ -1694,7 +1707,7 @@ export class ApiClient {
             `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`
         )
         if (!result.success) {
-            throw new Error(result.error.message)
+            throw result.error
         }
         return result.data
     }

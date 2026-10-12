@@ -69,7 +69,7 @@ def _setup(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id="some_workflow_id",
-        pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))

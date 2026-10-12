@@ -11,7 +11,7 @@
  *
  * The kind registry is generated from `posthog/object_tags/kinds.py`, and the
  * transform mirrors the Slack renderer
- * (`products/tasks/backend/temporal/slack_relay/object_tags.py`) minus its
+ * (`posthog/object_tags/slack.py`) minus its
  * Slack-specific escaping, so a reply reads the same on both surfaces. Tags
  * inside fenced code blocks and inline code spans stay literal. A trailing
  * tag or fence that is still streaming in is held back from the rendered

@@ -13,10 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.
     jobnimbus_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.settings import (
-    ENDPOINTS,
-    JOBNIMBUS_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -97,33 +94,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(JobNimbusResumeConfig(offset=PAGE_SIZE))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"jnid": "a"}, {"jnid": "b"}], 2)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["jnid"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_offset_reaches_reported_count(self, MockSession: mock.MagicMock) -> None:
-        # A full page whose length exactly equals the reported total must terminate without a second
-        # request, even though the page isn't short — the `count` total drives the stop.
-        session = MockSession.return_value
-        full = [{"jnid": str(i)} for i in range(PAGE_SIZE)]
-        _wire(session, [_response(full, PAGE_SIZE)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"jnid": "x"}], PAGE_SIZE + 1)])
@@ -134,16 +104,51 @@ class TestPagination:
 
         assert params[0]["from"] == PAGE_SIZE
 
+    @parameterized.expand(
+        [
+            ("users", {"users": [{"id": "u1"}, {"id": "u2"}], "date_updated": 1519413931}, "id", ["u1", "u2"], {}),
+            (
+                "workflows",
+                {"workflows": [{"id": 1, "status": [{"id": 2}]}], "sources": [{"JobSourceId": 9}]},
+                "id",
+                [1],
+                {},
+            ),
+            (
+                "lead_sources",
+                {"workflows": [{"id": 1, "status": [{"id": 2}]}], "sources": [{"JobSourceId": 9}]},
+                "JobSourceId",
+                [9],
+                {},
+            ),
+            (
+                "groups",
+                [{"name": "Sales", "managers": ["u1"], "members": ["u2"]}, {"name": "Crew A", "members": []}],
+                "name",
+                ["Sales", "Crew A"],
+                {"field": "groups"},
+            ),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+    def test_account_lookups_are_fetched_in_one_unpaginated_request(
+        self,
+        endpoint: str,
+        body: Any,
+        key: str,
+        expected: list[Any],
+        expected_params: dict[str, Any],
+        MockSession: mock.MagicMock,
+    ) -> None:
         session = MockSession.return_value
-        _wire(session, [_response([], 0)])
+        params = _wire(session, [_raw_response(body)])
 
         manager = _make_manager()
-        rows = _rows(_source(manager))
+        rows = _rows(_source(manager, endpoint=endpoint))
 
-        assert rows == []
+        assert [r[key] for r in rows] == expected
         assert session.send.call_count == 1
+        assert params[0] == expected_params
         manager.save_state.assert_not_called()
 
 
@@ -174,19 +179,22 @@ class TestErrorHandling:
 
     @parameterized.expand(
         [
-            ("missing_results_key", {"count": 0}),
-            ("bare_list_body", [{"jnid": "1"}]),
+            ("missing_results_key", "contacts", {"count": 0}, "matched nothing"),
+            ("bare_list_body", "contacts", [{"jnid": "1"}], "matched nothing"),
+            ("groups_settings_object", "groups", {"workflows": [], "sources": []}, "Required a list response body"),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_shape_change_fails_loud(self, _name: str, body: Any, MockSession: mock.MagicMock) -> None:
-        # A 200 body without a `results` list means the response shape changed — fail loud instead of
+    def test_shape_change_fails_loud(
+        self, _name: str, endpoint: str, body: Any, error: str, MockSession: mock.MagicMock
+    ) -> None:
+        # A 200 body without the expected list means the response shape changed — fail loud instead of
         # silently syncing 0 rows or wrapping a stray object as a row.
         session = MockSession.return_value
         _wire(session, [_raw_response(body)])
 
-        with pytest.raises(ValueError, match="matched nothing"):
-            _rows(_source(_make_manager()))
+        with pytest.raises(ValueError, match=error):
+            _rows(_source(_make_manager(), endpoint=endpoint))
 
 
 class TestValidateCredentials:
@@ -222,10 +230,5 @@ class TestSourceResponse:
     def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint
-        assert response.primary_keys == ["jnid"]
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert response.partition_mode is None
-
-    def test_every_endpoint_uses_jnid_primary_key(self) -> None:
-        assert all(config.primary_keys == ["jnid"] for config in JOBNIMBUS_ENDPOINTS.values())
-        assert set(JOBNIMBUS_ENDPOINTS) == set(ENDPOINTS)
