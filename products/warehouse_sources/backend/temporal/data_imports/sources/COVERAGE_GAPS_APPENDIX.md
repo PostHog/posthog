@@ -5446,12 +5446,13 @@ Today (8): `currencies`, `dividends`, `eod`, `exchanges`, `intraday`, `splits`, 
 
 Diffed against: <https://api.swaggerhub.com/apis/apilayer-863/MarketstackAPIv2/2.0.0/swagger.json>
 
-- [ ] `/tickerinfo` — Company profile/fundamentals per symbol - the lookup table that resolves the tickers we already sync (high)
+- [x] `/tickerinfo` — Company profile/fundamentals per symbol - the lookup table that resolves the tickers we already sync (high). Added as `tickerinfo` (one request per configured symbol, v2 only).
 - [ ] `/indexlist and /indexinfo` — Market index reference and metadata; benchmarking EOD prices against indices is a core use case (medium)
-- [ ] `/etfholdings` — Constituent breakdown per ETF, a genuine breakdown dimension (medium)
+- [ ] `/etfholdings` — Constituent breakdown per ETF, a genuine breakdown dimension (medium). Skipped for now: the spec documents `limit`/`offset` and a date range on a single-filing response with no pagination block, holdings carry no documented unique identifier, and each call costs 20x quota, so the row grain can't be pinned down without a live account.
 - [ ] `/commodities and /commoditieshistory` — Commodity price time series alongside the equity EOD series (medium)
-- [ ] `/companyratings` — Analyst ratings per ticker, a common join onto price history (medium)
-- [ ] `/company_facts and /submissions` — SEC filing facts and submission history keyed by CIK, for fundamentals analysis (medium)
+- [x] `/companyratings` — Analyst ratings per ticker, a common join onto price history (medium). Added as `companyratings` (one row per analyst rating, one request per configured symbol paced to the endpoint's one-call-per-minute limit, v2 only).
+- [x] `/submissions` — SEC submission history keyed by CIK, for fundamentals analysis (medium). Added as `submissions` (one row per recent filing, one request per configured CIK code, v2 only).
+- [ ] `/company_facts` — SEC XBRL filing facts keyed by CIK, for fundamentals analysis (medium). Skipped for now: facts are nested under dynamic taxonomy/concept/unit keys with no unique fact identifier, and the documented `limit`/`offset` don't say what they page over on a single-company response.
 - [ ] `/bondlist and /bond` — Bond reference and pricing data for fixed-income coverage (low)
 - [ ] `/etflist` — Lookup table of ETFs that etfholdings rows reference (low)
 
@@ -5484,12 +5485,12 @@ Today (10): `components`, `coupons`, `credit_notes`, `customers`, `events`, `inv
 
 Diffed against: <https://github.com/maxio-com/ab-python-sdk/tree/main/doc/controllers>
 
-- [ ] `insights: Read Mrr / List Mrr Movements / List Mrr per Subscription` — MRR and MRR movement is Maxio's headline metric and has no equivalent in the synced tables (high)
-- [ ] `subscription-components: List Subscription Components for Site` — Per-subscription component allocations - the line items joining subscriptions to components (high)
+- [ ] `insights: Read Mrr / List Mrr Movements / List Mrr per Subscription` — MRR and MRR movement is Maxio's headline metric and has no equivalent in the synced tables (high) — all three endpoints are marked deprecated in the vendor SDK docs, so not worth building a table on
+- [x] `subscription-components: List Subscription Components for Site` — Per-subscription component allocations - the line items joining subscriptions to components (high)
 - [ ] `subscription-components: List Usages` — Metered usage records, the basis of consumption billing analysis (high)
 - [ ] `subscription-components: List Allocations` — Quantity change history per component, i.e. seat expansion/contraction over time (high)
-- [ ] `component-price-points: List All Component Price Points` — Lookup table resolving the price_point_id carried on components and subscriptions (high)
-- [ ] `product-price-points: List All Product Price Points` — Lookup table resolving the price point on every product and subscription we sync (high)
+- [x] `component-price-points: List All Component Price Points` — Lookup table resolving the price_point_id carried on components and subscriptions (high)
+- [x] `product-price-points: List All Product Price Points` — Lookup table resolving the price point on every product and subscription we sync (high)
 - [ ] `invoices: List Invoice Events` — Invoice state transition history (issued, paid, voided, refunded) (medium)
 - [ ] `reason-codes: List Reason Codes` — Lookup table resolving cancellation/churn reason codes on subscriptions (medium)
 - [ ] `subscription-groups: List Subscription Groups` — Group membership resolving parent/child subscription relationships (medium)
@@ -5515,28 +5516,28 @@ Note: Mem0 publishes a real OpenAPI spec (33 paths, linked from https://docs.mem
 
 ## Mention — gaps
 
-Today (4): `accounts`, `alert_tags`, `alerts`, `mentions`
+Today (7): `accounts`, `alert_authors`, `alert_daily_stats`, `alert_tags`, `alert_tasks`, `alerts`, `mentions`
 
 Diffed against: <https://dev.mention.com/current/>
 
-- [ ] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
-- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium)
+- [x] `GET /accounts/{account_id}/stats` — Per-alert statistics with country, tone, weekday and influencer breakdowns - the product's headline metric (high)
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/authors` — Author/influencer breakdown per alert, with scores; a key analytical dimension over mentions (high)
+- [x] `GET /accounts/{account_id}/alerts/{alert_id}/tasks` — Task assignments on mentions - the workflow state layered over the mentions we already sync (medium)
+- [ ] `GET /accounts/{account_id}/alerts/{alert_id}/mentions/{mention_id}/children` — Child/duplicate mentions, needed to deduplicate or measure syndication reach (medium) — not built: it needs one request per mention on top of the full mentions walk, and each `mentions` row already carries its first page of children plus the `total` count
 - [ ] `GET /accounts/{account_id}/alerts/{alert_id}/shares` — Alert share membership, showing who has access to each alert (low)
 
 Note: The reference is a static HTML tree; the full endpoint list is readable from the index page's link set. MENTION_ENDPOINTS is a static dict with no dynamic discovery, and all four tables are full-refresh.
 
 ## Mercury — gaps
 
-Today (11): `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Recipients`, `Transactions`, `TreasuryAccounts`, `Users`
+Today (15): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `Recipients`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
 
 Diffed against: <https://docs.mercury.com/reference/getaccounts>
 
-- [ ] `merchants (GET /api/v1/merchants)` — lookup table that resolves the merchant IDs already carried on synced Transactions (high)
-- [ ] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high)
-- [ ] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high)
-- [ ] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium)
+- [x] `merchants (GET /api/v1/merchants)` — lookup table that resolves the merchant IDs already carried on synced Transactions (high). Added as `Merchants`. The endpoint lists priority merchants for card spend controls, so its IDs resolve `merchantLock` on Cards rather than Transactions.
+- [x] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high). Added as `AccountStatements` (fan-out over `Accounts`). The API returns only the ending balance per period.
+- [x] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high). Added as `TreasuryTransactions` (fan-out over `TreasuryAccounts`).
+- [x] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium). Added as `TreasuryStatements` (fan-out over `TreasuryAccounts`). Rows are statement documents (monthly statements, trade confirmations, tax forms) with no balance fields.
 - [ ] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium)
 - [ ] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low)
 - [ ] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low)
@@ -5611,10 +5612,10 @@ Today (7): `agents`, `batch_jobs`, `conversations`, `files`, `fine_tuning_jobs`,
 
 Diffed against: <https://docs.mistral.ai/openapi.yaml>
 
-- [ ] `conversation messages / history (GET /v1/conversations/{conversation_id}/messages, /history)` — the actual turns inside the conversations we already sync — without them the conversations table has no content (high)
+- [x] `conversation messages / history (GET /v1/conversations/{conversation_id}/messages, /history)` — the actual turns inside the conversations we already sync — without them the conversations table has no content (high)
 - [ ] `organization usage (GET /v1/admin/usage)` — token spend and consumption, the headline metric for an LLM vendor (high)
-- [ ] `observability traces and spans (POST /v1/observability/traces/search, /spans/search, GET /v1/observability/traces/{trace_id}/spans)` — per-request latency/cost/error telemetry for agent and workflow runs (high)
-- [ ] `library documents (GET /v1/libraries/{library_id}/documents)` — the contents of the libraries we already sync, including processing status (high)
+- [x] `observability traces and spans (POST /v1/observability/traces/search, /spans/search, GET /v1/observability/traces/{trace_id}/spans)` — per-request latency/cost/error telemetry for agent and workflow runs (high)
+- [x] `library documents (GET /v1/libraries/{library_id}/documents)` — the contents of the libraries we already sync, including processing status (high)
 - [ ] `admin users and workspaces (GET /v1/admin/users, /v1/admin/workspaces, /v1/admin/workspaces/{uuid}/users)` — lookup and membership tables resolving the user/workspace IDs stamped on jobs and conversations (high)
 - [ ] `observability chat completion events (POST /v1/observability/chat-completion-events/search)` — per-completion event log for quality and cost analysis (medium)
 - [ ] `agent versions (GET /v1/agents/{agent_id}/versions)` — version history for the agents we sync, needed to attribute runs to a config (medium)
@@ -5633,10 +5634,10 @@ Today (14): `appointment_links`, `code_snippets`, `file_requests`, `insights_rep
 Diffed against: <https://developer.mixmax.com/reference>
 
 - [ ] `sequence recipients (GET /v1/sequences/{id}/recipients)` — the per-recipient membership and stage state for the sequences we already sync — the core sequence fact table (high)
-- [ ] `sent sequences (GET /v1/sequences/sent)` — per-send records with delivery outcome, the transaction table behind sequence performance (high)
-- [ ] `contacts (GET /v1/contacts)` — lookup table resolving contact IDs referenced by messages, sequences, and live feed events (high)
-- [ ] `live feed events (GET /v1/livefeed/events)` — the individual open/click/reply events; the synced live_feed table is the container, not the events (high)
-- [ ] `report data table (POST /v1/reports/data/table)` — Mixmax's own aggregated reporting grid — the vendor's headline metrics (high)
+- [ ] `sent sequences (GET /v1/sequences/sent)` — per-send records with delivery outcome, the transaction table behind sequence performance (high). Skipped: the endpoint returns a single count of sequence messages sent in the past 24 hours, not per-send records.
+- [ ] `contacts (GET /v1/contacts)` — lookup table resolving contact IDs referenced by messages, sequences, and live feed events (high). Skipped: Mixmax marks `/contacts` as deprecated. Live feed events already carry the recipient email and name.
+- [x] `live feed events (GET /v1/livefeed/events)` — the individual open/click/reply events; the synced live_feed table is the container, not the events (high). Added as `live_feed_events` (fan-out over `live_feed` by `messageId`).
+- [ ] `report data table (POST /v1/reports/data/table)` — Mixmax's own aggregated reporting grid — the vendor's headline metrics (high). Skipped: an aggregate query whose rows change with the caller's `groupBy` and query string, with no documented row key. The per-message counters are already on `live_feed`.
 - [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium)
 - [ ] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium)
 - [ ] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium)
