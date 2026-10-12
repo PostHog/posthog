@@ -23,6 +23,7 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.query import BATCH_QUERY
 from products.autoresearch.backend.temporal.workflows import (
     _VALIDATION_ATTEMPT_TIMEOUT,
+    RESCUE_ITERATION_BUDGET,
     InferenceWorkflowResult,
     KickoffTrainingInput,
     KickoffTrainingResult,
@@ -349,6 +350,56 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         mock_run_training.assert_not_called()
         pipeline.refresh_from_db()
         assert pipeline.iteration_budget_remaining == 20
+
+    @parameterized.expand(
+        [
+            ("unscorable_champion_gets_a_rescue", 0, True, None, "rescue_unscorable"),
+            ("scorable_champion_stays_exhausted", 0, False, None, "budget_exhausted"),
+            ("rescue_ran_yesterday", 0, True, datetime(2026, 9, 10, 2, tzinfo=UTC), "rescue_throttled"),
+            ("rescue_ran_two_days_ago", 0, True, datetime(2026, 9, 9, 2, tzinfo=UTC), "rescue_unscorable"),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_exhausted_budget_rescues_only_an_unscorable_champion(
+        self,
+        _name: str,
+        remaining: int,
+        unscorable: bool,
+        last_run_at: Optional[datetime],
+        expected_reason: str,
+        mock_run_training: MagicMock,
+    ) -> None:
+        pipeline = self._create_pipeline(iteration_budget_remaining=remaining)
+        champion = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
+        )
+        for prediction_date in ("2026-09-09", "2026-09-10"):
+            AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                model=champion,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                scheduled=True,
+                status=AutoresearchRun.Status.FAILED if unscorable else AutoresearchRun.Status.COMPLETED,
+                metrics={"prediction_date": prediction_date, "failure_kind": "limit_exceeded"} if unscorable else {},
+            )
+        if last_run_at is not None:
+            with time_machine.travel(last_run_at, tick=False):
+                AutoresearchTrainingRun.objects.create(
+                    pipeline=pipeline, status=AutoresearchTrainingRun.Status.FAILED, iteration_budget=3
+                )
+
+        with time_machine.travel(datetime(2026, 9, 11, 2, tzinfo=UTC), tick=False):
+            result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert result.reason == expected_reason
+        if expected_reason == "rescue_unscorable":
+            assert result.kicked_off
+            assert mock_run_training.call_args.kwargs["iteration_budget"] == RESCUE_ITERATION_BUDGET
+            assert mock_run_training.call_args.kwargs["rescue"] is True
+        else:
+            mock_run_training.assert_not_called()
+        pipeline.refresh_from_db()
+        assert pipeline.iteration_budget_remaining == remaining
 
     @parameterized.expand([("transient_failure_raises", RuntimeError("boom")), ("refused_launch", ValueError("left"))])
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
