@@ -142,11 +142,14 @@ class TestAITrainingDeletionOutbox(TestCase):
         ):
             if raised is None:
                 _apply_lookup_task(retries)
-            else:
-                with self.assertRaises(raised) as caught:
+            elif raised is Retry:
+                with self.assertRaises(Retry) as retry:
                     _apply_lookup_task(retries)
-                if raised is Retry:
-                    self.assertEqual(caught.exception.when, person_lookup_retry_countdown(retries))
+                scheduled: Retry = retry.exception
+                self.assertEqual(scheduled.when, person_lookup_retry_countdown(retries))
+            else:
+                with self.assertRaises(raised):
+                    _apply_lookup_task(retries)
         queued = list(AITrainingDeletionRequest.objects.for_team(7).values_list("identifiers", flat=True))
         self.assertEqual(queued, [] if raised else [["01a09f92-e780-7000-8000-000000000001"]])
 
