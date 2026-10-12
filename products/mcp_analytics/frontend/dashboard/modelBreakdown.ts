@@ -23,7 +23,9 @@ function foldModelRows(rows: MCPModelBreakdownItem[], rowLabels: ReadonlyMap<str
         model === otherModelsLabel('Other') ? 2 : isFoldedModelsLabel(model) ? 1 : 0
     return [...totals.entries()]
         .map(([model, total_calls]) => ({ model, total_calls }))
-        .sort((a, b) => rank(a.model) - rank(b.model) || b.total_calls - a.total_calls)
+        .sort(
+            (a, b) => rank(a.model) - rank(b.model) || b.total_calls - a.total_calls || a.model.localeCompare(b.model)
+        )
 }
 
 /** Pass `rowLabels` when another chart on the page shows models, so both charts put a model in the same row. */

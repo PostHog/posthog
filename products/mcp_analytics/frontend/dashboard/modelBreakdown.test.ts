@@ -8,7 +8,7 @@ describe('model breakdown', () => {
     beforeEach(() => jest.useFakeTimers())
     afterEach(() => jest.useRealTimers())
 
-    it('keeps unknown calls in coverage and the denominator while ranking named models before folded ones', () => {
+    it('keeps unknown calls in coverage and the denominator while ranking named models in a stable order', () => {
         const rows = [
             { model: 'Unknown', total_calls: 50 },
             { model: 'Other', total_calls: 30 },
@@ -23,6 +23,17 @@ describe('model breakdown', () => {
         expect(summary.rankedModels).toEqual([rows[3], rows[2], { model: 'Other models', total_calls: 30 }])
         expect(summary.rankedModels[0].total_calls / summary.totalCalls).toBe(0.15)
         expect(rows[0].model).toBe('Unknown')
+
+        const tiedRows = [
+            { model: 'example-zeta', total_calls: 10 },
+            { model: 'example-alpha', total_calls: 10 },
+        ]
+        const tiedRowLabels = new Map(tiedRows.map(({ model }) => [model, model]))
+
+        expect(summarizeModelBreakdown(tiedRows, tiedRowLabels).rankedModels.map(({ model }) => model)).toEqual([
+            'example-alpha',
+            'example-zeta',
+        ])
     })
 
     it('names the top models and lone leftovers, and folds the rest into one row per AI lab', () => {
