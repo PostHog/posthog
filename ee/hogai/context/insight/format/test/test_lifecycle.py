@@ -177,9 +177,9 @@ class TestLifecycleResultsFormatter(BaseTest):
                 "Date|New|Dormant\n2025-01-01|100|-20\n2025-01-02|80|-15",
             ),
             (
-                "empty_shows_all",
+                "empty_selects_none",
                 [],
-                "Date|New|Returning|Resurrecting|Dormant\n2025-01-01|100|50|10|-20\n2025-01-02|80|40|8|-15",
+                "No lifecycle statuses are selected in lifecycleFilter.toggledLifecycles.",
             ),
         ]
     )

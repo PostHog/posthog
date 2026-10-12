@@ -44,6 +44,8 @@ class LifecycleResultsFormatter:
     def format(self) -> str:
         if not self._results:
             return "No data recorded for this time period."
+        if not self._statuses:
+            return "No lifecycle statuses are selected in lifecycleFilter.toggledLifecycles."
 
         # Group results by event series (using action order as key)
         series_groups: dict[int, dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -94,7 +96,7 @@ class LifecycleResultsFormatter:
     @staticmethod
     def _shown_statuses(query: AssistantLifecycleQuery | LifecycleQuery) -> list[str]:
         toggled = query.lifecycleFilter.toggledLifecycles if query.lifecycleFilter else None
-        if not toggled:
+        if toggled is None:
             return STATUS_ORDER
         toggled_values = {status.value for status in toggled}
         return [status for status in STATUS_ORDER if status in toggled_values]
