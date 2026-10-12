@@ -469,8 +469,16 @@ class TaxonomyAgentToolkit:
             is_str = True
         elif "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
-            sample_count = None
             is_str = session_property_types().get(property_name) == PropertyType.String
+            # The examples come from static documentation, so the response must not present them as project data.
+            examples = self._format_property_values(sample_values, len(sample_values), format_as_string=is_str)
+            return (
+                f"The taxonomy does not store observed values for the session property {property_name}. "
+                f"These are documentation examples, not values from this project: {examples}. "
+                "To get observed values, query the sessions table with a short, explicit date range, for example: "
+                f"SELECT `{property_name}`, count() FROM sessions "
+                "WHERE `$start_timestamp` >= now() - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC LIMIT 20"
+            )
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
