@@ -1,7 +1,7 @@
 import { routes } from 'scenes/scenes'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemType } from '~/types'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
@@ -22,6 +22,11 @@ export interface LibraryObjectType {
 
 export function baseObjectType(type: string | undefined): string {
     return type?.split('/')[0] ?? ''
+}
+
+/** The file system type of a product page, from its type or, when it has none, its icon. */
+export function productObjectType(item: Pick<FileSystemImport, 'type' | 'iconType'>): string {
+    return baseObjectType(item.type) || item.iconType || ''
 }
 
 /** Whether a file system type shows in Library, rather than in Tools or Views. */
@@ -51,6 +56,12 @@ export function libraryListHref(type: string): string | null {
         ? (fileSystemTypes[type as keyof typeof fileSystemTypes] as FileSystemType)
         : null
     return definition?.listHref?.() ?? null
+}
+
+/** Whether a Library type row opens this product's page, so the product needs no row of its own. */
+export function libraryRowOpensProduct(item: Pick<FileSystemImport, 'type' | 'iconType' | 'href'>): boolean {
+    const type = productObjectType(item)
+    return !!item.href && isLibraryType(type) && libraryListHref(type) === item.href
 }
 
 const REF_PLACEHOLDER = 'LIBRARY_REF'
@@ -98,7 +109,7 @@ export function libraryTypeForPath(path: string): string | null {
             addPage(type, definition.listHref?.())
         }
         for (const item of [...getTreeItemsProducts(), ...getTreeItemsMetadata()]) {
-            const type = baseObjectType(item.type) || item.iconType || ''
+            const type = productObjectType(item)
             if (Object.hasOwn(fileSystemTypes, type)) {
                 addPage(type, item.href)
             }
@@ -113,6 +124,18 @@ export function libraryTypeForPath(path: string): string | null {
 export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string {
     const segments = entry.path.split(/(?<!\\)\//)
     return (segments[segments.length - 1] || entry.path).replace(/\\\//g, '/')
+}
+
+/** The type's name in lower case, for a label beside an object: "feature flag", but "SQL insight" keeps its acronym. */
+export function libraryTypeLabel(type: string | undefined): string | null {
+    const baseType = baseObjectType(type)
+    const name = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as FileSystemType).name
+        : null
+    if (!name) {
+        return null
+    }
+    return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
 }
 
 export function sortLibraryTypes(types: LibraryObjectType[]): LibraryObjectType[] {

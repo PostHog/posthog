@@ -16,10 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.ch
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.settings import (
-    API_VERSION,
     AUTH_ERRORS,
+    DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_API_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -41,8 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
     lists_tables_without_credentials = True
-    supported_versions = (API_VERSION,)
-    default_version = API_VERSION
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
     api_docs_url = "https://api.checklyhq.com/openapi.json"
 
     @property
@@ -73,7 +74,7 @@ class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, api_version or API_VERSION)
+        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ChecklyResumeConfig]:
         return ResumableSourceManager(inputs, ChecklyResumeConfig)
@@ -84,7 +85,7 @@ class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
         resumable_source_manager: ResumableSourceManager[ChecklyResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        return checkly_source(config, resumable_source_manager, inputs)
+        return checkly_source(config, resumable_source_manager, inputs, self.resolve_api_version(inputs.api_version))
 
     @property
     def get_source_config(self) -> SourceConfig:

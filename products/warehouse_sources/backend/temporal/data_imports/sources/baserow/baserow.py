@@ -88,7 +88,8 @@ class _BoundedSession(_NoRedirectSession):
     """
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
-        kwargs.setdefault("timeout", (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS))
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS)
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         try:

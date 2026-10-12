@@ -15,7 +15,6 @@ from products.canvas.backend.facade.api import (
     MAX_COMPONENT_WIDTH,
     MAX_LAYOUT_PATCH_OPERATIONS,
     PLACEMENT_ID_RE,
-    PLACEMENT_STATUSES,
     RESERVED_TEMPLATE_IDS,
     ConnectorCallStatus,
     ConnectorKind,
@@ -23,7 +22,12 @@ from products.canvas.backend.facade.api import (
     contract_limits,
 )
 from products.canvas.backend.facade.contracts import CanvasBuildRecord, CanvasRecord
-from products.canvas.backend.facade.enums import CANVAS_KIND_FREEFORM, CANVAS_KINDS, CANVAS_STATE_SCOPES
+from products.canvas.backend.facade.enums import (
+    CANVAS_KIND_FREEFORM,
+    CanvasKind,
+    CanvasPlacementStatus,
+    CanvasStateScope,
+)
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -89,7 +93,7 @@ class CanvasSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True)
     kind = serializers.ChoiceField(
-        choices=CANVAS_KINDS,
+        choices=CanvasKind.choices,
         read_only=True,
         help_text=(
             "What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), "
@@ -149,7 +153,7 @@ class CanvasCreateSerializer(serializers.Serializer):
     )
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
     kind = serializers.ChoiceField(
-        choices=CANVAS_KINDS,
+        choices=CanvasKind.choices,
         required=False,
         default=CANVAS_KIND_FREEFORM,
         help_text=(
@@ -228,7 +232,7 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
     captureEvents = serializers.ListField(child=serializers.CharField(max_length=200), max_length=100)
     # Optional so projects published before the state store exist unchanged.
     state = serializers.ListField(
-        child=serializers.ChoiceField(choices=CANVAS_STATE_SCOPES),
+        child=serializers.ChoiceField(choices=CanvasStateScope.choices),
         required=False,
         default=list,
         max_length=2,
@@ -368,7 +372,7 @@ class CanvasPlacementSerializer(serializers.Serializer):
         help_text="Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
     )
     status = serializers.ChoiceField(
-        choices=list(PLACEMENT_STATUSES),
+        choices=CanvasPlacementStatus.choices,
         help_text=(
             "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), "
             "'live' (renders its component), 'failed' (generation failed; re-prompt or remove)."
@@ -555,7 +559,9 @@ class CanvasSummarySerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="The canvas's id.")
     name = serializers.CharField(help_text="Display name of the canvas.")
-    kind = serializers.ChoiceField(choices=CANVAS_KINDS, help_text="The canvas's kind (freeform, component, or grid).")
+    kind = serializers.ChoiceField(
+        choices=CanvasKind.choices, help_text="The canvas's kind (freeform, component, or grid)."
+    )
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
     current_version_id = serializers.CharField(
         allow_null=True,
@@ -1246,7 +1252,7 @@ class CanvasConnectorCallResultSerializer(serializers.Serializer):
 
 
 class CanvasStateQuerySerializer(serializers.Serializer):
-    scope = serializers.ChoiceField(choices=CANVAS_STATE_SCOPES, required=False, help_text="Only read this scope.")
+    scope = serializers.ChoiceField(choices=CanvasStateScope.choices, required=False, help_text="Only read this scope.")
     key = serializers.CharField(required=False, max_length=200, help_text="Only read this exact key.")
     key_prefix = serializers.CharField(
         required=False,
@@ -1273,7 +1279,7 @@ class CanvasStateQuerySerializer(serializers.Serializer):
 
 
 class CanvasStateValueQuerySerializer(serializers.Serializer):
-    scope = serializers.ChoiceField(choices=CANVAS_STATE_SCOPES, help_text="Scope of the value to read.")
+    scope = serializers.ChoiceField(choices=CanvasStateScope.choices, help_text="Scope of the value to read.")
     key = serializers.CharField(max_length=200, help_text="Exact key to read.")
     offset = serializers.IntegerField(
         required=False, default=0, min_value=0, help_text="Character offset from next_offset."
@@ -1298,7 +1304,7 @@ class CanvasStateValueQuerySerializer(serializers.Serializer):
 
 
 class CanvasStateValueResponseSerializer(serializers.Serializer):
-    scope = serializers.ChoiceField(choices=CANVAS_STATE_SCOPES, help_text="Scope of this value.")
+    scope = serializers.ChoiceField(choices=CanvasStateScope.choices, help_text="Scope of this value.")
     key = serializers.CharField(help_text="Key of this value.")
     value_json = serializers.CharField(
         allow_blank=True, help_text="A chunk of JSON text. Join all chunks in order, then parse the complete JSON."
@@ -1318,7 +1324,7 @@ class CanvasStateEntrySerializer(serializers.Serializer):
     """One key of a canvas's runtime key-value state (the ph.state store)."""
 
     scope = serializers.ChoiceField(
-        choices=CANVAS_STATE_SCOPES,
+        choices=CanvasStateScope.choices,
         help_text="user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.",
     )
     key = serializers.CharField(max_length=200, help_text="The entry's key, unique within its scope.")
@@ -1341,7 +1347,7 @@ class CanvasStateSetSerializer(serializers.Serializer):
     """Payload for writing (or deleting) one key of a canvas's runtime state."""
 
     scope = serializers.ChoiceField(
-        choices=CANVAS_STATE_SCOPES,
+        choices=CanvasStateScope.choices,
         help_text="Scope to write into; the canvas must declare it in capabilities.posthog.state.",
     )
     key = serializers.CharField(max_length=200, help_text="Key to write, unique within its scope.")

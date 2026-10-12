@@ -5061,13 +5061,15 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, {}, "jevk5-fp8-0.2"
         )
 
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
-        for mode in ("weighted-score", "jev-shadow"):
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
+        for mode in ("control", "jev-shadow", None):
             with patch(ranker, return_value=mode):
                 resp = self.client.get(self.feed_url)
             items = resp.json()["results"]
-            # The shadow arm ranks on the weighted score, so the response names that ranker too.
+            # The shadow arm ranks on the weighted score, so the response names that ranker too, but
+            # it still reports its own variant, which the client records as the experiment exposure.
             self.assertEqual(resp.json()["ranker"], "weighted-score", mode)
+            self.assertEqual(resp.json()["ranker_variant"], mode)
             # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
             self.assertEqual(
                 [item["observation"]["session_id"] for item in items],
@@ -5103,11 +5105,17 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         for index in range(100):
             self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
         store_watch_ranks(
-            self.team.id, scanner.id, {str(old_interesting.id)}, {str(old_interesting.id): 0.9}, {}, "jevk5-fp8-0.2"
+            self.team.id,
+            scanner.id,
+            {str(old_interesting.id)},
+            {str(old_interesting.id): 0.9},
+            {},
+            "jevk5-fp8-0.2",
+            {str(old_interesting.id): "visible_error"},
         )
 
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
-        with patch(ranker, return_value="weighted-score"):
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
+        with patch(ranker, return_value="control"):
             resp = self.client.get(self.feed_url)
         self.assertNotIn("old-interesting", [item["observation"]["session_id"] for item in resp.json()["results"]])
 
@@ -5115,13 +5123,15 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             resp = self.client.get(self.feed_url)
         items = resp.json()["results"]
         self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
-        # The scan found the session notable, so its own sentence reaches the card's reason.
+        # The scan found the session notable, so its own sentence reaches the card's reason, next to
+        # the reason Jev picked from its fixed list.
         self.assertEqual(
             items[0]["reason"],
             {
                 "kind": "jev_watchable",
                 "jev_probability": 0.9,
                 "notability_reason": "The user paid twice for one order.",
+                "watch_reason": "visible_error",
             },
         )
         # The 100 routine rows are filler: they pad the one finding only to the feed's floor.
@@ -5144,7 +5154,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         watchable[str(old_interesting.id)] = 0.6
         store_watch_ranks(self.team.id, scanner.id, set(watchable), watchable, {}, "jevk5-fp8-0.2")
 
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
         with patch(ranker, return_value="jev"):
             resp = self.client.get(f"{self.feed_url}?search=needle")
         items = resp.json()["results"]

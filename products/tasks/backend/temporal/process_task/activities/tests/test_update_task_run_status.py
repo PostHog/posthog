@@ -97,6 +97,20 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.status == TaskRun.Status.CANCELLED
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("status", [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+    def test_terminal_run_refuses_to_start(self, activity_environment, test_task_run, status):
+        test_task_run.status = status
+        test_task_run.save(update_fields=["status"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        assert exc_info.value.non_retryable is True
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == status
+
+    @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):
         error_msg = "Something went wrong"
         input_data = UpdateTaskRunStatusInput(

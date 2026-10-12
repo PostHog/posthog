@@ -31,6 +31,7 @@ import { CanvasRuntimeErrorNotice } from './CanvasRuntimeErrorNotice'
 import { canvasSceneLogic } from './canvasSceneLogic'
 import { CanvasSidePanelToggle } from './CanvasSidePanelToggle'
 import { CanvasToolbar } from './CanvasToolbar'
+import { CanvasVisibilityControl } from './CanvasVisibilityControl'
 
 /**
  * The bar across the top of the canvas, laid out like PostHog Desktop's: the name and version history
@@ -60,6 +61,7 @@ export function CanvasSceneHeader(): JSX.Element {
                     <CanvasCommentsMenu />
                     <CanvasFullscreenToggle />
                     <CanvasSidePanelToggle />
+                    <CanvasVisibilityControl />
                     <DropdownMenu>
                         <Tooltip>
                             {/* quill's triggers do not forward refs under React 18, so a span anchors the tooltip. */}

@@ -1680,6 +1680,29 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_manifest_cannot_raise_retry_limits(self, mock_resources):
+        # Fails if a user-authored manifest can set the retry limits, which would let its own endpoint
+        # hold a shared source thread for as long as it likes.
+        mock_resources.return_value = [_fake_resource("users")]
+        manifest = _minimal_manifest()
+        manifest["client"]["retry_budget_seconds"] = 172800
+        manifest["client"]["retry_after_max_seconds"] = 86400
+
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        CustomSource().source_for_pipeline(CustomSourceConfig(manifest_json=json.dumps(manifest)), inputs)
+
+        client_config = mock_resources.call_args.args[0]["client"]
+        assert "retry_budget_seconds" not in client_config
+        assert "retry_after_max_seconds" not in client_config
+        assert client_config["base_url"] == manifest["client"]["base_url"]
+
     @parameterized.expand(
         [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
     )
@@ -2795,6 +2818,8 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
     def test_engine_manifest_is_single_page_resource_incremental_stripped_session_injected(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[]])]
         manifest = _minimal_manifest()
+        # Default endpoint incrementals are invalid; their rejection is covered by
+        # test_incremental_in_resource_defaults_rejected.
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
         source = CustomSource()

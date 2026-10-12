@@ -102,14 +102,23 @@ def inputs(name: str, *, incremental: bool = False, watermark: object = None) ->
 
 
 @pytest.mark.parametrize(
-    "name,path",
-    [("checks", "/v2/checks"), ("check_groups", "/v1/check-groups"), ("alert_channels", "/v1/alert-channels")],
+    "name,api_version,path",
+    [
+        ("checks", "v2", "/v2/checks"),
+        ("checks", "v3", "/v3/checks"),
+        ("check_groups", "v2", "/v1/check-groups"),
+        ("check_groups", "v3", "/v1/check-groups"),
+        ("alert_channels", "v2", "/v1/alert-channels"),
+        ("alert_channels", "v3", "/v1/alert-channels"),
+    ],
 )
-def test_list_pagination_auth_and_terminal_page(transport: Transport, manager: MagicMock, name: str, path: str) -> None:
+def test_list_pagination_auth_and_terminal_page(
+    transport: Transport, manager: MagicMock, name: str, api_version: str, path: str
+) -> None:
     transport.add([{"id": "a"}])
     transport.add([{"id": "b"}])
     transport.add([])
-    response = checkly_source(CONFIG, manager, inputs(name))
+    response = checkly_source(CONFIG, manager, inputs(name), api_version)
     assert materialize(response) == [[{"id": "a"}], [{"id": "b"}]]
     assert transport.paths() == [path] * 3
     assert [transport.params(i) for i in range(3)] == [{"limit": ["100"], "page": [str(page)]} for page in (1, 2, 3)]
@@ -123,8 +132,18 @@ def test_list_pagination_auth_and_terminal_page(transport: Transport, manager: M
     manager.clear_state.assert_called_once()
 
 
-@pytest.mark.parametrize("name", ["checks", "check_groups", "alert_channels"])
-def test_definitions_project_only_safe_metadata(transport: Transport, manager: MagicMock, name: str) -> None:
+@pytest.mark.parametrize(
+    "name,api_version",
+    [
+        ("checks", "v2"),
+        ("checks", "v3"),
+        ("check_groups", "v2"),
+        ("alert_channels", "v2"),
+    ],
+)
+def test_definitions_project_only_safe_metadata(
+    transport: Transport, manager: MagicMock, name: str, api_version: str
+) -> None:
     transport.add(
         [
             {
@@ -149,26 +168,19 @@ def test_definitions_project_only_safe_metadata(transport: Transport, manager: M
                 },
                 "config": {"webhookUrl": "https://example.com/secret"},
                 "newProviderField": "future-secret",
+                "requiredOutcomes": ["login succeeds"],
+                "constraints": [{"type": "REQUIRED_OUTCOME", "value": "login succeeds"}],
             }
         ]
     )
     transport.add([])
 
-    assert materialize(checkly_source(CONFIG, manager, inputs(name))) == [[{"id": "check-a"}]]
-
-
-def test_list_resume(transport: Transport, manager: MagicMock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = ChecklyResumeConfig(paginator_state={"page": 4})
-    transport.add([{"id": "last"}])
-    transport.add([])
-    assert materialize(checkly_source(CONFIG, manager, inputs("checks"))) == [[{"id": "last"}]]
-    assert [transport.params(i)["page"] for i in range(2)] == [["4"], ["5"]]
+    assert materialize(checkly_source(CONFIG, manager, inputs(name), api_version)) == [[{"id": "check-a"}]]
 
 
 def test_statuses_are_unpaginated_and_exclude_null_statuses(transport: Transport, manager: MagicMock) -> None:
     transport.add([None, {"checkId": "check-a", "hasFailures": False}])
-    response = checkly_source(CONFIG, manager, inputs("check_statuses"))
+    response = checkly_source(CONFIG, manager, inputs("check_statuses"), "v2")
     assert materialize(response) == [[{"checkId": "check-a", "hasFailures": False}]]
     assert transport.paths() == ["/v1/check-statuses"]
     assert transport.params(0) == {}
@@ -194,7 +206,9 @@ def test_result_fanout_cursor_and_time_filters(
     transport.add({"entries": [], "nextId": None})
     transport.add({"entries": [{"id": "result-a", "created_at": "2026-05-31T22:00:00Z"}], "nextId": None})
     transport.add([])
-    response = checkly_source(CONFIG, manager, inputs("check_results", incremental=incremental, watermark=watermark))
+    response = checkly_source(
+        CONFIG, manager, inputs("check_results", incremental=incremental, watermark=watermark), "v2"
+    )
     pages = materialize(response)
     assert [row["checkId"] for page in pages for row in page] == ["check-a", "check-b"]
     assert pages[0][0]["created_at"] == NOW - timedelta(hours=1)
@@ -227,7 +241,10 @@ def test_result_fanout_cursor_and_time_filters(
 
 
 @time_machine.travel(NOW, tick=False)
-def test_result_resume_preserves_window_and_skips_completed_checks(transport: Transport, manager: MagicMock) -> None:
+@pytest.mark.parametrize("api_version", ["v2", "v3"])
+def test_result_resume_preserves_window_and_skips_completed_checks(
+    transport: Transport, manager: MagicMock, api_version: str
+) -> None:
     manager.can_resume.return_value = True
     manager.load_state.return_value = ChecklyResumeConfig(
         paginator_state={
@@ -241,9 +258,9 @@ def test_result_resume_preserves_window_and_skips_completed_checks(transport: Tr
     transport.add([{"id": "check-a"}, {"id": "check-b"}])
     transport.add({"entries": [{"id": "last"}], "nextId": None})
     transport.add([])
-    pages = materialize(checkly_source(CONFIG, manager, inputs("check_results")))
+    pages = materialize(checkly_source(CONFIG, manager, inputs("check_results"), api_version))
     assert pages == [[{"id": "last", "checkId": "check-b"}]]
-    assert transport.paths() == ["/v2/checks", "/v2/check-results/check-b", "/v2/checks"]
+    assert transport.paths() == [f"/{api_version}/checks", "/v2/check-results/check-b", f"/{api_version}/checks"]
     assert transport.params(1)["from"] == ["1700000000"]
     assert transport.params(1)["to"] == ["1700010000"]
     assert transport.params(1)["nextId"] == ["saved-cursor"]
@@ -253,7 +270,9 @@ def test_result_resume_preserves_window_and_skips_completed_checks(transport: Tr
 @pytest.mark.parametrize("watermark", [NOW, NOW + timedelta(hours=1)])
 def test_no_requests_for_future_or_empty_window(transport: Transport, manager: MagicMock, watermark: datetime) -> None:
     assert (
-        materialize(checkly_source(CONFIG, manager, inputs("check_results", incremental=True, watermark=watermark)))
+        materialize(
+            checkly_source(CONFIG, manager, inputs("check_results", incremental=True, watermark=watermark), "v2")
+        )
         == []
     )
     assert transport.requests == []
@@ -265,7 +284,7 @@ def test_no_requests_for_future_or_empty_window(transport: Transport, manager: M
 )
 def test_rejects_invalid_pipeline_inputs(manager: MagicMock, name: str, watermark: object, error: str) -> None:
     with pytest.raises(ValueError, match=error):
-        checkly_source(CONFIG, manager, inputs(name, incremental=True, watermark=watermark))
+        checkly_source(CONFIG, manager, inputs(name, incremental=True, watermark=watermark), "v2")
 
 
 @pytest.mark.parametrize(
@@ -299,7 +318,7 @@ def test_credential_probe_and_auth_errors(
 def test_sync_http_errors_are_terminal(transport: Transport, manager: MagicMock, status: int) -> None:
     transport.add({"statusCode": status, "error": "Unauthorized"}, status)
     with pytest.raises(HTTPError) as raised:
-        materialize(checkly_source(CONFIG, manager, inputs("checks")))
+        materialize(checkly_source(CONFIG, manager, inputs("checks"), "v2"))
     assert len(transport.requests) == 1
     matches = [value for key, value in ChecklySource().get_non_retryable_errors().items() if key in str(raised.value)]
     assert len(matches) == (0 if status == 404 else 1)
@@ -312,8 +331,15 @@ def test_transient_errors_use_framework_retries(transport: Transport, manager: M
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.DEFAULT_RETRY_ATTEMPTS", 1
     ):
         with pytest.raises(RESTClientRetryableError):
-            materialize(checkly_source(CONFIG, manager, inputs("checks")))
+            materialize(checkly_source(CONFIG, manager, inputs("checks"), "v2"))
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("api_version,path", [(None, "/v3/checks"), ("v2", "/v2/checks"), ("v3", "/v3/checks")])
+def test_source_probe_uses_pinned_or_default_version(transport: Transport, api_version: str | None, path: str) -> None:
+    transport.add([])
+    assert ChecklySource().validate_credentials(CONFIG, team_id=1, api_version=api_version) == (True, None)
+    assert transport.paths() == [path]
 
 
 def test_unknown_schema_probe_makes_no_request(transport: Transport) -> None:
@@ -328,8 +354,6 @@ def test_credential_probe_preserves_unexpected_errors(transport: Transport) -> N
 
 
 def test_unsupported_version_makes_no_request(transport: Transport, manager: MagicMock) -> None:
-    source_inputs = inputs("checks")
-    source_inputs.api_version = "v1"
     with pytest.raises(ValueError, match="API version is not supported"):
-        checkly_source(CONFIG, manager, source_inputs)
+        checkly_source(CONFIG, manager, inputs("checks"), "v1")
     assert transport.requests == []

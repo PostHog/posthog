@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product data_quality
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product data_quality
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Data quality
 feature: data_quality
 url_prefix: /
@@ -149,42 +147,6 @@ tools:
             name another active check already holds comes back as a field error, with nothing written. Deleted checks
             release their definition, so it can be authored again as a new check.
         feature_flag: data-quality-checks
-    data-quality-checks-health-list:
-        operation: data_quality_checks_health_list
-        enabled: false
-    data-quality-checks-list:
-        operation: data_quality_checks_list
-        enabled: false
-    data-quality-checks-metric-subjects-list:
-        operation: data_quality_checks_metric_subjects_list
-        enabled: false
-    data-quality-checks-output-schema-retrieve:
-        operation: data_quality_checks_output_schema_retrieve
-        enabled: false
-    data-quality-checks-retrieve:
-        operation: data_quality_checks_retrieve
-        enabled: false
-    data-quality-checks-schedule-retrieve:
-        operation: data_quality_checks_schedule_retrieve
-        enabled: false
-    data-quality-checks-schedules-list:
-        operation: data_quality_checks_schedules_list
-        enabled: false
-    data-quality-checks-update:
-        operation: data_quality_checks_update
-        enabled: false
-    data-quality-runs-check-runs-list:
-        operation: data_quality_runs_check_runs_list
-        enabled: false
-    data-quality-runs-create:
-        operation: data_quality_runs_create
-        enabled: false
-    data-quality-runs-list:
-        operation: data_quality_runs_list
-        enabled: false
-    data-quality-runs-retrieve:
-        operation: data_quality_runs_retrieve
-        enabled: false
     data-quality-subjects:
         operation: data_quality_checks_subjects_list
         enabled: true

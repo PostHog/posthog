@@ -413,26 +413,46 @@ function variantAnalysisTemplate(scannerId: string, scannerName: string): Scanne
         cron: SCANNER_SCOUT_CRON,
         body: buildScoutBody(scannerId, {
             heading: 'Replay Vision variant analysis',
-            role: 'You compare the variants of the experiment one Replay Vision experiment scanner watches. Read its session summaries variant by variant, name the behaviors they share, and report what users in each variant do differently.',
-            reads: `- \`vision-scanners-get\` with id \`${scannerId}\` gives \`scanner_version\`. Read only observations of that version: a prompt edit changes what a summary looks at, so mixing versions compares two different questions.
+            role: 'You compare the variants of the experiment one Replay Vision experiment scanner watches. Read its session summaries variant by variant, name the behaviors they share, and report whether users in each variant behave differently. You keep a running tally of those behaviors across runs, so each run reads only the summaries that are new and still judges the whole experiment. Many experiments change behavior too little to see in a few dozen sessions, so "no clear difference" is an acceptable and expected outcome, not a failed run.',
+            window: 'Your window is the summaries completed after the `counted_through` time in your running tally (see Read the window). When there is no tally for the current scanner version, it is every summary of that version. The previous run only tells you what you already reported.',
+            reads: `- \`vision-scanners-get\` with id \`${scannerId}\` gives \`scanner_version\`, and \`scanner_config.experiment_id\`. Read only observations of that version: a prompt edit changes what a summary looks at, so mixing versions compares two different questions.
+- \`experiment-get\` with that \`experiment_id\` gives the experiment's hypothesis (its \`description\`) and the definitions of its \`metrics\`, \`metrics_secondary\` and \`saved_metrics\`. Use them only to learn which behaviors the team cares about. Do not read the experiment's results with \`experiment-results\` or any other results tool, and ignore \`conclusion\` and \`conclusion_comment\`. A metric can move for reasons no replay shows, and knowing a result makes it easy to find a story that fits it.
 - \`vision-scanners-variants-list\` (scanner_id \`${scannerId}\`) gives the variant keys, each variant's observation and people counts, and its sampling rate. Those live counts are the trusted numbers: never restate them from your own reading.
-- \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`) with \`variant\` set to each key, \`status=succeeded\` and \`order_by=-completed_at\`: up to the 40 most recent summaries per variant. Read the same number from each variant where you can, so their shares compare. \`vision-observations-get\` reads one in full when its summary line is not enough.`,
-            notable: `Name the themes first, across all variants at once, so a theme means the same thing in every variant: one observable behavior each ("Reopens the pricing page before checking out"). Then count, per variant, how many of the summaries you read show each theme.
+- Your running tally: \`scout-scratchpad-search\` with key \`${scannerId}:pattern:variant-tally\`. It holds the \`scanner_version\` it counts, its \`counted_through\` time, and per variant how many new summaries each run found and how many it read. Per theme it holds what the theme means, the date counting started, and per variant how many summaries were read since that date, how many of them show the theme, and up to 2 example observation ids. Keep it as one JSON block so the next run reads it exactly. When there is no tally, or its \`scanner_version\` is not the current one, start an empty tally: old counts answer a different prompt, so they do not carry over.
+- The new summaries: \`execute-sql\` over \`$recording_observed\` for the current version (\`properties.scanner_version\`), with \`timestamp\` after \`counted_through\` and at or before \`now() - INTERVAL 1 HOUR\`. The hour of margin lets late events arrive, so none falls behind the cursor unread. Select \`properties.experiment_variant\`, \`properties.session_id\`, \`properties.scanner_output_title\` and \`properties.scanner_output_summary\`. First count the new summaries per variant. Then read all of them, or, when a variant has more than 50, read a sample of 50 from each variant: \`ORDER BY cityHash64(properties.session_id) LIMIT 50 BY properties.experiment_variant\`. The hash has no link to time or content, so the sample stays fair to every variant. \`vision-observations-get\` reads one in full when its summary is not enough, and \`vision-observations-list\` for a session gives the observation id to cite.`,
+            notable: `Sort each summary you read into the themes in your tally. A theme is one observable behavior ("Reopens the pricing page before checking out"), and it means the same thing in every variant. Prefer behaviors that the hypothesis and the metrics point at. Then add this window to the tally: for every theme, add the summaries you read per variant to its read count, and the ones that show the theme to its theme count.
 
-A difference is a theme whose share differs between variants by enough to matter on the summaries you read. With 40 summaries a variant, a gap of a few sessions is noise.`,
-            quiet: 'Variants that behave the same is a real result. Say so in the report, and record no differences.',
+Keep the themes fixed. Never rename, merge, or redefine a theme: its counts would then mix two meanings. A behavior that no theme covers becomes a new theme. It starts at zero on this run, records today as its start date, and counts only the summaries read from this run on. Keep the list to about 15 themes, so add a new one only for a behavior that recurs in this window.
+
+Judge differences on the tally, never on this window alone: one window is a few dozen summaries, and a gap in it is usually noise. Use the window only to say what is new. A theme is a difference only when all four of these hold:
+
+1. A two-sided Fisher exact test on its tally counts (theme count and read count minus theme count, per variant) gives a p-value below 0.05 divided by the number of tests you ran. Run the test for every theme that shows in at least 5 summaries of some variant, and count every one of those tests. With more than two variants, test each variant against control, and count each of those tests too. Compute the p-value with code (Python's \`math.comb\` is enough), never by estimate. When you cannot run code, call no theme a difference, and give the counts in the report.
+2. It shows in at least 5 summaries of the variant where it is more common.
+3. Its share differs between the variants by at least 5 percentage points, so a very large tally does not make a very small gap into a finding.
+4. You can see it in the summaries themselves.
+
+Give the p-value with each difference in the report. The themes come from summaries you read before you tested them, and a model counted them, so a p-value here is weaker evidence than one from the experiment's metrics: say so once in the report. When you are not sure a difference is real, leave it out. Finding no difference is an acceptable result.
+
+When the tally is a sample, give both numbers in the report ("counted 120 of 410 summaries"), so the reader knows the share rests on a sample.`,
+            quiet: 'Variants that behave the same is a real and expected result. Say so in the report, describe the themes all variants share, and record no differences.',
+            quietVerdict:
+                'When no theme clears the bar, still file the report: open with the verdict `No clear difference between variants`, then one line with how many summaries the tally holds per variant and how many this run added, then the main themes all variants share.',
             skip: `- Restating the variants counts as findings: the variants view already shows them.
-- A difference resting on fewer than 5 sessions in either variant.
-- Claims about which variant wins. The experiment's metrics decide that; you describe what users do.`,
+- A difference resting on fewer than 5 sessions in the variant where the theme is more common, or one that fails the test above.
+- Effects too small to see in a few dozen sessions, such as a 1 to 2% change in watch time or conversion. Only the experiment's metrics can show those, across thousands of sessions.
+- Claims about which variant wins. The experiment's metrics decide that; you describe what users do.
+- Explaining, confirming, or predicting a metric result.`,
             priority: 'Priority P3 by default.',
             record: `Every run also records exactly one structured record with \`scout-record-output\`: the whole comparison, matching the schema in your instructions. It fills in the experiment's variants view in Replay Vision, so record it even when nothing differs.
 
 - \`scanner_version\`: the version you read from \`vision-scanners-get\`. A record for an older version is not shown.
-- \`observations_read\`: per variant key, how many summaries you read. Every count below is out of this number.
-- \`variants\`: per variant key, up to 5 themes, most common first. \`count\` is how many of that variant's summaries you read show the theme. Cite up to 2 observation ids of that variant that show it in \`example_observation_ids\`.
-- \`differences\`: up to 5, most meaningful first, each resting on one theme, with \`counts\` per variant key. Empty when the variants behave the same.
+- \`observations_read\`: per variant key, how many summaries the tally has read since it started. Every count below is out of this number.
+- \`variants\`: per variant key, up to 5 themes from the tally, most common first. \`count\` is the tally's count for that variant. For a theme that started after the tally did, also set \`read\` to that theme's own read count for the variant. Leave \`read\` out for a theme counted since the tally started. Cite up to 2 observation ids of that variant that show it in \`example_observation_ids\`, from the tally's examples.
+- \`differences\`: up to 5, most meaningful first, each resting on one theme, with its tally \`counts\` per variant key, and \`read\` per variant key when the theme started after the tally did. Empty when no theme clears the bar.
 - Use the same \`theme\` label in every variant and in \`differences\`, so the view can line them up.
-- Submit once per run. The newest record replaces the previous one in the view.`,
+- Submit once per run. The newest record replaces the previous one in the view.
+
+Save the updated tally last, after the report and the record, under the same key. Its new \`counted_through\` is the upper bound of this run's query, not the newest timestamp you read. Then a run that fails partway reads its window again on the next run, and loses nothing.`,
         }),
     }
 }

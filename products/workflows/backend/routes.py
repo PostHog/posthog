@@ -39,3 +39,8 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_hog_flow_templates",
         ["team_id"],
     )
+    routers.root.register(
+        r"public_hog_flow_templates",
+        hog_flow_template.PublicHogFlowTemplateViewSet,
+        "public_hog_flow_templates",
+    )

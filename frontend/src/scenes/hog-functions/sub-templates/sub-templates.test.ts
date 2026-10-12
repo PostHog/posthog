@@ -17,6 +17,10 @@ describe('sub-templates', () => {
         ['$logs_alert_firing', 'logs-alerting'],
         ['$health_check_issue_firing', 'health-alerts'],
         ['$batch_export_run_failed', 'batch-export-alerts'],
+        ['$data_warehouse_sync_failed', 'data-warehouse-alerts'],
+        ['$data_warehouse_sync_recovered', 'data-warehouse-alerts'],
+        ['$data_warehouse_sync_completed', 'data-warehouse-alerts'],
+        ['$data_warehouse_billing_limit_reached', 'data-warehouse-alerts'],
         ['$billing_alert_firing', 'billing-alerts'],
         ['$replay_vision_alert_match', 'replay-vision-alerts'],
         ['$pageview', 'standard'],
@@ -27,10 +31,17 @@ describe('sub-templates', () => {
 
     // A placeholder the sample event leaves empty renders an empty Slack block. Slack then rejects
     // the whole test message.
-    it.each(['health-check-firing', 'health-check-resolved'] as const)(
-        'gives the %s templates a sample value for every event property they read',
-        async (subTemplateId) => {
-            const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!({
+    it.each([
+        ['health-alerts', 'health-check-firing'],
+        ['health-alerts', 'health-check-resolved'],
+        ['data-warehouse-alerts', 'data-warehouse-sync-failed'],
+        ['data-warehouse-alerts', 'data-warehouse-sync-recovered'],
+        ['data-warehouse-alerts', 'data-warehouse-sync-completed'],
+        ['data-warehouse-alerts', 'data-warehouse-billing-limit-reached'],
+    ] as const)(
+        'gives the %s sample event a value for every property the %s templates read',
+        async (contextId, subTemplateId) => {
+            const sample = await SAMPLE_GLOBALS_CONTEXTS[contextId]!({
                 event: { properties: {} },
             } as CyclotronJobInvocationGlobals)
             const inputs = JSON.stringify(HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].map((template) => template.inputs))

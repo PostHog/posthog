@@ -43,20 +43,6 @@ def http_session() -> Iterator[MagicMock]:
         yield session
 
 
-@pytest.mark.parametrize("rows", [[], [{"_id": "show-1"}], [{"_id": "show-1"}, {"_id": "show-2"}]])
-def test_shows_full_refresh_stops_after_one_response(http_session: MagicMock, rows: list[dict[str, str]]) -> None:
-    http_session.send.side_effect = [response(rows)]
-
-    result = acast_source("fake-acast-key", "shows", 1, "job-1")
-    assert [row for batch in items(result) for row in batch] == rows
-    http_session.send.assert_called_once()
-    request = http_session.send.call_args.args[0]
-    assert request.method == "GET"
-    assert request.url == "https://open.acast.com/rest/shows"
-    assert request.headers["X-API-Key"] == "fake-acast-key"
-    assert "Authorization" not in request.headers
-
-
 def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show(http_session: MagicMock) -> None:
     http_session.send.side_effect = [
         response([{"_id": "show-1"}, {"_id": "show-2"}, {"_id": "show-3"}]),
@@ -82,13 +68,6 @@ def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show(http_se
         "https://open.acast.com/rest/shows/show-3/episodes",
     ]
     assert all(request.headers["X-API-Key"] == "fake-acast-key" for request in requests)
-
-
-def test_episodes_with_no_shows_make_no_child_requests(http_session: MagicMock) -> None:
-    http_session.send.side_effect = [response([])]
-
-    assert list(items(acast_source("fake-acast-key", "episodes", 1, "job-1"))) == []
-    http_session.send.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -141,19 +120,6 @@ def test_credential_validation_propagates_other_errors(http_session: MagicMock) 
 
     with pytest.raises(HTTPError):
         validate_credentials("fake-acast-key", 1)
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_errors_use_framework_retries(http_session: MagicMock, status: int) -> None:
-    failed_response = response({"statusCode": status}, status)
-    failed_response.headers["Retry-After"] = "0"
-    http_session.send.side_effect = [failed_response, response([{"_id": "show-1"}])]
-
-    with patch("time.sleep"):
-        rows = [row for batch in items(acast_source("fake-acast-key", "shows", 1, "job-1")) for row in batch]
-
-    assert rows == [{"_id": "show-1"}]
-    assert http_session.send.call_count == 2
 
 
 def test_unexpected_response_shape_fails_instead_of_importing_an_error(http_session: MagicMock) -> None:

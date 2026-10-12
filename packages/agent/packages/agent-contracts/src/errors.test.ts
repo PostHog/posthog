@@ -144,6 +144,16 @@ describe("classifyGatewayLimitError", () => {
     ],
     ["Rate limit exceeded: User sustained rate limit exceeded", "org_limit"],
     ["Cloud usage limit reached", "org_limit"],
+    [
+      // The Go gateway's per-user window, OpenAI dialect with its code.
+      `API Error: 429 {"error":{"message":"user limit exceeded: hour:opus55","type":"rate_limit_error","code":"user_limit_exceeded"}}`,
+      "user_limit",
+    ],
+    [
+      // The Anthropic dialect drops the code and keeps the detail.
+      `API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"user limit exceeded: org_day"}}`,
+      "user_limit",
+    ],
   ])("classifies %j as %s", (message, expected) => {
     expect(classifyGatewayLimitError(message)).toBe(expected);
   });
@@ -299,6 +309,13 @@ describe("classifyPromptFailure", () => {
       false,
     ],
     ["invalid model", undefined, "unknown", false],
+    // A 429 also reads as transient; the user limit must win so the turn is not retried into it.
+    [
+      "API Error: 429 user limit exceeded: hour:opus55",
+      undefined,
+      "usage_limit",
+      false,
+    ],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
     expect(
       classifyPromptFailure(new Error(message), undefined, errorType),

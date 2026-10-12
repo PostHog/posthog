@@ -6,6 +6,7 @@ export interface ComposerSeed {
     prompt: string
     autoSubmit: boolean
     contextItems?: AttachedContextItem[]
+    files?: File[]
 }
 
 // `panelId` keys the seed to a specific embedded composer (e.g. Max's side panel runner), matching the

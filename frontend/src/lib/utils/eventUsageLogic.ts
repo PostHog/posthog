@@ -32,6 +32,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { isBIVisualizationNode } from '~/queries/utils'
 import {
     getBreakdown,
     getCompareFilter,
@@ -73,7 +74,9 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import type { ExperimentViewedHealthProperties } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -99,7 +102,14 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval' | 'test_accounts'
+export type DashboardFilterChangeType =
+    | 'date'
+    | 'properties'
+    | 'breakdown'
+    | 'variable'
+    | 'interval'
+    | 'test_accounts'
+    | 'metric_labels'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -1242,10 +1252,12 @@ export interface eventUsageLogicActions {
     }
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null
+        duration: number | null,
+        healthProperties: ExperimentViewedHealthProperties
     ) => {
         duration: number | null
         experiment: Experiment
+        healthProperties: ExperimentViewedHealthProperties
     }
     reportExperimentWatchCardSelected: (
         experimentId: ExperimentIdType,
@@ -1950,7 +1962,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
-        reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentViewed: (
+            experiment: Experiment,
+            duration: number | null,
+            healthProperties: ExperimentViewedHealthProperties
+        ) => ({ experiment, duration, healthProperties }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
             metricUuid: string,
@@ -2535,6 +2551,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
+            if (isBIVisualizationNode(insight?.query)) {
+                captureBIWorksheetAction('added_to_dashboard', insight.query.config, { insight_id: insight.id })
+            }
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
                 dashboard_id: dashboardId,
@@ -2600,12 +2619,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
-        reportExperimentViewed: ({ experiment, duration }) => {
+        reportExperimentViewed: ({ experiment, duration, healthProperties }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 experiment_id: experiment.id,
                 experiment_status: getExperimentStatus(experiment),
                 duration,
+                ...healthProperties,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {

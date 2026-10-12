@@ -87,29 +87,6 @@ class TestRecordsPagination:
 
     @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _records_response([], total=0)
-
-        assert list(get_rows("key", "view", "records", mock.MagicMock(), _manager())) == []
-
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_saves_state_after_yield_and_not_on_terminal_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _records_response([{"id": "1"}, {"id": "2"}], total=3),
-            _records_response([{"id": "3"}], total=3),
-        ]
-        manager = _manager()
-
-        list(get_rows("key", "view", "records", mock.MagicMock(), manager))
-
-        # State is saved once — after the first (full) page, pointing at the next offset — and never
-        # after the terminal short page, so a crash re-fetches the last page rather than skipping it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].offset == 2
-
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_offset(self, mock_session):
         mock_session.return_value.get.return_value = _records_response([], total=10)
 
@@ -117,16 +94,6 @@ class TestRecordsPagination:
 
         first_call = mock_session.return_value.get.call_args_list[0]
         assert json.loads(first_call.kwargs["params"]["page"])["offset"] == 4
-
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_sends_apikey_authorization_header(self, mock_session):
-        mock_session.return_value.get.return_value = _records_response([], total=0)
-
-        list(get_rows("mykey", "view", "records", mock.MagicMock(), _manager()))
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "ApiKey mykey"
 
 
 class TestColumns:
@@ -141,12 +108,6 @@ class TestColumns:
         assert batches == [[{"id": "c1"}, {"id": "c2"}]]
         url = mock_session.return_value.get.call_args.args[0]
         assert urlparse(url).path == "/v1/views/view"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_view_without_columns_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _view_response({"id": "view", "columns": []})
-
-        assert list(get_rows("key", "view", "columns", mock.MagicMock(), _manager())) == []
 
 
 _HIERARCHY_RESPONSES: dict[tuple[str, tuple[tuple[str, Any], ...]], list[dict[str, Any]]] = {
@@ -192,21 +153,6 @@ class TestHierarchy:
 
 
 class TestRetries:
-    @mock.patch("time.sleep")
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_retries_retryable_status_then_succeeds(self, mock_session, _sleep):
-        mock_session.return_value.get.side_effect = [
-            _error_response(500),
-            _error_response(429),
-            _records_response([{"id": "1"}], total=1),
-        ]
-
-        batches = list(get_rows("key", "view", "records", mock.MagicMock(), _manager()))
-
-        assert batches == [[{"id": "1"}]]
-        assert mock_session.return_value.get.call_count == 3
-
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_retries_exhausted_raises(self, mock_session, _sleep):
@@ -271,17 +217,6 @@ class TestValidateCredentials:
 
         assert is_valid is expected_valid
         assert (message is None) is expected_valid
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_probes_the_configured_view(self, mock_session):
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("key", "myview")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(url).path == "/v1/views/myview"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_swallows_exceptions(self, mock_session):

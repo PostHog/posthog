@@ -774,7 +774,6 @@ def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=_LlmRules.model_json_schema(),
-        temperature=0.2,
     )
     try:
         response = client.models.generate_content(

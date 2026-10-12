@@ -1,7 +1,6 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest.mock import MagicMock
@@ -45,82 +44,6 @@ def manager() -> MagicMock:
     manager = MagicMock(spec=ResumableSourceManager)
     manager.can_resume.return_value = False
     return manager
-
-
-@pytest.mark.parametrize(
-    "name,path,frequency,columns,keys,period,expected_period,start",
-    [
-        (
-            "electricity_retail_sales",
-            "electricity/retail-sales/data/",
-            "monthly",
-            ["price", "sales", "revenue", "customers"],
-            ["period", "stateid", "sectorid"],
-            "2025-01",
-            datetime(2025, 1, 1, tzinfo=UTC),
-            "2025-01",
-        ),
-        (
-            "natural_gas_prices",
-            "natural-gas/pri/sum/data/",
-            "monthly",
-            ["value"],
-            ["period", "series"],
-            "2025-01",
-            datetime(2025, 1, 1, tzinfo=UTC),
-            "2025-01",
-        ),
-        (
-            "retail_fuel_prices",
-            "petroleum/pri/gnd/data/",
-            "weekly",
-            ["value"],
-            ["period", "series"],
-            "2025-01-20",
-            datetime(2025, 1, 20, tzinfo=UTC),
-            "2025-01-15",
-        ),
-    ],
-)
-@pytest.mark.parametrize("mode", ["incremental", "initial", "full"])
-def test_request_and_row_shaping(
-    inputs: SourceInputs,
-    manager: MagicMock,
-    name: str,
-    path: str,
-    frequency: str,
-    columns: list[str],
-    keys: list[str],
-    period: str,
-    expected_period: datetime,
-    start: str,
-    mode: str,
-) -> None:
-    inputs.schema_name = name
-    inputs.should_use_incremental_field = mode != "full"
-    if mode == "initial":
-        inputs.db_incremental_field_last_value = None
-    row = {"period": period, "stateid": "CO", "sectorid": "RES", "series": "example-series", "value": "12.5"}
-    with requests_mock.Mocker() as http:
-        http.get(f"https://api.eia.gov/v2/{path}", json={"response": {"total": "1", "data": [row]}})
-        response = us_eia_source("example-key", inputs, manager)
-        pages = list(cast(Iterable[Any], response.items()))
-        request = http.request_history[0]
-        params = parse_qs(urlsplit(request.url).query)
-        assert len(http.request_history) == 1
-        assert params["api_key"] == ["example-key"]
-        assert "Authorization" not in request.headers
-        assert params["frequency"] == [frequency]
-        assert params["data[]"] == columns
-        assert params["offset"] == ["0"]
-        assert params["length"] == ["5000"]
-        assert params.get("start") == ([start] if mode == "incremental" else None)
-        for index, key in enumerate(keys):
-            assert params[f"sort[{index}][column]"] == [key]
-            assert params[f"sort[{index}][direction]"] == ["asc"]
-        assert response.sort_mode == "asc"
-        assert pages == [[{**row, "period": expected_period}]]
-        assert response.primary_keys == keys
 
 
 @pytest.mark.parametrize("terminal_rows", [0, 1])

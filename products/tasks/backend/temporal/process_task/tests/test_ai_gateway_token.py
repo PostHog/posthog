@@ -46,6 +46,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _team_credit_refusal,
     mint_refusal,
     mint_scoped_token,
+    model_allowed_by_pin,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
     token_cap_usd,
@@ -1429,9 +1430,21 @@ class TestPosthogCodeSandboxMint:
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
         assert any("/" in model for model in pin)
 
-    def test_free_pin_is_the_three_open_weight_models(self):
-        assert FREE_TIER_MODELS == ["@cf/zai-org/glm-5.2", "deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3"]
+    def test_free_pin_is_the_legacy_free_tier_in_both_glm_spellings(self):
+        assert FREE_TIER_MODELS == [
+            "@cf/zai-org/glm-5.2",
+            "zai-org/glm-5.2",
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "moonshotai/kimi-k3",
+            "zai-org/glm-5.3-flash",
+        ]
         assert _PRODUCT_ALLOWED_MODELS[FREE_TIER_PIN_KEY] == FREE_TIER_MODELS
+
+    @pytest.mark.parametrize(
+        "model", ["@cf/zai-org/glm-5.2", "zai-org/glm-5.2", "zai-org/glm-5.3-flash", "moonshotai/kimi-k3"]
+    )
+    def test_free_pin_admits_each_free_tier_spelling(self, model):
+        assert model_allowed_by_pin(FREE_TIER_MODELS, model)
 
     def test_ttl_is_the_sandbox_lifetime_plus_an_hour(self, mint_settings):
         # The sandbox dies at its TTL and a new one mints its own token, so a leaked token

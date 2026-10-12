@@ -419,8 +419,6 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
-    if task.is_scout_trial_judge is True:
-        return ""
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
@@ -583,7 +581,7 @@ def _build_environment_variables(
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
-    if settings.DEBUG or (ctx.state or {}).get("scout_trial") or (ctx.state or {}).get("scout_trial_judge"):
+    if settings.DEBUG or task.is_scout_experiment is True:
         # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 

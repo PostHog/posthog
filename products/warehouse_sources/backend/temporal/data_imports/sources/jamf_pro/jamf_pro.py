@@ -48,6 +48,11 @@ MAX_DOWNLOAD_SECONDS = 300
 # Cap the highest page we will ever fetch for one endpoint. At 100-200 rows per page this is far
 # more than any real Jamf tenant holds, so it only ever trips on a server that never terminates.
 MAX_PAGES = 50_000
+# Fan-out parents are collected before any child is fetched, so the host also must not be able to
+# grow that list without bound. Real parents (titles, policies, groups) number in the hundreds and
+# have short numeric ids.
+MAX_PARENT_IDS = 100_000
+MAX_PARENT_ID_LENGTH = 256
 
 # Jamf Pro bearer tokens are short-lived (~20 minutes for basic-auth tokens; OAuth tokens report
 # their own expires_in). Re-mint this many seconds before the deadline so a request never rides
@@ -428,6 +433,8 @@ def _iter_endpoint_pages(
 
     def shape(row: dict[str, Any]) -> dict[str, Any]:
         row = _hoist_cursor(config, row)
+        if config.row_fields:
+            row = {key: row.get(key) for key in config.row_fields}
         if parent_id is not None and config.parent_id_field:
             row = {**row, config.parent_id_field: parent_id}
         return row
@@ -460,16 +467,55 @@ def _iter_endpoint_pages(
         if not results:
             break
 
+        total_count = data.get("totalCount")
+        has_more = total_count is None or (page + 1) * config.page_size < total_count
+        if has_more:
+            resumable_source_manager.save_state(resume_state(page + 1))
+
         yield [shape(row) for row in results]
 
-        total_count = data.get("totalCount")
-        if total_count is not None and (page + 1) * config.page_size >= total_count:
+        if not has_more:
             break
-
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-        # page rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(resume_state(page + 1))
         page += 1
+
+
+def _fetch_parent_ids(
+    fetch_page: Callable[[str], Any], host: str, config: JamfProEndpointConfig, parent_config: JamfProEndpointConfig
+) -> list[str]:
+    """Collect the ids of the parents to fan out over, keeping only the ids so memory stays bounded."""
+    ids: list[str] = []
+
+    def collect(rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            if row.get("id") is None:
+                continue
+            if config.parent_filter is not None and row.get(config.parent_filter[0]) != config.parent_filter[1]:
+                continue
+            parent_id = str(row["id"])
+            if len(parent_id) > MAX_PARENT_ID_LENGTH or len(ids) >= MAX_PARENT_IDS:
+                raise JamfProPaginationLimitError(
+                    f"Jamf Pro {parent_config.name} returned more parents or longer ids than any real tenant holds"
+                )
+            ids.append(parent_id)
+
+    if not parent_config.paginated:
+        data = fetch_page(_build_url(host, parent_config, {}))
+        collect(data if isinstance(data, list) else data.get("results", []))
+        return ids
+
+    params = _build_params(parent_config, False, None)
+    seen = 0
+    for page in range(MAX_PAGES):
+        data = fetch_page(_build_url(host, parent_config, {**params, "page": page}))
+        results = data.get("results", [])
+        collect(results)
+        seen += len(results)
+        total_count = data.get("totalCount")
+        if not results or (total_count is not None and seen >= total_count):
+            return ids
+    raise JamfProPaginationLimitError(
+        f"Jamf Pro pagination for {parent_config.name} exceeded {MAX_PAGES} pages without terminating"
+    )
 
 
 def get_rows(
@@ -553,10 +599,8 @@ def get_rows(
         return
 
     parent_config = JAMF_PRO_ENDPOINTS[config.parent]
-    parent_data = fetch_page(_build_url(host, parent_config, {}))
-    parent_rows = parent_data if isinstance(parent_data, list) else parent_data.get("results", [])
     # Walk parents in a deterministic order so a resume can skip the parents already synced.
-    parent_ids = sorted((str(row["id"]) for row in parent_rows if row.get("id") is not None), key=_parent_sort_key)
+    parent_ids = sorted(_fetch_parent_ids(fetch_page, host, config, parent_config), key=_parent_sort_key)
 
     if resume_config is not None and resume_config.parent_id is not None:
         resume_key = _parent_sort_key(resume_config.parent_id)

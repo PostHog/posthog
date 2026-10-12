@@ -1,3 +1,4 @@
+import re
 import errno
 
 from django.db import InterfaceError, InternalError, OperationalError
@@ -31,6 +32,20 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "We encountered an internal error. Please try again.",
     "The difference between the request time and the current time is too large.",
 )
+
+# pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
+# "UNKNOWN" error code, which happens whenever AWS replies with no parseable XML error body. A
+# bodyless 5xx is always a transient server-side blip - the same class the named 5xx messages above
+# cover - and clears on retry. But AWS also omits the body for a HeadObject 403 or 404 (it never
+# includes one for HEAD requests, regardless of status), so the bare "AWS Error UNKNOWN" string alone
+# can't tell a blip apart from a permanent permission or missing-object error. The HTTP status pyarrow
+# puts in the message is the only thing that distinguishes them.
+_BODYLESS_UNKNOWN_STATUS_RE = re.compile(r"AWS Error UNKNOWN \(HTTP status (\d{3})\)")
+
+
+def _is_bodyless_5xx_unknown_error(error: BaseException) -> bool:
+    match = _BODYLESS_UNKNOWN_STATUS_RE.search(str(error))
+    return match is not None and match.group(1).startswith("5")
 
 
 class TransientObjectStoreError(NonReportableError):
@@ -70,6 +85,11 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
 
+    A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
+    `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
+    5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
+    HeadObject 403 or 404 too.
+
     Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
     `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
     where the bucket credentials are operator-configured rather than our own IAM instance role, so an
@@ -89,6 +109,8 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # wraps, must still treat it as transient.
         return True
     if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
+        return True
+    if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS

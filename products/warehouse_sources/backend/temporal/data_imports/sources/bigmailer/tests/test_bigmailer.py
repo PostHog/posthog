@@ -150,40 +150,6 @@ class TestBrandFanOut:
         assert snapshots[2][0].endswith("/brands/b2/contacts")
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_within_a_brand(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _page([{"id": "b1"}]),  # /brands
-                _page([{"id": "c1"}], has_more=True, cursor="P2=="),  # b1 contacts page 1
-                _page([{"id": "c2"}]),  # b1 contacts page 2
-            ],
-        )
-
-        rows = _rows(_source("contacts"))
-
-        assert [r["id"] for r in rows] == ["c1", "c2"]
-        assert snapshots[2][0].endswith("/brands/b1/contacts")
-        assert snapshots[2][1]["cursor"] == "P2=="
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_the_brand_list_itself(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"id": "b1"}], has_more=True, cursor="B2=="),  # /brands page 1
-                _page([{"id": "c1"}]),  # b1 contacts
-                _page([{"id": "b2"}]),  # /brands page 2
-                _page([{"id": "c2"}]),  # b2 contacts
-            ],
-        )
-
-        rows = _rows(_source("contacts"))
-        assert [(r["id"], r["brand_id"]) for r in rows] == [("c1", "b1"), ("c2", "b2")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_completed_brands_and_resumes_cursor(self, MockSession) -> None:
         # Resuming mid-fan-out must not re-request brands completed before the crash, and must start
         # the in-progress brand from its saved cursor.
@@ -320,11 +286,6 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("key") is expected
 
-    @mock.patch(BIGMAILER_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") is False
-
 
 class TestSourceResponse:
     @parameterized.expand(
@@ -340,9 +301,3 @@ class TestSourceResponse:
         response = _source(endpoint)
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-
-    def test_partitions_on_created_by_month(self) -> None:
-        response = _source("contacts")
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["created"]

@@ -12,18 +12,13 @@ from products.replay_vision.backend.temporal.activities.backfill import (
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
-    count_in_flight_applies_activity,
-    count_in_flight_by_team_activity,
-)
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
-    emit_observation_signal_activity,
     emit_observation_signal_summaries_activity,
-    emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
@@ -35,9 +30,7 @@ from products.replay_vision.backend.temporal.activities.list_stale_scanner_estim
 from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
 from products.replay_vision.backend.temporal.activities.observation_media import (
     finalize_observation_media_activity,
-    finalize_observation_thumbnail_activity,
     prepare_observation_media_activity,
-    prepare_observation_thumbnail_activity,
 )
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
@@ -72,7 +65,6 @@ __all__ = [
     "call_scanner_provider_activity",
     "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
-    "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",
     "create_observation_activity",
     "delete_backfill_schedule_activity",
@@ -80,13 +72,10 @@ __all__ = [
     "embed_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
-    "emit_observation_signal_activity",
     "emit_observation_signal_summaries_activity",
-    "emit_observation_signals_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "fetch_session_network_activity",
-    "finalize_observation_thumbnail_activity",
     "finalize_observation_media_activity",
     "find_backfill_candidates_activity",
     "find_scanner_candidates_activity",
@@ -100,7 +89,6 @@ __all__ = [
     "meter_scanner_read_bytes_activity",
     "pause_backfill_schedule_activity",
     "prepare_backfill_tick_activity",
-    "prepare_observation_thumbnail_activity",
     "prepare_observation_media_activity",
     "reap_backfill_schedules_activity",
     "reap_childless_inline_scanners_activity",

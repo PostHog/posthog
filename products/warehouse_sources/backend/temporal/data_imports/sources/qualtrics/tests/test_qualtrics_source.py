@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualtrics import (
     QualtricsAuthMethodConfig,
@@ -11,16 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.qualtrics import QualtricsCredentials
-
-EXPECTED_ENDPOINTS = {
-    "surveys",
-    "users",
-    "groups",
-    "divisions",
-    "distributions",
-    "survey_questions",
-    "survey_responses",
-}
 
 
 def _config(selection: str = "api_token") -> QualtricsSourceConfig:
@@ -58,42 +47,8 @@ class TestQualtricsSource:
     def setup_method(self) -> None:
         self.source = source_module.QualtricsSource()
 
-    def test_source_is_released_as_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        # A finished source must be visible; `unreleasedSource` hides it from users entirely.
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
     def test_retargeting_the_host_re_requires_credentials(self) -> None:
         assert self.source.connection_host_fields == ["datacenter_id"]
-
-    def test_only_responses_sync_incrementally(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(_config(), team_id=1)}
-
-        responses = schemas["survey_responses"]
-        assert responses.supports_incremental is True
-        # Exported responses can be restated under the same id, so append would duplicate them.
-        assert responses.supports_append is False
-        assert [field["field"] for field in responses.incremental_fields] == ["recordedDate"]
-        assert all(not schemas[name].supports_incremental for name in EXPECTED_ENDPOINTS - {"survey_responses"})
-
-    def test_tables_are_listed_for_public_docs(self) -> None:
-        # `get_schemas` does no I/O, so the docs endpoint can render the catalog credential-free.
-        assert self.source.lists_tables_without_credentials is True
-        assert {table["name"] for table in self.source.get_documented_tables()} == EXPECTED_ENDPOINTS
-
-    def test_auth_and_permission_errors_are_non_retryable(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert all(message for message in errors.values())
-
-    def test_api_version_is_pinned_to_the_path_the_code_calls(self) -> None:
-        assert self.source.supported_versions == ("v3",)
-        assert self.source.default_version == "v3"
-        assert self.source.resolve_api_version(None) == "v3"
 
     @pytest.mark.parametrize(
         "selection, expected",

@@ -368,6 +368,38 @@ class TestRegisterCdcCompanionTableStamp:
         assert history.active == "orders_cdc__query_a"
         assert history.active_job_id == str(job.id)
 
+    def test_records_the_companion_size_on_the_companion_table(self, team):
+        # In `both` mode the schema's table is the snapshot table. The companion size must land on
+        # the companion's own record, for a new record and for an existing one.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        for live_size_mib in (3.0, 5.0):
+            with (
+                patch.object(DataWarehouseTable, "get_columns", return_value={}),
+                patch.object(DataWarehouseTable, "get_count", return_value=100),
+            ):
+                async_to_sync(register_cdc_companion_table)(
+                    run_id=str(job.id),
+                    team_id=team.pk,
+                    schema_id=schema.id,
+                    resource_name="orders_cdc",
+                    row_count=100,
+                    table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                    queryable_folder="orders_cdc__query_a",
+                    live_size_mib=live_size_mib,
+                )
+
+        companion = DataWarehouseTable.objects.get(team_id=team.pk, external_data_source_id=source.pk, deleted=False)
+        job.refresh_from_db()
+        assert companion.size_in_s3_mib == 5.0
+        assert job.storage_delta_mib == 5.0
+
 
 # transaction=True: validate_schema_and_update_table writes to the DB from the async thread pool
 # (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
@@ -465,6 +497,49 @@ class TestValidateSchemaAndUpdateTable:
         assert table.queryable_folder == "s3://bucket/orders_v2"
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
+
+    @pytest.mark.parametrize(
+        "previous_size_mib,live_size_mib,expected_size_mib,expected_delta_mib",
+        [
+            pytest.param("no_table", 12.5, 12.5, 12.5, id="new_table"),
+            pytest.param(None, 12.5, 12.5, 12.5, id="table_without_a_size"),
+            pytest.param(10.0, 12.5, 12.5, 2.5, id="growth"),
+            pytest.param(10.0, 4.0, 4.0, -6.0, id="smaller_after_compaction_or_full_refresh"),
+            pytest.param(10.0, 0.0, 0.0, -10.0, id="emptied_table"),
+            pytest.param(10.0, None, 10.0, 0, id="no_size_from_the_log_keeps_the_recorded_size"),
+        ],
+    )
+    def test_records_the_published_size_and_the_storage_change_of_the_job(
+        self, team, previous_size_mib, live_size_mib, expected_size_mib, expected_delta_mib
+    ):
+        # Billing and the s3Cluster threshold read size_in_s3_mib. A missing size must not become 0,
+        # and a second registration for the same job (a redelivered final batch) must not erase the
+        # storage change that the first one recorded.
+        schema, job = self._schema_and_job(team)
+        if previous_size_mib != "no_table":
+            table = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+            DataWarehouseTable.objects.filter(id=table.id).update(size_in_s3_mib=previous_size_mib)
+
+        for _ in range(2):
+            with (
+                patch.object(DataWarehouseTable, "get_columns", return_value={}),
+                patch.object(DataWarehouseTable, "get_count", return_value=150),
+            ):
+                async_to_sync(validate_schema_and_update_table)(
+                    run_id=str(job.id),
+                    team_id=team.pk,
+                    schema_id=schema.id,
+                    row_count=10,
+                    table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                    queryable_folder="s3://bucket/orders_v2",
+                    live_size_mib=live_size_mib,
+                )
+
+        schema.refresh_from_db()
+        job.refresh_from_db()
+        assert schema.table is not None
+        assert schema.table.size_in_s3_mib == expected_size_mib
+        assert job.storage_delta_mib == expected_delta_mib
 
     def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
         schema, job = self._schema_and_job(team)

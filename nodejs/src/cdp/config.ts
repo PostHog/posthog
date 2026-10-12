@@ -53,6 +53,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
+    CDP_EVENTS_CONSUMER_TOPIC: string
+    CDP_EVENTS_CONSUMER_GROUP_ID: string
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
@@ -130,6 +134,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_BATCH_FAIL_RATIO: number
     CDP_EVENTS_DLQ_TOPIC: string
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
+    CDP_DLQ_REPLAY_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -270,6 +276,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
+        CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+        CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
@@ -342,6 +352,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
         // consumes from there, and no ClickHouse table reads these topics.
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 

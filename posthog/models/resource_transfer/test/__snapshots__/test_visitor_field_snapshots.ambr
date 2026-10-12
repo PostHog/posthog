@@ -188,9 +188,11 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_DashboardTile
   list([
+    'badge',
     'color',
     'deleted',
     'filters_overrides',
+    'group_key',
     'layouts',
     'show_description',
     'transparent_background',
@@ -485,6 +487,7 @@
     'project_id',
     'refresh_bytecode',
     'save',
+    'selector_match_changes',
     'slack_message_format',
     'steps',
     'summary',
@@ -515,6 +518,7 @@
     '_maintain_filter_shape_hashes',
     '_meta',
     '_person_shape_changed',
+    '_refresh_count',
     '_required_backfill_stamps',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',
@@ -625,6 +629,7 @@
     'dashboard_id',
     'dashboard_queryset',
     'filters_hash',
+    'get_badge_display',
     'id',
     'insight_id',
     'last_refresh',
@@ -842,6 +847,7 @@
     'conditions',
     'created_by_id',
     'deleted',
+    'early_exit',
     'evaluation_tag_names',
     'experiment_set',
     'featureflagdashboards_set',

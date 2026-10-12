@@ -53,7 +53,7 @@ You can create an API key in your [ElevenLabs account settings](https://elevenla
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations and agents)
+- **Conversational AI** (conversations, agents, and triage tickets)
 - **Voices**
 """,
             iconPath="/static/services/elevenlabs.svg",

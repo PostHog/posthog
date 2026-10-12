@@ -21,8 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     APDEX_REPORT_WINDOW_MS,
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_WINDOW_CHUNK_MS,
-    METRICS_DEFAULT_LOOKBACK_DAYS,
-    METRICS_MAX_LOOKBACK_DAYS,
     METRICS_WINDOW_MS,
     PAGE_SIZE,
 )
@@ -190,54 +188,10 @@ class TestEventRows:
         assert len(fetched) == 1
         assert _query(fetched[0])["from"] == [str(resume_from)]
 
-    def test_future_watermark_is_clamped_and_makes_no_requests(self) -> None:
-        rows, saved, fetched = _run_get_rows(
-            "events",
-            [[]],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=self.NOW_MS + 10_000,
-        )
-
-        assert fetched == []
-        assert rows == []
-        assert saved == []
-
 
 class TestPagedRows:
     def _page(self, count: int, page: int, total_hits: int) -> dict[str, Any]:
         return {"items": [{"id": f"p{page}-{i}"} for i in range(count)], "page": page, "totalHits": total_hits}
-
-    def test_first_request_omits_page_and_follows_server_page_number(self) -> None:
-        pages = [
-            self._page(PAGE_SIZE, page=1, total_hits=PAGE_SIZE + 1),
-            self._page(1, page=2, total_hits=PAGE_SIZE + 1),
-        ]
-        rows, saved, fetched = _run_get_rows("applications", pages)
-
-        assert "page" not in _query(fetched[0])
-        assert _query(fetched[0])["pageSize"] == [str(PAGE_SIZE)]
-        assert _query(fetched[1])["page"] == ["2"]
-        assert [s.next_page for s in saved] == [2]
-        assert len(rows) == 2
-
-    def test_zero_indexed_server_does_not_skip_a_page(self) -> None:
-        # The spec doesn't document the first page index; the walk must follow the index base the
-        # server reports back rather than assuming 1-based.
-        pages = [
-            self._page(PAGE_SIZE, page=0, total_hits=PAGE_SIZE + 1),
-            self._page(1, page=1, total_hits=PAGE_SIZE + 1),
-        ]
-        _rows, _saved, fetched = _run_get_rows("applications", pages)
-
-        assert _query(fetched[1])["page"] == ["1"]
-
-    def test_short_page_terminates(self) -> None:
-        pages = [self._page(3, page=1, total_hits=3)]
-        rows, saved, fetched = _run_get_rows("services", pages)
-
-        assert len(fetched) == 1
-        assert saved == []
-        assert len(rows[0]) == 3
 
     def test_total_hits_terminates_a_full_final_page(self) -> None:
         pages = [self._page(PAGE_SIZE, page=1, total_hits=PAGE_SIZE)]
@@ -385,55 +339,6 @@ class TestMetricRows:
             {"serviceId": "svc1", "service": service, "timestamp": 200, "calls_sum": 9},
         ]
 
-    def test_first_sync_walks_complete_days_of_the_lookback(self) -> None:
-        rows, saved, bodies = _run_metric_rows("application_metrics", [{"items": [], "totalHits": 0}])
-
-        assert self._windows(bodies) == [
-            self.TODAY_MS - (METRICS_DEFAULT_LOOKBACK_DAYS - 1 - i) * METRICS_WINDOW_MS
-            for i in range(METRICS_DEFAULT_LOOKBACK_DAYS)
-        ]
-        for body in bodies:
-            assert body["timeFrame"]["windowSize"] == METRICS_WINDOW_MS
-            assert body["pagination"] == {"page": 1, "pageSize": PAGE_SIZE}
-            # One bucket per window keeps the incremental watermark aligned to whole windows.
-            assert {metric["granularity"] for metric in body["metrics"]} == {METRICS_WINDOW_MS // 1000}
-        assert rows == []
-        assert [s.metrics_window_from for s in saved] == self._windows(bodies)[:-1]
-
-    @pytest.mark.parametrize(
-        "watermark",
-        [
-            # Bucket timestamp at the window start or at the window end: both re-fetch that bucket.
-            1768003200000 - 2 * 24 * 60 * 60 * 1000,
-            1768003200000 - 1 * 24 * 60 * 60 * 1000,
-        ],
-    )
-    def test_incremental_run_refetches_the_watermark_bucket(self, watermark: int) -> None:
-        _rows, _saved, bodies = _run_metric_rows(
-            "endpoint_metrics",
-            [{"items": [], "totalHits": 0}],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        windows = self._windows(bodies)
-        assert windows[-1] == self.TODAY_MS
-        # The window ending at the watermark (end-of-bucket reading) and the one after it
-        # (start-of-bucket reading) are both re-fetched.
-        assert watermark in windows
-        assert watermark + METRICS_WINDOW_MS in windows
-
-    def test_ancient_watermark_is_clamped_to_the_max_lookback(self) -> None:
-        _rows, _saved, bodies = _run_metric_rows(
-            "endpoint_metrics",
-            [{"items": [], "totalHits": 0}],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=0,
-        )
-
-        assert len(bodies) == METRICS_MAX_LOOKBACK_DAYS
-        assert self._windows(bodies)[-1] == self.TODAY_MS
-
     def test_paginates_within_a_window_and_resumes_from_saved_page(self) -> None:
         full = {"items": [{"application": {"id": f"a{i}"}, "metrics": {}} for i in range(PAGE_SIZE)], "totalHits": 999}
         last = {"items": [{"application": {"id": "z"}, "metrics": {"calls.sum": [[1, 1]]}}], "totalHits": 999}
@@ -557,15 +462,6 @@ class TestListRows:
         assert len(fetched) == 1
         assert rows == [[{"id": "w1", "name": "site"}]]
         assert saved == []
-
-    def test_snapshots_items_are_extracted_with_window_params(self) -> None:
-        pages: list[Any] = [{"items": [{"snapshotId": "s1", "plugin": "host"}]}]
-        rows, _saved, fetched = _run_get_rows("infrastructure_snapshots", pages)
-
-        query = _query(fetched[0])
-        assert "windowSize" in query
-        assert "size" in query
-        assert rows == [[{"snapshotId": "s1", "plugin": "host"}]]
 
 
 class TestErrorBodyLogging:

@@ -168,10 +168,12 @@ export interface userLogicActions {
     }
     logout: (
         preserveLocation?: any,
-        nextUrl?: string
+        nextUrl?: string,
+        reason?: string
     ) => {
         nextUrl: string | undefined
         preserveLocation: any
+        reason: string | undefined
     }
     resetUserDetails: (values?: Record<string, any>) => {
         values?: Record<string, any>
@@ -433,7 +435,11 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        logout: (preserveLocation = false, nextUrl?: string) => ({ preserveLocation, nextUrl }),
+        logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
+            preserveLocation,
+            nextUrl,
+            reason,
+        }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void, failureCallback?: () => void) => ({
             user,
@@ -648,7 +654,7 @@ export const userLogic = kea<userLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        logout: ({ preserveLocation, nextUrl }) => {
+        logout: ({ preserveLocation, nextUrl, reason }) => {
             if (cache.loggingOut) {
                 return
             }
@@ -676,6 +682,15 @@ export const userLogic = kea<userLogicType>([
             csrfInput.name = 'csrfmiddlewaretoken'
             csrfInput.value = getCookie('posthog_csrftoken') || ''
             form.appendChild(csrfInput)
+
+            // The server turns a known reason into the message the login page shows.
+            if (reason) {
+                const reasonInput = document.createElement('input')
+                reasonInput.type = 'hidden'
+                reasonInput.name = 'reason'
+                reasonInput.value = reason
+                form.appendChild(reasonInput)
+            }
 
             if (preserveLocation || nextUrl) {
                 const { pathname, search, hash } = window.location
@@ -764,7 +779,8 @@ export const userLogic = kea<userLogicType>([
                     !values.credentialReviewDismissedInSession &&
                     !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    const { pathname, search, hash } = router.values.location
+                    router.actions.push(urls.credentialReview(`${pathname}${search}${hash}`))
                 }
             }
         },

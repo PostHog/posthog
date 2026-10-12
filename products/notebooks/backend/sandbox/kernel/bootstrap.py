@@ -5,7 +5,7 @@ this whole path replaces — nothing here smuggles RPCs over stdout. `run_node` 
 server-fetched local Arrow files and returns a structured envelope.)
 
 Runs inside the sandbox's ipykernel — the process that owns compute and data, and holds
-no backend credentials (see sql_v2_kernel_architecture.md, "division of labor"). The
+no backend credentials. The
 kernel-server hands it a single call, `_ph.run_node(payload)`, per run.
 
 `run_node` for a Python node:

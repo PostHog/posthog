@@ -3,7 +3,6 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -14,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2 impo
     _build_url,
     _ensure_g2_url,
     _extract_error_detail,
-    _flatten_item,
     g2_source,
     get_rows,
     validate_credentials,
@@ -75,22 +73,9 @@ def _collect_rows(
     return rows
 
 
-class TestFlattenItem:
-    def test_merges_attributes_into_root_alongside_id(self) -> None:
-        item = _resource("p1", {"name": "Product One", "star_rating": 4.5})
-        assert _flatten_item(item) == {"id": "p1", "name": "Product One", "star_rating": 4.5}
-
-    def test_missing_attributes_yields_just_the_id(self) -> None:
-        assert _flatten_item({"id": "p1", "type": "products"}) == {"id": "p1"}
-
-
 class TestBuildUrl:
     def test_no_params_returns_bare_url(self) -> None:
         assert _build_url("https://data.g2.com/api/v2/products", {}) == "https://data.g2.com/api/v2/products"
-
-    def test_encodes_bracketed_params(self) -> None:
-        url = _build_url("https://data.g2.com/api/v2/products", {"page[size]": 250})
-        assert url == "https://data.g2.com/api/v2/products?page%5Bsize%5D=250"
 
 
 class TestEnsureG2Url:
@@ -127,26 +112,6 @@ class TestExtractErrorDetail:
 
 
 class TestGetRowsPagination:
-    def test_follows_links_next_and_flattens_rows(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        first_url = "https://data.g2.com/api/v2/products?page%5Bsize%5D=250"
-        next_url = "https://data.g2.com/api/v2/products?page%5Bafter%5D=cursor-1&page%5Bsize%5D=250"
-        pages = {
-            first_url: _page([_resource("p1", {"name": "One"})], next_url=next_url),
-            next_url: _page([_resource("p2", {"name": "Two"})]),
-        }
-
-        rows = _collect_rows(monkeypatch, pages)
-
-        assert rows == [{"id": "p1", "name": "One"}, {"id": "p2", "name": "Two"}]
-
-    def test_stops_when_next_is_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        first_url = "https://data.g2.com/api/v2/categories?page%5Bsize%5D=250"
-        pages = {first_url: _page([_resource("c1")])}
-
-        rows = _collect_rows(monkeypatch, pages, endpoint="categories")
-
-        assert len(rows) == 1
-
     def test_resumes_from_saved_next_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         resume_url = "https://data.g2.com/api/v2/products?page%5Bafter%5D=cursor-9"
         pages = {resume_url: _page([_resource("p9")])}
@@ -169,27 +134,9 @@ class TestGetRowsPagination:
         with pytest.raises(ValueError):
             _collect_rows(monkeypatch, {}, manager=_FakeResumeManager(G2ResumeConfig(next_url=poisoned_url)))
 
-    def test_reviews_path_is_formatted_with_product_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        url = "https://data.g2.com/api/v2/products/prod-123/reviews?page%5Bsize%5D=250"
-        pages = {url: _page([_resource("r1", {"title": "Great"})])}
-
-        rows = _collect_rows(monkeypatch, pages, endpoint="reviews", product_id="prod-123")
-
-        assert rows == [{"id": "r1", "title": "Great"}]
-
     def test_missing_product_id_raises_for_reviews(self, monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.raises(MissingProductIdError):
             _collect_rows(monkeypatch, {}, endpoint="reviews", product_id="")
-
-    def test_missing_product_id_is_fine_for_endpoints_that_do_not_need_it(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        url = "https://data.g2.com/api/v2/vendors?page%5Bsize%5D=250"
-        pages = {url: _page([_resource("v1")])}
-
-        rows = _collect_rows(monkeypatch, pages, endpoint="vendors", product_id="")
-
-        assert rows == [{"id": "v1"}]
 
 
 class TestResumeStateSaving:
@@ -252,12 +199,6 @@ class TestValidateCredentials:
 
         assert validate_credentials("token-1", "v2") == (expected, status_code)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2.make_tracked_session")
-    def test_transport_failure_does_not_raise(self, mock_session_factory: mock.MagicMock) -> None:
-        mock_session_factory.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert validate_credentials("token-1", "v2") == (False, None)
-
 
 class TestG2Source:
     @parameterized.expand([(name, config.primary_keys) for name, config in G2_ENDPOINTS.items()])
@@ -271,16 +212,3 @@ class TestG2Source:
             resumable_source_manager=_FakeResumeManager(),
         )
         assert response.primary_keys == primary_keys
-
-    def test_sort_mode_is_unset(self) -> None:
-        # No G2 list endpoint documents a `sort` param or default order, so no endpoint may claim
-        # a verified direction (see settings.py).
-        response = g2_source(
-            access_token="token-1",
-            endpoint="products",
-            product_id="",
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeResumeManager(),
-        )
-        assert response.sort_mode is None

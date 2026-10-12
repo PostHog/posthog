@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.facade.contracts import AlertEventKind
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, SourceKind
 from products.alerts_platform.backend.logic.platform_alert_events import (
     _INSERT_SQL,
     PlatformAlertEventRow,
@@ -28,9 +28,6 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
                 name="API errors",
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=10,
             )
 
@@ -60,7 +57,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         return PlatformAlertEventRow(**fields)
 
     def _announcement(self, evaluation_key: str = "eval-1"):
-        return announcement(self.team.id, str(self.configuration.id), evaluation_key)
+        return announcement(self.team.id, str(self.configuration.id), evaluation_key, source=SourceKind.LOGS)
 
     def test_a_recorded_firing_comes_back_as_the_message_it_should_send(self) -> None:
         insert_events(self.team.id, [self._row()])
@@ -84,6 +81,26 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         insert_events(self.team.id, [self._row(kind=AlertEventKind.CHECK)])
 
         assert self._announcement() is None
+
+    def test_a_held_check_comes_back_only_for_a_group_whose_firing_moved(self) -> None:
+        insert_events(
+            self.team.id,
+            [
+                self._row(grouping_key="checkout", kind=AlertEventKind.CHECK),
+                self._row(grouping_key="search", kind=AlertEventKind.CHECK),
+            ],
+        )
+
+        result = announcement(
+            self.team.id,
+            str(self.configuration.id),
+            "eval-1",
+            source=SourceKind.LOGS,
+            incident_grouping_keys=["checkout"],
+        )
+
+        assert result is not None
+        assert [(t.grouping_key, t.kind) for t in result.transitions] == [("checkout", AlertEventKind.CHECK)]
 
     def test_every_group_that_announced_gets_its_own_transition(self) -> None:
         insert_events(

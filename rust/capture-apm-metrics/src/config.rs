@@ -20,7 +20,7 @@ pub struct Config {
     #[envconfig(from = "METRICS_SERIES_LABEL_INTERVAL_SECS", default = "1800")]
     pub metrics_series_label_interval_secs: u64,
 
-    #[envconfig(from = "METRICS_SERIES_REDIS_TIMEOUT_MS", default = "250")]
+    #[envconfig(from = "METRICS_SERIES_REDIS_TIMEOUT_MS", default = "1000")]
     pub metrics_series_redis_timeout_ms: u64,
 
     /// Total time the service waits at startup for the series cache seed. When

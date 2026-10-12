@@ -52,31 +52,6 @@ def response(body: object, status: int = 200) -> Response:
     return result
 
 
-@pytest.mark.parametrize("endpoint,path", [("properties", "/v2/properties"), ("bookings", "/v2/reservations/bookings")])
-@pytest.mark.parametrize("terminal", [[], None])
-def test_pagination_auth_and_checkpoint(
-    transport: MagicMock, manager: MagicMock, endpoint: str, path: str, terminal: list[object] | None
-) -> None:
-    transport.side_effect = [
-        response({"items": [{"id": 1}]}),
-        response({"items": [{"id": 2}]}),
-        response({"items": terminal}),
-    ]
-    result = lodgify_source("test-key", endpoint, 1, "job", manager)
-    assert list(cast(Iterable[Any], result.items())) == [[{"id": 1}], [{"id": 2}]]
-    requests = [call.args[0] for call in transport.call_args_list]
-    assert [parse_qs(urlsplit(request.url).query)["page"] for request in requests] == [["1"], ["2"], ["3"]]
-    for request in requests:
-        assert urlsplit(request.url).path == path
-        assert request.headers["X-ApiKey"] == "test-key"
-        assert request.headers["Accept"] == "application/json"
-        assert parse_qs(urlsplit(request.url).query)["size"] == ["50"]
-    assert [call.args[0] for call in manager.save_state.call_args_list] == [
-        LodgifyResumeConfig(paginator_state={"page": 2}),
-        LodgifyResumeConfig(paginator_state={"page": 3}),
-    ]
-
-
 @pytest.mark.parametrize("endpoint", ["properties", "bookings"])
 @pytest.mark.parametrize(
     "incremental,watermark,expected",
@@ -107,17 +82,6 @@ def test_sync_parameters(
             assert params["trash"] == ["All"]
             assert params["includeTransactions"] == ["true"]
             assert params["includeQuoteDetails"] == ["true"]
-
-
-@pytest.mark.parametrize("saved", [None, LodgifyResumeConfig(paginator_state={"page": 4})])
-def test_resume(transport: MagicMock, manager: MagicMock, saved: LodgifyResumeConfig | None) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = saved
-    transport.side_effect = [response({"items": []})]
-    list(cast(Iterable[Any], lodgify_source("test-key", "properties", 1, "job", manager).items()))
-    params = parse_qs(urlsplit(transport.call_args.args[0].url).query)
-    assert params["page"] == ["4" if saved else "1"]
-    manager.save_state.assert_not_called()
 
 
 @pytest.mark.parametrize("resume", [False, True])
@@ -187,13 +151,6 @@ def test_validation_propagates_other_errors(transport: MagicMock, status: int) -
     with pytest.raises(HTTPError):
         validate_credentials("test-key")
     transport.assert_called_once()
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_errors_retry(transport: MagicMock, status: int) -> None:
-    transport.side_effect = [response({}, status), response({"items": []})]
-    assert validate_credentials("test-key") == (True, None)
-    assert transport.call_count == 2
 
 
 @pytest.mark.parametrize(

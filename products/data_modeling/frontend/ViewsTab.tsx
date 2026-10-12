@@ -125,7 +125,7 @@ function StatusCell({
 interface ViewsTabProps {
     /** Optional function to build the URL when clicking on a view. Defaults to SQL editor. */
     getViewUrl?: (view: DataWarehouseSavedQuerySummary) => string
-    /** Saved query id -> suspension. List responses carry no suspension, so the scene passes it in. */
+    /** Saved query id -> suspension, read off the DAG nodes the scene already loads. */
     suspensionByViewId?: Record<string, NodeSuspensionApi | undefined>
 }
 

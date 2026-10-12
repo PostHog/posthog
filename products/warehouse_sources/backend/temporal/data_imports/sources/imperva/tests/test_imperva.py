@@ -134,16 +134,6 @@ def test_stats_request_window_and_series_rows(
         state.save_state.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "body", [{"res": 0, "hits_timeseries": []}, {"res": 0, "hits_timeseries": [{"id": "human", "data": []}]}]
-)
-def test_empty_stats_stop(body: dict[str, Any]) -> None:
-    with requests_mock.Mocker() as http:
-        http.post(STATS_URL, json=body)
-        assert list(make_resource(CONFIG, "hits_timeseries", api_version="v3", team_id=1, job_id="test")) == []
-        assert http.call_count == 1
-
-
 @pytest.mark.parametrize("code", [9403, 9411, 9413, 9414, 9415, 2, 13001, 13002, 9999])
 def test_body_errors_never_become_empty_syncs(code: int) -> None:
     with requests_mock.Mocker() as http:

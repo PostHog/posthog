@@ -69,6 +69,15 @@ const pushNotificationRescheduledCounter = new Counter({
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
 const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
 const APNS_JWT_TTL_SECONDS = 45 * 60
+
+function apnsJwtIssuedAtMs(jwt: string): number | null {
+    try {
+        const iat = parseJSON(Buffer.from(jwt.split('.')[1], 'base64url').toString()).iat
+        return typeof iat === 'number' ? iat * 1000 : null
+    } catch {
+        return null
+    }
+}
 // Apple asks providers to keep a connection open for hours to days, and treats rapid reconnects as abuse. undici
 // sends an HTTP/2 ping every 60 s by default, which keeps the egress proxy tunnel open across the idle window.
 const APNS_IDLE_TIMEOUT_MS = 60 * 60 * 1000
@@ -204,6 +213,7 @@ export class PushNotificationService {
     // to one token per pod per TTL. It is a fallback, not the cache: Valkey is still read first, so the
     // fleet normally shares one token per key.
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
+    private apnsJwtInFlight = new Map<string, Promise<string>>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -690,10 +700,25 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
+        const inFlight = this.apnsJwtInFlight.get(cacheKey)
+        if (inFlight) {
+            return inFlight
+        }
+        const lookup = this.resolveApnsJwt(cacheKey, teamId, keyId, signingKey).finally(() =>
+            this.apnsJwtInFlight.delete(cacheKey)
+        )
+        this.apnsJwtInFlight.set(cacheKey, lookup)
+        return lookup
+    }
+
+    private async resolveApnsJwt(cacheKey: string, teamId: string, keyId: string, signingKey: string): Promise<string> {
         const cached = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
             client.get(cacheKey)
         )
         if (cached) {
+            if (this.apnsJwtLocalCache.get(cacheKey)?.jwt !== cached) {
+                this.rememberApnsJwtLocally(cacheKey, cached)
+            }
             return cached
         }
 
@@ -709,18 +734,28 @@ export class PushNotificationService {
         const sign = createSign('SHA256')
         sign.update(signingInput)
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
-        const jwt = `${signingInput}.${signature}`
+        const minted = `${signingInput}.${signature}`
 
-        this.rememberApnsJwtLocally(cacheKey, jwt)
-        await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
-            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
+        // ES256 signatures are randomized, so pods that miss together mint different tokens. Keep the first.
+        const stored = await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+            client.set(cacheKey, minted, 'EX', APNS_JWT_TTL_SECONDS, 'NX')
         )
+        let jwt = minted
+        if (stored !== 'OK') {
+            const winner = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+                client.get(cacheKey)
+            )
+            jwt = winner ?? minted
+        }
+        this.rememberApnsJwtLocally(cacheKey, jwt)
         return jwt
     }
 
     private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {
         const nowMs = Date.now()
-        this.apnsJwtLocalCache.set(cacheKey, { jwt, expiresAtMs: nowMs + APNS_JWT_TTL_SECONDS * 1000 })
+        // An adopted token can be older than this pod's read of it, and Apple rejects one past an hour.
+        const issuedAtMs = apnsJwtIssuedAtMs(jwt) ?? nowMs
+        this.apnsJwtLocalCache.set(cacheKey, { jwt, expiresAtMs: issuedAtMs + APNS_JWT_TTL_SECONDS * 1000 })
 
         if (this.apnsJwtLocalCache.size <= APNS_JWT_LOCAL_CACHE_MAX) {
             return

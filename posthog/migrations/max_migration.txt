@@ -1,1 +1,1 @@
-1393_revokedteamsecrettoken
+1396_events_retention_config

@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.schema import (
     DashboardFilter,
     DateRange,
+    EventPropertyFilter,
     GoalLine,
     MetricsDisplaySettings,
     MetricsQuery,
@@ -240,6 +241,32 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange is not None
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
+
+    def test_dashboard_metric_filters_apply_to_every_clause(self) -> None:
+        own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
+        query = MetricsQuery(
+            clauses=[
+                MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum", filters=[own_filter]),
+                MetricsQueryClause(name="b", metricName="requests_total", aggregation="rate"),
+            ],
+        )
+        runner = self._runner(query)
+        dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
+
+        runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
+
+        assert runner.query.clauses[0].filters == [own_filter, dashboard_filter]
+        assert runner.query.clauses[1].filters == [dashboard_filter]
+
+    def test_dashboard_property_filters_do_not_apply(self) -> None:
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+        runner = self._runner(query)
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(properties=[EventPropertyFilter(key="$browser", operator="exact", value="Chrome")])
+        )
+
+        assert runner.query.clauses[0].filters is None
 
     def _cache_key_for(self, **kwargs) -> str:
         return self._runner(

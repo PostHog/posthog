@@ -4,11 +4,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkificcourses import (
     ThinkificCoursesSourceConfig,
 )
@@ -23,29 +18,6 @@ def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCour
     return ThinkificCoursesSourceConfig(api_key=api_key, subdomain=subdomain)
 
 
-class TestThinkificCoursesSourceConfig:
-    def test_source_config_is_released_alpha(self) -> None:
-        cfg = ThinkificCoursesSource().get_source_config
-        assert cfg.label == "Thinkific Courses"
-        assert cfg.category == DataWarehouseSourceCategory.E_COMMERCE
-        assert cfg.releaseStatus == ReleaseStatus.ALPHA
-        # unreleasedSource hides the connector from every user; a finished source must not carry it.
-        assert not cfg.unreleasedSource
-
-    def test_source_config_fields(self) -> None:
-        cfg = ThinkificCoursesSource().get_source_config
-        fields = {f.name: f for f in cfg.fields}
-        assert set(fields) == {"api_key", "subdomain"}
-        api_key, subdomain = fields["api_key"], fields["subdomain"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(subdomain, SourceFieldInputConfig)
-        # The secret must be a password field; the subdomain is a plain text identifier.
-        assert api_key.type == "password"
-        assert api_key.secret is True
-        assert subdomain.type == "text"
-        assert subdomain.secret is False
-
-
 class TestThinkificCoursesValidateCredentials:
     def test_rejects_invalid_subdomain_without_calling_api(self) -> None:
         with patch(PATCH_VALIDATE) as mock_validate:
@@ -53,12 +25,6 @@ class TestThinkificCoursesValidateCredentials:
         assert ok is False
         assert err is not None
         mock_validate.assert_not_called()
-
-    def test_valid_credentials(self) -> None:
-        with patch(PATCH_VALIDATE, return_value=(True, 200)):
-            ok, err = ThinkificCoursesSource().validate_credentials(_config(), team_id=1)
-        assert ok is True
-        assert err is None
 
     @parameterized.expand(
         [

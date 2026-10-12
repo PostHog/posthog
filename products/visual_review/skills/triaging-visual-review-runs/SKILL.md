@@ -301,7 +301,7 @@ Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, a
 `posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, and find the entry whose `identifier` and
 `run_type` match your snapshot. That entry carries the flake signal:
 
-- `flakiness_state`: `broken`, `unstable`, `at_risk`, `noisy`, or `clean`.
+- `flakiness_state`: `broken`, `unstable`, `at_risk`, or `clean`.
 - `hard_rate` and `hard_count`: the share and number of recent default-branch runs that failed the gate.
   `last_flaked_at`: the latest of them.
 - `soft_rate`: the share that a toleration absorbed.
@@ -326,7 +326,7 @@ Verdicts:
 - `flakiness_state` is `unstable` with `hard_count` ≥ 5 and a recent `last_flaked_at` → flaky story; quarantine it.
   One failure is enough for `unstable`, and a single failure is often a real change that merged, so trust the count.
 - `flakiness_state` is `broken` → the baseline is wrong, not the story. Do not quarantine; recommend a re-baseline.
-- `at_risk` and `noisy` never fail a run, so they need no action on a PR.
+- `at_risk` never fails a run, so it needs no action on a PR.
 - Recent `removed`, a large-jump dimension change, or a baseline that last moved long ago → baseline likely stale;
   recommend re-baselining on master.
 

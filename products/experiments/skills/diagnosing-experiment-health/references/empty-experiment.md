@@ -21,7 +21,8 @@ The reverse case, `$feature_flag_called` with variant responses and no `$experim
 
 An event that fails one of them is not counted at all.
 There is no "no variant" bucket.
-A launched experiment without a counted exposure shows a total of 0 and a flat chart. "No exposures yet" is the text for a draft, for a start date after today, and for an exposure query that failed.
+A launched experiment without a counted exposure shows a total of 0 and a flat chart, and its open Exposures panel says "No exposures yet".
+The panel says the same for a draft, for a start date after today, and for an exposure query that failed.
 
 The queries this file refers to are in `diagnostic-snapshot.md`, with their rules.
 

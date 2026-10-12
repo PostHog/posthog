@@ -130,9 +130,13 @@ ActivityScope = Literal[
     "TableCertification",
     "DataQualityCheck",
     "DataQualityCheckSchedule",
+    "WarehouseSuggestion",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
+    "ReviewRepository",
+    "ReviewProjectSettings",
+    "ReviewInstallationClaim",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -360,6 +364,7 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "AccountView": ["name", "content", "text_content"],
+    "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
         "inputs",
         "mappings",
@@ -469,6 +474,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
+        "lifecycle_locked": "owner-only pause, resume, and delete",
+        "allowed_mcp_tools": "allowed MCP tools",
+        "tool_preset": "tool preset",
     },
     # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
     "SignalTeamConfig": {
@@ -525,6 +533,7 @@ replay_scanner_machine_fields = [
     "search_last_viewed_at",
     "prompt_question",
     "prompt_question_source",
+    "prompt_valence",
     "limit_notified_period_start",
     "admission_budget_used",
     "admission_budget_refreshed_at",
@@ -732,6 +741,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "metric",
         "saved_query",
         "table",
+    ],
+    "WarehouseSuggestion": [
+        "evidence",
+        "score_inputs",
+        "payload",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason
@@ -1031,6 +1045,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
+        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
+        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",
