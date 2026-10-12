@@ -70,10 +70,10 @@ const ROOTS = [
         root: LOGGED_OUT_BOOT,
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
-        // `js`), so this is the whole JS cost of /login. 2026-10-11: 3.13 MiB eager output = 2.33 MiB
-        // JS (675 files) + 0.80 MiB stable CSS.
+        // `js`), so this is the whole JS cost of /login. 2026-10-11: 3.01 MiB eager output = 2.21 MiB
+        // JS (646 files) + 0.80 MiB stable CSS.
         // ~6% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 3_495_000,
+        budgetBytes: 3_345_000,
         forbidden: [
             'node_modules/monaco-editor/',
             // Authenticated-only code. Either of these on the App path means a component that
@@ -87,6 +87,10 @@ const ROOTS = [
             'src/lib/components/CodeSnippet/',
             // The taxonomy JSON is a quarter-MiB lookup table for the property editors, not for /login.
             'src/taxonomy/core-filter-definitions-by-group.json',
+            // zod is for schemas of the logged-in app. A hit means a module on the App path imports a
+            // file that builds a schema. Move the zod-free code of that file into its own module, as
+            // sqlEditorDraftCleanup does for sqlEditorDraftStorage.
+            'node_modules/zod/',
         ],
     },
     {
