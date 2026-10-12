@@ -94,28 +94,35 @@ class TestSlackImageIngest(SimpleTestCase):
 
         assert payload == expected_bytes
 
+    @parameterized.expand(
+        [
+            ("full_file_in_event", False),
+            ("slack_connect_stub", True),
+        ]
+    )
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
-    def test_extract_slack_files_copies_to_uploaded_media(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+    def test_extract_slack_files_copies_to_uploaded_media(
+        self, _label: str, is_stub: bool, mock_download: MagicMock, mock_save: MagicMock
+    ) -> None:
         mock_download.return_value = VALID_PNG_BYTES
         mock_save.return_value = "https://app.posthog.com/uploaded_media/abc"
 
-        fake_team = fake_slack_team()
+        full_file = {
+            "id": "F123",
+            "mimetype": "image/png",
+            "name": "test.png",
+            "url_private_download": "https://files.slack.com/files-pri/T/F/test.png",
+        }
         fake_client = fake_slack_client()
+        fake_client.files_info.return_value = {"ok": True, "file": full_file}
+        event_file = {"id": "F123", "mode": "file_access", "file_access": "check_file_info"} if is_stub else full_file
 
-        files = [
-            {
-                "id": "F123",
-                "mimetype": "image/png",
-                "name": "test.png",
-                "url_private_download": "https://files.slack.com/files-pri/T/F/test.png",
-            }
-        ]
-        images = extract_slack_files(files, fake_team, fake_client)
+        images = extract_slack_files([event_file], fake_slack_team(), fake_client)
 
         assert len(images) == 1
         assert images[0]["url"] == "https://app.posthog.com/uploaded_media/abc"
-        mock_download.assert_called_once()
+        assert mock_download.call_args.args[0] == "https://files.slack.com/files-pri/T/F/test.png"
         mock_save.assert_called_once()
 
     @parameterized.expand(
