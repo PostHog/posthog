@@ -871,6 +871,7 @@ the row lists both.
 | vimeo                            | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vultr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vwo                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wasabi                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | watchmode                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | waydev                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1509,7 +1510,6 @@ doesn't conflict with concurrent PRs.
 - visma_economic
 - vonage
 - vturb
-- vwo
 - waiteraid
 - walmart_marketplace
 - wasabi
