@@ -225,7 +225,8 @@ describe('biSceneLogic', () => {
     })
 
     it('saves the wrapper and reopens the insight without a draft or SQL editor', async () => {
-        const node = worksheet()
+        const hierarchy = { id: 'event-time', name: 'Event timeline', levels: [eventField, timestampField] }
+        const node = worksheet({ ...config, hierarchies: [hierarchy] })
         node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
         node.chartSettings!.goalLines = [{ label: 'Average', value: 0, calculation: 'mean', scope: 'series' }]
         logic.actions.restoreWorksheet(node)
@@ -242,7 +243,7 @@ describe('biSceneLogic', () => {
         logic = biSceneLogic({ tabId: 'reopened' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.worksheet.config).toEqual(config)
+        expect(logic.values.worksheet.config).toEqual({ ...config, hierarchies: [hierarchy] })
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
         expect(logic.values.worksheet.chartSettings?.goalLines).toEqual(node.chartSettings!.goalLines)
         expect(logic.values.hasUnsavedChanges).toBe(false)
@@ -514,7 +515,14 @@ describe('biSceneLogic', () => {
                 name: 'Category',
                 expression: 'lower(event)',
             }
-            logic.actions.restoreWorksheet(worksheet({ ...config, source, localFields: [localField] }))
+            const hierarchy = {
+                id: 'category-event',
+                name: 'Category events',
+                levels: [localField, { ...eventField, source }],
+            }
+            logic.actions.restoreWorksheet(
+                worksheet({ ...config, source, localFields: [localField], hierarchies: [hierarchy] })
+            )
             logic.actions.recordWorksheet()
             const data = dataNodeLogic({
                 key: logic.values.dataNodeKey,
@@ -530,6 +538,7 @@ describe('biSceneLogic', () => {
             expect(logic.values.config).toMatchObject({
                 source,
                 localFields: [localField],
+                hierarchies: [hierarchy],
                 rows: [],
                 columns: [],
                 values: [],

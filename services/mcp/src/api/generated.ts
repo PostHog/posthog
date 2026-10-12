@@ -10867,6 +10867,13 @@ export namespace Schemas {
       values?: string[] | null;
     }
 
+    export interface BIHierarchy {
+      id: string;
+      /** Ordered from the broadest dimension to the most detailed. */
+      levels: BIField[];
+      name: string;
+    }
+
     export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
 
 
@@ -11018,6 +11025,8 @@ export namespace Schemas {
       dateField?: BIField | null;
       dateRange?: DateRange | null;
       filters: BIFilter[];
+      /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+      hierarchies?: BIHierarchy[] | null;
       limit: BIQueryLimit;
       /** Reusable expressions owned by this worksheet only. */
       localFields?: BIField[] | null;
