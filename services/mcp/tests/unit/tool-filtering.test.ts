@@ -1089,6 +1089,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scouts-tool-access',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
+            'data-warehouse-scene-trino',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1130,7 +1131,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'experiment-behavior-comparison',
                 'experiment-setup-context',
                 'data-warehouse-scene',
-                'data-warehouse-scene-trino',
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
