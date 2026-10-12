@@ -542,8 +542,8 @@ export function validateFeatureFlagTags(
     tags: string[] | undefined,
     { required, isNewFlag, hadTags }: { required: boolean; isNewFlag: boolean; hadTags: boolean }
 ): string | undefined {
-    // Count named tags, not entries. `cleanTag` trims without dropping empties, so a `['']` would
-    // otherwise pass here and be rejected by the server, which normalizes blanks away.
+    // Count named tags, not entries. A `['']` would otherwise pass here and be rejected by the
+    // server, which normalizes blanks away.
     if (!required || tags?.some((tag) => tag.trim().length > 0)) {
         return undefined
     }
