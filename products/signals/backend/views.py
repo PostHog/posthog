@@ -8,6 +8,7 @@ from functools import partial
 from typing import Any, cast
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
@@ -1601,8 +1602,8 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
-        # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
+        # Filters on the `priority_sort_rank` annotation, which must be applied first.
+        # Reports without a priority artefact rank after every priority, so this filter excludes them.
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
             user = cast(User, self.request.user)
@@ -1617,7 +1618,7 @@ class SignalReportViewSet(
             )
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
-            return queryset.filter(priority_rank__in=values)
+            return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
         if not priority_filter:
             return queryset
 
@@ -1634,7 +1635,11 @@ class SignalReportViewSet(
                 }
             )
 
-        return queryset.filter(priority_rank__in=values)
+        return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
+
+    @staticmethod
+    def _priority_ranks(priorities: Iterable[str]) -> list[int]:
+        return [AutonomyPriority.values.index(priority) for priority in priorities]
 
     def _apply_signal_report_actionability_filter(self, queryset):
         # Filters on `latest_actionability`, the column cached from the report's latest
@@ -1745,35 +1750,37 @@ class SignalReportViewSet(
 
     def _annotate_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
-        # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
-        # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
-        latest_priority = Subquery(
+        # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
+        # The startswith guard skips non-object content.
+        # The rank is one `array_position` inside the subquery, not a CASE: Django repeats the CASE
+        # operand in each WHEN branch, so a CASE runs the subquery or the JSON parse once per priority.
+        unranked = Value(len(AutonomyPriority.values))
+        priority_value = Func(
+            Cast(F("content"), output_field=JSONField()),
+            Value("priority"),
+            function="jsonb_extract_path_text",
+            output_field=CharField(),
+        )
+        priority_position = Func(
+            Value(list(AutonomyPriority.values), output_field=ArrayField(CharField())),
+            priority_value,
+            function="array_position",
+            output_field=IntegerField(),
+        )
+        latest_priority_rank = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
                 type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
                 content__startswith="{",
             )
             .order_by("-created_at")
-            .annotate(
-                _priority_val=Func(
-                    Cast(F("content"), output_field=JSONField()),
-                    Value("priority"),
-                    function="jsonb_extract_path_text",
-                    output_field=CharField(),
-                ),
-            )
-            .values("_priority_val")[:1],
-            output_field=CharField(),
+            # `array_position` counts from 1 and returns NULL for a value outside the list.
+            .annotate(_priority_rank=priority_position - 1)
+            .values("_priority_rank")[:1],
+            output_field=IntegerField(),
         )
-        return queryset.annotate(priority_rank=latest_priority).annotate(
-            priority_sort_rank=Case(
-                *(
-                    When(priority_rank=priority, then=Value(index))
-                    for index, priority in enumerate(AutonomyPriority.values)
-                ),
-                default=Value(len(AutonomyPriority.values)),
-                output_field=IntegerField(),
-            )
+        return queryset.annotate(
+            priority_sort_rank=Coalesce(latest_priority_rank, unranked, output_field=IntegerField())
         )
 
     def _annotate_signal_report_ranking(self, queryset):
