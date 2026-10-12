@@ -15,6 +15,7 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
@@ -1076,13 +1077,40 @@ describe('replayScannerLogic', () => {
 
         it('flags a limit below the forecast and one below a single scan', async () => {
             estimate(100, 15)
-            logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 10 })
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini38Flash,
+                credit_limit_enabled: true,
+                credit_limit: 10,
+            })
             await expectLogic(logic).toMatchValues({
                 creditLimitState: expect.objectContaining({
                     limit: 10,
                     isOn: true,
                     isBelowEstimate: true,
                     cannotAffordOneScan: true,
+                }),
+            })
+        })
+
+        it.each([
+            ['keeps the observation count when the model changes', 'observations', undefined, 120],
+            ['leaves a credit limit alone when the model changes', 'credits', undefined, 40],
+            ['keeps a limit set alongside the model, like a drafted goal budget', 'observations', 300, 300],
+        ] as const)('%s', async (_name, unit, limitWithModel, expectedLimit) => {
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini3FlashPreview,
+                credit_limit_enabled: true,
+                credit_limit: 40,
+            })
+            logic.actions.setCreditLimitUnit(unit)
+            logic.actions.setScannerValues({
+                model: ScannerModelEnumApi.Gemini38Flash,
+                ...(limitWithModel !== undefined ? { credit_limit: limitWithModel } : {}),
+            })
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({
+                    limit: expectedLimit,
+                    observationLimit: Math.floor(expectedLimit / 15),
                 }),
             })
         })

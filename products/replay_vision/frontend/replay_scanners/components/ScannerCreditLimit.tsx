@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { creditsToUsd } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { CreditLimitUnit, replayScannerLogic } from '../replayScannerLogic'
 import { MAX_CREDIT_LIMIT } from '../types'
 
 interface ScannerCreditLimitProps {
@@ -15,9 +15,21 @@ interface ScannerCreditLimitProps {
 
 export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.Element {
     const { creditLimitState } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setScannerValues } = useActions(replayScannerLogic({ id: scannerId }))
-    const { limit, isOn, estimatedMonthly, creditsPerObservation, isBelowEstimate, cannotAffordOneScan, seedValue } =
-        creditLimitState
+    const { setScannerValues, setCreditLimitUnit } = useActions(replayScannerLogic({ id: scannerId }))
+    const {
+        limit,
+        unit,
+        observationLimit,
+        isOn,
+        estimatedMonthly,
+        creditsPerObservation,
+        isBelowEstimate,
+        cannotAffordOneScan,
+        seedValue,
+    } = creditLimitState
+    const inObservations = unit === 'observations' && creditsPerObservation != null
+    const toCredits = (amount: number): number =>
+        inObservations ? Math.min(amount * creditsPerObservation, MAX_CREDIT_LIMIT) : amount
 
     return (
         <LemonField name="credit_limit">
@@ -43,11 +55,32 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                     </div>
                     {isOn && (
                         <>
-                            <div className="flex items-center gap-4">
-                                <div className="w-40">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <LemonSegmentedButton<CreditLimitUnit>
+                                    size="small"
+                                    value={inObservations ? 'observations' : 'credits'}
+                                    onChange={setCreditLimitUnit}
+                                    options={[
+                                        {
+                                            value: 'credits',
+                                            label: 'Credits',
+                                            'data-attr': 'vision-scanner-credit-limit-unit-credits',
+                                        },
+                                        {
+                                            value: 'observations',
+                                            label: 'Observations',
+                                            'data-attr': 'vision-scanner-credit-limit-unit-observations',
+                                            disabledReason:
+                                                creditsPerObservation == null
+                                                    ? 'The price of one observation for this model is not known yet'
+                                                    : undefined,
+                                        },
+                                    ]}
+                                />
+                                <div className="w-48">
                                     <LemonInput
                                         type="number"
-                                        value={limit ?? undefined}
+                                        value={(inObservations ? observationLimit : limit) ?? undefined}
                                         onChange={(v) =>
                                             // The toggle is materialized on edit too, so clearing a loaded limit blocks the save.
                                             setScannerValues({
@@ -55,17 +88,24 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                                 credit_limit:
                                                     v == null || !Number.isFinite(v)
                                                         ? null
-                                                        : Math.max(1, Math.round(v)),
+                                                        : toCredits(Math.max(1, Math.round(v))),
                                             })
                                         }
                                         min={1}
-                                        max={MAX_CREDIT_LIMIT}
+                                        max={
+                                            inObservations
+                                                ? Math.floor(MAX_CREDIT_LIMIT / creditsPerObservation)
+                                                : MAX_CREDIT_LIMIT
+                                        }
                                         step={1}
-                                        suffix={<span>credits</span>}
+                                        suffix={<span>{inObservations ? 'observations' : 'credits'}</span>}
                                     />
                                 </div>
                                 <span className="text-sm text-muted">
-                                    {limit != null && `≈ ${creditsToUsd(limit)} per period`}
+                                    {limit != null &&
+                                        (inObservations
+                                            ? `${formatCreditCount(limit)} (≈ ${creditsToUsd(limit)}) per period`
+                                            : `≈ ${creditsToUsd(limit)} per period`)}
                                     {limit != null && estimatedMonthly != null && ' · '}
                                     {estimatedMonthly != null &&
                                         `Estimated usage: ${creditsToUsd(estimatedMonthly)} a month`}
@@ -83,6 +123,12 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                         the scanner is likely to stop before the period resets.
                                     </div>
                                 )
+                            )}
+                            {inObservations && (
+                                <div className="text-xs text-muted">
+                                    If you change the model, the credit limit changes to keep the same number of
+                                    observations.
+                                </div>
                             )}
                             <div className="text-xs text-muted">
                                 When this scanner reaches its limit, it stops scanning until the next billing period. It

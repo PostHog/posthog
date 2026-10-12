@@ -100,6 +100,7 @@ import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     ExperimentScannerConfig,
     MAX_CREDIT_LIMIT,
+    OBSERVATION_CREDITS_BY_MODEL,
     OBSERVATION_LIST_URL_PARAM_KEYS,
     SamplingMode,
     ScannerConfig,
@@ -412,9 +413,23 @@ export function buildObservationListParams(
 // doesn't bind on ordinary month-to-month variance.
 const CREDIT_LIMIT_SEED_HEADROOM = 2
 
+export type CreditLimitUnit = 'credits' | 'observations'
+
+// The model table answers synchronously after a model change; the estimate only catches up after its debounce.
+function creditsPerObservationFor(
+    scanner: ScannerFormValues | null,
+    estimate: EstimateResponseApi | null
+): number | null {
+    return (
+        (scanner ? OBSERVATION_CREDITS_BY_MODEL[scanner.model] : undefined) ?? estimate?.credits_per_observation ?? null
+    )
+}
+
 export interface CreditLimitState {
     /** The limit in credits, or null when the field is empty or the limit is off. */
     limit: number | null
+    unit: CreditLimitUnit
+    observationLimit: number | null
     isOn: boolean
     estimatedMonthly: number | null
     creditsPerObservation: number | null
@@ -436,6 +451,7 @@ export interface replayScannerLogicValues {
     copyingAllObservations: boolean
     creationMethod: ScannerCreationMethodEnumApi
     creditLimitState: CreditLimitState
+    creditLimitUnit: CreditLimitUnit
     durationValidationError: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
@@ -714,6 +730,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setCreditLimitUnit: (unit: CreditLimitUnit) => {
+        unit: CreditLimitUnit
+    }
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
     }
@@ -896,7 +915,11 @@ export interface replayScannerLogicMeta {
         availableTags: (observationStatsApi: ObservationStatsApi | null) => string[]
         observationStats: (observationStatsApi: ObservationStatsApi | null) => ObservationStatusStats
         sidePanelContext: (scanner: ScannerFormValues, isNew: boolean) => SidePanelSceneContext | null
-        creditLimitState: (scanner: ScannerFormValues, scannerEstimate: EstimateResponseApi | null) => CreditLimitState
+        creditLimitState: (
+            scanner: ScannerFormValues,
+            scannerEstimate: EstimateResponseApi | null,
+            creditLimitUnit: any
+        ) => CreditLimitState
     }
 }
 
@@ -914,6 +937,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     actions({
         setObservationsActive: (active: boolean) => ({ active }),
+        setCreditLimitUnit: (unit: CreditLimitUnit) => ({ unit }),
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
@@ -1217,6 +1241,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     reducers({
         observationsActive: [false, { setObservationsActive: (_, { active }) => active }],
+        // UI-only: the API stores every limit in credits, so a reopened scanner shows credits again.
+        creditLimitUnit: ['credits' as CreditLimitUnit, { setCreditLimitUnit: (_, { unit }) => unit }],
         scannerDraftSavedAt: [
             null as number | null,
             {
@@ -1727,13 +1753,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // derive it from having a limit set. Decoding it here keeps the form validator and the editor
         // card from drifting apart on what "on but empty" means.
         creditLimitState: [
-            (s) => [s.scanner, s.scannerEstimate],
-            (scanner: ScannerFormValues | null, estimate: EstimateResponseApi | null): CreditLimitState => {
+            (s) => [s.scanner, s.scannerEstimate, s.creditLimitUnit],
+            (
+                scanner: ScannerFormValues | null,
+                estimate: EstimateResponseApi | null,
+                unit: CreditLimitUnit
+            ): CreditLimitState => {
                 const limit = typeof scanner?.credit_limit === 'number' ? scanner.credit_limit : null
                 const estimatedMonthly = estimate?.estimated_credits_per_month ?? null
-                const creditsPerObservation = estimate?.credits_per_observation ?? null
+                const creditsPerObservation = creditsPerObservationFor(scanner, estimate)
                 return {
                     limit,
+                    unit,
+                    // Admission needs the full price of a scan, so a remainder under one price admits nothing.
+                    observationLimit:
+                        limit !== null && creditsPerObservation ? Math.floor(limit / creditsPerObservation) : null,
                     isOn: scanner?.credit_limit_enabled ?? limit !== null,
                     estimatedMonthly,
                     creditsPerObservation,
@@ -1752,7 +1786,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => {
+    listeners(({ actions, props, values, selectors, cache }) => {
+        const keepObservationLimitAcrossModelChange = (previous: ScannerFormValues | null): void => {
+            const scanner = values.scanner
+            const limit = previous?.credit_limit
+            if (values.creditLimitUnit !== 'observations' || !scanner || !previous || limit == null) {
+                return
+            }
+            const previousPrice = creditsPerObservationFor(previous, null)
+            const price = creditsPerObservationFor(scanner, null)
+            const count = previousPrice ? Math.floor(limit / previousPrice) : 0
+            if (!price || count < 1 || price === previousPrice) {
+                return
+            }
+            actions.setScannerValues({ credit_limit: Math.min(count * price, MAX_CREDIT_LIMIT) })
+        }
         const reschedulePoll = (): void => {
             scheduleObservationPoll(
                 cache.disposables,
@@ -2258,11 +2306,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // kea-forms fires setScannerValue(s) per field change — debounced so drags don't fire a request per tick.
-            setScannerValue: () => {
+            setScannerValue: ({ name }, _, __, previousState) => {
+                if (name === 'model') {
+                    keepObservationLimitAcrossModelChange(selectors.scanner(previousState))
+                }
                 actions.requestScannerEstimate()
                 persistDraft()
             },
-            setScannerValues: () => {
+            setScannerValues: ({ values: changed }, _, __, previousState) => {
+                // A payload that sets its own limit, like a drafted goal budget, already priced it for the new model.
+                if ('model' in changed && !('credit_limit' in changed)) {
+                    keepObservationLimitAcrossModelChange(selectors.scanner(previousState))
+                }
                 actions.requestScannerEstimate()
                 persistDraft()
             },
