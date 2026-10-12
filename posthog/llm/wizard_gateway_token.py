@@ -11,6 +11,7 @@ attempt fast instead of retrying into the CLI's timeout.
 """
 
 import json
+import string
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -336,6 +337,24 @@ def wizard_product_node(program: str | None) -> str | None:
     if isinstance(program, str) and program in set(settings.WIZARD_GATEWAY_PROGRAM_IDS):
         return f"{WIZARD_PRODUCT}:{program}"
     return None
+
+
+_POSTHOG_STAFF_EMAIL_DOMAIN = "@posthog.com"
+_PROGRAM_ID_CHARACTERS = frozenset(string.ascii_lowercase + string.digits)
+_MAX_PROGRAM_ID_LENGTH = 64
+
+
+def wizard_staff_product_node(program: object, *, email: str | None, is_email_verified: bool | None) -> str | None:
+    """Lets verified @posthog.com staff mint for a program before it is registered, so it can be developed against production."""
+    if is_email_verified is not True:
+        return None
+    if not (email or "").lower().endswith(_POSTHOG_STAFF_EMAIL_DOMAIN):
+        return None
+    if not isinstance(program, str) or len(program) > _MAX_PROGRAM_ID_LENGTH:
+        return None
+    if not all(segment and set(segment) <= _PROGRAM_ID_CHARACTERS for segment in program.split("-")):
+        return None
+    return f"{WIZARD_PRODUCT}:{program}"
 
 
 WIZARD_GATEWAY_MINTS = Counter(
