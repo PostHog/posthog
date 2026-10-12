@@ -1,6 +1,8 @@
 # Warehouse sources agent guide
 
-Read the `implementing-warehouse-sources` skill (`.agents/skills/implementing-warehouse-sources/SKILL.md`) before you build or extend a source here.
+Read the `implementing-warehouse-sources` skill (`.agents/skills/implementing-warehouse-sources/SKILL.md`) before you build or extend a source.
+New vendors go in the top-level `sources/` tree, not here. This directory keeps the shared code (`common/`) and the vendors that other code imports.
+The source test rules below apply to the vendors in both places.
 
 ## Source tests
 

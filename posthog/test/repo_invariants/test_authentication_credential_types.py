@@ -29,7 +29,7 @@ from rest_framework.views import APIView
 from posthog.models.activity_logging.utils import ActivityCredentialMixin, DeclaredCredentialType
 
 REPO_ROOT = Path(__file__).parents[3]
-SCANNED_ROOTS = ("posthog", "ee", "products", "common")
+SCANNED_ROOTS = ("posthog", "ee", "products", "common", "sources")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 OWNED_MODULE_PREFIXES = tuple(f"{root}." for root in SCANNED_ROOTS)
 DECLARED_TYPES = frozenset(get_args(DeclaredCredentialType))

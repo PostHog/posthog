@@ -16,7 +16,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[3]
 EXEMPTIONS_PATH = Path(__file__).parent / "dataclass_secret_field_exemptions.txt"
-SCANNED_ROOTS = ("posthog", "ee", "products", "dags", "common")
+SCANNED_ROOTS = ("posthog", "ee", "products", "dags", "common", "sources")
 SKIPPED_DIRS = {"migrations", "test", "tests"}
 
 SECRET_NAME_TOKENS = (

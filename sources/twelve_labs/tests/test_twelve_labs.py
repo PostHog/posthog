@@ -1,0 +1,293 @@
+import json
+from datetime import UTC, date, datetime
+from typing import Any, cast
+
+import pytest
+from unittest import mock
+
+from parameterized import parameterized
+from requests import Response
+
+from sources.twelve_labs.twelve_labs import (
+    TwelveLabsResumeConfig,
+    _format_incremental_value,
+    twelve_labs_source,
+    validate_credentials,
+)
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the twelve_labs module.
+TL_SESSION_PATCH = "sources.twelve_labs.twelve_labs.make_tracked_session"
+
+
+def _page(rows: list[dict[str, Any]], page: int, total_page: int, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = "https://api.twelvelabs.io/v1.3/mock"
+    resp.reason = "Error" if status >= 400 else "OK"
+    resp._content = json.dumps(
+        {"data": rows, "page_info": {"page": page, "total_page": total_page, "limit_per_page": 50}}
+    ).encode()
+    return resp
+
+
+def _make_manager(resume_state: TwelveLabsResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Wire a mock session, returning (url, params) snapshots captured AT PREPARE TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
+    run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append((request.url, dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any):
+    return twelve_labs_source(
+        api_key="tlk",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job",
+        resumable_source_manager=manager or _make_manager(),
+        **kwargs,
+    )
+
+
+class TestFormatIncrementalValue:
+    @parameterized.expand(
+        [
+            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14.000Z"),
+            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14.000Z"),
+            ("date_value", date(2026, 3, 4), "2026-03-04T00:00:00.000Z"),
+            ("string_passthrough", "2026-03-04T00:00:00Z", "2026-03-04T00:00:00Z"),
+        ]
+    )
+    def test_format(self, _name: str, value: object, expected: str) -> None:
+        # A wrong RFC 3339 shape (e.g. a +00:00 offset) breaks the server-side created_at/updated_at
+        # filter, so the exact string matters.
+        assert _format_incremental_value(value) == expected
+
+
+class TestValidateCredentials:
+    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=status_code)
+        with mock.patch(TL_SESSION_PATCH, return_value=session):
+            ok, returned_status = validate_credentials("tlk_key")
+        assert ok is expected
+        # The caller relies on the status code to tell a rejected key from a transient outage.
+        assert returned_status == status_code
+
+    def test_credentialed_session_redacts_key_and_refuses_redirects(self) -> None:
+        # The x-api-key value must never reach tracked telemetry, and a 30x must not replay it to
+        # another host, so validation builds the session with both guards on.
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(TL_SESSION_PATCH, return_value=session) as make_session:
+            validate_credentials("tlk_key")
+        make_session.assert_called_once_with(redact_values=("tlk_key",), allow_redirects=False)
+
+
+class TestTopLevelPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_resume_state_after_each_page_but_not_on_last(self, MockSession) -> None:
+        # State is saved after yielding a page (so a crash re-yields, not skips) and only while more
+        # pages remain, so we never bookmark past the end of the list.
+        session = MockSession.return_value
+        _wire(session, [_page([{"_id": "a"}], page=1, total_page=2), _page([{"_id": "b"}], page=2, total_page=2)])
+
+        manager = _make_manager()
+        _rows(_source("indexes", manager=manager))
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert [s.next_page for s in saved] == [2]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_page([{"_id": "b"}], page=2, total_page=2)])
+
+        manager = _make_manager(TwelveLabsResumeConfig(next_page=2))
+        rows = _rows(_source("indexes", manager=manager))
+
+        # Only page 2 is fetched — the resume skips page 1.
+        assert [r["_id"] for r in rows] == ["b"]
+        assert session.send.call_count == 1
+        assert snapshots[0][1]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_applies_server_side_filter(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_page([{"_id": "a"}], page=1, total_page=1)])
+
+        _rows(
+            _source(
+                "indexes",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                incremental_field="updated_at",
+            )
+        )
+
+        assert snapshots[0][1]["sort_by"] == "updated_at"
+        assert snapshots[0][1]["sort_option"] == "asc"
+        assert snapshots[0][1]["updated_at"] == "2026-03-04T02:58:14.000Z"
+
+
+class TestFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_injects_parent_index_id_into_every_video_row(self, MockSession) -> None:
+        # /indexes returns two indexes, each with one video page. The parent index_id must land on
+        # every row so the [index_id, _id] primary key stays unique table-wide.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _page([{"_id": "idx1"}, {"_id": "idx2"}], page=1, total_page=1),
+                _page([{"_id": "v1"}], page=1, total_page=1),
+                _page([{"_id": "v2"}], page=1, total_page=1),
+            ],
+        )
+
+        rows = _rows(_source("videos"))
+
+        assert rows == [{"_id": "v1", "index_id": "idx1"}, {"_id": "v2", "index_id": "idx2"}]
+        assert [url for url, _ in snapshots] == [
+            "https://api.twelvelabs.io/v1.3/indexes",
+            "https://api.twelvelabs.io/v1.3/indexes/idx1/videos",
+            "https://api.twelvelabs.io/v1.3/indexes/idx2/videos",
+        ]
+        # Child pages carry the videos sort params, and the resolve param never leaks into the query.
+        assert snapshots[1][1]["sort_by"] == "created_at"
+        assert snapshots[1][1]["page_limit"] == 50
+        assert "index_id" not in snapshots[1][1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_index(self, MockSession) -> None:
+        # Bookmarked with idx1 already completed: idx1's videos must not be re-fetched.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _page([{"_id": "idx1"}, {"_id": "idx2"}], page=1, total_page=1),
+                _page([{"_id": "v2"}], page=1, total_page=1),
+            ],
+        )
+
+        manager = _make_manager(
+            TwelveLabsResumeConfig(
+                fanout_state={"completed": ["/indexes/idx1/videos"], "current": None, "child_state": None}
+            )
+        )
+        rows = _rows(_source("videos", manager=manager))
+
+        assert rows == [{"_id": "v2", "index_id": "idx2"}]
+        assert [url for url, _ in snapshots] == [
+            "https://api.twelvelabs.io/v1.3/indexes",
+            "https://api.twelvelabs.io/v1.3/indexes/idx2/videos",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_asset_transcriptions_skip_assets_without_a_transcription(self, MockSession) -> None:
+        # An asset with no transcription 404s. That must skip the asset, not fail the sync, and each
+        # transcription row must carry its asset's id and creation time.
+        session = MockSession.return_value
+        not_found = Response()
+        not_found.status_code = 404
+        not_found.reason = "Not Found"
+        not_found.url = "https://api.twelvelabs.io/v1.3/assets/a1/transcription"
+        not_found._content = b'{"code": "resource_not_found"}'
+        transcription = Response()
+        transcription.status_code = 200
+        transcription.url = "https://api.twelvelabs.io/v1.3/assets/a2/transcription"
+        transcription._content = json.dumps(
+            {"status": "ready", "sentences": [{"start": 0.0, "end": 1.5, "value": "Hello."}]}
+        ).encode()
+        snapshots = _wire(
+            session,
+            [
+                _page(
+                    [
+                        {"_id": "a1", "created_at": "2026-08-01T00:00:00Z"},
+                        {"_id": "a2", "created_at": "2026-08-02T00:00:00Z"},
+                    ],
+                    page=1,
+                    total_page=1,
+                ),
+                not_found,
+                transcription,
+            ],
+        )
+
+        rows = _rows(_source("asset_transcriptions"))
+
+        assert rows == [
+            {
+                "status": "ready",
+                "sentences": [{"start": 0.0, "end": 1.5, "value": "Hello."}],
+                "asset_id": "a2",
+                "asset_created_at": "2026-08-02T00:00:00Z",
+            }
+        ]
+        assert [url for url, _ in snapshots] == [
+            "https://api.twelvelabs.io/v1.3/assets",
+            "https://api.twelvelabs.io/v1.3/assets/a1/transcription",
+            "https://api.twelvelabs.io/v1.3/assets/a2/transcription",
+        ]
+        assert snapshots[0][1]["asset_types"] == ["video", "audio"]
+        assert snapshots[1][1] == {"include": "sentences,utterances"}
+
+    def test_old_shape_saved_state_still_parses(self) -> None:
+        # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the
+        # migration must still construct.
+        state = TwelveLabsResumeConfig(**cast("dict[str, Any]", {"next_page": 2, "index_id": "idx2"}))
+        assert state.next_page == 2
+        assert state.index_id == "idx2"
+        assert state.fanout_state is None
+
+
+class TestTwelveLabsSourceResponse:
+    @parameterized.expand([("indexes", ["_id"]), ("tasks", ["_id"]), ("videos", ["index_id", "_id"])])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_primary_keys(self, endpoint: str, expected_keys: list[str], MockSession) -> None:
+        response = _source(endpoint)
+        assert response.primary_keys == expected_keys
+        assert response.sort_mode == "asc"
+        assert response.partition_keys == ["created_at"]
+
+
+class TestNonRetryableCredentialErrors:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unauthorized_raises_matchable_httperror(self, MockSession) -> None:
+        # get_non_retryable_errors matches the base-host 401 text, so the raised HTTPError message
+        # must carry that stable prefix (not just the per-request path).
+        session = MockSession.return_value
+        resp = Response()
+        resp.status_code = 401
+        resp.reason = "Unauthorized"
+        resp.url = "https://api.twelvelabs.io/v1.3/indexes"
+        resp._content = b"{}"
+        _wire(session, [resp])
+
+        with pytest.raises(Exception, match="401 Client Error: Unauthorized for url: https://api.twelvelabs.io"):
+            _rows(_source("indexes"))

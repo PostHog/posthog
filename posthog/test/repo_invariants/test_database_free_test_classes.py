@@ -14,7 +14,7 @@ from parameterized import parameterized
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "database_free_test_classes_baseline.txt"
-SCANNED_ROOTS = ("posthog", "ee", "products", "common")
+SCANNED_ROOTS = ("posthog", "ee", "products", "common", "sources")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 REGENERATE = "python posthog/test/repo_invariants/test_database_free_test_classes.py"
 

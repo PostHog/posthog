@@ -1,0 +1,34 @@
+import pytest
+from unittest import mock
+
+from sources.optimizely._config import OptimizelySourceConfig
+from sources.optimizely.source import OptimizelySource
+
+
+class TestOptimizelySource:
+    def setup_method(self):
+        self.source = OptimizelySource()
+        self.team_id = 123
+        self.config = OptimizelySourceConfig(api_token="api-token")
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["experiments"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "experiments"
+
+    @pytest.mark.parametrize(
+        "mock_return, expected_valid, expected_message",
+        [
+            (True, True, None),
+            (False, False, "Invalid Optimizely personal access token"),
+        ],
+    )
+    @mock.patch("sources.optimizely.source.validate_optimizely_credentials")
+    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+        mock_validate.return_value = mock_return
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is expected_valid
+        assert error_message == expected_message
+        mock_validate.assert_called_once_with(self.config.api_token)

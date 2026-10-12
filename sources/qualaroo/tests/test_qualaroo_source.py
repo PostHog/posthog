@@ -1,0 +1,64 @@
+import pytest
+from unittest import mock
+
+from parameterized import parameterized
+
+from sources.qualaroo._config import QualarooSourceConfig
+from sources.qualaroo.source import QualarooSource
+
+
+class TestQualarooSource:
+    def setup_method(self) -> None:
+        self.source = QualarooSource()
+        self.team_id = 123
+        self.config = QualarooSourceConfig(api_key="q-key", api_secret="q-secret")
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",),
+            ("403 Client Error: Forbidden for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",),
+        ]
+    )
+    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("500 Server Error: Internal Server Error for url: https://api.qualaroo.com/api/v1/nudges.json",),
+            ("429 Client Error: Too Many Requests for url: https://api.qualaroo.com/api/v1/nudges.json",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in unrelated_error for key in non_retryable)
+
+    @mock.patch("sources.qualaroo.source._validate_qualaroo_credentials")
+    def test_validate_credentials_delegates_to_qualaroo(self, mock_validate: mock.MagicMock) -> None:
+        # The status-to-result mapping lives in qualaroo.validate_credentials; the source only forwards
+        # the account-wide key/secret and returns the result unchanged.
+        mock_validate.return_value = (False, "Invalid Qualaroo API key or secret")
+        result = self.source.validate_credentials(self.config, self.team_id)
+        mock_validate.assert_called_once_with("q-key", "q-secret")
+        assert result == (False, "Invalid Qualaroo API key or secret")
+
+    @mock.patch("sources.qualaroo.source.qualaroo_source")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "nudges"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_source.assert_called_once()
+        kwargs = mock_source.call_args.kwargs
+        assert kwargs["api_key"] == "q-key"
+        assert kwargs["api_secret"] == "q-secret"
+        assert kwargs["endpoint"] == "nudges"
+        assert kwargs["resumable_source_manager"] is manager
+
+    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "not_a_table"
+        with pytest.raises(ValueError, match="Unknown Qualaroo schema 'not_a_table'"):
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

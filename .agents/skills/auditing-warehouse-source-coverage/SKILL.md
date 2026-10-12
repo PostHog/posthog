@@ -158,8 +158,8 @@ For each missing endpoint ask:
 Also check our side for half-finished threads before writing a gap up as new work:
 
 ```sh
-cd products/warehouse_sources/backend/temporal/data_imports/sources
-grep -rniE "TODO|FIXME|not (yet )?(supported|implemented)" <source>/*.py | grep -vi test
+# a vendor lives in sources/<source>/ or, if other code imports it, in products/warehouse_sources/backend/temporal/data_imports/sources/<source>/
+grep -rniE "TODO|FIXME|not (yet )?(supported|implemented)" sources/<source>/*.py | grep -vi test
 ```
 
 HubSpot's `WEB_ANALYTICS_EVENTS_ENDPOINT` is defined in `settings.py` and referenced nowhere,

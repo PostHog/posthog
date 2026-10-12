@@ -52,7 +52,7 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
 HIGH_FANOUT_PATH = Path(__file__).parent / "testmon_high_fanout_files.txt"
 
-LOCAL_ROOTS = ("posthog", "ee", "products", "common", "dags")
+LOCAL_ROOTS = ("posthog", "ee", "products", "common", "dags", "sources")
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put"}
 API_CLIENT_IMPORTS = {
     "django.test.Client",

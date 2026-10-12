@@ -1,0 +1,57 @@
+from unittest import mock
+
+from parameterized import parameterized
+
+from sources.pexels._config import PexelsSourceConfig
+from sources.pexels.source import PexelsSource
+
+
+class TestPexelsSource:
+    def setup_method(self) -> None:
+        self.source = PexelsSource()
+        self.team_id = 123
+
+    @parameterized.expand([("empty_string", ""), ("whitespace", "   ")])
+    def test_blank_query_excludes_search_tables(self, _name: str, query: str) -> None:
+        config = PexelsSourceConfig(api_key="k", search_query=query)
+        names = {s.name for s in self.source.get_schemas(config, self.team_id)}
+        assert "search_photos" not in names
+        assert "search_videos" not in names
+
+    def test_schemas_with_query_include_search_tables(self) -> None:
+        config = PexelsSourceConfig(api_key="k", search_query="nature")
+        names = {s.name for s in self.source.get_schemas(config, self.team_id)}
+        assert {"search_photos", "search_videos"} <= names
+
+    def test_schemas_names_filter(self) -> None:
+        config = PexelsSourceConfig(api_key="k", search_query=None)
+        schemas = self.source.get_schemas(config, self.team_id, names=["curated_photos"])
+        assert [s.name for s in schemas] == ["curated_photos"]
+
+    @parameterized.expand([("valid", True, True), ("invalid", False, False)])
+    def test_validate_credentials(self, _name: str, probe_result: bool, expected_valid: bool) -> None:
+        config = PexelsSourceConfig(api_key="k", search_query=None)
+        with mock.patch(
+            "sources.pexels.source.validate_pexels_credentials",
+            return_value=probe_result,
+        ):
+            valid, _ = self.source.validate_credentials(config, self.team_id)
+        assert valid is expected_valid
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.pexels.com/v1/curated?per_page=80"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.pexels.com/videos/popular"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
+        assert any(key in observed for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.pexels.com', port=443): Read timed out."),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.pexels.com/v1/curated"),
+        ]
+    )
+    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
+        assert not any(key in observed for key in self.source.get_non_retryable_errors())
