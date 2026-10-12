@@ -36,7 +36,7 @@ import {
     isBIAnalysisConfig,
     isBITableCalculation,
 } from './biAnalysis'
-import { biComparisonCategory, getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
+import { biComparisonSeries, getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
 import { limitBIComparisonQuery } from './biComparisonLimit'
 import {
     buildBIConditionExpression,
@@ -44,6 +44,7 @@ import {
     isBIResultFilter,
     normalizeBIConditionGroup,
 } from './biFilterGroups'
+import { localFieldError } from './biLocalFields'
 import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
@@ -112,6 +113,7 @@ export function mergeBIChartSettings(
     return {
         ...current,
         ...generated,
+        leftYAxisSettings: { ...current?.leftYAxisSettings, ...generated.leftYAxisSettings },
         xAxis: generated.xAxis
             ? {
                   ...(current?.xAxis?.column === generated.xAxis.column ? current.xAxis : {}),
@@ -146,6 +148,16 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
     let normalized = normalizeBIDates(config)
+    if (
+        normalized.colorBy &&
+        (normalized.rows.length + normalized.columns.length !== 2 ||
+            ![...normalized.rows, ...normalized.columns].some((field) => field.id === normalized.colorBy))
+    ) {
+        normalized = { ...normalized, colorBy: undefined }
+    }
+    if (normalized.comparisonPeriod) {
+        normalized = { ...normalized, compareFilter: { ...normalized.compareFilter, compare: false } }
+    }
     if (normalized.compareFilter?.compare && getBIComparisonDisabledReason(normalized)) {
         normalized = { ...normalized, compareFilter: { compare: false } }
     }
@@ -232,7 +244,7 @@ export function isNumericBIField(field: BIField): boolean {
 }
 
 export function isDateTimeBIField(field: BIField): boolean {
-    return field.type === 'date' || field.type === 'datetime'
+    return !field.datePart && (field.type === 'date' || field.type === 'datetime')
 }
 
 export function isBIFieldCompatible(source: BIDataSource | null, field: BIField): boolean {
@@ -255,7 +267,11 @@ const IDENTIFIER_FIELD_NAME_REGEX = /(^|_)(id|uuid)$/i
 
 /** Numeric fields that are not identifiers aggregate by default, like measures in a BI tool. */
 export function isBIMeasureField(field: BIField): boolean {
+    if (field.localDefinition?.kind === 'expression') {
+        return field.localDefinition.aggregate
+    }
     return (
+        !field.localDefinition &&
         isNumericBIField(field) &&
         defaultAggregationForField(field) !== 'count' &&
         !IDENTIFIER_FIELD_NAME_REGEX.test(field.name.replace(/([a-z0-9])([A-Z])/g, '$1_$2'))
@@ -296,7 +312,7 @@ export function getBIDropTarget(field: BIField, shelf: BIShelf): { field: BIFiel
     if ((shelf === 'rows' || shelf === 'columns') && isBIMeasureField(field)) {
         return { field, shelf: 'values' }
     }
-    if ((shelf === 'rows' || shelf === 'columns') && field.type === 'datetime' && !field.dateBucket) {
+    if ((shelf === 'rows' || shelf === 'columns') && isDateTimeBIField(field) && !field.dateBucket) {
         return { field: { ...field, dateBucket: 'day' }, shelf }
     }
     return { field, shelf }
@@ -346,7 +362,23 @@ export interface BIChartFit {
     requirement: string
 }
 
-/** Mirrors the "Show me" panel of desktop BI tools: which chart types suit the fields on the shelves. */
+export function getBIAutoChartType(config: BIConfig): ChartDisplayType {
+    const dimensions = [...config.rows, ...config.columns]
+    if (dimensions.length > 2) {
+        return ChartDisplayType.ActionsTable
+    }
+    if (dimensions.some(isDateTimeBIField)) {
+        return ChartDisplayType.ActionsLineGraph
+    }
+    if (dimensions.length) {
+        return config.values.length && config.values.every((value) => value.shelf === 'columns')
+            ? ChartDisplayType.ActionsBarValue
+            : ChartDisplayType.ActionsBar
+    }
+    return config.values.length <= 1 ? ChartDisplayType.BoldNumber : ChartDisplayType.ActionsTable
+}
+
+/** Describes the chart types panel: which chart types suit the fields on the shelves. */
 export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BIChartFit {
     const rowCount = config.rows.length
     const columnCount = config.columns.length
@@ -355,20 +387,29 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
 
     switch (chartType) {
         case ChartDisplayType.Auto:
-            return { fits: true, requirement: 'Picks a chart type from the query results' }
+            return {
+                fits: true,
+                requirement:
+                    'Uses lines for dates, bars for one or two categorical dimensions, and a number for a single total',
+            }
         case ChartDisplayType.ActionsTable:
             return { fits: true, requirement: 'any combination of fields' }
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsAreaGraph:
             return {
-                fits: hasDateDimension && dimensionCount <= 2,
-                requirement: '1 date, up to 1 more dimension, and any measures',
+                fits: hasDateDimension && (dimensionCount <= 2 || !!config.compareFilter?.compare),
+                requirement: config.compareFilter?.compare
+                    ? '1 date, any breakdown dimensions, and measures'
+                    : '1 date, up to 1 more dimension, and any measures',
             }
         case ChartDisplayType.ActionsBar:
+        case ChartDisplayType.ActionsBarValue:
         case ChartDisplayType.ActionsStackedBar:
             return {
-                fits: dimensionCount >= 1 && dimensionCount <= 2,
-                requirement: '1 or 2 dimensions, and any measures',
+                fits: dimensionCount >= 1 && (dimensionCount <= 2 || !!config.compareFilter?.compare),
+                requirement: config.compareFilter?.compare
+                    ? 'Any dimensions and measures'
+                    : '1 or 2 dimensions, and any measures',
             }
         case ChartDisplayType.ActionsPie:
         case ChartDisplayType.ActionsDonut:
@@ -384,8 +425,10 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
         case ChartDisplayType.BoldNumber:
         case ChartDisplayType.Metric:
             return {
-                fits: dimensionCount === 0 && config.values.length <= 1,
-                requirement: 'no dimensions and up to 1 measure',
+                fits: !!config.compareFilter?.compare || (dimensionCount === 0 && config.values.length <= 1),
+                requirement: config.compareFilter?.compare
+                    ? 'A comparison card for each dimension and measure'
+                    : 'no dimensions and up to 1 measure',
             }
         default:
             return { fits: true, requirement: '' }
@@ -426,13 +469,19 @@ function parseBIFieldValue(value: unknown): BIField | null {
 
     const candidate = value as Partial<BIField>
     if (
+        (candidate.localDefinition !== undefined && !!localFieldError(candidate.localDefinition)) ||
         typeof candidate.id !== 'string' ||
         typeof candidate.name !== 'string' ||
         typeof candidate.expression !== 'string' ||
         typeof candidate.type !== 'string' ||
+        (candidate.localFieldId !== undefined && typeof candidate.localFieldId !== 'string') ||
         (candidate.dateBucket !== undefined &&
             (!BI_DATE_BUCKETS.has(candidate.dateBucket) ||
                 (candidate.type !== 'date' && candidate.type !== 'datetime'))) ||
+        (candidate.datePart !== undefined &&
+            (!['month', 'quarter', 'day_of_week'].includes(candidate.datePart) ||
+                (candidate.type !== 'date' && candidate.type !== 'datetime') ||
+                candidate.dateBucket !== undefined)) ||
         !candidate.source ||
         typeof candidate.source.table !== 'string' ||
         (candidate.source.connectionId !== undefined && typeof candidate.source.connectionId !== 'string')
@@ -476,6 +525,31 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     }
 
     const candidate = decodedConfig as Partial<BIConfig>
+    if (
+        candidate.hierarchies !== undefined &&
+        (!Array.isArray(candidate.hierarchies) ||
+            candidate.hierarchies.some(
+                (hierarchy) =>
+                    !hierarchy ||
+                    typeof hierarchy.id !== 'string' ||
+                    typeof hierarchy.name !== 'string' ||
+                    !Array.isArray(hierarchy.levels) ||
+                    hierarchy.levels.length < 2 ||
+                    hierarchy.levels.length > 10 ||
+                    hierarchy.levels.some((field) => !parseBIFieldValue(field))
+            ))
+    ) {
+        return null
+    }
+    if (
+        candidate.localFields !== undefined &&
+        (!Array.isArray(candidate.localFields) || candidate.localFields.some((field) => !parseBIFieldValue(field)))
+    ) {
+        return null
+    }
+    if (candidate.comparisonPeriod != null && candidate.comparisonPeriod !== 'previous') {
+        return null
+    }
     if (!isBIAnalysisConfig(candidate)) {
         return null
     }
@@ -523,6 +597,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   !field ||
                   !isBIMeasureSettings(valueCandidate) ||
                   !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
+                  (valueCandidate.shelf !== undefined && !['rows', 'columns'].includes(valueCandidate.shelf)) ||
                   (valueCandidate.label !== undefined && typeof valueCandidate.label !== 'string') ||
                   (valueCandidate.tableCalculation !== undefined &&
                       !isBITableCalculation(valueCandidate.tableCalculation)) ||
@@ -535,6 +610,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   aggregation: valueCandidate.aggregation as BIAggregation,
                   customExpression: valueCandidate.customExpression,
                   label: valueCandidate.label,
+                  ...(valueCandidate.shelf ? { shelf: valueCandidate.shelf } : {}),
                   ...(valueCandidate.formatting ? { formatting: valueCandidate.formatting } : {}),
                   ...(valueCandidate.display ? { display: valueCandidate.display } : {}),
                   ...(valueCandidate.tableCalculation ? { tableCalculation: valueCandidate.tableCalculation } : {}),
@@ -607,6 +683,10 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
+        ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
+        ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
+        ...(candidate.comparisonPeriod ? { comparisonPeriod: candidate.comparisonPeriod } : {}),
         ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
         ...(candidate.resultFilterGroup ? { resultFilterGroup: candidate.resultFilterGroup } : {}),
         ...(candidate.resultFilters ? { resultFilters: candidate.resultFilters } : {}),
@@ -632,6 +712,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         ...config.values.map((value) => value.field),
         ...config.filters.map((filter) => filter.field),
         ...(config.dateField ? [config.dateField] : []),
+        ...(config.localFields ?? []),
     ]
 
     if (fields.length > 0 && (!source || fields.some((field) => !isBIFieldCompatible(source, field)))) {
@@ -680,6 +761,10 @@ export function fieldExpression(field: BIField): string {
         ? escapeDottedHogQLIdentifier(expression)
         : expression
 
+    if (field.datePart) {
+        const functions = { month: 'toMonth', quarter: 'toQuarter', day_of_week: 'toDayOfWeek' }
+        return `${functions[field.datePart]}(${escapedExpression})`
+    }
     return field.dateBucket ? `${DATE_BUCKET_FUNCTIONS[field.dateBucket]}(${escapedExpression})` : escapedExpression
 }
 
@@ -941,7 +1026,7 @@ export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQ
         kind: NodeKind.HogQLQuery,
         connectionId: config.source.connectionId,
         filters: getBIQueryFilters(config),
-        query: `SELECT DISTINCT toString(${expression}) AS value\nFROM ${escapePropertyAsHogQLIdentifier(config.source.table)}\nWHERE ${[getBIFiltersPlaceholder(config), `${expression} IS NOT NULL`, ...conditions].map((condition) => `(${condition})`).join(' AND ')}\nLIMIT 100`,
+        query: `SELECT DISTINCT toString(${expression}) AS value\nFROM ${escapePropertyAsHogQLIdentifier(config.source.table)}\nWHERE ${[getBIFiltersPlaceholder(config), `${expression} IS NOT NULL`, ...conditions].map((condition) => `(${condition})`).join(' AND ')}`,
     }
 }
 
@@ -1034,6 +1119,7 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
             [
                 ChartDisplayType.Auto,
                 ChartDisplayType.ActionsBar,
+                ChartDisplayType.ActionsBarValue,
                 ChartDisplayType.ActionsStackedBar,
                 ChartDisplayType.ActionsLineGraph,
                 ChartDisplayType.ActionsAreaGraph,
@@ -1174,6 +1260,10 @@ export function getBIFieldPillLabel(field: BIField): string {
     if (!name) {
         return 'New calculation'
     }
+    if (field.datePart) {
+        const labels = { month: 'Month of year', quarter: 'Quarter of year', day_of_week: 'Day of week' }
+        return `${labels[field.datePart]}(${name})`
+    }
     return field.dateBucket ? `${field.dateBucket.toUpperCase()}(${name})` : name
 }
 
@@ -1202,11 +1292,10 @@ function buildOrderByExpression(
         return `${selectedOption.expression} ${sort.direction === 'asc' ? 'ASC' : 'DESC'}`
     }
 
-    // Auto sort keeps the most relevant rows inside the LIMIT: newest first for date
-    // dimensions, largest first otherwise
-    const firstDimension = dimensions[0]
-    if (isDateTimeBIField(firstDimension.field)) {
-        return `${fieldExpression(firstDimension.field)} DESC`
+    // Date dimensions follow chronological order; other dimensions keep the largest values first.
+    const dateDimension = dimensions.find(({ field }) => isDateTimeBIField(field))
+    if (dateDimension) {
+        return `${fieldExpression(dateDimension.field)} ASC`
     }
 
     const firstValueAlias =
@@ -1234,6 +1323,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         [
             ChartDisplayType.Auto,
             ChartDisplayType.ActionsBar,
+            ChartDisplayType.ActionsBarValue,
             ChartDisplayType.ActionsStackedBar,
             ChartDisplayType.ActionsLineGraph,
             ChartDisplayType.ActionsAreaGraph,
@@ -1280,8 +1370,10 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
     let query = queryParts.join('\n')
 
     const chartDimensions = [...columnDimensions, ...rowDimensions]
-    const xDimension = chartDimensions.find(({ field }) => isDateTimeBIField(field)) ?? chartDimensions[0]
-    const breakdownDimension = chartDimensions.find((dimension) => dimension !== xDimension)
+    const colorDimension = chartDimensions.find(({ field }) => field.id === config.colorBy)
+    const axisDimensions = chartDimensions.filter((dimension) => dimension !== colorDimension)
+    const xDimension = axisDimensions.find(({ field }) => isDateTimeBIField(field)) ?? axisDimensions[0]
+    const breakdownDimension = colorDimension ?? chartDimensions.find((dimension) => dimension !== xDimension)
     let seriesSettings: ChartSettings | undefined =
         hasSeriesBreakdown && xDimension && breakdownDimension
             ? {
@@ -1294,7 +1386,15 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                   seriesBreakdownColumn: breakdownDimension.alias,
                   showLegend: true,
               }
-            : undefined
+            : {
+                  xAxis: xDimension
+                      ? { column: hasBIAnalysis(config) ? xDimension.alias : fieldExpression(xDimension.field) }
+                      : undefined,
+                  yAxis: configuredValues.length
+                      ? configuredValues.map(({ alias }) => ({ column: alias }))
+                      : [{ column: 'count' }],
+                  seriesBreakdownColumn: undefined,
+              }
 
     if (comparing) {
         const orderDimension = dimensions.find(({ field }) =>
@@ -1304,10 +1404,6 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             ? `${orderDimension.alias} ${orderByExpression?.endsWith(' ASC') ? 'ASC' : 'DESC'}`
             : orderByExpression
         const periodLabel = config.compareFilter?.compare_to ? 'Comparison period' : 'Previous period'
-        const periodExpression = (label: string): string =>
-            breakdownDimension
-                ? `concat(${escapeHogQLString(label + ' · ')}, ${biComparisonCategory(fieldExpression(breakdownDimension.field))})`
-                : escapeHogQLString(label)
         const buildPeriod = (previous: boolean): string => {
             const expressions = dimensions.map(({ field }) =>
                 fieldExpression(
@@ -1319,7 +1415,12 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             const select = [
                 ...dimensions.map(({ alias }, index) => `${expressions[index]} AS ${alias}`),
                 ...valueExpressions,
-                `${periodExpression(previous ? periodLabel : 'Current period')} AS bi_comparison`,
+                `${biComparisonSeries(
+                    escapeHogQLString(previous ? periodLabel : 'Current period'),
+                    dimensions
+                        .filter((dimension) => dimension !== xDimension)
+                        .map((dimension) => expressions[dimensions.indexOf(dimension)])
+                )} AS bi_comparison`,
             ]
             const placeholder = getBIFiltersPlaceholder(config)
             return [
@@ -1413,6 +1514,18 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             column: alias,
             settings: getBIMeasureSettings(value),
         }))
+    seriesSettings = {
+        ...seriesSettings,
+        xAxisLabel: seriesSettings?.xAxisLabel ?? (xDimension ? getBIFieldPillLabel(xDimension.field) : undefined),
+        leftYAxisSettings: {
+            label:
+                configuredValues.length === 0
+                    ? 'Count of rows'
+                    : configuredValues.length === 1
+                      ? getBIValuePillLabel(configuredValues[0].value)
+                      : undefined,
+        },
+    }
     if (config.missingDates) {
         seriesSettings = { ...seriesSettings, showNullsAsZero: false }
     }

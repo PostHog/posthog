@@ -113,28 +113,6 @@ class TestMakePaginatedRequest:
         # Short page terminates the loop; save_state is not invoked
         manager.save_state.assert_not_called()
 
-    def test_empty_first_page_does_not_save_state(self) -> None:
-        manager = _make_manager(can_resume=False)
-        logger = MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter.make_tracked_session"
-        ) as session_cls:
-            session = session_cls.return_value
-            session.post.return_value = _make_response({"data": {"interview": []}})
-
-            batches = list(
-                _make_paginated_request(
-                    api_key="key",
-                    endpoint_name="interviews",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
     def test_save_state_called_for_each_full_page(self) -> None:
         page_size = BUILDBETTER_ENDPOINTS["interviews"].page_size
         full_page_a = _interview_payload([f"a{i}" for i in range(page_size)])

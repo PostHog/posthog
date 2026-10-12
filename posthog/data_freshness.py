@@ -15,7 +15,7 @@ is the only claim made about all of time, and it leans on `Team.ingested_event`.
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import lru_cache, partial
@@ -44,7 +44,7 @@ QUIET_AFTER_DAYS = 7
 CACHE_TTL_SECONDS = 10 * 60
 # Bump when ProjectFreshness or SourceFreshness change shape: cached values are pickled, so old
 # entries would otherwise unpickle missing a field.
-_CACHE_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 2
 
 # Backstops for a pathological org, not a latency budget. Postgres has no server-side
 # statement_timeout here, and the ClickHouse cluster's failure mode is concurrent IO-heavy
@@ -124,6 +124,8 @@ class ProjectFreshness:
     freshness: Freshness
     last_data_at: Optional[datetime]
     sources: list[SourceFreshness] = field(default_factory=list)
+    # A probe failed, so a product missing from `sources` may have data the registry could not see.
+    degraded: bool = False
 
 
 # Probes never emit a null timestamp or a team they weren't given, so `_compute` trusts both.
@@ -195,7 +197,7 @@ def reportable(results: list[ProjectFreshness], *, degraded: bool) -> list[Proje
     """
     if not degraded:
         return results
-    return [result for result in results if result.freshness == Freshness.LIVE]
+    return [replace(result, degraded=True) for result in results if result.freshness == Freshness.LIVE]
 
 
 def _probes(

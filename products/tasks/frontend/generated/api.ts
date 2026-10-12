@@ -309,7 +309,7 @@ export const getLoopsCreateUrl = (projectId: string) => {
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Create a loop
  */
 export const loopsCreate = async (
@@ -331,7 +331,7 @@ export const getLoopsRetrieveUrl = (projectId: string, id: string) => {
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Get a loop
  */
 export const loopsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<LoopDTOApi> => {

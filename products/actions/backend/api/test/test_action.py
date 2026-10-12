@@ -10,15 +10,21 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Tag, User
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
+from products.actions.backend.api.action import ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -67,6 +73,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "properties": None,
                     "selector": "div > button",
                     "selector_regex": ANY,
+                    "selector_warning": None,
                     "tag_name": None,
                     "text": "sign up",
                     "text_matching": None,
@@ -246,6 +253,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "properties": [{"key": "$browser", "value": "Chrome"}],
                 "selector": "div > button",
                 "selector_regex": ANY,
+                "selector_warning": None,
                 "tag_name": None,
                 "text": "sign up NOW",
                 "text_matching": None,
@@ -259,6 +267,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "properties": None,
                 "selector": None,
                 "selector_regex": None,
+                "selector_warning": None,
                 "tag_name": None,
                 "text": None,
                 "text_matching": None,
@@ -313,6 +322,76 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
 
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    @parameterized.expand(
+        [
+            ("events_mode", FlagEvaluationsMode.EVENTS, status.HTTP_201_CREATED),
+            ("read_flag_evaluations_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_action_with_step_on_hidden_event(self, _name, mode, expected_status):
+        self._set_flag_evaluations_mode(mode)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "flag checks", "steps": [{"event": "$pageview"}, {"event": "$feature_flag_called"}]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        created = Action.objects.filter(team=self.team, name="flag checks").exists()
+        assert created == (expected_status == status.HTTP_201_CREATED)
+        if not created:
+            assert (response.json()["code"], response.json()["attr"]) == ("hidden_event", "steps")
+
+    @parameterized.expand(
+        [
+            (
+                "adds_first",
+                [{"event": "$pageview"}],
+                [{"event": "$pageview"}, {"event": "$feature_flag_called"}],
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "adds_second",
+                [{"event": "$feature_flag_called"}],
+                [{"event": "$feature_flag_called"}, {"event": "$feature_flag_called"}],
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "edits_existing",
+                [{"event": "$feature_flag_called"}],
+                [
+                    {
+                        "event": "$feature_flag_called",
+                        "properties": [{"key": "$feature_flag", "value": "beta", "type": "event"}],
+                    }
+                ],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_update_action_steps_on_hidden_event(self, _name, stored_steps, steps, expected_status):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        action = Action.objects.create(name="flag checks", team=self.team, steps_json=stored_steps)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.pk}/",
+            data={"name": "flag checks renamed", "steps": steps},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        action.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            assert action.name == "flag checks renamed"
+            assert [step.properties for step in action.steps] == [step.get("properties") for step in steps]
+        else:
+            assert response.json()["code"] == "hidden_event"
+            assert action.name == "flag checks"
+
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
         response = self.client.post(
@@ -332,6 +411,68 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get(pk=response.json()["id"])
         assert action.steps[0].event == "test_event "
+
+    def test_selector_match_changes_reports_only_requested_affected_actions(self) -> None:
+        changed = Action.objects.create(
+            team=self.team,
+            name="changed",
+            steps_json=[{"selector": "div .btn:nth-child(2)"}, {"selector": ".sibling"}],
+        )
+        unaffected = Action.objects.create(team=self.team, name="unaffected", steps_json=[{"selector": ".fine"}])
+        for step_index, selector in [(1, ".sibling"), (0, "div .btn:nth-child(2)")]:
+            ActionSelectorMatchChange.objects.for_team(self.team.id).create(
+                team=self.team,
+                action=changed,
+                step_index=step_index,
+                selector=selector,
+                old_match_count=900,
+                new_match_count=120,
+                measured_at=datetime(2026, 9, 11, tzinfo=UTC),
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
+            {"action_ids": f"{unaffected.id},{changed.id}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == [
+            {
+                "action_id": changed.id,
+                "action_name": "changed",
+                "selectors": ["div .btn:nth-child(2)", ".sibling"],
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("the step now carries a different selector", [{"selector": ".rewritten"}]),
+            ("the step was removed", []),
+        ]
+    )
+    def test_selector_match_changes_drops_a_verdict_the_action_no_longer_matches(
+        self, _name: str, steps_json: list[dict]
+    ) -> None:
+        action = Action.objects.create(team=self.team, name="edited", steps_json=[{"selector": ".measured"}])
+        ActionSelectorMatchChange.objects.for_team(self.team.id).create(
+            team=self.team,
+            action=action,
+            step_index=0,
+            selector=".measured",
+            old_match_count=900,
+            new_match_count=120,
+            measured_at=datetime(2026, 9, 11, tzinfo=UTC),
+        )
+        action.steps_json = steps_json
+        action.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/selector_match_changes/",
+            {"action_ids": str(action.id)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
 
     @time_machine.travel("2021-12-12", tick=False)
     def test_listing_actions_is_not_nplus1(self) -> None:
@@ -917,3 +1058,23 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+
+class TestSelectorWarning(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("class_then_attribute", '.btn[ng-disabled="true"]'),
+            ("compound_attributes", '[type="button"][ng-click="save()"]'),
+            ("descendant", "form button.btn"),
+            ("plain_tag", "div > button"),
+        ]
+    )
+    def test_no_warning_for_matchable_selector(self, _name: str, selector: str) -> None:
+        assert ActionStepJSONSerializer().get_selector_warning({"selector": selector}) is None
+
+    def test_warns_for_selector_that_never_matches(self) -> None:
+        # Pseudo-class selectors are unsupported and compile to a regex that matches nothing.
+        assert ActionStepJSONSerializer().get_selector_warning({"selector": "input:disabled"}) is not None
+
+    def test_no_warning_without_selector(self) -> None:
+        assert ActionStepJSONSerializer().get_selector_warning({}) is None

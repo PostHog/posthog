@@ -42,7 +42,8 @@ from posthog.security.url_validation import (
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters, UnsupportedDestinationTestError
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
@@ -58,10 +59,10 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportSource,
 )
-from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
+    check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
 )
 from products.batch_exports.backend.service import (
@@ -93,7 +94,6 @@ HOGQL_QUERY_HELP_TEXT = (
     "replaced with each run's data interval bounds, for example: "
     "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. "
     "Without them every run exports all rows the query returns. "
-    "With model 'events', it defines a custom schema of columns to export instead. "
     "Required when model is 'hogql'."
 )
 
@@ -103,6 +103,13 @@ class BatchExportUnpauseRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Whether to backfill the runs that the batch export missed while it was paused.",
+    )
+
+
+class DestinationTestStepRequestSerializer(serializers.Serializer):
+    step = serializers.IntegerField(
+        default=0,
+        help_text="Index of the connection test step to run. Steps start at 0.",
     )
 
 
@@ -117,7 +124,7 @@ class BatchExportRequestSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Human-readable name for the batch export.")
     model = serializers.ChoiceField(
         choices=BatchExport.Model.choices,
-        required=False,
+        default=serializers.CreateOnlyDefault(BatchExport.Model.EVENTS),  # type: ignore[arg-type]
         help_text=(
             "Which data model to export: events, persons, sessions, or hogql. "
             "The hogql model exports the results of hogql_query."
@@ -243,6 +250,14 @@ class _DatabaseFieldFinder(TraversingVisitor):
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
+    model = serializers.ChoiceField(
+        choices=BatchExport.Model.choices,
+        default=serializers.CreateOnlyDefault(BatchExport.Model.EVENTS),  # type: ignore[arg-type]
+        help_text=(
+            "Which data model to export: events, persons, sessions, or hogql. "
+            "The hogql model exports the results of hogql_query."
+        ),
+    )
     destination = destination_views.BatchExportDestinationSerializer(
         help_text="Destination configuration (type, config, and optional integration)."
     )
@@ -313,103 +328,182 @@ class BatchExportSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
     def validate(self, attrs: dict) -> dict:
-        """Validate the batch export configuration."""
-        # HTTP batch exports only support the events model
+        """Validate this batch export.
+
+        Delegates to validation functions that require the full attrs to complete
+        validation.
+        """
+        attrs = self._validate_interval_offset(attrs)
+
+        model = self._get_model(attrs)
         destination = attrs.get("destination")
         if destination and destination.get("type") == BatchExportDestination.Destination.HTTP:
-            model = attrs.get("model")
-            if model is not None and model != "events":
+            if model != BatchExport.Model.EVENTS:
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
-        # Convert offset_day and offset_hour to interval_offset
-        interval = attrs.get("interval")
-        if interval is not None:
-            # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
-            offset_day_provided = "offset_day" in attrs
-            offset_hour_provided = "offset_hour" in attrs
-            offset_day = attrs.pop("offset_day", None)
-            offset_hour = attrs.pop("offset_hour", None)
+        self._validate_attribute_only_supported_for_model(attrs, name="filters", model=BatchExport.Model.EVENTS)
+        self._validate_attribute_only_supported_for_model(attrs, name="hogql_modifiers", model=BatchExport.Model.HOGQL)
 
-            if interval == "day":
-                # For daily exports, only offset_hour is used
-                if offset_day_provided and offset_day is not None:
-                    raise serializers.ValidationError("offset_day should not be specified for daily intervals")
-
-                if offset_hour_provided:
-                    # User explicitly provided offset_hour (even if None)
-                    attrs["interval_offset"] = offset_hour * 3600 if offset_hour is not None else None
-                elif not self.partial:
-                    # PUT or new instance: default to None if not provided
-                    attrs["interval_offset"] = None
-                # otherwise if a PATCH and offset_hour is not provided, don't set interval_offset in attrs
-                # to preserve existing value
-            elif interval == "week":
-                # For weekly exports, both offset_day and offset_hour are used
-                if offset_day_provided or offset_hour_provided:
-                    day = offset_day or 0
-                    hour = offset_hour or 0
-                    attrs["interval_offset"] = day * 86400 + hour * 3600
-                elif not self.partial:
-                    # PUT or new instance: default to None if not provided
-                    attrs["interval_offset"] = None
-                # otherwise if a PATCH and offset fields not provided, don't set interval_offset in attrs
-                # to preserve existing value
+        # TODO: Once these teams are migrated, remove this.
+        if model == BatchExport.Model.EVENTS and (hogql_query := attrs.get("hogql_query")) is not None:
+            is_grandfathered_team_id = BatchExport.objects.filter(
+                schema__isnull=False, team=self.context["get_team"]()
+            ).exists()
+            if is_grandfathered_team_id:
+                attrs["hogql_query"] = self._validate_events_hogql_query(hogql_query)
             else:
-                # For other intervals, reset interval_offset to None
-                # Also validate that offset fields are not provided
-                if offset_day_provided and offset_day is not None:
-                    raise serializers.ValidationError("offset_day is not applicable for non-daily/weekly intervals")
-                if offset_hour_provided and offset_hour is not None:
-                    raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
-                attrs["interval_offset"] = None
+                self._validate_attribute_only_supported_for_model(
+                    attrs, name="hogql_query", model=BatchExport.Model.HOGQL
+                )
+        else:
+            self._validate_attribute_only_supported_for_model(attrs, name="hogql_query", model=BatchExport.Model.HOGQL)
 
-        self._validate_model_query(attrs)
+        if model == BatchExport.Model.HOGQL:
+            self._validate_hogql_query(attrs)
 
         return attrs
 
-    def _validate_model_query(self, attrs: dict) -> None:
-        """Validate `hogql_query` for the model the batch export ends up with."""
-        current_model = (self.instance.model if self.instance is not None else None) or BatchExport.Model.EVENTS
-        model = attrs.get("model") or current_model
+    def _validate_interval_offset(self, attrs: dict) -> dict:
+        interval = attrs.get("interval")
 
-        if self.instance is not None and model != current_model and BatchExport.Model.HOGQL in (model, current_model):
-            raise serializers.ValidationError(
-                {"model": "Changing the model to or from 'hogql' is not supported. Create a new batch export instead."}
-            )
+        if interval is None:
+            return attrs
 
-        if model == BatchExport.Model.HOGQL:
-            self._validate_hogql(attrs)
+        # Convert offset_day and offset_hour to interval_offset
+        # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
+        offset_day_provided = "offset_day" in attrs
+        offset_hour_provided = "offset_hour" in attrs
+        offset_day = attrs.pop("offset_day", None)
+        offset_hour = attrs.pop("offset_hour", None)
+
+        if interval == "day":
+            # For daily exports, only offset_hour is used
+            if offset_day_provided and offset_day is not None:
+                raise serializers.ValidationError(
+                    {"offset_day": "offset_day should not be specified for daily intervals"}
+                )
+
+            if offset_hour_provided:
+                # User explicitly provided offset_hour (even if None)
+                attrs["interval_offset"] = offset_hour * 3600 if offset_hour is not None else None
+            elif not self.partial:
+                # PUT or new instance: default to None if not provided
+                attrs["interval_offset"] = None
+            # otherwise if a PATCH and offset_hour is not provided, don't set interval_offset in attrs
+            # to preserve existing value
+        elif interval == "week":
+            # For weekly exports, both offset_day and offset_hour are used
+            if offset_day_provided or offset_hour_provided:
+                day = offset_day or 0
+                hour = offset_hour or 0
+                attrs["interval_offset"] = day * 86400 + hour * 3600
+            elif not self.partial:
+                # PUT or new instance: default to None if not provided
+                attrs["interval_offset"] = None
+            # otherwise if a PATCH and offset fields not provided, don't set interval_offset in attrs
+            # to preserve existing value
+        else:
+            # For other intervals, reset interval_offset to None
+            # Also validate that offset fields are not provided
+            if offset_day_provided and offset_day is not None:
+                raise serializers.ValidationError(
+                    {"offset_day": "offset_day is not applicable for non-daily/weekly intervals"}
+                )
+            if offset_hour_provided and offset_hour is not None:
+                raise serializers.ValidationError(
+                    {"offset_hour": "offset_hour is not applicable for non-daily/weekly intervals"}
+                )
+            attrs["interval_offset"] = None
+
+        return attrs
+
+    def _get_model(self, attrs: dict[str, typing.Any]) -> str:
+        """Return this batch export's model, from `attrs` or current instance."""
+        if self.instance is None:
+            this_model: str = attrs["model"]  # Has a default, must be present
+        else:
+            # NOTE: We validate that model cannot change in validate_model, so
+            # whether is present in attrs or not is irrelevant.
+            this_model = self.instance.model
+        return this_model
+
+    def _validate_attribute_only_supported_for_model(
+        self, attrs: dict[str, typing.Any], *, name: str, model: str
+    ) -> None:
+        """Validates attribute `name` is only provided for supported `model`.
+
+        Raises:
+            ValidationError: When this batch export's model is not `model` and
+                a non-None `name` attribute value was included in the request.
+        """
+        if attrs.get(name) is None:
             return
 
-        if attrs.get("hogql_modifiers") is not None:
+        this_model = self._get_model(attrs)
+        if this_model != model:
             raise serializers.ValidationError(
-                {"hogql_modifiers": "'hogql_modifiers' are only supported when 'model' is 'hogql'"}
+                {name: f"'{name}' is only supported for '{model}' not '{this_model}' model"}
             )
 
-        if (hogql_query := attrs.get("hogql_query")) is not None:
-            # For events model, we need the resolved AST.
-            attrs["hogql_query"] = self._validate_events_hogql_query(hogql_query)
+    def _validate_hogql_query(self, attrs: dict[str, typing.Any]) -> None:
+        """Validate `hogql_query` for this batch export.
+
+        Raises:
+            ValidationError: When any of the following:
+                1. No hogql_query was passed for a HogQL model.
+                2. When a non-None hogql_query for a HogQL model is unsupported.
+        """
+        source = self.instance.source if self.instance is not None else None
+        saved_query = source.hogql_query if source is not None else None
+
+        hogql_query = attrs.get("hogql_query", saved_query)
+        if hogql_query is None:
+            raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
+
+        user = self.context["request"].user
+        team = self.context["get_team"]()
+        hogql_modifiers = self._get_hogql_modifiers(attrs)
+        try:
+            validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=hogql_modifiers)
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError({"hogql_query": str(e)}) from e
+
+    def _get_hogql_modifiers(self, attrs: dict[str, typing.Any]) -> HogQLQueryModifiers | None:
+        if "hogql_modifiers" in attrs:
+            if attrs["hogql_modifiers"] is None:
+                modifiers: HogQLQueryModifiers | None = None
+            else:
+                # Modifiers were already validated and loaded by the field
+                field = typing.cast(HogQLModifiersField, self.fields["hogql_modifiers"])
+                modifiers = field.loaded
+        else:
+            source = self.instance.source if self.instance is not None else None
+            # Modifiers are valid if present in the db, even if the function
+            # re-validates them anyways.
+            modifiers = load_hogql_modifiers(source.hogql_modifiers if source is not None else None)
+
+        return modifiers
+
+    def validate_model(self, model: str) -> str:
+        """Validate the model is new or not changing when provided."""
+        if model == BatchExport.Model.HOGQL:
+            team = self.context["get_team"]()
+            check_hogql_batch_exports_enabled(team=team)
+
+        if self.instance is None:
+            return model
+
+        current_model = self.instance.model
+        if model != current_model:
+            raise serializers.ValidationError("Changing models is not supported. Create a new batch export instead.")
+
+        return model
 
     def validate_interval(self, interval: str) -> str:
         """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
-        team_id = self.context["team_id"]
-
         if interval not in ("hour", "day", "week"):
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "high-frequency-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+            team = self.context["get_team"]()
+            check_high_frequency_batch_exports_enabled(team=team)
         return interval
 
     def validate_timezone(self, timezone: str | None) -> str | None:
@@ -778,7 +872,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
-        model = validated_data.get("model") or BatchExport.Model.EVENTS
+        model = validated_data["model"]
         hogql_query = validated_data.pop("hogql_query", None)
         hogql_modifiers = validated_data.pop("hogql_modifiers", None)
 
@@ -842,35 +936,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if context.restricted_properties:
             schema.pop("hogql_query", None)
         return schema
-
-    def _validate_hogql(self, attrs: dict[str, typing.Any]) -> None:
-        """Validate the source of a batch export with the 'hogql' model.
-
-        On update, a query or modifiers missing from the request keep the ones stored in the source.
-        """
-        if attrs.get("filters"):
-            raise serializers.ValidationError({"filters": "'filters' are not supported when 'model' is 'hogql'"})
-
-        team = self.context["get_team"]()
-        check_hogql_batch_exports_enabled(team)
-
-        source = self.instance.source if self.instance is not None else None
-        hogql_query = attrs.get("hogql_query", source.hogql_query if source is not None else None)
-        if not hogql_query:
-            raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
-
-        try:
-            modifiers = load_hogql_modifiers(
-                attrs.get("hogql_modifiers", source.hogql_modifiers if source is not None else None)
-            )
-        except UnsupportedHogQLQueryError as e:
-            raise serializers.ValidationError({"hogql_modifiers": str(e)}) from e
-
-        user = self.context["request"].user
-        try:
-            validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=modifiers)
-        except UnsupportedHogQLQueryError as e:
-            raise serializers.ValidationError({"hogql_query": str(e)}) from e
 
     def _validate_events_hogql_query(self, hogql_query: str) -> ast.SelectQuery:
         """Validate a HogQL query being used for events batch exports.
@@ -1094,6 +1159,27 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         delete_batch_export(instance)
 
+    def _parse_destination_test_step(self, request: request.Request) -> int:
+        step_serializer = DestinationTestStepRequestSerializer(data=request.data)
+        step_serializer.is_valid(raise_exception=True)
+        request.data.pop("step", None)
+        return step_serializer.validated_data["step"]
+
+    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
+        destination = serializer.validated_data["destination"]
+        integration: Integration | None = destination.get("integration")
+        try:
+            result = batch_exports_api.run_destination_test_step(
+                self.team_id,
+                destination_type=destination["type"],
+                config=destination["config"],
+                integration_id=integration.id if integration else None,
+                step=step,
+            )
+        except UnsupportedDestinationTestError:
+            raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
+        return response.Response(dataclasses.asdict(result))
+
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
         destination = request.query_params.get("destination", None)
@@ -1101,42 +1187,24 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return response.Response(status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            destination_test = get_destination_test(destination=destination)
-        except ValueError:
+            destination_test = batch_exports_api.describe_destination_test(destination)
+        except UnsupportedDestinationTestError:
             return response.Response(status=status.HTTP_404_NOT_FOUND)
 
-        return response.Response(destination_test.as_dict())
+        return response.Response(dataclasses.asdict(destination_test))
 
     @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
     def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
-        test_step = request.data.pop("step", 0)
+        test_step = self._parse_destination_test_step(request)
 
         serializer = self.get_serializer(data=request.data)
         _ = serializer.is_valid(raise_exception=True)
 
-        destination_test = get_destination_test(
-            destination=serializer.validated_data["destination"]["type"],
-        )
-        test_configuration = serializer.validated_data["destination"]["config"]
-
-        # if we have an integration, add its config and sensitive_config to test_configuration
-        integration: Integration | None = serializer.validated_data["destination"].get("integration")
-        if integration:
-            test_configuration = {
-                **test_configuration,
-                **integration.config,
-                **integration.sensitive_config,
-                "integration": integration,
-            }
-
-        destination_test.configure(**test_configuration)
-
-        result = destination_test.run_step(test_step)
-        return response.Response(result.as_dict())
+        return self._run_destination_test_step(serializer, test_step)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
-        test_step = request.data.pop("step", 0)
+        test_step = self._parse_destination_test_step(request)
 
         batch_export = self.get_object()
 
@@ -1153,22 +1221,4 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
 
-        destination_test = get_destination_test(
-            destination=serializer.validated_data["destination"]["type"],
-        )
-        test_configuration = serializer.validated_data["destination"]["config"]
-
-        # if we have an integration, add its config and sensitive_config to test_configuration
-        integration: Integration | None = serializer.validated_data["destination"].get("integration")
-        if integration:
-            test_configuration = {
-                **test_configuration,
-                **integration.config,
-                **integration.sensitive_config,
-                "integration": integration,
-            }
-
-        destination_test.configure(**test_configuration)
-
-        result = destination_test.run_step(test_step)
-        return response.Response(result.as_dict())
+        return self._run_destination_test_step(serializer, test_step)

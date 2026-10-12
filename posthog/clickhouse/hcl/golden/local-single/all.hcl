@@ -1974,9 +1974,19 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "$group_0" {
       type    = "String"
@@ -3184,8 +3194,17 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
       collection           = "warpstream_ingestion"
@@ -4953,10 +4972,9 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
-      remote_table    = "sharded_log_entries"
-      sharding_key    = "rand()"
+      remote_table    = "log_entries_data"
     }
   }
 
@@ -5031,9 +5049,10 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "aux"
+      cluster_name    = "posthog"
       remote_database = "posthog"
-      remote_table    = "log_entries_data"
+      remote_table    = "sharded_log_entries"
+      sharding_key    = "rand()"
     }
   }
 
@@ -7534,6 +7553,13 @@ SQL
     }
     column "service_name" {
       type = "LowCardinality(String)"
+    }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "metric_type" {
+      type  = "String"
+      alias = "metric_types[1]"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
@@ -11690,9 +11716,19 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "$group_0" {
       type    = "String"
@@ -17562,9 +17598,19 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -17944,6 +17990,9 @@ SQL
     }
     column "service_name" {
       type = "LowCardinality(String)"
+    }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     engine "distributed" {
       cluster_name    = "logs"
@@ -20940,7 +20989,10 @@ SELECT
   distinct_id,
   created_at,
   person_id,
+  if(empty(person_properties), '{}', person_properties) AS person_properties,
+  person_created_at,
   now64() AS inserted_at,
+  person_mode,
   _timestamp,
   _offset,
   _partition
@@ -20971,8 +21023,17 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"
@@ -22355,7 +22416,8 @@ SELECT
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
   maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-  service_name
+  service_name,
+  groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
@@ -22379,6 +22441,9 @@ SQL
     }
     column "service_name" {
       type = "LowCardinality(String)"
+    }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
   }
 

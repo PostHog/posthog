@@ -15,6 +15,8 @@ import type {
     ApplyUtmDefaultsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailDraftApi,
+    EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -68,6 +70,7 @@ import type {
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
+    WorkflowProposalRejectRequestApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -820,7 +823,7 @@ export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) 
 export const hogFlowsOptimizationCreate = async (
     projectId: string,
     id: string,
-    hogFlowOptimizationApi: HogFlowOptimizationApi,
+    hogFlowOptimizationApi: NonReadonly<HogFlowOptimizationApi>,
     options?: RequestInit
 ): Promise<HogFlowOptimizationApi> => {
     return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {
@@ -957,11 +960,14 @@ export const hogFlowsProposalsRejectCreate = async (
     projectId: string,
     id: string,
     proposalId: string,
+    workflowProposalRejectRequestApi?: WorkflowProposalRejectRequestApi,
     options?: RequestInit
 ): Promise<WorkflowProposalApi> => {
     return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsRejectCreateUrl(projectId, id, proposalId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowProposalRejectRequestApi),
     })
 }
 
@@ -1325,6 +1331,27 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getWorkflowEmailDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_drafts/`
+}
+
+/**
+ * Write a first draft of an email to the people an entity points at. A model writes it when the project has AI drafts on and the organization approved AI data processing; otherwise, or when the model fails, the fixed template for the source is returned. Nothing is saved.
+ * @summary Draft an email about an error, feature, survey, flag or cohort
+ */
+export const workflowEmailDraftsCreate = async (
+    projectId: string,
+    emailDraftRequestApi: EmailDraftRequestApi,
+    options?: RequestInit
+): Promise<EmailDraftApi> => {
+    return apiMutator<EmailDraftApi>(getWorkflowEmailDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailDraftRequestApi),
     })
 }
 

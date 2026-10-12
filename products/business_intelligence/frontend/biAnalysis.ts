@@ -2,7 +2,7 @@ import { BIConfig, BIField, BITableCalculation, BIValue } from '~/queries/schema
 import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { biComparisonCategory } from './biComparison'
+import { biComparisonSeries } from './biComparison'
 import { limitBIComparisonQuery } from './biComparisonLimit'
 import { buildBIFilledPeriod, getBIMissingDatesDisabledReason } from './biTimeSeries'
 
@@ -275,9 +275,13 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             dimensions.find((dimension) => ['date', 'datetime'].includes(dimension.field.type)) ??
             input.columns[0] ??
             input.rows[0]
-        const breakdown = dimensions.find((dimension) => dimension !== xDimension)
         select.push(
-            `${breakdown ? `concat(bi_period, ' · ', ${biComparisonCategory(displayed[dimensions.indexOf(breakdown)])})` : 'bi_period'} AS bi_comparison`
+            `${biComparisonSeries(
+                'bi_period',
+                dimensions
+                    .filter((dimension) => dimension !== xDimension)
+                    .map((dimension) => displayed[dimensions.indexOf(dimension)])
+            )} AS bi_comparison`
         )
     }
     let order = input.orderBy

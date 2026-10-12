@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -56,10 +57,19 @@ const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 30_000
 
 type AccountIdFieldKey = (typeof ACCOUNT_ID_FIELDS)[number]['key']
 
-export type AccountEditFormValues = Record<AccountIdFieldKey, string> & {
-    name: string
-    email_domains: string[]
-    known_emails: string[]
+const ACCOUNT_STATUS_DATE_FIELDS = ['churned_at', 'ignored_at'] as const
+
+type AccountStatusDateField = (typeof ACCOUNT_STATUS_DATE_FIELDS)[number]
+
+export type AccountEditFormValues = Record<AccountIdFieldKey, string> &
+    Record<AccountStatusDateField, string | null> & {
+        name: string
+        email_domains: string[]
+        known_emails: string[]
+    }
+
+function isSameStatusDate(left: string | null, right: string | null): boolean {
+    return left === right || (!!left && !!right && dayjs(left).isSame(dayjs(right)))
 }
 
 function getAccountEditFormValues(account: AccountApi | null): AccountEditFormValues {
@@ -72,6 +82,8 @@ function getAccountEditFormValues(account: AccountApi | null): AccountEditFormVa
         stripe_customer_id: account?.properties?.stripe_customer_id ?? '',
         email_domains: account?.properties?.email_domains ?? [],
         known_emails: account?.properties?.known_emails ?? [],
+        churned_at: account?.churned_at ?? null,
+        ignored_at: account?.ignored_at ?? null,
     }
 }
 
@@ -328,6 +340,9 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 const changedListKeys = (['email_domains', 'known_emails'] as const).filter(
                     (key) => !objectsEqual(cleanedLists[key], listCleaners[key](openedValues[key]))
                 )
+                const changedStatusDateKeys = ACCOUNT_STATUS_DATE_FIELDS.filter(
+                    (key) => !isSameStatusDate(formValues[key], openedValues[key])
+                )
                 const changedProperties = {
                     ...Object.fromEntries(changedPropertyKeys.map((key) => [key, formValues[key].trim() || null])),
                     ...Object.fromEntries(changedListKeys.map((key) => [key, cleanedLists[key]])),
@@ -336,13 +351,16 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                     props.projectId,
                     values.account.id,
                     changedProperties as AccountNativePropertyPatch,
-                    name !== openedValues.name ? name : undefined
+                    {
+                        ...(name !== openedValues.name ? { name } : {}),
+                        ...Object.fromEntries(changedStatusDateKeys.map((key) => [key, formValues[key]])),
+                    }
                 )
                 accountPropertyUpdatesLogic.actions.accountUpdated(props.projectId, updatedAccount)
                 actions.loadAccountSuccess(updatedAccount)
                 posthog.capture(AccountsEvents.AccountEdited, {
                     name_changed: name !== openedValues.name,
-                    changed_fields: [...changedPropertyKeys, ...changedListKeys],
+                    changed_fields: [...changedPropertyKeys, ...changedListKeys, ...changedStatusDateKeys],
                 })
             },
         },

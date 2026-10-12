@@ -39,10 +39,12 @@ from hogli_commands.product.isolation import (
     IsolationRung,
     facade_carveout_modules,
     facade_class_imports,
+    facade_function_names,
     facade_model_crossings,
     facade_shape_findings,
     facade_unapproved_wiring,
     has_narrowed_turbo_inputs,
+    has_real_facade,
     permanent_interface_modules,
     routes_in_turbo_inputs,
     uncovered_carveout_modules,
@@ -419,6 +421,76 @@ class TestIsolationChainTurnOn:
         ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         result = chain_check.run(ctx)
         assert not any("inert" in i for i in result.issues)
+
+
+class TestHasRealFacade:
+    @pytest.mark.parametrize(
+        "facade_files, expected_names",
+        [
+            pytest.param({"api.py": "def list_items() -> list[int]:\n    return []\n"}, ["list_items"], id="api_py"),
+            pytest.param(
+                {
+                    "api.py": "from .writes import create_item as create_item\n",
+                    "writes.py": "def create_item() -> None:\n    pass\n",
+                },
+                ["create_item"],
+                id="submodule_with_reexport_only_api",
+            ),
+            pytest.param(
+                {"nested/reads.py": "def get_item() -> None:\n    pass\n"}, ["get_item"], id="nested_submodule"
+            ),
+            pytest.param({"api.py": "from .writes import create_item\n"}, [], id="reexport_only"),
+            pytest.param(
+                {"enums.py": "def label() -> str:\n    return ''\n", "testing.py": "def fake() -> None:\n    pass\n"},
+                [],
+                id="only_contracts_enums_testing",
+            ),
+            pytest.param(
+                {"contracts/widgets.py": "def build_widget() -> None:\n    pass\n"}, [], id="contracts_package"
+            ),
+            pytest.param({"test_api.py": "def test_it() -> None:\n    pass\n"}, [], id="test_module_ignored"),
+        ],
+    )
+    def test_functions_in_any_facade_module(
+        self, tmp_path: Path, facade_files: dict[str, str], expected_names: list[str]
+    ) -> None:
+        _, backend_dir = _write_facade_product(tmp_path, facade_files=facade_files)
+
+        assert facade_function_names(backend_dir) == expected_names
+        assert has_real_facade(backend_dir) is bool(expected_names)
+
+    @pytest.mark.parametrize(
+        "api_source",
+        [
+            pytest.param("from ..logic import run as run\n", id="relative_logic_reexport"),
+            pytest.param("from products.my_product.backend.logic import run as run\n", id="absolute_logic_reexport"),
+            pytest.param(
+                "from products.my_product.backend.facade_legacy import run as run\n", id="facade_prefix_is_not_facade"
+            ),
+        ],
+    )
+    def test_logic_reexport_api_is_a_shim_despite_sibling_helpers(self, tmp_path: Path, api_source: str) -> None:
+        _, backend_dir = _write_facade_product(
+            tmp_path,
+            facade_files={"api.py": api_source, "activity.py": "def model_activity() -> None:\n    pass\n"},
+            sources={"logic.py": "def run() -> None:\n    pass\n"},
+        )
+
+        assert has_real_facade(backend_dir) is False
+
+    def test_type_checking_import_does_not_make_a_shim(self, tmp_path: Path) -> None:
+        api_source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from ..logic import Thing\n"
+            "from .reads import get_thing as get_thing\n"
+        )
+        _, backend_dir = _write_facade_product(
+            tmp_path,
+            facade_files={"api.py": api_source, "reads.py": "def get_thing() -> None:\n    pass\n"},
+        )
+
+        assert has_real_facade(backend_dir) is True
 
 
 class TestIsolationRung:
@@ -1256,6 +1328,12 @@ class TestProductYamlCheck:
         ctx = _make_yaml_ctx(tmp_path, "name: 42\nowners:\n  - team-foo\n")
         result = yaml_check.run(ctx)
         assert any("missing 'name'" in i for i in result.issues)
+
+    @pytest.mark.parametrize("value,valid", [("true", True), ("false", True), ("'true'", False), ("yes please", False)])
+    def test_sensitive_must_be_boolean(self, tmp_path: Path, value: str, valid: bool) -> None:
+        ctx = _make_yaml_ctx(tmp_path, f"name: My product\nowners:\n  - team-foo\nsensitive: {value}\n")
+        result = yaml_check.run(ctx)
+        assert (not result.issues) is valid, result.issues
 
 
 class TestProductYamlOwnersCheck:

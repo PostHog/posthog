@@ -259,6 +259,8 @@ class Pipeline:
         self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
+        # Empty until an LLM reviewer starts, so a gate-only verdict names no engine.
+        self.reviewer_engine = ""
         self.final_verdict: str = ""
 
     def run(self) -> str:
@@ -447,11 +449,13 @@ class Pipeline:
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+        denied_before_exemptions = len(deny)
         deny = [
             category
             for category in deny
             if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
         ]
+        owner_exempted = len(deny) < denied_before_exemptions
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -463,8 +467,15 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
-        is_test = test_only(categories)
+        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
+        # so without this it rides the allow-list to a T0 approval with no reviewer.
+        allow_only = (
+            is_allow_listed_only(file_paths)
+            and not has_dependency_changes(file_paths)
+            and not dep_manifests
+            and not owner_exempted
+        )
+        is_test = test_only(categories) and not owner_exempted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -928,8 +939,9 @@ class Pipeline:
         raise AssertionError("review retry loop exhausted without a verdict")
 
     def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        self.reviewer_engine = reviewer_engine()
         # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
-        if reviewer_engine() == CLAUDE_ENGINE:
+        if self.reviewer_engine == CLAUDE_ENGINE:
             from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
 
             return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
@@ -1052,7 +1064,7 @@ class Pipeline:
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
                 "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
-                "stamphog_reviewer_engine": reviewer_engine(),
+                "stamphog_reviewer_engine": self.reviewer_engine,
                 **_llm_usage_properties(self.reviewer_output),
             },
         )

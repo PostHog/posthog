@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.b
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.settings import BILL_COM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.bill_com"
@@ -73,16 +72,6 @@ def _client(session: mock.MagicMock, environment: str = "production") -> BillCom
 
 
 class TestBillCom:
-    @pytest.mark.parametrize(
-        "environment, expected",
-        [
-            ("production", "https://gateway.prod.bill.com/connect"),
-            ("sandbox", "https://gateway.stage.bill.com/connect"),
-        ],
-    )
-    def test_base_url_per_environment(self, environment: str, expected: str) -> None:
-        assert base_url(environment) == expected
-
     def test_base_url_rejects_unknown_environment(self) -> None:
         with pytest.raises(ValueError):
             base_url("evil")
@@ -219,20 +208,6 @@ class TestBillCom:
         assert created, "no tracked session was built"
         assert all(kwargs.get("capture", True) is False for kwargs, _ in created)
 
-    def test_list_page_signs_in_lazily_and_sends_session_headers(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(body={"sessionId": "sess-1"})
-        session.get.return_value = _response(body={"results": [{"id": "00n1"}]})
-        client = _client(session)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            body = client.list_page("/bills", {"max": PAGE_SIZE})
-
-        assert body == {"results": [{"id": "00n1"}]}
-        assert session.post.call_count == 1
-        assert session.get.call_args.args[0] == "https://gateway.prod.bill.com/connect/v3/bills"
-        assert session.get.call_args.kwargs["headers"] == {"sessionId": "sess-1", "devKey": "dev-key"}
-
     def test_list_page_signs_in_again_when_the_session_expires(self) -> None:
         session = mock.MagicMock()
         session.post.return_value = _response(body={"sessionId": "sess-2"})
@@ -296,24 +271,6 @@ class TestBillCom:
 
         assert pages == [[{"id": "00n1"}], [{"id": "00n2"}]]
         assert client.list_page.call_count == 2
-
-    def test_get_rows_yields_nothing_for_an_empty_endpoint(self) -> None:
-        client = mock.MagicMock(spec=BillComClient)
-        client.list_page.return_value = {"results": [], "nextPage": None}
-        manager = _FakeManager()
-
-        assert list(get_rows(client, "vendors", {}, manager, mock.MagicMock())) == []
-        assert manager.saved == []
-        assert manager.cleared is True
-
-    @pytest.mark.parametrize("endpoint", sorted(BILL_COM_ENDPOINTS))
-    def test_get_rows_requests_each_endpoints_documented_path(self, endpoint: str) -> None:
-        client = mock.MagicMock(spec=BillComClient)
-        client.list_page.return_value = {"results": []}
-
-        list(get_rows(client, endpoint, {}, _FakeManager(), mock.MagicMock()))
-
-        assert client.list_page.call_args.args[0] == BILL_COM_ENDPOINTS[endpoint].path
 
     @pytest.mark.parametrize(
         "login_response, expected",

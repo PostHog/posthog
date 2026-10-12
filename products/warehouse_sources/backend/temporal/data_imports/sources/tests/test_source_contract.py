@@ -25,7 +25,10 @@ import tenacity
 from urllib3.util.retry import Retry
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    NO_REQUEST_TIMEOUT,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -41,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tests.cont
     STALL_BUDGET,
     TIMEOUT,
     Scenario,
+    ScenarioResponder,
     SourceStatus,
     StartExtraction,
     check_extraction,
@@ -204,7 +208,7 @@ def _bespoke(
 
 DETECTION_CASES = [
     ("bounded_call_with_a_safe_point_per_page_passes", _bespoke(safe_point=True), set()),
-    ("request_with_no_timeout", _bespoke(timeout=None, safe_point=True), {TIMEOUT}),
+    ("request_with_no_timeout", _bespoke(timeout=NO_REQUEST_TIMEOUT, safe_point=True), {TIMEOUT}),
     ("request_with_no_read_timeout", _bespoke(timeout=(10, None), safe_point=True), {TIMEOUT}),
     ("retries_that_pass_the_budget", _bespoke(attempts=20, safe_point=True), {STALL_BUDGET}),
     ("retries_inside_the_budget_pass", _bespoke(attempts=5, safe_point=True), set()),
@@ -235,7 +239,7 @@ def test_retry_waits_reach_the_fake_clock_after_a_test_replaced_them(monkeypatch
     # verdict of a source must not depend on whether such a test ran earlier in the same process.
     controller = cast(Any, _retried_call).retry
     monkeypatch.setattr(controller, "sleep", lambda *_: None)
-    with fake_environment(Scenario(mode="stall")):
+    with fake_environment(ScenarioResponder(Scenario(mode="stall"))):
         assert controller.sleep is time.sleep
     assert controller.sleep is not time.sleep
 

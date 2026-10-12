@@ -25,6 +25,16 @@ The first batch of the next fresh run restores the table to that version when th
 A resumed attempt keeps the rows of the attempt before it.
 The restore covers the PostHog warehouse table only, not an external destination.
 
+## Incremental runs that load a table from empty
+
+An incremental run merges each batch on the primary key.
+A first sync and a reset are different: the table is empty, so the first batch overwrites the table and the later batches append.
+A merge into such a table finds no row to update, but it must read the key columns of each file to prove that.
+An attempt that loads this way and reads the source from the start records itself in `sync_type_config["table_rebuild_run_uuid"]` (`pipeline_v3/table_rebuild.py`).
+A later attempt of the same workflow run that also reads from the start loads the same way, and the loader skips the batches of the attempt that it replaced.
+An attempt that continues from a cursor merges, because it can read a row again that an earlier attempt already queued.
+The append keeps one row for each key in a batch, not in the run: a key that the source holds in two batches stays twice until a later run merges that key.
+
 ## Destinations
 
 A schema syncs to a set of destinations, of which the PostHog warehouse is one rather than a special case.

@@ -1645,6 +1645,122 @@ class TestBatchPhaseReports:
         assert _post_load_summary(mock_logger)["phase_names"] == ["job_completion", "post_import_trigger"]
 
 
+_WORKFLOW_RUN = "0190aaaa-0000-7000-8000-000000000001"
+
+
+class TestTableRebuildLoad:
+    # Batches of 3 keys each. `_SOURCE_REPEATS_A_KEY` holds key 4 in two batches.
+    _SOURCE = [{"id": [1, 2, 3]}, {"id": [4, 5, 6]}, {"id": [7, 8, 9]}]
+    _SOURCE_REPEATS_A_KEY = [{"id": [1, 2, 3]}, {"id": [4, 5, 6]}, {"id": [4, 8, 9]}]
+
+    @staticmethod
+    def _rows(run_uuid: str, index: int, ids: list[int]) -> pa.Table:
+        return pa.table({"id": ids, "name": [f"{run_uuid[-2:]}_b{index}_{row_id}" for row_id in ids]})
+
+    @contextmanager
+    def _loader(self, table_path: str, batches: dict[str, pa.Table], config: dict[str, Any]) -> Iterator[None]:
+        def local_ref(**kwargs: Any) -> DeltaTableRef:
+            ref = make_local_table_ref(table_path)
+            ref._is_first_sync = kwargs["is_first_sync"]
+            return ref
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(patch(f"{_PROCESSOR}.read_parquet", side_effect=lambda path: batches[path]))
+            stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=local_ref))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job = MagicMock()
+            job.schema.sync_type_config = config
+            job_model.objects.prefetch_related.return_value.get.return_value = job
+            yield
+
+    def _load(
+        self,
+        table_path: str,
+        attempt: int,
+        source: list[dict[str, list[int]]],
+        *,
+        rebuild: bool,
+        indexes: list[int] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        run_uuid = f"{_WORKFLOW_RUN}-a{attempt}"
+        batches = {
+            f"s3://bucket/{run_uuid}/{index}": self._rows(run_uuid, index, rows["id"])
+            for index, rows in enumerate(source)
+        }
+        with self._loader(table_path, batches, config if config is not None else {}):
+            for index in indexes if indexes is not None else range(len(source)):
+                process_message(
+                    _message(
+                        run_uuid=run_uuid,
+                        batch_index=index,
+                        s3_path=f"s3://bucket/{run_uuid}/{index}",
+                        is_first_ever_sync=rebuild,
+                    )
+                )
+
+    @staticmethod
+    def _table_rows(table_path: str) -> list[tuple[int, str]]:
+        rows = DeltaTable(table_path).to_pyarrow_table().to_pydict()
+        return sorted(zip(rows["id"], rows["name"]))
+
+    @parameterized.expand(
+        [
+            ("one_attempt", []),
+            ("an_attempt_replaced_after_two_batches", [0, 1]),
+            ("an_attempt_replaced_before_its_first_batch_loads", []),
+        ]
+    )
+    def test_a_rebuild_gives_the_table_that_a_merge_of_each_batch_gives(
+        self, case: str, first_attempt_batches: list[int]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rebuilt, merged = f"{tmp}/rebuilt", f"{tmp}/merged"
+            last_attempt = 1 if case == "one_attempt" else 2
+            config: dict[str, Any] = {}
+
+            if last_attempt == 2:
+                self._load(rebuilt, 1, self._SOURCE, rebuild=True, indexes=first_attempt_batches, config=config)
+                config["table_rebuild_run_uuid"] = f"{_WORKFLOW_RUN}-a2"
+            self._load(rebuilt, last_attempt, self._SOURCE, rebuild=True, indexes=[0, 1], config=config)
+            if last_attempt == 2:
+                # A batch of the first attempt that the loader takes after the second attempt started.
+                self._load(rebuilt, 1, self._SOURCE, rebuild=True, indexes=[2], config=config)
+            self._load(rebuilt, last_attempt, self._SOURCE, rebuild=True, indexes=[2], config=config)
+
+            self._load(merged, last_attempt, self._SOURCE, rebuild=False)
+
+            assert len(self._table_rows(rebuilt)) == 9
+            assert self._table_rows(rebuilt) == self._table_rows(merged)
+            operations = [commit["operation"] for commit in DeltaTable(rebuilt).history()]
+            assert "MERGE" not in operations
+
+    def test_a_run_after_the_rebuild_merges_on_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._load(tmp, 1, self._SOURCE, rebuild=True)
+            later = pa.table({"id": [9, 10], "name": ["later_9", "later_10"]})
+            with self._loader(tmp, {"s3://bucket/later/0": later}, {"table_rebuild_run_uuid": f"{_WORKFLOW_RUN}-a1"}):
+                process_message(_message(run_uuid="0190bbbb-a1", batch_index=0, s3_path="s3://bucket/later/0"))
+
+            rows = dict(self._table_rows(tmp))
+            assert len(self._table_rows(tmp)) == 10
+            assert (rows[9], rows[10]) == ("later_9", "later_10")
+
+    def test_a_key_that_the_source_holds_twice_stays_twice_until_a_later_run_merges_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._load(tmp, 1, self._SOURCE_REPEATS_A_KEY, rebuild=True)
+            assert [name for row_id, name in self._table_rows(tmp) if row_id == 4] == ["a1_b1_4", "a1_b2_4"]
+
+            later = pa.table({"id": [4], "name": ["later_4"]})
+            with self._loader(tmp, {"s3://bucket/later/0": later}, {}):
+                process_message(_message(run_uuid="0190bbbb-a1", batch_index=0, s3_path="s3://bucket/later/0"))
+
+            assert [name for row_id, name in self._table_rows(tmp) if row_id == 4] == ["later_4"]
+
+
 def _batch_rows(index: int) -> pa.Table:
     # Each batch updates one row of the batch before it and adds two rows.
     ids = [index * 2, index * 2 + 1, index * 2 + 2]

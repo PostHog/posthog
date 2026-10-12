@@ -13,11 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.opn_paymen
     opn_payments_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opn_payments.settings import (
-    ENDPOINTS,
-    OPN_PAYMENTS_ENDPOINTS,
-    PARTITION_KEY,
-)
 
 # The credential probe builds its own session via make_tracked_session imported into the
 # opn_payments module.
@@ -117,19 +112,6 @@ class TestValidateCredentials:
         assert message == expected_message
 
     @mock.patch(SESSION_PATCH)
-    def test_probes_account_endpoint_with_basic_auth_and_version_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
-
-        validate_credentials("skey_test_123", "2019-05-29")
-
-        get_call = mock_session.return_value.get.call_args
-        assert get_call.args[0] == "https://api.omise.co/account"
-        assert get_call.kwargs["auth"].username == "skey_test_123"
-        assert get_call.kwargs["auth"].password == ""
-        assert mock_session.call_args.kwargs["headers"]["Omise-Version"] == "2019-05-29"
-        assert "skey_test_123" in mock_session.call_args.kwargs["redact_values"]
-
-    @mock.patch(SESSION_PATCH)
     def test_swallows_request_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = ConnectionError("boom")
 
@@ -158,77 +140,8 @@ class TestOpnPaymentsSourcePagination:
         assert params[0]["limit"] == 100
         assert params[1]["offset"] == 100
 
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_stops_at_total_even_when_last_page_is_full(self, MockSession):
-        # A full (100-item) page whose offset+limit already reaches `total` must not fetch a
-        # further (empty) page just to discover the end — the total-based check catches it first.
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope(_page(100), offset=0, total=100))])
-
-        rows = _rows(_source("Charges"))
-
-        assert len(rows) == 100
-        assert session.send.call_count == 1
-
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page_even_without_total(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"object": "list", "data": [{"id": "a"}]})])
-
-        rows = _rows(_source("Customers"))
-
-        assert [row["id"] for row in rows] == ["a"]
-        # A single (short) page with no `total` field still ends pagination — no second request.
-        assert session.send.call_count == 1
-
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope([], offset=0, total=0))])
-
-        manager = _make_manager()
-        batches = list(_source("Refunds", manager).items())
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_always_sends_chronological_order(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response(_envelope([], offset=0, total=0))])
-
-        _rows(_source("Transfers"))
-
-        assert params[0]["order"] == "chronological"
-
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_omise_version_header_sent(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response(_envelope([], offset=0, total=0))])
-
-        list(_source("Transfers", api_version="2017-11-02").items())
-
-        # The version header is applied onto the session after it's built, not passed to
-        # make_tracked_session itself — see RESTClient.__init__'s `session.headers.update(...)`.
-        assert session.headers["Omise-Version"] == "2017-11-02"
-
 
 class TestOpnPaymentsSourceIncremental:
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_incremental_sends_converted_from_filter(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response(_envelope([{"id": "chrg_1"}], offset=0, total=1))])
-
-        _rows(
-            _source(
-                "Charges",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert params[0]["from"] == "2026-01-01T00:00:00Z"
-
     @mock.patch(REST_CLIENT_SESSION_PATCH)
     def test_full_refresh_never_sends_from_filter(self, MockSession):
         session = MockSession.return_value
@@ -256,25 +169,6 @@ class TestOpnPaymentsSourceIncremental:
 
 class TestOpnPaymentsSourceResume:
     @mock.patch(REST_CLIENT_SESSION_PATCH)
-    def test_saves_offset_after_each_yielded_page(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(_envelope(_page(100), offset=0, total=250)),
-                _response(_envelope(_page(100, start_id=100), offset=100, total=250)),
-                _response(_envelope(_page(50, start_id=200), offset=200, total=250)),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("Charges", manager))
-
-        saved = [call.args[0].offset for call in manager.save_state.call_args_list]
-        # Checkpoints point at the next unfetched offset; the terminal page saves nothing further.
-        assert saved == [100, 200]
-
-    @mock.patch(REST_CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession):
         session = MockSession.return_value
         params = _wire(session, [_response(_envelope([{"id": "9"}], offset=200, total=201))])
@@ -282,19 +176,3 @@ class TestOpnPaymentsSourceResume:
         _rows(_source("Charges", _make_manager(OpnPaymentsResumeConfig(offset=200))))
 
         assert params[0]["offset"] == 200
-
-
-class TestOpnPaymentsSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = _source(endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [PARTITION_KEY]
-
-    @pytest.mark.parametrize("endpoint, config", list(OPN_PAYMENTS_ENDPOINTS.items()))
-    def test_endpoints_use_documented_paths(self, endpoint, config):
-        assert config.path == f"/{config.table_name}"

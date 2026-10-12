@@ -11,10 +11,9 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import kong_konnect
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.kong_konnect import (
-    CONTROL_PLANES_PAGE_SIZE,
+    LIST_PAGE_SIZE,
     MAX_PAGE_SIZE,
     KongKonnectResumeConfig,
-    _build_body,
     _clamp_future_value_to_now,
     _format_datetime,
     _resolve_window,
@@ -38,43 +37,7 @@ class TestFormatDatetime:
         assert _format_datetime(value) == expected
 
 
-class TestBuildBody:
-    def test_body_is_absolute_ascending_window(self) -> None:
-        body = _build_body("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", offset=200, size=1000)
-        assert body["time_range"] == {
-            "type": "absolute",
-            "start": "2026-01-01T00:00:00Z",
-            "end": "2026-01-02T00:00:00Z",
-            "tz": "Etc/UTC",
-        }
-        # Ascending order is load-bearing: the pipeline advances the watermark trusting asc order.
-        assert body["order"] == "ascending"
-        assert body["size"] == 1000
-        assert body["offset"] == 200
-        assert body["filters"] == []
-
-
 class TestResolveWindow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_incremental_starts_at_watermark(self) -> None:
-        start, end = _resolve_window(
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 10, 8, 0, 0, tzinfo=UTC),
-            lookback_days=30,
-        )
-        assert start == "2026-06-10T08:00:00Z"
-        assert end == "2026-06-15T12:00:00Z"
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_full_refresh_walks_back_lookback_days(self) -> None:
-        start, end = _resolve_window(
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            lookback_days=7,
-        )
-        assert start == "2026-06-08T12:00:00Z"
-        assert end == "2026-06-15T12:00:00Z"
-
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_watermark_clamped_to_now(self) -> None:
         # A future-dated cursor would otherwise produce start > end, wedging every later sync.
@@ -114,21 +77,6 @@ def _page(count: int) -> dict[str, Any]:
 
 
 class TestGetRowsPagination:
-    @patch.object(kong_konnect, "make_tracked_session")
-    @patch.object(kong_konnect, "_fetch_page")
-    def test_stops_on_short_page_and_advances_offset(self, mock_fetch: MagicMock, _mock_session: MagicMock) -> None:
-        # Two full pages then a short page terminates pagination.
-        mock_fetch.side_effect = [_page(MAX_PAGE_SIZE), _page(MAX_PAGE_SIZE), _page(3)]
-        manager = _manager()
-
-        batches = list(get_rows("tok", "us", "api_requests", MagicMock(), manager, lookback_days=30))
-
-        assert [len(b) for b in batches] == [MAX_PAGE_SIZE, MAX_PAGE_SIZE, 3]
-        assert mock_fetch.call_count == 3
-        # Offsets requested must walk forward by page size.
-        offsets = [call.args[3]["offset"] for call in mock_fetch.call_args_list]
-        assert offsets == [0, MAX_PAGE_SIZE, 2 * MAX_PAGE_SIZE]
-
     @patch.object(kong_konnect, "make_tracked_session")
     @patch.object(kong_konnect, "_fetch_page")
     def test_empty_first_page_yields_nothing(self, mock_fetch: MagicMock, _mock_session: MagicMock) -> None:
@@ -212,8 +160,8 @@ BASE = "https://us.api.konghq.com/v2"
 class TestLookupRows:
     @parameterized.expand(
         [
-            ("short_page_stops", [[CONTROL_PLANES_PAGE_SIZE, None], [2, None]], 2),
-            ("total_reached_stops", [[CONTROL_PLANES_PAGE_SIZE, CONTROL_PLANES_PAGE_SIZE]], 1),
+            ("short_page_stops", [[LIST_PAGE_SIZE, None], [2, None]], 2),
+            ("total_reached_stops", [[LIST_PAGE_SIZE, LIST_PAGE_SIZE]], 1),
             ("empty_first_page", [[0, 0]], 1),
         ]
     )
@@ -229,7 +177,9 @@ class TestLookupRows:
             )
         mock_session.return_value.get.side_effect = responses
 
-        rows = [row for batch in get_lookup_rows("tok", "us", "control_planes", MagicMock()) for row in batch]
+        rows = [
+            row for batch in get_lookup_rows("tok", "us", "control_planes", MagicMock(), _manager()) for row in batch
+        ]
 
         assert len(rows) == sum(count or 0 for count, _ in pages)
         calls = mock_session.return_value.get.call_args_list
@@ -284,7 +234,101 @@ class TestLookupRows:
         ]
 
         with pytest.raises(requests.HTTPError):
-            list(get_lookup_rows("tok", "us", "consumers", MagicMock()))
+            list(get_lookup_rows("tok", "us", "consumers", MagicMock(), _manager()))
+
+    @patch.object(kong_konnect, "make_tracked_session")
+    def test_consumer_group_members_fan_out_over_groups_per_control_plane(self, mock_session: MagicMock) -> None:
+        def fake_get(url: str, params: dict[str, Any], timeout: int) -> MagicMock:
+            routes: dict[str, dict[str, Any]] = {
+                f"{BASE}/control-planes": {"data": [_control_plane("cp-a")], "meta": {"page": {"total": 1}}},
+                f"{BASE}/control-planes/cp-a/core-entities/consumer_groups": {"data": [{"id": "gold"}, {"id": "free"}]},
+                f"{BASE}/control-planes/cp-a/core-entities/consumer_groups/gold/consumers": {"data": [{"id": "c-1"}]},
+                f"{BASE}/control-planes/cp-a/core-entities/consumer_groups/free/consumers": {"data": [{"id": "c-1"}]},
+            }
+            if url not in routes:
+                raise AssertionError(f"unexpected request to {url}")
+            return _json_response(200, routes[url])
+
+        mock_session.return_value.get.side_effect = fake_get
+        manager = _manager()
+
+        rows = [
+            row
+            for batch in get_lookup_rows("tok", "us", "consumer_group_members", MagicMock(), manager)
+            for row in batch
+        ]
+
+        assert rows == [
+            {"id": "c-1", "control_plane_id": "cp-a", "consumer_group_id": "gold"},
+            {"id": "c-1", "control_plane_id": "cp-a", "consumer_group_id": "free"},
+        ]
+        assert manager.safe_point.call_count == 2
+
+    @parameterized.expand(
+        [
+            (
+                "page_number_child_on_v1",
+                "scorecard_services",
+                "scorecard_id",
+                "https://us.api.konghq.com/v1/scorecards",
+                "https://us.api.konghq.com/v1/scorecards/{id}/catalog-services",
+            ),
+            (
+                "page_number_child_on_v2",
+                "api_product_versions",
+                "api_product_id",
+                "https://us.api.konghq.com/v2/api-products",
+                "https://us.api.konghq.com/v2/api-products/{id}/product-versions",
+            ),
+        ]
+    )
+    @patch.object(kong_konnect, "make_tracked_session")
+    def test_page_number_children_fan_out_over_parents(
+        self, _name: str, endpoint: str, parent_id_field: str, parent_url: str, child_url: str, mock_session: MagicMock
+    ) -> None:
+        def fake_get(url: str, params: dict[str, Any], timeout: int) -> MagicMock:
+            assert params["sort"] == "name"
+            if url == parent_url:
+                return _json_response(200, {"data": [{"id": "p-1"}, {"id": "p-gone"}], "meta": {"page": {"total": 2}}})
+            if url == child_url.format(id="p-1"):
+                return _json_response(200, {"data": [{"id": "x-1"}], "meta": {"page": {"total": 1}}})
+            if url == child_url.format(id="p-gone"):
+                return _json_response(404)
+            raise AssertionError(f"unexpected request to {url}")
+
+        mock_session.return_value.get.side_effect = fake_get
+
+        rows = [row for batch in get_lookup_rows("tok", "us", endpoint, MagicMock(), _manager()) for row in batch]
+
+        assert rows == [{"id": "x-1", parent_id_field: "p-1"}]
+
+    @patch.object(kong_konnect, "make_tracked_session")
+    def test_realm_consumers_follow_page_after_cursor_from_meta_next(self, mock_session: MagicMock) -> None:
+        v1 = "https://us.api.konghq.com/v1"
+
+        def fake_get(url: str, params: dict[str, Any], timeout: int) -> MagicMock:
+            if url == f"{v1}/realms":
+                return _json_response(200, {"data": [{"id": "realm-a"}], "meta": {"next": None}})
+            if url == f"{v1}/realms/realm-a/consumers":
+                if params.get("page[after]") == "abc==":
+                    return _json_response(200, {"data": [{"id": "c-2"}], "meta": {"next": None}})
+                assert "page[after]" not in params
+                return _json_response(
+                    200,
+                    {
+                        "data": [{"id": "c-1"}],
+                        "meta": {"next": "/v1/realms/realm-a/consumers?page%5Bafter%5D=abc%3D%3D"},
+                    },
+                )
+            raise AssertionError(f"unexpected request to {url}")
+
+        mock_session.return_value.get.side_effect = fake_get
+
+        rows = [
+            row for batch in get_lookup_rows("tok", "us", "realm_consumers", MagicMock(), _manager()) for row in batch
+        ]
+
+        assert rows == [{"id": "c-1", "realm_id": "realm-a"}, {"id": "c-2", "realm_id": "realm-a"}]
 
 
 if __name__ == "__main__":

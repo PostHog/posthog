@@ -6,6 +6,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 
 from collections.abc import Collection, Sequence
 from datetime import datetime
+from typing import Final
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
@@ -283,10 +284,18 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     return len(configurations)
 
 
+_CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
+
+
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
+
+    `next_check_at` is copied into a new row, into a disabled copy, into a copy with no schedule
+    yet, and into a copy whose cadence this run changes. Otherwise the platform owns its schedule: a source can park its own next
+    check, for example at the end of quiet hours, and copying that would skip checks the platform
+    still runs.
 
     The recurrence is checked here rather than where the schedule advances, because an
     unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
@@ -296,23 +305,36 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
 
     with transaction.atomic():
+        existing = (
+            PlatformAlertConfiguration.objects.unscoped()
+            .select_for_update()
+            .filter(legacy_configuration_id=upsert.legacy_configuration_id)
+            .values("enabled", "next_check_at", *_CADENCE_FIELDS)
+            .first()
+        )
+        defaults = {
+            "team_id": upsert.team_id,
+            "name": upsert.name,
+            "enabled": upsert.enabled,
+            "source_kind": upsert.source_kind.value,
+            "source_config": upsert.source_config,
+            "check_interval_minutes": upsert.check_interval_minutes,
+            "recurrence_unit": upsert.recurrence_unit,
+            "anchor_time": anchor_time,
+            "evaluation_periods": upsert.evaluation_periods,
+            "datapoints_to_alarm": upsert.datapoints_to_alarm,
+            "cooldown_minutes": upsert.cooldown_minutes,
+            "schedule_restriction": upsert.schedule_restriction,
+        }
+        if (
+            existing is None
+            or not existing["enabled"]
+            or existing["next_check_at"] is None
+            or any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
+        ):
+            defaults["next_check_at"] = upsert.next_check_at
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
-            legacy_configuration_id=upsert.legacy_configuration_id,
-            defaults={
-                "team_id": upsert.team_id,
-                "name": upsert.name,
-                "enabled": upsert.enabled,
-                "source_kind": upsert.source_kind.value,
-                "source_config": upsert.source_config,
-                "check_interval_minutes": upsert.check_interval_minutes,
-                "recurrence_unit": upsert.recurrence_unit,
-                "anchor_time": anchor_time,
-                "evaluation_periods": upsert.evaluation_periods,
-                "datapoints_to_alarm": upsert.datapoints_to_alarm,
-                "cooldown_minutes": upsert.cooldown_minutes,
-                "schedule_restriction": upsert.schedule_restriction,
-                "next_check_at": upsert.next_check_at,
-            },
+            legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
         # State is left alone because a muted alert keeps tracking reality.

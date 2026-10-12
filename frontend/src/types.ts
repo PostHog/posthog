@@ -42,6 +42,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 import type {
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
+    OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -87,6 +88,7 @@ import { QueryContext } from '~/queries/types'
 
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
+import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -99,7 +101,10 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentFeatureFlagInputApi,
+    ExperimentHealthApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -108,6 +113,7 @@ import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.s
 import type {
     ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
+    RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -609,7 +615,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[]
+    teams: (TeamBasicType & Partial<Pick<OrganizationTeamBasicApi, 'project_group'>>)[]
     projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
@@ -941,6 +947,10 @@ export interface WorkflowsConfig {
     // Optional so cached team objects from before these fields shipped still typecheck.
     email_utm_tags_enabled?: boolean
     email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
+    default_email_integration_id?: number | null
+    // Null on either disables the marketing frequency cap.
+    marketing_frequency_cap_max_messages?: number | null
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -1140,6 +1150,7 @@ export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
     Settings = 'settings',
+    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -1777,9 +1788,11 @@ export interface PersonListParams {
 export type SearchableEntity =
     | 'action'
     | 'cohort'
+    | 'data_warehouse_view'
     | 'insight'
     | 'dashboard'
     | 'early_access_feature'
+    | 'endpoint'
     | 'event_definition'
     | 'experiment'
     | 'feature_flag'
@@ -1884,7 +1897,7 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Synced with `posthog/models/property.py`
+// Synced with `posthog/models/property/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
     key: string
@@ -2407,6 +2420,8 @@ export interface BillingProductV2Type {
     included_with_main_product?: boolean
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
+    // Billing refuses a customer billing limit for this product and returns no limit for it.
+    no_billing_limit?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -2607,7 +2622,11 @@ export interface DashboardTile extends Tileable {
     filters_overrides?: TileFilters
     show_description?: boolean | null
     transparent_background?: boolean | null
+    group_key?: string | null
+    badge?: TileBadge | null
 }
+
+export type TileBadge = 'winner' | 'cheeky-hog'
 
 export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
 
@@ -2802,6 +2821,7 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+        group_titles?: Record<string, string>
     }
 }
 
@@ -3131,6 +3151,7 @@ export enum ChartDisplayType {
     Metric = 'Metric',
     ActionsPie = 'ActionsPie',
     ActionsDonut = 'ActionsDonut',
+    ActionsProportionBar = 'ActionsProportionBar',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
@@ -3655,7 +3676,6 @@ export interface FunnelConversionWindow {
     funnelWindowInterval?: number
 }
 
-// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
     Second = 'second',
     Minute = 'minute',
@@ -4741,7 +4761,7 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
-// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
+// Keep in sync with products/feature_flags/backend/models/scheduled_change.py RecurrenceInterval
 export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',
@@ -4862,8 +4882,6 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
-    /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
-    ai_gateway_url?: string | null
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
     object_storage: boolean
@@ -5191,6 +5209,8 @@ export interface Experiment {
     is_legacy?: boolean
     /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
+    /** Server-computed health check findings. Null for people without the health findings flag, absent on locally-constructed experiments. */
+    health?: ExperimentHealthApi | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5754,7 +5774,7 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 
 // Canonical bot scopes PostHog requests during the Slack OAuth install flow. Single source of
 // truth for both the frontend (app-manifest snippet + IntegrationView scope-mismatch banner)
-// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration.py, via posthog/schema.py).
+// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration/oauth.py, via posthog/schema.py).
 // Widening this list will surface the "Required scopes are missing" banner for any workspace
 // authorized before the change.
 //
@@ -5793,7 +5813,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // Nothing is pending Slack app-directory review right now, so there is no in-review list.
 // To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
 // enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration.py) and `useSlackRequiredScopes` append it on
+// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
 // DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
 // The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
 // `hogli build:schema` fails on it.
@@ -6229,6 +6249,9 @@ export enum ActivityScope {
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
     STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
+    REVIEW_REPOSITORY = 'ReviewRepository',
+    REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
+    REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
 }
 
 export type CommentType = {
@@ -6518,6 +6541,7 @@ export interface ExternalDataSource {
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    connection_warning?: string | null
 }
 
 export interface ExternalDataSourceApiVersionDeprecation {
@@ -6723,6 +6747,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
      */
     row_filters?: RowFilter[] | null
+    /** Columns a row filter may use; null means any column in `available_columns`. */
+    row_filter_columns?: readonly RowFilterColumnApi[] | null
     /** User-managed vendor API version override; null syncs on the source's pinned version */
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
@@ -7000,8 +7026,6 @@ export type DataWarehouseSyncInterval =
 export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
-    // User provided data for the export. This is the data that the user
-    // provides when creating the export.
     id: string
     team_id: number
     name: string
@@ -7015,6 +7039,8 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    hogql_query?: BatchExportApi['hogql_query']
+    hogql_modifiers?: BatchExportApi['hogql_modifiers']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
@@ -7509,6 +7535,8 @@ export type HogFunctionConfigurationContextId =
     | 'batch-export-alerts'
     | 'billing-alerts'
     | 'replay-vision-alerts'
+    | 'data-warehouse-alerts'
+    | 'replay-vision-requests'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7530,6 +7558,11 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-firing'
     | 'health-check-resolved'
     | 'batch-export-run-failed'
+    | 'data-warehouse-sync-failed'
+    | 'data-warehouse-sync-recovered'
+    | 'data-warehouse-sync-completed'
+    | 'data-warehouse-billing-limit-reached'
+    | 'replay-vision-request-completed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -7924,9 +7957,9 @@ export interface ProductManifest {
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
     /**
-     * Boot-time setup-status probe for this product's empty state. Aggregated across
+     * Setup-status probe for this product's empty state. Aggregated across
      * manifests into `productSetupProbes` and answered by one property-definition
-     * request at app boot (see `productSetupPreloadLogic`).
+     * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }
@@ -8115,7 +8148,6 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
-    AI_REPORTS = 'ai_reports',
 }
 
 // Managed viewset

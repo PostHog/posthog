@@ -39,6 +39,7 @@ export function BIMeasureAnalysis({ index }: { index: number }): JSX.Element {
                         size="xsmall"
                         fullWidth
                         aria-label="Compute using"
+                        tooltip="Traverse this dimension in ascending order. Other dimensions define separate groups; Entire table uses one group."
                         value={calculation.computeUsing ?? null}
                         options={[
                             { value: null, label: 'Automatic (date first)' },
@@ -90,7 +91,7 @@ export function BIMeasureAnalysis({ index }: { index: number }): JSX.Element {
                         </>
                     ) : null}
                     <span className="text-xs text-secondary">
-                        Ascending order.{' '}
+                        Calculated after aggregation, before the result limit. Ascending order.{' '}
                         {missingDates === 'zero'
                             ? 'Empty date buckets contribute zero.'
                             : missingDates === 'gap'

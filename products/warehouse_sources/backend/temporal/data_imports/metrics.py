@@ -3,7 +3,7 @@ import datetime as dt
 from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
-from temporalio.common import MetricCounter, MetricHistogram
+from temporalio.common import MetricCounter, MetricHistogram, MetricHistogramFloat
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -132,6 +132,44 @@ def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogr
         .create_histogram(
             "warehouse_import_handoffs_per_run",
             "Worker-shutdown hand-offs of the import activity in one workflow run.",
+        )
+    )
+
+
+def get_import_preempted_metric(source_type: str | None, reason: str) -> MetricCounter:
+    # `reason` is why the run could continue on another worker (see `PreemptionDecision`).
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "reason": reason})
+        .create_counter(
+            "warehouse_import_preempted_total",
+            "Imports the pipeline handed off at a worker shutdown without waiting for the source.",
+        )
+    )
+
+
+def get_import_not_preempted_metric(source_type: str | None, reason: str) -> MetricCounter:
+    # Counted once per attempt that waits for its source at a worker shutdown and must keep the worker.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "reason": reason})
+        .create_counter(
+            "warehouse_import_not_preempted_total",
+            "Imports that could not be preempted at a worker shutdown.",
+        )
+    )
+
+
+def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str) -> MetricHistogramFloat:
+    # `mode` is `preempted` when the pipeline stopped waiting for the source, and `cooperative`
+    # when the source yielded an item or reached a safe point.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "mode": mode})
+        .create_histogram_float(
+            "warehouse_import_shutdown_handoff_delay_seconds",
+            "Seconds from the worker shutdown to the hand-off of an import.",
+            "s",
         )
     )
 

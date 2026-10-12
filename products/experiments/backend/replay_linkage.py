@@ -77,12 +77,12 @@ from products.experiments.backend.hogql_queries.cuped_config import CupedQueryCo
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
-from products.experiments.backend.hogql_queries.experiment_query_runner import (
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
+from products.experiments.backend.hogql_queries.precompute_policy import (
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure

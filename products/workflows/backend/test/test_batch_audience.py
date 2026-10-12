@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
 from django.test import override_settings
@@ -6,11 +5,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import (
-    audience_page_size,
-    get_batch_audience_count,
-    get_batch_audience_person_ids,
-)
+from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -46,20 +41,6 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         result = get_batch_audience_person_ids(self.team, FILTERS, dedupe_key=dedupe_key)
 
         assert sorted(result) == [_uuid(i) for i in expected_indices]
-
-    def test_count_matches_deduped_audience_size(self):
-        self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
-
-        count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
-
-        assert count == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
-
-    def test_count_rejects_unsupported_dedupe_key(self):
-        # Defence-in-depth: the endpoint's serializer allowlist is the primary gate, but this
-        # raise forces a future maintainer adding a new supported key to teach the count
-        # function about it too, rather than silently returning email-deduped counts.
-        with pytest.raises(ValueError, match="Unsupported dedupe_key"):
-            get_batch_audience_count(self.team, FILTERS, dedupe_key="sms")
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])

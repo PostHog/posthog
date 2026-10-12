@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import time
 import atexit
 import asyncio
 import logging
+import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
@@ -37,7 +39,7 @@ from .cli import (
 )
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
-from .discovery import MULTI_TURN_MODULE_MARKER, EvalSuite, discover_suites
+from .discovery import MULTI_TURN_MODULE_MARKER, REPO_ROOT, EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
@@ -87,6 +89,25 @@ def eval_feature_enabled(
     return key not in FORCED_OFF_FEATURE_FLAGS
 
 
+def _git(*args: str) -> str | None:
+    """Stdout of a git command run in the checkout under test; ``None`` when git fails."""
+    # GIT_DIR, GIT_WORK_TREE and friends would point git away from REPO_ROOT.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, env=env, check=True, capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip()
+
+
+def _worktree_dirty() -> bool | None:
+    """Whether tracked files differ from ``HEAD``; ``None`` when git can't tell."""
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    return None if status is None else bool(status)
+
+
 class SandboxedEvalHarness:
     """Boots the shared eval infrastructure once, then runs every selected suite concurrently.
 
@@ -108,6 +129,9 @@ class SandboxedEvalHarness:
         self._posthog_client: Posthog | None = None
         self._posthog_evaluation_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
+        # Read before asyncio.run so the git subprocesses never block the event loop.
+        self._git_sha = _git("rev-parse", "HEAD")
+        self._git_dirty = _worktree_dirty()
 
     def run(self) -> int:
         # Discover before anything is provisioned: a typo'd selector should cost a
@@ -403,6 +427,8 @@ class SandboxedEvalHarness:
             engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
+            git_sha=self._git_sha,
+            git_dirty=self._git_dirty,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:
