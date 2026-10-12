@@ -239,6 +239,10 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 query,
                 results: isTraceQuery ? redactTraceResults(data.results) : data.results,
                 ...(data.warnings ? { warnings: data.warnings } : {}),
+                // Cursor-paginated queries (e.g. RecordingsQuery) need these for the caller to request the next page.
+                ...(typeof data.has_next === 'boolean'
+                    ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }
+                    : {}),
             }
             if (isTraceQuery) {
                 return compactTraceResponse(response, traceDetail, effectiveOutputFormat)
