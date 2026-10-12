@@ -160,6 +160,45 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
     assert "Migration risk" in result["reviewer"]["reasoning"]
 
 
+def _review_status(state: str, head_sha: str) -> dict:
+    return {
+        "state": state,
+        "reviewer": "PostHog Review",
+        "review_kind": "Standard",
+        "findings_count": 0,
+        "published": False,
+        "head_sha": head_sha,
+    }
+
+
+@pytest.mark.parametrize(
+    "review_status, expected",
+    [
+        pytest.param(_review_status("pending", "h" * 40), "WAIT", id="pending-on-the-head-waits"),
+        pytest.param(_review_status("pending", "o" * 40), "APPROVED", id="pending-on-an-older-head-is-ignored"),
+        pytest.param(_review_status("failed", "h" * 40), "APPROVED", id="failed-reviews-as-without-it"),
+    ],
+)
+def test_pending_automated_review_waits_instead_of_approving(monkeypatch, review_status: dict, expected: str) -> None:
+    # The server stops waiting when its poll budget runs out. An approval over a review that is still
+    # running would stand before that review's findings reach the PR.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        self.final_verdict = "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+    context = {**_run_context([_api_file("src/app.py")]), "review_status": review_status}
+
+    result = review_local.run(context)
+
+    assert result["final_verdict"] == expected
+    if expected == "WAIT":
+        assert "PostHog Review is still reviewing this commit" in result["reviewer"]["reasoning"]
+
+
 _GIT_PROVENANCE = CommitProvenance(commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",))
 
 

@@ -187,6 +187,14 @@ The requester's own GitHub access is not checked; the `stamphog:write` scope and
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
+## Automated review status (PostHog Review)
+
+- `facade/review_status.py` is a provider contract that stamphog owns. ReviewHog registers the provider at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports review_hog.
+- The provider answers per head (`pending`, `completed`, `failed`, or None). `list_in_flight_reviewer_bots` reads it on every wait poll and stores it as `run.output["review_status"]`. A pending review keeps the workflow waiting within the bot-wait budget. After any wait, `refresh_review_evidence` reads the reviews, the discussion and the threads again, because the context fetch ran before the wait.
+- In the engine, a review still pending for the head is a WAIT, never an approval. A completed review of the current head counts as current-head assurance in `_cap_assurance_facts` and shows in the assurance line and the posted verdict. Its published findings are review threads, so the unresolved-thread rule still applies to them.
+- An unregistered provider, a provider error, a status for another head, and `failed` all read as "no automated review": stamphog reviews as it would without the provider. An error must never read as a clean review.
+- `posthog[bot]` is deliberately not a trusted reactor. Its 👀 is a cue for people, and the backend status replaces it for stamphog.
+
 ## Trust boundaries
 
 - Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,

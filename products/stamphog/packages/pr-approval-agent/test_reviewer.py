@@ -143,6 +143,16 @@ def test_prompt_truncates_long_review_body() -> None:
     assert "X" * 2501 not in prompt
 
 
+_COMPLETED_REVIEW = {
+    "state": "completed",
+    "reviewer": "PostHog Review",
+    "review_kind": "Deep",
+    "findings_count": 0,
+    "published": False,
+    "head_sha": "abc123",
+}
+
+
 @pytest.mark.parametrize(
     "assurance,expected",
     [
@@ -160,6 +170,18 @@ def test_prompt_truncates_long_review_body() -> None:
             {"head_approvals": [], "head_commented": 0, "unresolved_threads": 0, "discussion": 0},
             "Assurance: no reviews or comments yet",
             id="nothing-yet",
+        ),
+        pytest.param(
+            {
+                "head_approvals": [],
+                "head_commented": 0,
+                "unresolved_threads": 2,
+                "discussion": 0,
+                "head_review_status": {**_COMPLETED_REVIEW, "findings_count": 2, "published": True},
+            },
+            "Assurance: PostHog Review (Deep) reviewed the current head: 2 findings, posted on the PR; "
+            "2 unresolved inline threads",
+            id="completed-automated-review",
         ),
     ],
 )
@@ -243,6 +265,13 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             False,
             "ESCALATE",
             id="claimed-review-github-does-not-show",
+        ),
+        pytest.param(
+            _RISKY_FACTS,
+            {"assurance": {"head_review_status": _COMPLETED_REVIEW}},
+            False,
+            "APPROVE",
+            id="completed-automated-review-assures",
         ),
     ],
 )

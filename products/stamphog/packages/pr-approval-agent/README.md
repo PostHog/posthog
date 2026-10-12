@@ -111,7 +111,7 @@ Tier classification
   │
   ▼
 Wait for in-flight bot reviews (skipped when gates already denied)
-  - Reviewer bots (greptile, hex-security, codex, PostHog Review) put 👀 on the PR while
+  - Reviewer bots (greptile, hex-security, codex) put 👀 on the PR while
     reviewing and swap it for a verdict reaction minutes later; the review is
     triggered at the same moment, so an 👀 at fetch time is a race, not a
     lasting state
@@ -123,6 +123,9 @@ Wait for in-flight bot reviews (skipped when gates already denied)
   - Human 👀 reactions are not waited on; the LLM refuses over them instead
   - If the wait refetched the PR, classification and gates re-run on the
     fresh data before the LLM sees it
+  - Hosted runs also get PostHog Review's status for the head from the server
+    (`review_status` in the context). A pending review is WAIT; a completed
+    one counts as a current-head review in the assurance line and the verdict
   │
   ▼
 LLM Review

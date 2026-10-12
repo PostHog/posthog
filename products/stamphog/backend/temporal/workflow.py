@@ -46,6 +46,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         list_in_flight_reviewer_bots,
         mark_review_failed,
         post_verdict,
+        refresh_review_evidence,
         refuse_on_pre_gates,
         review_in_sandbox,
         run_review_in_sandbox,
@@ -132,11 +133,13 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     workflow.logger.warning(f"stamphog pre-gates failed for run {input.review_run_id}")
 
             if not refused_on_pre_gates:
-                # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before the review: the
-                # sandbox holds no token to poll GitHub with, so the Action's wait-and-poll lives here
-                # as durable timers. Each poll refreshes the stored reactions snapshot; if the budget
-                # expires with a bot still in flight, the run proceeds and the engine sees the fresh 👀
-                # and returns WAIT rather than approving over an unfinished review.
+                # Wait out in-flight reviewers (fresh trusted-bot 👀, or a pending PostHog Review of
+                # this head) before the review: the sandbox holds no token to poll GitHub with, so the
+                # Action's wait-and-poll lives here as durable timers. Each poll refreshes the stored
+                # reactions and review status; if the budget expires with a reviewer still in flight,
+                # the run proceeds and the engine sees it and returns WAIT rather than approving over
+                # an unfinished review.
+                waited = False
                 for _ in range(STAMPHOG_BOT_REVIEW_MAX_POLLS):
                     bots = await workflow.execute_activity(
                         list_in_flight_reviewer_bots,
@@ -146,7 +149,18 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     )
                     if not bots["in_flight"]:
                         break
+                    waited = True
                     await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
+
+                # The context was read before the wait, so a review posted during it would be
+                # missing. Gated for replay like the eyes reaction above.
+                if waited and workflow.patched("stamphog-refresh-after-wait"):
+                    await workflow.execute_activity(
+                        refresh_review_evidence,
+                        input,
+                        start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
 
                 if sandbox_checkout is None:
                     await workflow.execute_activity(

@@ -19,7 +19,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
 from gateway import CLAUDE_REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
+from github import PRData, describe_review_status, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, derive_verdict
 from version import STAMPHOG_VERSION
@@ -147,15 +147,23 @@ def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed
     the current head. The model judges whether that team owns the risky part and whether that
     review covers it, so both must hold. An injected claim or a misread can then narrow
     assurance for a risky change but never create it.
+
+    A completed automated review of the current head is the one assurance the pipeline adds by
+    itself. It comes from the hosted server's records, not from the model or the PR, and it
+    reviewed the whole diff, so there is no coverage question for the model to judge.
     """
     on_owning_team = bool(classification.get("ownership", {}).get("teams")) and bool(
         classification.get("author_on_owning_team", True)
     )
     familiarity = classification.get("familiarity")
     strong = familiarity is not None and familiarity.band == "STRONG"
+    reviews_on_current_head = facts.reviews_on_current_head if head_reviewed else ()
+    completed_review = (classification.get("assurance") or {}).get("head_review_status")
+    if completed_review and completed_review.get("reviewer") not in reviews_on_current_head:
+        reviews_on_current_head = (*reviews_on_current_head, str(completed_review.get("reviewer")))
     return dataclasses.replace(
         facts,
-        reviews_on_current_head=facts.reviews_on_current_head if head_reviewed else (),
+        reviews_on_current_head=reviews_on_current_head,
         owning_team_author=facts.owning_team_author and on_owning_team,
         strong_familiarity=facts.strong_familiarity and strong,
     )
@@ -812,8 +820,9 @@ class Reviewer:
     def _format_assurance(self, cl: dict) -> str:
         """Render the TRUSTED one-line assurance digest of review state.
 
-        Computed from GitHub review metadata (states, head-ness), not from
-        author-controlled text, so it sits with the other trusted gate facts.
+        Computed from GitHub review metadata (states, head-ness) and the hosted
+        server's automated review status, not from author-controlled text, so it
+        sits with the other trusted gate facts.
         """
         a = cl.get("assurance") or {}
         approvers = [_sanitize_untrusted(u, max_len=50) for u in a.get("head_approvals", [])]
@@ -822,6 +831,8 @@ class Reviewer:
         discussion = a.get("discussion", 0)
 
         parts = []
+        if completed_review := a.get("head_review_status"):
+            parts.append(describe_review_status(completed_review))
         if approvers:
             names = ", ".join(f"@{u}" for u in approvers)
             parts.append(f"{_plural(len(approvers), 'current-head approval')} ({names})")

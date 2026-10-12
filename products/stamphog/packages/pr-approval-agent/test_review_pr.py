@@ -84,6 +84,36 @@ def test_summarize_assurance_excludes_author_self_review() -> None:
     assert assurance["head_commented_users"] == ["bob"]
 
 
+_STATUS = {
+    "reviewer": "PostHog Review",
+    "review_kind": "Deep",
+    "findings_count": 0,
+    "published": False,
+}
+
+
+@pytest.mark.parametrize(
+    "review_status, counts",
+    [
+        pytest.param({**_STATUS, "state": "completed", "head_sha": "abc123"}, True, id="completed-on-the-head"),
+        pytest.param({**_STATUS, "state": "completed", "head_sha": "old999"}, False, id="completed-on-an-older-head"),
+        pytest.param({**_STATUS, "state": "pending", "head_sha": "abc123"}, False, id="pending"),
+        pytest.param({**_STATUS, "state": "failed", "head_sha": "abc123"}, False, id="failed"),
+        pytest.param(None, False, id="no-status"),
+    ],
+)
+def test_summarize_assurance_counts_only_a_completed_review_of_the_head(
+    review_status: dict | None, counts: bool
+) -> None:
+    # A review of an older head says nothing about the commits pushed since, and a pending or
+    # failed one has not looked at the diff. Only a finished review of this head may assure it.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.review_status = review_status
+
+    assert pipeline._summarize_assurance()["head_review_status"] == (review_status if counts else None)
+
+
 def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
     # The verdict is posted against the base_sha and head_sha from the JSON output. This locks
     # the GitHub review to the diff the LLM actually saw, and skips the approval when the base

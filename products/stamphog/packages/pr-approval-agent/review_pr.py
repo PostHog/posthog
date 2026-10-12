@@ -64,6 +64,7 @@ from github import (
     CommitProvenance,
     PRData,
     check_team_membership,
+    describe_review_status,
     fetch_pr,
     is_in_flight_bot_eyes,
     pr_provenance,
@@ -539,9 +540,10 @@ class Pipeline:
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
 
-        Derived only from GitHub review metadata (states, head-ness) — never
-        author-controlled text — so the reviewer gets a trustworthy at-a-glance
-        summary of who has actually vouched for the current head.
+        Derived only from GitHub review metadata (states, head-ness) and the
+        hosted server's automated review status — never author-controlled text —
+        so the reviewer gets a trustworthy at-a-glance summary of who has
+        actually vouched for the current head.
         """
         pr = self.pr
         # Exclude the author's own reviews: an author commenting on or replying
@@ -577,6 +579,9 @@ class Pipeline:
             "head_commented": len(head_commented_users),
             "unresolved_threads": unresolved_threads,
             "discussion": len(pr.discussion),
+            # A completed automated review of this head counts like a current-head review. Its
+            # published findings are review threads, so unresolved_threads above already holds them.
+            "head_review_status": pr.head_review_status("completed"),
         }
 
     def _maybe_compute_familiarity(self) -> None:
@@ -1100,6 +1105,8 @@ class Pipeline:
         thumbs = sorted(
             {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
         )
+        if completed_review := assurance.get("head_review_status"):
+            bullets.append(f"{describe_review_status(completed_review)}.")
         if head_reviewers:
             bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
         elif thumbs:

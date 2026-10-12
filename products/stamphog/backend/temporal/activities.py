@@ -63,6 +63,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewTrigger,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.review_status import ReviewStatusState, get_review_status_provider
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
@@ -683,16 +684,46 @@ def signal_review_started(input: StamphogReviewInput) -> dict:
     return {"reaction_id": reaction_id}
 
 
+def _read_review_status(run: ReviewRun) -> dict | None:
+    """The registered automated reviewer's status for the run's head, as the engine reads it, or None.
+
+    None means "no automated review is known": nothing registered, no review of this head, or a
+    provider error. The run then reviews as it would without the provider, so an error can never
+    read as a clean review.
+    """
+    provider = get_review_status_provider()
+    if provider is None:
+        return None
+    pull_request = run.pull_request
+    try:
+        status = provider(pull_request.repo_config.repository, pull_request.pr_number, run.head_sha)
+    except Exception:
+        activity.logger.warning(f"Run {run.id}: the review status provider failed; ignoring it", exc_info=True)
+        return None
+    if status is None or status.head_sha != run.head_sha:
+        return None
+    return {
+        "state": str(status.state),
+        "reviewer": status.reviewer,
+        "review_kind": status.review_kind,
+        "findings_count": status.findings_count,
+        "published": status.published,
+        "head_sha": status.head_sha,
+    }
+
+
 @activity.defn
 @asyncify
 def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
-    """Allowlisted reviewer bots with a fresh 👀 on the PR, refreshing the stored snapshot.
+    """Reviewers still working on the PR, refreshing the stored reactions and review status.
 
-    The Action waits these bots out by polling GitHub from the runner; the hosted sandbox holds no
+    Two signals count. An allowlisted reviewer bot with a fresh 👀 on the PR, and the registered
+    automated reviewer (``facade/review_status.py``) reporting a pending review of this head.
+    The Action waits bots out by polling GitHub from the runner; the hosted sandbox holds no
     token, so the WORKFLOW polls this activity instead, sleeping on durable timers between calls.
-    Each call re-fetches the reactions and refreshes ``run.output["pr_reactions"]`` so the sandbox
-    context reflects the latest snapshot — if the wait budget expires with a bot still in flight,
-    the engine sees the fresh 👀 and returns WAIT rather than approving over an unfinished review.
+    Each call refreshes ``run.output["pr_reactions"]`` and ``run.output["review_status"]`` so the
+    sandbox context reflects the latest snapshot. If the wait budget expires with a reviewer still
+    in flight, the engine sees it and returns WAIT rather than approving over an unfinished review.
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
@@ -711,7 +742,8 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
         "polls": int(bot_wait.get("polls") or 0) + 1,
         "ms": int((now - first_started_at).total_seconds() * 1000),
     }
-    _merge_run_output(run, {"pr_reactions": reactions, "bot_wait": bot_wait})
+    review_status = _read_review_status(run)
+    _merge_run_output(run, {"pr_reactions": reactions, "review_status": review_status, "bot_wait": bot_wait})
 
     # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
     # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
@@ -729,9 +761,38 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
             and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
         }
     )
+    if review_status is not None and review_status["state"] == ReviewStatusState.PENDING:
+        in_flight.append(review_status["reviewer"])
     if in_flight:
-        activity.logger.info(f"Run {run.id}: reviewer bot(s) in flight: {', '.join(in_flight)}")
+        activity.logger.info(f"Run {run.id}: reviewer(s) in flight: {', '.join(in_flight)}")
     return {"in_flight": in_flight}
+
+
+@activity.defn
+@asyncify
+def refresh_review_evidence(input: StamphogReviewInput) -> dict:
+    """Re-read the reviews, discussion and inline threads after the workflow waited for reviewers.
+
+    ``fetch_review_context`` reads them before the wait, so a review that a reviewer posted during
+    the wait would be missing from the evidence the engine judges. The reactions and the review
+    status are already fresh, because the last wait poll read them.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"skipped": "superseded"}
+    repo_config = run.pull_request.repo_config
+    repo = repo_config.repository
+    number = run.pull_request.pr_number
+    client = StamphogGitHubClient(repo_config.installation_id)
+    _merge_run_output(
+        run,
+        {
+            "reviews": client.get_pr_reviews(repo, number),
+            "discussion": client.get_pr_discussion(repo, number),
+            "review_threads": client.get_pr_review_threads(repo, number),
+        },
+    )
+    return {"refreshed": True}
 
 
 def _sandbox_deadline(timeout: timedelta) -> float:
@@ -799,6 +860,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         review_threads=output.get("review_threads", []),
         check_runs=output.get("check_runs", []),
         pr_reactions=output.get("pr_reactions", []),
+        review_status=output.get("review_status"),
         author_pr_numbers=output.get("author_pr_numbers", []),
         author_team_slugs=output.get("author_team_slugs", []),
         # A run whose context predates the server facts gets None, which the engine reads as an
