@@ -332,10 +332,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
         ) as mock_update_job_status,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.emit_sync_alert"
+        ) as mock_emit_sync_alert,
     ):
         asyncio.run(env.run(update_external_data_job_model, inputs))
 
     assert mock_update_should_sync.called is expect_disabled
+    paused_alerts = [
+        (call.kwargs["event"].value, call.kwargs["kind"].value) for call in mock_emit_sync_alert.call_args_list
+    ]
+    assert paused_alerts == ([("$data_warehouse_sync_failed", "schema_paused")] if expect_disabled else [])
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
 

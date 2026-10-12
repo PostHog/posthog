@@ -33,6 +33,7 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
             FlagVariant(key="control", rollout_percentage=80),
             FlagVariant(key="test", rollout_percentage=20),
         ),
+        early_exit=False,
     ),
     primary_metric_count=1,
     secondary_metric_count=0,

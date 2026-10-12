@@ -1,7 +1,6 @@
 """Firing, dedup, guardrails and terminal-status bookkeeping for Loops.
 
-See products/tasks/docs/LOOPS.md (Run, Lifecycle and reconciliation, Security and
-guardrails). ``fire_loop`` is the single entry point every trigger path (schedule,
+``fire_loop`` is the single entry point every trigger path (schedule,
 GitHub, API, manual) goes through, so dedup, the usage gate, the per-loop rate cap
 and the overlap policy are enforced once, in one order, regardless of caller.
 """

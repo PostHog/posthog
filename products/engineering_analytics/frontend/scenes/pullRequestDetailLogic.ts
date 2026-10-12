@@ -132,6 +132,8 @@ function percentile(values: number[], q: number): number | null {
 function toWorkflowRun(run: WorkflowRunDetailApi): WorkflowRun {
     return {
         workflow: run.workflow_name,
+        workflowId: run.workflow_id ?? null,
+        event: run.event ?? null,
         conclusion: run.conclusion,
         startedAt: run.run_started_at,
         finishedAt: run.status === 'completed' ? run.updated_at : null,
