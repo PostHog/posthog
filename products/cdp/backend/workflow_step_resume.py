@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -15,6 +16,8 @@ RESULT_STRING_CAP = 1500
 RESULT_BYTE_CAP = 4096
 
 WorkflowStepResumeStatus = Literal["completed", "failed", "cancelled"]
+
+RESUME_RETRY_DELAYS_SECONDS = (1, 2, 4)
 
 
 def _json_size(value: Any) -> int:
@@ -64,6 +67,29 @@ def produce_step_resume_event(*, team_id: int, origin_key: str, status: str, res
     )
 
 
+def _not_parked_yet(response: requests.Response) -> bool:
+    # A 200 `stale_key` also comes back between the dispatch returning and the step parking on its key.
+    if response.status_code == 409:
+        return True
+    if response.status_code != 200:
+        return False
+    try:
+        return response.json().get("outcome") == "stale_key"
+    except ValueError:
+        return False
+
+
+def _post_resume(*, team_id: int, origin_key: str, status: WorkflowStepResumeStatus, result: dict[str, Any]) -> None:
+    for delay in (0, *RESUME_RETRY_DELAYS_SECONDS):
+        if delay:
+            time.sleep(delay)
+        response = resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=result)
+        if not _not_parked_yet(response):
+            response.raise_for_status()
+            return
+    logger.info("workflow_step_resume_not_parked", team_id=team_id, origin_key=origin_key)
+
+
 def emit_workflow_step_resume(
     *,
     team_id: int,
@@ -72,18 +98,14 @@ def emit_workflow_step_resume(
     result: Mapping[str, Any] | None = None,
     raise_on_error: bool = False,
 ) -> None:
-    """Wake the step which dispatched `origin_key`: one POST to the engine's API with the key
-    provisioned, else the `$workflow_step_resume` internal event. A 409 is a duplicate of a wake
-    already taken, so it is final; `raise_on_error` lets a Temporal activity retry a lost wake."""
+    """Wake the step which dispatched `origin_key`: a POST to the engine's API with the key
+    provisioned, else the `$workflow_step_resume` internal event. A step that has not parked yet
+    gets a few short retries; `raise_on_error` lets a Temporal activity retry a lost wake."""
     capped = cap_value(result or {}, RESULT_BYTE_CAP)
     try:
         if WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
             try:
-                response = resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=capped)
-                if response.status_code == 409:
-                    logger.info("workflow_step_resume_not_parked", team_id=team_id, origin_key=origin_key)
-                    return
-                response.raise_for_status()
+                _post_resume(team_id=team_id, origin_key=origin_key, status=status, result=capped)
                 return
             except requests.RequestException:
                 logger.exception("workflow_step_resume_post_failed", team_id=team_id, origin_key=origin_key)

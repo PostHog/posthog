@@ -80,10 +80,31 @@ def test_the_wake_falls_back_to_the_internal_event_when_the_api_cannot_take_it(f
     assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
 
 
-def test_a_wake_the_worker_cannot_take_yet_is_dropped_as_a_duplicate() -> None:
-    with patch(_POST, return_value=_response(409)), patch(_PRODUCE) as produce:
+def _outcome(outcome: str) -> MagicMock:
+    response = _response(200)
+    response.json.return_value = {"outcome": outcome}
+    return response
+
+
+@pytest.mark.parametrize(
+    "responses,attempts",
+    [
+        ([_response(409), _outcome("delivered")], 2),
+        ([_outcome("stale_key"), _response(409), _outcome("delivered")], 3),
+        ([_response(409)] * 4, 4),
+        ([_outcome("job_missing")], 1),
+    ],
+)
+def test_a_step_that_has_not_parked_yet_gets_a_short_retry(responses, attempts) -> None:
+    with (
+        patch(_POST, side_effect=responses) as post,
+        patch("posthog.cdp.workflow_step_resume.time.sleep") as sleep,
+        patch(_PRODUCE) as produce,
+    ):
         emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", raise_on_error=True)
 
+    assert post.call_count == attempts
+    assert sleep.call_count == attempts - 1
     produce.assert_not_called()
 
 
