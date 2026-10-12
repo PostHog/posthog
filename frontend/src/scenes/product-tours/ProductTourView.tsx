@@ -48,6 +48,7 @@ import {
     SurveyMatchType,
 } from '~/types'
 
+import { ProductToursDeprecationBanner } from './components/ProductToursDeprecationBanner'
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
 import { LaunchValidationIssue, LaunchValidationIssueType, productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
@@ -348,6 +349,8 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                     </>
                 }
             />
+
+            <ProductToursDeprecationBanner />
 
             {hasDraft && (
                 <LemonBanner type="info" className="mb-4">
