@@ -1849,15 +1849,25 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(ctx.exception) for key in non_retryable)
 
-    def test_http_407_proxy_auth_is_classified_non_retryable(self):
-        # A proxy that refuses the request (the egress proxy blocking a disallowed address, or an
-        # upstream proxy needing credentials) returns 407 deterministically, so retrying can't fix
-        # it. Build the real requests HTTPError raise_for_status() produces, so this breaks if the
-        # matched substring drifts. Route through the classifier's message so a regression that
-        # leaves it None (raw driver text) is caught too. The URL is a placeholder.
+    @parameterized.expand(
+        [
+            # A proxy that refuses the request (the egress proxy blocking a disallowed address, or
+            # an upstream proxy needing credentials).
+            ("proxy_auth", 407, "Proxy Authentication Required", "proxy"),
+            # An upstream account whose plan doesn't cover the endpoint.
+            ("payment_required", 402, "Payment Required", "paid plan"),
+        ]
+    )
+    def test_deterministic_http_rejection_is_classified_non_retryable(
+        self, _name: str, status_code: int, reason: str, expected_phrase: str
+    ) -> None:
+        # Both statuses recur on every retry until the customer changes something. Build the real
+        # requests HTTPError raise_for_status() produces, so this breaks if the matched substring
+        # drifts. Route through the classifier's message so a regression that leaves it None (raw
+        # driver text) is caught too. The URL is a placeholder.
         response = Response()
-        response.status_code = 407
-        response.reason = "Proxy Authentication Required"
+        response.status_code = status_code
+        response.reason = reason
         response.url = "https://api.example.com/data"
         with self.assertRaises(requests.exceptions.HTTPError) as ctx:
             response.raise_for_status()
@@ -1866,7 +1876,7 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         matches = [friendly for key, friendly in non_retryable.items() if key in str(ctx.exception)]
         assert matches
         assert matches[0] is not None
-        assert "proxy" in matches[0].lower()
+        assert expected_phrase in matches[0].lower()
 
     def test_non_json_response_message_is_classified_non_retryable(self):
         # The REST client raises RESTClientNonRetryableError when a configured endpoint
