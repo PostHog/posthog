@@ -20,6 +20,8 @@ export type FeatureFlagListQuery = {
     createdBefore: Date | null
     updatedBefore: Date | null
     targeting: FeatureFlagTargetingFilter | null
+    /** Lowercase emails. A flag matches when its creator has any of them. */
+    createdByEmails: string[] | null
     limit: number
 }
 
@@ -147,6 +149,7 @@ export class FeatureFlagRepository {
                    '$.groups[*].properties[*] ? (@.key == $property)',
                    jsonb_build_object('property', $7::text)
                ))
+               AND ($8::text[] IS NULL OR lower(creator.email) = ANY($8::text[]))
              ORDER BY flag.created_at DESC, flag.id DESC
              LIMIT $6`,
             [
@@ -157,6 +160,7 @@ export class FeatureFlagRepository {
                 query.updatedBefore,
                 scanLimit,
                 query.targeting?.property ?? null,
+                query.createdByEmails,
             ],
             'listFeatureFlagsForWorkflow'
         )

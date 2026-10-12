@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { createTestTeamFixture, getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
+import { UUIDT } from '~/common/utils/utils'
+import { createTestTeamFixture, createUser, getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import {
@@ -85,6 +86,7 @@ describe('FeatureFlagRepository', () => {
             createdBefore: null,
             updatedBefore: null,
             targeting: null,
+            createdByEmails: null,
             limit: 25,
         }
 
@@ -195,6 +197,33 @@ describe('FeatureFlagRepository', () => {
             })
 
             expect(result.keys).toEqual(['old-project-two'])
+        })
+
+        it('returns flags created by any of the given emails', async () => {
+            const otherUserId = await createUser(hub.postgres, new UUIDT().toString())
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_featureflag SET created_by_id = $1 WHERE team_id = $2 AND key = 'new-for-everyone'`,
+                [otherUserId, teamId],
+                'setFlagCreator'
+            )
+            const { rows } = await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                'SELECT id, email FROM posthog_user WHERE id = ANY($1)',
+                [[ownerId, otherUserId]],
+                'getCreatorEmails'
+            )
+            const emailOf = (id: number | null): string => rows.find((row) => row.id === id).email
+
+            const both = await repository.list(teamId, {
+                ...baseQuery,
+                status: 'any',
+                createdByEmails: [emailOf(ownerId), emailOf(otherUserId)],
+            })
+            const nobody = await repository.list(teamId, { ...baseQuery, createdByEmails: ['nobody@example.com'] })
+
+            expect(both.keys).toEqual(['new-for-everyone', 'old-project-two'])
+            expect(nobody.keys).toEqual([])
         })
 
         it('returns the flag creator email', async () => {

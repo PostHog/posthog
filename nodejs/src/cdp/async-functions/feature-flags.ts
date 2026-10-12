@@ -12,6 +12,7 @@ const DEFAULT_LIMIT = 25
 const MAX_LIMIT = 100
 // All workflow variables together must stay under 5KB, or the step fails. This leaves room for other variables.
 const MAX_RESULT_BYTES = 4096
+const MAX_CREATED_BY_EMAILS = 100
 
 function optionalString(value: unknown): string | null {
     if (value === null || value === undefined) {
@@ -31,6 +32,17 @@ function optionalNonNegativeNumber(value: unknown, name: string): number | null 
         throw new Error(`[HogFunction] - postHogGetFeatureFlags '${name}' must be a number of 0 or more, got '${raw}'`)
     }
     return parsed
+}
+
+function optionalEmailList(value: unknown): string[] | null {
+    const parts = Array.isArray(value) ? value : String(value ?? '').split(/[\s,;]+/)
+    const emails = [...new Set(parts.map((part) => String(part).trim().toLowerCase()).filter((part) => part !== ''))]
+    if (emails.length > MAX_CREATED_BY_EMAILS) {
+        throw new Error(
+            `[HogFunction] - postHogGetFeatureFlags 'created_by_emails' takes up to ${MAX_CREATED_BY_EMAILS} emails, got ${emails.length}`
+        )
+    }
+    return emails.length > 0 ? emails : null
 }
 
 function daysAgo(days: number | null): Date | null {
@@ -68,6 +80,7 @@ function parseFeatureFlagListQuery(opts: Record<string, unknown> | undefined): F
         ),
         targeting:
             property !== null && value !== null ? { property, value, match: match as FeatureFlagTargetingMatch } : null,
+        createdByEmails: optionalEmailList(opts?.created_by_emails),
         limit: Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT),
     }
 }

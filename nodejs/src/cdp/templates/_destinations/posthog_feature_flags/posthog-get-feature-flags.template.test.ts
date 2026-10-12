@@ -26,6 +26,7 @@ describe('posthog get feature flags template', () => {
             targeting_match: 'only',
             created_more_than_days_ago: 7,
             updated_more_than_days_ago: null,
+            created_by_emails: ' Ana@Example.com, ben@example.com;ana@example.com ',
             limit: 500,
         })
         response = await tester.resumeInvocation(response.invocation)
@@ -39,6 +40,7 @@ describe('posthog get feature flags template', () => {
             createdBefore: expect.any(Date),
             updatedBefore: null,
             targeting: { property: 'project_id', value: '2', match: 'only' },
+            createdByEmails: ['ana@example.com', 'ben@example.com'],
             limit: 100,
         })
         const createdBefore = tester.mockFeatureFlagRepository.list.mock.calls[0][1].createdBefore.getTime()

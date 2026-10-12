@@ -19,6 +19,7 @@ return postHogGetFeatureFlags({
   'targeting_match': inputs.targeting_match,
   'created_more_than_days_ago': inputs.created_more_than_days_ago,
   'updated_more_than_days_ago': inputs.updated_more_than_days_ago,
+  'created_by_emails': inputs.created_by_emails,
   'limit': inputs.limit
 })
 `,
@@ -94,6 +95,16 @@ return postHogGetFeatureFlags({
             secret: false,
             required: false,
             description: 'For example, 7 returns flags that nobody changed in the last week.',
+        },
+        {
+            key: 'created_by_emails',
+            type: 'string',
+            label: 'Created by (emails)',
+            secret: false,
+            required: false,
+            default: '',
+            description:
+                'Only return flags created by these people. Separate emails with commas, for example "ana@example.com, ben@example.com". You can use {person.properties.email}.',
         },
         {
             key: 'limit',
