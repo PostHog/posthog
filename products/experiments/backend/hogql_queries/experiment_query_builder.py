@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union
@@ -7,6 +8,7 @@ from django.utils import timezone
 from posthog.schema import (
     ActionsNode,
     Breakdown,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentFunnelMetric,
@@ -22,6 +24,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
@@ -117,6 +120,30 @@ def get_exposure_config_params_for_builder(
     )
 
 
+def metric_reads_flag_call(
+    team: Team,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+) -> bool:
+    """Whether a metric source matches $feature_flag_called, as its event or through an action step."""
+    sources: Sequence[object]
+    if isinstance(metric, ExperimentMeanMetric):
+        sources = [metric.source]
+    elif isinstance(metric, ExperimentFunnelMetric):
+        sources = metric.series
+    elif isinstance(metric, ExperimentRatioMetric):
+        sources = [metric.numerator, metric.denominator]
+    else:
+        sources = [metric.start_event, metric.completion_event]
+    if any(isinstance(source, EventsNode) and source.event == DEFAULT_EXPOSURE_EVENT for source in sources):
+        return True
+    action_ids = [int(source.id) for source in sources if isinstance(source, ActionsNode)]
+    return bool(action_ids) and any(
+        step.event == DEFAULT_EXPOSURE_EVENT
+        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
+        for step in action.steps
+    )
+
+
 class ExperimentQueryBuilder:
     def __init__(
         self,
@@ -173,6 +200,7 @@ class ExperimentQueryBuilder:
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=self.activation_config,
+            read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
