@@ -29,7 +29,9 @@ def gated_template_enabled(flag_key: str, team: "Team") -> bool:
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
+                    # A team id repeats across PostHog instances (self-hosted, local dev), so a flag that
+                    # must reach one project matches on the uuid.
+                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
                 },
             )
         )
