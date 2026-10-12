@@ -15,7 +15,7 @@ The population should be the people the user can act on. The horizon should matc
 
 ## Templates
 
-`autoresearch-resolve-template-create` turns a template key and optional overrides into a full config.
+`posthog:autoresearch-resolve-template-create` turns a template key and optional overrides into a full config.
 
 | Key                      | Question                                   | Target                  | Population                              | Default horizon |
 | ------------------------ | ------------------------------------------ | ----------------------- | --------------------------------------- | --------------- |
@@ -27,13 +27,13 @@ The population should be the people the user can act on. The horizon should matc
 
 - The activity templates resolve the event from the project's schema. They prefer `$pageview`, then `$screen`, then `$autocapture`, then the custom event with the most identified users. Check `resolved_activity_event` against `activity_event_alternatives`, and re-resolve with a `target_event` override if a different event means "active" for this product.
 - `at_risk_of_inactivity` still predicts the probability of **activity**. The at-risk group is people with a **low** score (for example below 0.2). Explain this to the user, because the name suggests the opposite.
-- `feature_adoption` and `repeat_key_behavior` need `target_event`. Confirm the event exists with `read-data-schema` first.
+- `feature_adoption` and `repeat_key_behavior` need `target_event`. Confirm the event exists with `posthog:read-data-schema` first.
 
 Templates take an event target. For an action target, build a custom definition.
 
 ## Custom definitions
 
-Pass the same fields to `autoresearch-validate-create` and `autoresearch-create`:
+Pass the same fields to `posthog:autoresearch-validate-create` and `posthog:autoresearch-create`:
 
 | Field                                 | Notes                                                                                                                                                                                                                |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,8 +43,8 @@ Pass the same fields to `autoresearch-validate-create` and `autoresearch-create`
 | `training_population`                 | Who can be a training example. `{}` means all identified users.                                                                                                                                                      |
 | `inference_population`                | Who gets scored. Defaults to the training population. Keep the two consistent unless there is a clear reason.                                                                                                        |
 | `cadence_days`                        | Rescore every N days. Default 1.                                                                                                                                                                                     |
-| `iteration_budget`                    | Experiments per training run. Default 50.                                                                                                                                                                            |
-| `output_person_property`              | Optional. Derived from the target when omitted.                                                                                                                                                                      |
+| `iteration_budget`                    | The model's total experiment budget across all training runs. Default 50. Each scheduled retrain takes at most 10 from what remains, and a run started by hand can set its own budget.                               |
+| `output_person_property`              | Optional. Derived from the target and horizon when omitted.                                                                                                                                                          |
 
 ### Population shapes
 
@@ -66,16 +66,17 @@ A population is either a semantic kind or a list of person property filters:
 
 ## Read the validation result
 
-`autoresearch-validate-create` is advisory: `autoresearch-create` does not block on it. Run it anyway and read every field.
+`posthog:autoresearch-validate-create` is advisory: `posthog:autoresearch-create` does not block on it. Run it anyway and read every field.
 
 Blocking errors (`can_proceed` is false):
 
-| Code                              | What to do                                                                                      |
-| --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `low_volume`                      | Under 100 people. Widen the population or lengthen the lookback.                                |
-| `low_positives` / `low_negatives` | Under 20 examples of one class. Lengthen the horizon or lookback, or pick a more common target. |
-| `horizon_exceeds_lookback`        | Raise `training_lookback_days` above `horizon_days`.                                            |
-| `population_too_large` (error)    | Narrow the training population.                                                                 |
+| Code                           | What to do                                                                                                                                |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `low_volume`                   | Under 100 people. Widen the population or lengthen the lookback.                                                                          |
+| `low_positives`                | Under 20 people did the target. Lengthen the horizon or the lookback, or pick a more common target.                                       |
+| `low_negatives`                | Under 20 people did not do the target. Shorten the horizon, pick a rarer target, or use a population with more people who do not convert. |
+| `horizon_exceeds_lookback`     | Raise `training_lookback_days` above `horizon_days`.                                                                                      |
+| `population_too_large` (error) | Narrow the training population.                                                                                                           |
 
 Warnings to pass on:
 

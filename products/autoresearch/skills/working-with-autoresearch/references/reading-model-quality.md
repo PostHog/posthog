@@ -5,13 +5,13 @@ Lead with the realized numbers when they exist, and say plainly when they do not
 
 ## Where the numbers live
 
-| Tool                                       | What it gives                                                                                                                                                                                                                           |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `autoresearch-retrieve`                    | The champion's `champion_holdout_auc`, `champion_realized_auc`, `champion_lift_at_10`, `champion_is_preliminary`, `champion_realized_auc_trend`, `people_scored`, `likely_count`, `first_check_expected_at` and `coverage`. Start here. |
-| `autoresearch-online-performance-retrieve` | One row per model per validated date: realized AUC with a 95% interval, Brier score, calibration error and bins, mean prediction against base rate, lift at 10% and 20%.                                                                |
-| `autoresearch-models-list`                 | Every champion, challenger and archived model with its scores. Use it to see whether a retrain promoted a new champion.                                                                                                                 |
-| `autoresearch-models-retrieve`             | One model's recipe (feature SQL, transforms, model class) and its feature importances.                                                                                                                                                  |
-| `autoresearch-training-runs-history`       | Each run's distilled summary: what won, what was tried and dropped.                                                                                                                                                                     |
+| Tool                                               | What it gives                                                                                                                                                                                                                           |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:autoresearch-retrieve`                    | The champion's `champion_holdout_auc`, `champion_realized_auc`, `champion_lift_at_10`, `champion_is_preliminary`, `champion_realized_auc_trend`, `people_scored`, `likely_count`, `first_check_expected_at` and `coverage`. Start here. |
+| `posthog:autoresearch-online-performance-retrieve` | One row per model per validated date: realized AUC with a 95% interval, Brier score, calibration error and bins, mean prediction against base rate, lift at 10% and 20%.                                                                |
+| `posthog:autoresearch-models-list`                 | Every champion, challenger and archived model with its scores. Use it to see whether a retrain promoted a new champion.                                                                                                                 |
+| `posthog:autoresearch-models-retrieve`             | One model's recipe (feature SQL, transforms, model class) and its feature importances.                                                                                                                                                  |
+| `posthog:autoresearch-training-runs-history`       | Each run's distilled summary: what won, what was tried and dropped.                                                                                                                                                                     |
 
 ## The quality label
 
@@ -26,6 +26,13 @@ The UI gives each champion a label from AUC, and states its basis:
 - The basis is **confirmed** when the champion has realized AUC and `champion_is_preliminary` is false. Otherwise it is **testing only** and comes from holdout AUC.
 - A new champion has no realized rows until its first horizon has passed. `first_check_expected_at` says when the first check is due.
 - AUC 0.5 is a coin flip. Above about 0.97 on holdout is suspicious: check that the features do not read the target or something that happens because of it.
+
+## When realized AUC is missing after the horizon
+
+A validated date where every scored person had the same outcome has no AUC.
+Its online performance row carries the warning `single_class_no_auc`.
+This is common on a rare target with a short horizon.
+Tell the user that realized AUC needs dates where some people did the target and some did not, and that more dates will fill it in.
 
 ## When holdout and realized disagree
 
@@ -58,8 +65,8 @@ The Predictions tab splits scored people into **Likely**, **Possible** and **Unl
 
 Large populations score in rolling batches, so "scored today" and "everyone has a fresh score" are different claims.
 
-- `coverage` on `autoresearch-retrieve` has `population`, `with_score`, `never_scored` and the score age in days (average, median, 90th percentile, oldest).
-- `autoresearch-runs-list` shows each scoring run. `rows_eligible` above `rows_scored` means a rolling batch.
+- `coverage` on `posthog:autoresearch-retrieve` has `population`, `with_score`, `never_scored` and the score age in days (average, median, 90th percentile, oldest).
+- `never_scored` above zero, or a median score age above the cadence, means a rolling population.
 - When the user plans to target by score, check coverage first. A cohort built from the property only includes people who were scored.
 
 ## A short report
