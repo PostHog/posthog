@@ -530,6 +530,27 @@ class TestReportEndpoints:
             (9, "Checkout", "2024-06-03", 0, "Signup"),
         ]
 
+    def test_funnel_steps_skips_funnel_rejected_with_400_and_resumes_past_it(self) -> None:
+        manager = FakeManager()
+        funnel_list = FakeResponse(json_data=[{"funnel_id": 9, "name": "Checkout"}, {"funnel_id": 7, "name": "Signup"}])
+        rejected = FakeResponse(status_code=400)
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> FakeResponse:
+            if url.endswith("/funnels/list"):
+                return funnel_list
+            if kwargs["params"]["funnel_id"] == 7:
+                raise requests.HTTPError("400 Client Error", response=rejected)  # type: ignore[arg-type]
+            return self._funnel_response()
+
+        with patch.object(mp, "_request", side_effect=fake_request):
+            batches = list(mp.get_rows("us", "u", "s", "123", "funnel_steps", LOGGER, manager))  # type: ignore[arg-type]
+
+        # Funnel 7 is rejected but the resume cursor still advances past it, so funnel 9
+        # (and any funnel after a rejected one) still syncs instead of the whole sync aborting.
+        assert [s.funnel_id for s in manager.saved] == [7, 9]
+        rows = [row for batch in batches for row in batch]
+        assert [r["funnel_id"] for r in rows] == [9, 9, 9]
+
     def test_retention_requests_compounded_retention_and_unnests_cohorts(self) -> None:
         response = FakeResponse(
             json_data={"2024-06-03": {"counts": [8], "first": 8}, "2024-06-02": {"counts": [10, 6], "first": 10}}

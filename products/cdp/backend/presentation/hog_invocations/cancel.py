@@ -10,7 +10,7 @@ their lifecycle rows, metrics, and logs.
 
 from rest_framework import serializers
 
-from posthog.api.hog_invocation_rerun import HOG_INVOCATION_RERUN_MAX_COUNT
+from products.cdp.backend.presentation.hog_invocations.rerun import HOG_INVOCATION_RERUN_MAX_COUNT
 
 
 class HogInvocationCancelRequestSerializer(serializers.Serializer):

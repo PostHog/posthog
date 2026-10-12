@@ -255,12 +255,6 @@ from posthog.models.group.sql import (
     GROUPS_WRITABLE_TABLE_SQL,
     KAFKA_GROUPS_TABLE_SQL,
 )
-from posthog.models.hog_invocation_results.sql import (
-    DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL,
-    HOG_INVOCATION_RESULTS_DATA_TABLE_SQL,
-    HOG_INVOCATION_RESULTS_MV_SQL,
-    KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL,
-)
 from posthog.models.ingestion_warnings.sql import (
     DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL,
     INGESTION_WARNINGS_DATA_TABLE_SQL,
@@ -273,12 +267,6 @@ from posthog.models.ingestion_warnings.sql_v2 import (
     INGESTION_WARNINGS_V2_DATA_TABLE_SQL,
     INGESTION_WARNINGS_V2_MV_SQL,
     KAFKA_INGESTION_WARNINGS_V2_TABLE_SQL,
-)
-from posthog.models.message_assets.sql import (
-    DISTRIBUTED_MESSAGE_ASSETS_TABLE_SQL,
-    KAFKA_MESSAGE_ASSETS_TABLE_SQL,
-    MESSAGE_ASSETS_DATA_TABLE_SQL,
-    MESSAGE_ASSETS_MV_SQL,
 )
 from posthog.models.performance.sql import (
     DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL,
@@ -390,6 +378,12 @@ from products.alerts_platform.backend.facade.clickhouse import (
     DISTRIBUTED_PLATFORM_ALERT_EVENTS_TABLE_SQL,
     SHARDED_PLATFORM_ALERT_EVENTS_TABLE_SQL,
 )
+from products.cdp.backend.facade.clickhouse import (
+    DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL,
+    HOG_INVOCATION_RESULTS_DATA_TABLE_SQL,
+    HOG_INVOCATION_RESULTS_MV_SQL,
+    KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL,
+)
 from products.cohorts.backend.models.sql import CREATE_COHORTPEOPLE_TABLE_SQL
 from products.error_tracking.backend.embedding import (
     DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL,
@@ -416,6 +410,12 @@ from products.error_tracking.backend.sql import (
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
 from products.event_definitions.backend.models.property_definition import PROPERTY_DEFINITIONS_TABLE_SQL
+from products.workflows.backend.facade.clickhouse import (
+    DISTRIBUTED_MESSAGE_ASSETS_TABLE_SQL,
+    KAFKA_MESSAGE_ASSETS_TABLE_SQL,
+    MESSAGE_ASSETS_DATA_TABLE_SQL,
+    MESSAGE_ASSETS_MV_SQL,
+)
 
 # Queries to create tables, you must pass function, otherwise the table is created before
 # objects are mocked and the ambr will go into infinite loop update.

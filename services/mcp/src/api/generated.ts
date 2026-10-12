@@ -5313,6 +5313,17 @@ export namespace Schemas {
       formula: string;
     }
 
+    export type Calculation = typeof Calculation[keyof typeof Calculation];
+
+
+    export const Calculation = {
+      Fixed: 'fixed',
+      Mean: 'mean',
+      Median: 'median',
+      Min: 'min',
+      Max: 'max',
+    } as const;
+
     export type Position = typeof Position[keyof typeof Position];
 
 
@@ -5321,12 +5332,24 @@ export namespace Schemas {
       End: 'end',
     } as const;
 
+    export type Scope = typeof Scope[keyof typeof Scope];
+
+
+    export const Scope = {
+      All: 'all',
+      Series: 'series',
+    } as const;
+
     export interface GoalLine {
       borderColor?: string | null;
+      /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+      calculation?: Calculation | null;
       displayIfCrossed?: boolean | null;
       displayLabel?: boolean | null;
       label: string;
       position?: Position | null;
+      /** SQL chart calculations use the primary axis, across all series or separately per series. */
+      scope?: Scope | null;
       value: number;
     }
 
@@ -10736,19 +10759,34 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    export type DatePart = typeof DatePart[keyof typeof DatePart];
+
+
+    export const DatePart = {
+      Month: 'month',
+      Quarter: 'quarter',
+      DayOfWeek: 'day_of_week',
+    } as const;
+
+    export interface BILocalFieldDefinition1 {
+      aggregate: boolean;
+      expression: string;
+      kind?: 'expression';
+    }
+
     export interface BICategoryGroup {
       name: string;
       values: string[];
     }
 
-    export interface BILocalFieldDefinition1 {
+    export interface BILocalFieldDefinition2 {
       expression: string;
       groups: BICategoryGroup[];
       kind?: 'groups';
       other: string;
     }
 
-    export interface BILocalFieldDefinition2 {
+    export interface BILocalFieldDefinition3 {
       expression: string;
       kind?: 'bins';
       origin: number;
@@ -10784,9 +10822,11 @@ export namespace Schemas {
 
     export interface BIField {
       dateBucket?: BIDateBucket | null;
+      datePart?: DatePart | null;
       expression: string;
       id: string;
-      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | null;
+      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | null;
+      localFieldId?: string | null;
       name: string;
       source: BIDataSource;
       type: DatabaseSerializedFieldType;
@@ -10825,6 +10865,13 @@ export namespace Schemas {
       value: string;
       valueTo?: string | null;
       values?: string[] | null;
+    }
+
+    export interface BIHierarchy {
+      id: string;
+      /** Ordered from the broadest dimension to the most detailed. */
+      levels: BIField[];
+      name: string;
     }
 
     export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
@@ -10925,6 +10972,14 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type Shelf = typeof Shelf[keyof typeof Shelf];
+
+
+    export const Shelf = {
+      Rows: 'rows',
+      Columns: 'columns',
+    } as const;
+
     export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
 
 
@@ -10954,11 +11009,14 @@ export namespace Schemas {
       field: BIField;
       formatting?: ChartSettingsFormatting | null;
       label?: string | null;
+      /** Measures in older worksheets belong to rows. */
+      shelf?: Shelf | null;
       tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
       chartType: ChartDisplayType;
+      colorBy?: string | null;
       columns: BIField[];
       compareFilter?: CompareFilter | null;
       /** Explore only the comparison window, using dateRange as its reference window. */
@@ -10967,6 +11025,8 @@ export namespace Schemas {
       dateField?: BIField | null;
       dateRange?: DateRange | null;
       filters: BIFilter[];
+      /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+      hierarchies?: BIHierarchy[] | null;
       limit: BIQueryLimit;
       /** Reusable expressions owned by this worksheet only. */
       localFields?: BIField[] | null;
