@@ -1694,7 +1694,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
                 return_value="env-id",
             ),
             patch(
-                "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+                "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
                 return_value=42,
             ),
         ):
@@ -1979,7 +1979,7 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2021,7 +2021,7 @@ async def test_run_acts_as_the_skill_creator_when_one_resolves(ateam, aorganizat
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2063,7 +2063,7 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2118,7 +2118,7 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch(
@@ -2198,11 +2198,11 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_scout_acting_user_id",
+            "products.signals.backend.scout_harness.acting_user.resolve_scout_acting_user_id",
             return_value=42 if acting_user_resolves else None,
         ),
     ):
@@ -2256,7 +2256,7 @@ async def test_catalog_nudge_follows_the_projects_approved_metrics(ateam, aerror
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=acting_user.id,
         ),
     ):
@@ -2306,7 +2306,7 @@ async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, r
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2359,7 +2359,7 @@ async def test_sandbox_env_matches_config_network_access(
         ),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2574,7 +2574,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2637,7 +2637,7 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2666,7 +2666,7 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2710,7 +2710,7 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2788,7 +2788,7 @@ async def test_failed_run_captures_run_finished_event(
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2820,7 +2820,7 @@ def _stubbed_spawn_dependencies():
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -2922,7 +2922,7 @@ async def test_run_skipped_when_no_acting_user(ateam, aerrors_skill):
     # lacking GitHub is NOT this case — it resolves an org member and runs; see the resolver tests.)
     with (
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
             return_value=None,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -2947,7 +2947,7 @@ async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
         raise asyncio.CancelledError("worker is shutting down")
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
@@ -3054,7 +3054,7 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
         return "ok"
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
@@ -3098,7 +3098,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
         return "ok", str(task_run.id)
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
@@ -3224,7 +3224,7 @@ async def test_cancelled_run_re_raises(ateam, aerrors_skill):
         raise asyncio.CancelledError("worker is shutting down")
 
     with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
     ):
         with pytest.raises(asyncio.CancelledError):
