@@ -29,8 +29,11 @@ from products.web_analytics.backend.heatmap_history import (
 from products.web_analytics.backend.heatmap_history_storage import image_key
 from products.web_analytics.backend.models import HeatmapCaptureRequest, HeatmapScreenshotHistory, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import BrowserlessPermanentError
+from products.web_analytics.backend.temporal.page_history.scheduling import prune_history, schedule_due_captures
+from products.web_analytics.backend.temporal.page_history.types import ClaimedCapture, FinishInputs, RenderOutcome
 
 TASK_MODULE = "products.web_analytics.backend.heatmap_history"
+SCHEDULING_MODULE = "products.web_analytics.backend.temporal.page_history.scheduling"
 RENDER_MODULE = "products.web_analytics.backend.tasks.heatmap_screenshot"
 STORAGE_MODULE = "products.web_analytics.backend.heatmap_history_storage"
 
@@ -85,6 +88,7 @@ class TestHeatmapHistory(APIBaseTest):
         for name, replacement in [
             (f"{STORAGE_MODULE}.object_storage", self.storage),
             (f"{TASK_MODULE}.history_enabled", lambda team: True),
+            (f"{SCHEDULING_MODULE}.history_enabled", lambda team: True),
         ]:
             patcher = patch(name, replacement)
             patcher.start()
@@ -104,6 +108,18 @@ class TestHeatmapHistory(APIBaseTest):
     def images(self, request: HeatmapCaptureRequest) -> set[str]:
         return {key for key in self.blobs if f"/{request.id}/" in key}
 
+    def finish_capture(self, request: HeatmapCaptureRequest, outcome: RenderOutcome) -> None:
+        assert request.claim_id is not None
+        with self.captureOnCommitCallbacks(execute=True):
+            HeatmapHistoryService.finish(
+                FinishInputs(
+                    capture=ClaimedCapture(
+                        team_id=request.team_id, request_id=str(request.id), claim_id=str(request.claim_id)
+                    ),
+                    outcome=outcome,
+                )
+            )
+
     def execute_capture(self, request: HeatmapCaptureRequest, error: Exception | None = None) -> None:
         with (
             patch.object(HeatmapHistoryService, "render", return_value=jpeg(request.width), side_effect=error),
@@ -112,10 +128,7 @@ class TestHeatmapHistory(APIBaseTest):
             claimed = HeatmapHistoryService.claim(team_id=self.team.id, request_id=request.id)
             if claimed is not None:
                 outcome = HeatmapHistoryService.render_and_store(claimed, final_attempt=True)
-                if outcome.failure_cause is None:
-                    HeatmapHistoryService.publish(claimed, outcome.has_thumbnail)
-                else:
-                    HeatmapHistoryService.fail(claimed, outcome.failure_cause, outcome.page_status)
+                self.finish_capture(claimed, outcome)
         request.refresh_from_db()
 
     def history(self) -> HeatmapScreenshotHistory:
@@ -130,6 +143,10 @@ class TestHeatmapHistory(APIBaseTest):
         request = self.enqueue()
         self.execute_capture(request)
         assert request.state == "succeeded"
+        self.finish_capture(request, RenderOutcome(has_thumbnail=True))
+        assert self.history().revision == request.id
+        assert self.history().has_thumbnail
+        assert {key.rsplit("/", 1)[1] for key in self.images(request)} == {"full.jpg", "thumbnail.jpg"}
         self.storage.write.reset_mock()
         self.execute_capture(request)
         self.storage.write.assert_not_called()
@@ -138,6 +155,26 @@ class TestHeatmapHistory(APIBaseTest):
         assert self.history().revision == request.id
         assert self.history().has_thumbnail
         assert {key.rsplit("/", 1)[1] for key in self.images(request)} == {"full.jpg", "thumbnail.jpg"}
+
+    @parameterized.expand(
+        [
+            ("same_run", UUID(int=1), True),
+            ("other_run", UUID(int=2), False),
+            ("unowned", None, False),
+        ]
+    )
+    def test_claim_retry_preserves_ownership(self, _name: str, retry_claim_id: UUID | None, recovered: bool) -> None:
+        request = self.enqueue()
+        claim_id = UUID(int=1)
+        claimed = HeatmapHistoryService.claim(team_id=self.team.id, request_id=request.id, claim_id=claim_id)
+        assert claimed is not None
+        retried = HeatmapHistoryService.claim(team_id=self.team.id, request_id=request.id, claim_id=retry_claim_id)
+        assert (retried is not None) == recovered
+        if retried is not None:
+            assert retried.claim_id == claim_id
+        request.refresh_from_db()
+        assert request.state == HeatmapCaptureRequest.State.RUNNING
+        assert request.claim_id == claim_id
 
     def replace_with_manual_capture(self) -> None:
         self.execute_capture(self.enqueue())
@@ -211,27 +248,59 @@ class TestHeatmapHistory(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("url", "https://example.com/new"),
-            ("data_url", "https://example.com/data"),
-            ("deleted", True),
-            ("hard_delete", None),
+            ("url", "https://example.com/new", False),
+            ("data_url", "https://example.com/data", False),
+            ("deleted", True, False),
+            ("hard_delete", None, False),
+            ("url", "https://example.com/new", True),
         ]
     )
-    def test_configuration_reset_cancels_render_and_deletes_images(self, field: str, value: str | bool | None) -> None:
+    def test_configuration_reset_cancels_render_and_deletes_images(
+        self, field: str, value: str | bool | None, retry_cleanup: bool
+    ) -> None:
         request = self.enqueue()
         claimed = HeatmapHistoryService.claim(team_id=self.team.id, request_id=request.id)
         assert claimed is not None
         self.blobs[image_key(self.team.id, request.id, "full")] = jpeg()
-        with self.captureOnCommitCallbacks(execute=True):
-            if field == "hard_delete":
-                self.heatmap.delete()
-            else:
-                setattr(self.heatmap, field, value)
-                self.heatmap.save(update_fields=[field])
+
+        def reset_during_render(render_request: HeatmapCaptureRequest) -> bytes:
+            with self.captureOnCommitCallbacks(execute=True):
+                if field == "hard_delete":
+                    self.heatmap.delete()
+                else:
+                    setattr(self.heatmap, field, value)
+                    self.heatmap.save(update_fields=[field])
+            assert not self.images(request)
+            return jpeg(render_request.width)
+
+        with patch.object(HeatmapHistoryService, "render", side_effect=reset_during_render):
+            outcome = HeatmapHistoryService.render_and_store(claimed, final_attempt=True)
+        assert self.images(request)
+        if retry_cleanup:
+            self.storage.delete_objects.side_effect = lambda keys: list(keys)
+            with self.assertRaises(ObjectStorageError):
+                self.finish_capture(claimed, outcome)
+            assert self.images(request)
+            self.storage.delete_objects.side_effect = self.delete_blobs
+        self.finish_capture(claimed, outcome)
         assert not self.images(request)
-        with self.captureOnCommitCallbacks(execute=True):
-            HeatmapHistoryService.publish(claimed, True)
         assert not HeatmapScreenshotHistory.objects.for_team(self.team.id).exists()
+
+    def test_worker_loss_is_reaped_and_late_completion_is_fenced(self) -> None:
+        request = self.enqueue()
+        claimed = HeatmapHistoryService.claim(team_id=self.team.id, request_id=request.id)
+        HeatmapCaptureRequest.objects.for_team(self.team.id).filter(id=request.id).update(
+            deadline=timezone.now() - timedelta(seconds=1)
+        )
+        prune_history()
+        request.refresh_from_db()
+        assert request.state == "failed"
+        assert request.failure_cause == "worker_timeout"
+        assert claimed is not None
+        self.blobs[image_key(self.team.id, request.id, "full")] = jpeg()
+        self.finish_capture(claimed, RenderOutcome())
+        assert not self.images(request)
+        assert not self.history().has_content
 
     def test_thumbnail_failure_uses_no_full_image_fallback(self) -> None:
         request = self.enqueue()
@@ -240,6 +309,18 @@ class TestHeatmapHistory(APIBaseTest):
         history = self.history()
         assert history.has_content
         assert not history.has_thumbnail
+
+    def test_scheduler_enqueues_once_per_day(self) -> None:
+        with patch.object(HeatmapHistoryService, "dispatch") as dispatch, self.captureOnCommitCallbacks(execute=True):
+            assert len(schedule_due_captures()) == 1
+            assert schedule_due_captures() == []
+        dispatch.assert_not_called()
+        assert HeatmapCaptureRequest.objects.for_team(self.team.id).count() == 1
+        self.heatmap.next_history_capture_at = timezone.now()
+        self.heatmap.save(update_fields=["next_history_capture_at"])
+        assert (
+            HeatmapHistoryService.enqueue(team_id=self.team.id, heatmap_id=self.heatmap.id, trigger="scheduled") is None
+        )
 
     @parameterized.expand(
         [
@@ -260,6 +341,42 @@ class TestHeatmapHistory(APIBaseTest):
         second.refresh_from_db()
         assert second.next_history_capture_at is not None
         assert (second.next_history_capture_at > timezone.now()) == waits_for_tomorrow
+
+    def test_scheduler_redispatches_requests_whose_workflow_never_started(self) -> None:
+        noon = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        with patch(f"{TASK_MODULE}.timezone.now", return_value=noon):
+            orphan = self.enqueue("scheduled")
+            assert schedule_due_captures() == []
+            HeatmapCaptureRequest.objects.for_team(self.team.id).filter(id=orphan.id).update(
+                created_at=noon - timedelta(minutes=3)
+            )
+            assert [capture.request_id for capture in schedule_due_captures()] == [str(orphan.id)]
+
+    def test_scheduler_gives_each_team_a_turn_and_prefers_recent_views(self) -> None:
+        other = Team.objects.create(organization=self.organization)
+        now = timezone.now()
+        SavedHeatmap.objects.filter(id=self.heatmap.id).update(last_viewed_at=now - timedelta(hours=1))
+        recent = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com/recent",
+            status="completed",
+            last_viewed_at=now,
+            next_history_capture_at=now,
+        )
+        SavedHeatmap.objects.create(
+            team=other,
+            url="https://example.com/other",
+            status="completed",
+            last_viewed_at=now,
+            next_history_capture_at=now,
+        )
+        with (
+            patch(f"{TASK_MODULE}.HEATMAP_HISTORY_TICK_CAP", 2),
+            patch(f"{SCHEDULING_MODULE}.HEATMAP_HISTORY_TICK_CAP", 2),
+        ):
+            assert len(schedule_due_captures()) == 2
+        assert HeatmapCaptureRequest.objects.for_team(self.team.id).get().heatmap_id == recent.id
+        assert HeatmapCaptureRequest.objects.for_team(other.id).count() == 1
 
     @parameterized.expand(
         [
@@ -290,6 +407,23 @@ class TestHeatmapHistory(APIBaseTest):
             request = self.enqueue()
         assert request.captured_on.isoformat() == "2024-03-10"
         assert request.deadline == datetime(2024, 3, 11, 4, tzinfo=UTC)
+
+    def test_cleanup_deletes_images_before_rows_and_bounds_batches(self) -> None:
+        request = self.enqueue()
+        self.execute_capture(request)
+        HeatmapScreenshotHistory.objects.for_team(self.team.id).filter(id=request.history_id).update(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+        self.storage.delete_objects.side_effect = lambda keys, **kwargs: list(keys)
+        assert prune_history() == 0
+        assert self.images(request)
+        self.storage.delete_objects.side_effect = self.delete_blobs
+        with patch(f"{SCHEDULING_MODULE}.HEATMAP_HISTORY_METADATA_BATCH", 1):
+            assert prune_history() == 1
+            assert self.history().latest_request is None
+            assert prune_history() == 1
+        assert not HeatmapScreenshotHistory.objects.for_team(self.team.id).exists()
+        assert not self.images(request)
 
     def test_pending_manual_capture_does_not_skip_automatic_capture_after_failure(self) -> None:
         manual = self.enqueue()
