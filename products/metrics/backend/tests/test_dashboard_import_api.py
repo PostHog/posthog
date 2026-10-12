@@ -469,6 +469,7 @@ class TestDashboardImportAPI(APIBaseTest):
         for item in (held, free):
             TaskRun.objects.filter(task_id=item["id"]).update(status=TaskRun.Status.COMPLETED, output=answer)
         task = Task.objects.get(id=held["id"])
+        assert task.state is not None
         task.state[IMPORT_STATE_KEY]["finalizing_since"] = timezone.now().isoformat()
         task.save(update_fields=["state"])
 
