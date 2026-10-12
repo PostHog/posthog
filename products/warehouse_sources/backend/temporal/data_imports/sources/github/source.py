@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 from posthog.egress.limiter.policies import Priority
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -157,6 +159,15 @@ class GithubSource(
     WebhookSource[GithubSourceConfig],
     OAuthMixin,
 ):
+    # 'Github' (not 'GitHub') - matches the ExternalDataSourceType value.
+    # Default auth is the GitHub App integration (OAuth), so deep-link.
+    codebase_detection = detect(
+        DEEP_LINK,
+        npm=("@octokit/rest", "@octokit/core", "@octokit/graphql", "octokit"),
+        pypi=("pygithub",),
+        rubygems=("octokit",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"

@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -46,6 +47,8 @@ KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a fe
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@paddle/paddle-node-sdk", "@paddle/paddle-js"), env=("^PADDLE_",))
+
     api_docs_url = "https://developer.paddle.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

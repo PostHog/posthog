@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -88,6 +89,11 @@ _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
+    # Checkout.com's own convention is the CKO_ prefix.
+    codebase_detection = detect(
+        IN_CLI, npm=("checkout-sdk-node",), pypi=("checkout-sdk",), env=("^CKO_", "^CHECKOUT_COM_")
+    )
+
     # The catalog listed without credentials is the static part (disputes + reports);
     # the per-report-type tables need credentials to discover, so `get_schemas` only
     # reaches the API when the config carries real keys.

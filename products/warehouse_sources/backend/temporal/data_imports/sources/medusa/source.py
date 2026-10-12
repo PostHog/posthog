@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -49,6 +50,8 @@ INVALID_URL_MESSAGE = (
 
 @SourceRegistry.register
 class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(DEEP_LINK, env=("^MEDUSA_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     # The v2 Admin API carries no version token on the wire (no version path segment, header,

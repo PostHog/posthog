@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig, AzureCostManagementResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^(AZURE_COST_MANAGEMENT|AZURECOSTMANAGEMENT)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # api-version is a required query param on every Cost Management call; the resolved pin flows
     # through verbatim to `_endpoint_url`. The query/forecast/dimensions wire is identical across

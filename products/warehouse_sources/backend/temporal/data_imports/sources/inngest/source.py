@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("inngest",), pypi=("inngest",), env=("^INNGEST_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api-docs.inngest.com"
     supported_versions = INNGEST_SUPPORTED_VERSIONS

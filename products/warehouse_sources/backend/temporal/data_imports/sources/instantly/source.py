@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -61,6 +63,8 @@ class InstantlySource(
     ResumableSource[InstantlySourceConfig, InstantlyResumeConfig],
     WebhookSource[InstantlySourceConfig],
 ):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

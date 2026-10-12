@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError, RequestException
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LookerSource(ResumableSource[LookerSourceConfig, LookerResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^LOOKER_",))
+
     supported_versions = ("4.0",)
     default_version = "4.0"
     api_docs_url = "https://docs.cloud.google.com/looker/docs/api-versioning"

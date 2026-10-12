@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@pendo/agent",),
+        env=("^PENDO_",),
+        competes_with=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://engageapi.pendo.io"

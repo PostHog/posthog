@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("e2b", "@e2b/code-interpreter"), pypi=("e2b", "e2b-code-interpreter"), env=("^E2B_",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

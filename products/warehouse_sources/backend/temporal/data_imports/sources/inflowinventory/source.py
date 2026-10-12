@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowInventoryResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^INFLOWINVENTORY_",))
+
     # Oldest → newest. inFlow's version is a request input (the Accept header), so each pin keeps
     # sending its own label; new sources default to the current stable version.
     supported_versions = (

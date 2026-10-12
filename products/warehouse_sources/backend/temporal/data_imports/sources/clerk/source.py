@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=(
+            "@clerk/nextjs",
+            "@clerk/clerk-react",
+            "@clerk/backend",
+            "@clerk/express",
+            "@clerk/fastify",
+            "@clerk/remix",
+        ),
+        env=("^CLERK_SECRET_KEY$", "^NEXT_PUBLIC_CLERK_"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventbriteSource(ResumableSource[EventbriteSourceConfig, EventbriteResumeConfig]):
+    codebase_detection = detect(IN_CLI, pypi=("eventbrite",), env=("^EVENTBRITE_",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://www.eventbrite.com/platform/api"

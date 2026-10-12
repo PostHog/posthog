@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@notionhq/client",), pypi=("notion-client",), env=("^NOTION_",))
+
     supported_versions = (NOTION_VERSION_2025_09_03, NOTION_VERSION_2026_03_11)
     default_version = NOTION_VERSION_2026_03_11
     api_docs_url = "https://developers.notion.com/page/changelog"

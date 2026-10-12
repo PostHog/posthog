@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -51,6 +52,8 @@ class WorkOSSource(
     ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig],
     WebhookSource[WorkOSSourceConfig],
 ):
+    codebase_detection = detect(IN_CLI, npm=("@workos-inc/node",), pypi=("workos",), env=("^WORKOS_",))
+
     api_docs_url = "https://workos.com/docs/reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

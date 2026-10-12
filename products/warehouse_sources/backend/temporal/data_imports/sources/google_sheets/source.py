@@ -6,6 +6,7 @@ import gspread
 import structlog
 from google.auth import exceptions as google_auth_exceptions
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
+    codebase_detection = detect(IN_CLI, npm=("google-spreadsheet",), pypi=("gspread",), env=("^GOOGLE_SHEETS_",))
+
     api_docs_url = "https://developers.google.com/sheets/api"
     uses_stable_schema_resource_ids = True
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PagerDutySource(ResumableSource[PagerDutySourceConfig, PagerDutyResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@pagerduty/pdjs",), pypi=("pdpyras",), env=("^PAGERDUTY_", "^PD_API_KEY$")
+    )
+
     supported_versions = ("2",)
     default_version = "2"
     api_docs_url = "https://developer.pagerduty.com/api-reference"

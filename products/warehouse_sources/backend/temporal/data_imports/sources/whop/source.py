@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,6 +51,8 @@ class WhopSource(
     ResumableSource[WhopSourceConfig, WhopResumeConfig],
     WebhookSource[WhopSourceConfig],
 ):
+    codebase_detection = detect(IN_CLI, npm=("@whop/api", "@whop-apps/sdk"), env=("^WHOP_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Whop's dated `Api-Version-Date` header pins the Experimental API. The stable `/api/v1`
     # endpoints this source calls are served on the unversioned contract when the header is omitted,

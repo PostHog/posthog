@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@anthropic-ai/sdk",), pypi=("anthropic",), env=("^ANTHROPIC_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2023-06-01",)
     default_version = "2023-06-01"

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import SHORT_NAME, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VWOSource(ResumableSource[VWOSourceConfig, VWOResumeConfig]):
+    codebase_detection = not_detectable(SHORT_NAME)
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.wingify.com/v2/reference/introduction-1"

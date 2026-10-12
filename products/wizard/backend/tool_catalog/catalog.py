@@ -1,16 +1,15 @@
-"""The tools the wizard can detect, and what each one means to PostHog.
+"""The tools the wizard can detect in a codebase, and what each one means to PostHog.
 
-PostHog owns this catalog. `projection.py` renders it to
-`products/wizard/tool-catalog.generated.json`, and a change to that file on `master` makes the
-wizard repo regenerate its detector registry from it. The backend reads the same catalog to
-classify the scans the wizard reports.
+Each warehouse source declares its own `codebase_detection`. `projection.py` renders the catalog to
+`products/wizard/tool-catalog.generated.json`, and a change to that file on `master` makes the wizard
+repo regenerate its detector registry. The backend reads the same catalog to classify reported scans.
 """
 
-import re
 from functools import cache
 
-from products.wizard.backend.tool_catalog.curated import CURATED_TOOLS
-from products.wizard.backend.tool_catalog.derived import derived_tools
+from products.warehouse_sources.backend.facade.codebase_detection import Detection
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.wizard.backend.tool_catalog.competitors import COMPETITORS_WITHOUT_SOURCE
 from products.wizard.backend.tool_catalog.types import Tool
 
 # Bump when the JSON shape changes in a way an older wizard cannot read.
@@ -19,17 +18,21 @@ CATALOG_SCHEMA_VERSION = 1
 
 @cache
 def get_tool_catalog() -> tuple[Tool, ...]:
-    curated_kinds = {tool.kind for tool in CURATED_TOOLS}
-    if len(curated_kinds) != len(CURATED_TOOLS):
-        raise ValueError("Two curated tools share a kind")
-    tools = CURATED_TOOLS + derived_tools(curated_kinds)
-    for tool in tools:
-        for pattern in tool.signals.env_key_patterns:
-            # Unanchored, a pattern matches any key that merely contains the vendor name.
-            if not pattern.startswith("^"):
-                raise ValueError(f"{tool.kind}: env key pattern {pattern!r} is not anchored")
-            re.compile(pattern)
-    return tools
+    tools = [
+        Tool(
+            kind=source_type.value,
+            label=source.get_source_config.label or source_type.value,
+            warehouse_source_type=source_type,
+            detection=source.codebase_detection,
+        )
+        for source_type, source in SourceRegistry.get_all_sources().items()
+        if isinstance(source.codebase_detection, Detection)
+    ]
+    tools += [
+        Tool(kind=kind, label=kind, warehouse_source_type=None, detection=detection)
+        for kind, detection in COMPETITORS_WITHOUT_SOURCE.items()
+    ]
+    return tuple(sorted(tools, key=lambda tool: tool.kind))
 
 
 @cache

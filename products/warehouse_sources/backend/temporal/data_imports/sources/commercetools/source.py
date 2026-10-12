@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, CommercetoolsResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@commercetools/platform-sdk",), pypi=("commercetools",), env=("^CTP_", "^COMMERCETOOLS_")
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://docs.commercetools.com/api/"

@@ -4,6 +4,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -87,6 +88,8 @@ class MSSQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(IN_CLI, npm=("mssql", "tedious"), pypi=("pyodbc", "pymssql"), env=("^MSSQL_",))
+
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION

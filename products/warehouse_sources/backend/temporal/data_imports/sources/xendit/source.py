@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ TRANSACTIONS_ENDPOINT = "transactions"
 
 @SourceRegistry.register
 class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^XENDIT_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Xendit has no account-wide API version: the endpoints this source calls take no version
     # header or version query param, and the `/v2` path segment on the accounts endpoint is part of

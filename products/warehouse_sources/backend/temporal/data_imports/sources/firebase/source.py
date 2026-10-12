@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]):
+    # Firebase authenticates with a service-account JSON key file, not a
+    # pasteable string. The terminal credential prompt only collects
+    # single-line text, so there is no safe in-cli path: the file upload lives
+    # in the app's new-source form. Deep-link there instead of dead-ending on a
+    # credential the CLI cannot accept.
+    # NOTE: the `firebase` client SDK also covers auth-only projects, which
+    # have no Firestore data to import. We accept the false positives - the
+    # package is a strong signal for the common case.
+    codebase_detection = detect(
+        DEEP_LINK,
+        npm=("firebase-admin", "firebase"),
+        pypi=("firebase-admin",),
+        env=("^FIREBASE_", "^NEXT_PUBLIC_FIREBASE_"),
+    )
+
     # Firestore and Identity Platform both keep `v1beta*` channels alongside `v1`; `v1` is GA.
     supported_versions = (API_VERSION,)
     default_version = API_VERSION

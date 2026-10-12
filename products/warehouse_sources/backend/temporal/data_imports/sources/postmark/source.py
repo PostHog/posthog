@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,6 +51,10 @@ class PostmarkSource(
     ResumableSource[PostmarkSourceConfig, PostmarkResumeConfig],
     WebhookSource[PostmarkSourceConfig],
 ):
+    codebase_detection = detect(
+        IN_CLI, npm=("postmark",), pypi=("postmarker",), rubygems=("postmark",), env=("^POSTMARK_",)
+    )
+
     api_docs_url = "https://postmarkapp.com/developer"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

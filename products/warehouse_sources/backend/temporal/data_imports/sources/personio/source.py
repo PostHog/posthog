@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersonioSource(ResumableSource[PersonioSourceConfig, PersonioResumeConfig]):
+    codebase_detection = detect(IN_CLI, env=("^PERSONIO_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.personio.de"

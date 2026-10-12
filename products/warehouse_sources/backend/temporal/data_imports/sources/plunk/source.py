@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@plunk/node",), env=("^PLUNK_",))
+
     # Plunk's data endpoints carry no version prefix (only the public send/track endpoints
     # are versioned), so the source is unversioned.
     api_docs_url = "https://docs.useplunk.com/api-reference/overview"

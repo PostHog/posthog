@@ -6,7 +6,9 @@ from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
+from posthog.schema_enums import ProductKey
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -71,6 +73,14 @@ _MISSING_SCOPE_ERROR = (
 
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        DEEP_LINK,
+        npm=("react-ga4",),
+        pypi=("google-analytics-data",),
+        env=("^GOOGLE_ANALYTICS_", "^GA4_"),
+        competes_with=(ProductKey.WEB_ANALYTICS,),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.google.com/analytics/devguides/reporting/data/v1"

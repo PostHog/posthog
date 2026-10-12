@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -63,6 +64,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@shopify/shopify-api", "shopify-api-node"), pypi=("shopifyapi",), env=("^SHOPIFY_",)
+    )
+
     supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)
     default_version = SHOPIFY_API_VERSION_2026_07
     api_docs_url = "https://shopify.dev/docs/api/release-notes"

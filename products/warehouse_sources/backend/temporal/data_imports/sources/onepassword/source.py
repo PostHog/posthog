@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OnePasswordSource(ResumableSource[OnePasswordSourceConfig, OnePasswordResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@1password/sdk",), pypi=("onepassword-sdk",), env=("^ONEPASSWORD_", "^OP_SERVICE_ACCOUNT_TOKEN$")
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

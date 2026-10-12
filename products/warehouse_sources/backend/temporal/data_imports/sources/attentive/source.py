@@ -6,6 +6,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -70,6 +71,8 @@ class AttentiveSource(
     SimpleSource[AttentiveSourceConfig],
     WebhookSource[AttentiveSourceConfig],
 ):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     api_docs_url = "https://docs.attentive.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

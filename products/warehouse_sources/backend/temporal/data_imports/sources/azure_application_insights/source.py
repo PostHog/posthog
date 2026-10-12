@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,6 +51,8 @@ APP_ERROR = "Application Insights could not find the resource. Check the applica
 class AzureApplicationInsightsSource(
     ResumableSource[AzureApplicationInsightsSourceConfig, AzureApplicationInsightsResumeConfig]
 ):
+    codebase_detection = detect(DEEP_LINK, env=("^(AZURE_APPLICATION_INSIGHTS|AZUREAPPLICATIONINSIGHTS)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = API_DOCS_URL

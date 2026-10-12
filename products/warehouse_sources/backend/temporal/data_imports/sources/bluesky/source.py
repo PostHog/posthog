@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,6 +56,8 @@ PARTITION_FIELDS: dict[str, list[str]] = {
 
 @SourceRegistry.register
 class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^BLUESKY_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # The AT Protocol's XRPC methods aren't versioned (no path segment, header, or query param

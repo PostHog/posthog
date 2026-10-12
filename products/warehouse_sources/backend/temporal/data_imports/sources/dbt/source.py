@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
+    # NOTE: these signals prove the project uses dbt, not that it uses dbt
+    # Cloud - the source needs dbt Cloud credentials. Local-only dbt users
+    # are a known false positive.
+    codebase_detection = detect(
+        IN_CLI,
+        pypi=("dbt-core", "dbt-snowflake", "dbt-postgres", "dbt-bigquery", "dbt-redshift", "dbt-databricks"),
+        env=("^DBT_",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.getdbt.com/docs/dbt-cloud-apis/overview"  # coverage spans both Admin API v2 and v3
     supported_versions = DBT_SUPPORTED_VERSIONS

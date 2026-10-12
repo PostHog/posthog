@@ -1,5 +1,8 @@
 from typing import cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +32,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConfig]):
+    codebase_detection = detect(
+        DEEP_LINK,
+        npm=("logrocket", "logrocket-react", "@logrocket/react-native"),
+        env=("^LOGROCKET_",),
+        competes_with=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.logrocket.com/docs/audit-log-api"
 

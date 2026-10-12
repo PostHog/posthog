@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class N8nSource(ResumableSource[N8nSourceConfig, N8nResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(IN_CLI, npm=("n8n",), env=("^N8N_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.n8n.io/api/api-reference/"

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@splitsoftware/splitio",),
+        pypi=("splitio-client",),
+        env=("^SPLITIO_", "^SPLIT_IO_"),
+        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.split.io/reference/introduction"
 

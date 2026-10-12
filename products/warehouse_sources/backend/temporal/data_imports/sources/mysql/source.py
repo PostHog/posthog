@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -99,6 +101,14 @@ class MySQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("mysql", "mysql2"),
+        pypi=("pymysql", "mysqlclient", "mysql-connector-python"),
+        rubygems=("mysql2",),
+        env=("^MYSQL_",),
+    )
+
     def resume_covers_run(
         self,
         *,

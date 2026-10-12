@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +41,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResumeConfig]):
+    # Logtail is Better Stack's log product - same account, same source.
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@logtail/node", "@logtail/js"),
+        env=("^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_"),
+        competes_with=(ProductKey.LOGS,),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/"

@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -64,6 +66,8 @@ class ChatwootSource(
     ResumableSource[ChatwootSourceConfig, ChatwootResumeConfig],
     WebhookSource[ChatwootSourceConfig],
 ):
+    codebase_detection = detect(IN_CLI, env=("^CHATWOOT_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

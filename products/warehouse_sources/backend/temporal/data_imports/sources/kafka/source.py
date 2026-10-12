@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -60,6 +61,8 @@ def _credential_fields() -> list[FieldType]:
 
 @SourceRegistry.register
 class KafkaSource(SimpleSource[KafkaSourceConfig], CursorSource[KafkaCursor]):
+    codebase_detection = detect(DEEP_LINK, env=("^KAFKA_",))
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.KAFKA

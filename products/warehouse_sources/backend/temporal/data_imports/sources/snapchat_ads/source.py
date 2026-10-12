@@ -5,6 +5,7 @@ import requests
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +45,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeConfig], OAuthMixin):
+    codebase_detection = detect(DEEP_LINK, env=("^(SNAPCHAT_ADS|SNAPCHATADS)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.snap.com/api/marketing-api"

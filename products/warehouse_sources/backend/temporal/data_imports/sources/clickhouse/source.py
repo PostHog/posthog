@@ -7,6 +7,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -156,6 +157,10 @@ ClickHouseErrors: dict[str, str] = {
 
 @SourceRegistry.register
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        IN_CLI, npm=("@clickhouse/client",), pypi=("clickhouse-connect", "clickhouse-driver"), env=("^CLICKHOUSE_",)
+    )
+
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True

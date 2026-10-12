@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("asana",), pypi=("asana",), env=("^ASANA_",))
+
     supported_versions = ("1.0",)
     default_version = "1.0"
     api_docs_url = "https://developers.asana.com/reference/rest-api-reference"

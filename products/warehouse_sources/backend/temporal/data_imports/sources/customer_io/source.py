@@ -5,6 +5,9 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -81,6 +84,14 @@ class CustomerIOSource(
     SimpleSource[CustomerIOSourceConfig],
     WebhookSource[CustomerIOSourceConfig],
 ):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("customerio-node",),
+        pypi=("customerio",),
+        env=("^CUSTOMER_?IO_",),
+        competes_with=(ProductKey.WORKFLOWS,),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.customer.io/api/app/"

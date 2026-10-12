@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^(DEVIN_AI|DEVINAI)_",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://docs.devin.ai/api-reference"

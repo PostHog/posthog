@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@fusionauth/typescript-client",),
+        pypi=("fusionauth-client",),
+        env=("^FUSIONAUTH_", "^FUSION_AUTH_"),
+    )
+
     api_docs_url = "https://fusionauth.io/docs/apis/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

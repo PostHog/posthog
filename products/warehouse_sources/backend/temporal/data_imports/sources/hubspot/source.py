@@ -2,6 +2,7 @@ from typing import cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -59,6 +60,10 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        DEEP_LINK, npm=("@hubspot/api-client",), pypi=("hubspot-api-client",), env=("^HUBSPOT_",)
+    )
+
     supported_versions = (HUBSPOT_API_VERSION_V3, HUBSPOT_API_VERSION_2026_03, HUBSPOT_API_VERSION_2026_09)
     default_version = HUBSPOT_API_VERSION_2026_09
     api_docs_url = "https://developers.hubspot.com/docs/api-reference/latest/overview"

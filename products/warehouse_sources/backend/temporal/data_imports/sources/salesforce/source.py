@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
+    codebase_detection = detect(DEEP_LINK, npm=("jsforce",), pypi=("simple-salesforce",), env=("^SALESFORCE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Salesforce moves orgs onto a new release over several weeks, and an org still on the previous
     # release answers 404 to every path of the new version. New sources are pinned to the default, so
