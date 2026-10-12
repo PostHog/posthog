@@ -53,6 +53,29 @@ describe('AlertPreviewCard', () => {
         expect(within(container).queryByText(EMPTY_BREAKDOWN_TEXT)).toBeNull()
     })
 
+    it.each([
+        ['charts every series', [{ key: '0', label: 'queue.depth {pod=a}', data: [10, 25, 60] }], 'All series'],
+        [
+            'shows the metrics empty state',
+            [],
+            'No metric data to preview. Check the metric and date range of the insight.',
+        ],
+    ])('for a metrics alert %s', (_name, metricsSeries, expectedText) => {
+        const { container } = render(
+            <AlertPreviewCard
+                alertForm={{ ...alertForm, config: { type: 'MetricsAlertConfig' } }}
+                trendsValues={null}
+                metricsSeries={metricsSeries}
+                metricsLabels={['10:00', '10:05', '10:10']}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        )
+
+        expect(within(container).getByText(expectedText)).toBeTruthy()
+        expect(within(container).queryByText('No insight data available to preview.')).toBeNull()
+    })
+
     it.each([false, true])('explains when the delayed %s preview runs out of loaded history', (isBreakdown) => {
         const { container } = render(
             <AlertPreviewCard

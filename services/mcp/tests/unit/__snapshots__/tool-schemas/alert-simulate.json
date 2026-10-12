@@ -2268,7 +2268,7 @@
                     "type": "string"
                 }
             ],
-            "description": "Numeric insight ID or saved insight short ID to simulate the detector on."
+            "description": "Numeric insight ID or saved insight short ID."
         },
         "series_index": {
             "default": 0,

@@ -1765,6 +1765,16 @@ def _is_llm_alert_simulation(request) -> bool:
     return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
 
 
+class AlertThresholdSuggestionBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_threshold_suggestion_burst"
+    rate = "10/minute"
+
+
+class AlertThresholdSuggestionSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_threshold_suggestion_sustained"
+    rate = "200/day"
+
+
 class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
     """Per-team cap on billable AI alert simulations.
 

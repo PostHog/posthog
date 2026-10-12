@@ -58,6 +58,8 @@ from posthog.rate_limit import (
     AlertLLMSimulationDailyThrottle,
     AlertLLMSimulationSustainedThrottle,
     AlertTestDeliveryThrottle,
+    AlertThresholdSuggestionBurstThrottle,
+    AlertThresholdSuggestionSustainedThrottle,
     BurstRateThrottle,
     SustainedRateThrottle,
 )
@@ -89,6 +91,7 @@ from products.alerts.backend.facade.api import (
     admit_llm_alert_write,
     is_llm_detector_config,
     llm_detector_access_error,
+    suggest_metrics_alert_thresholds,
 )
 from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import (
@@ -1215,17 +1218,27 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         return attrs
 
 
-class AlertSimulateSerializer(serializers.Serializer):
+class _InsightReferenceSerializer(serializers.Serializer):
+    insight = TeamScopedInsightReferenceField(
+        queryset=Insight.objects.all(),
+        help_text="Numeric insight ID or saved insight short ID.",
+    )
+
+    def validate_insight(self, value):
+        _require_insight_viewer_access(self.context, value)
+        # Same feature gate as create/update: a flag-gated insight kind must get the gated
+        # rejection here too, not fall through to an unsupported-kind error.
+        _enforce_alert_feature_flags(self.context, value)
+        return value
+
+
+class AlertSimulateSerializer(_InsightReferenceSerializer):
     evaluation_delay_intervals = serializers.IntegerField(
         min_value=0,
         max_value=100,
         default=0,
         help_text="Skip this many completed insight intervals before simulation, matching live evaluation. "
         "Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
-    )
-    insight = TeamScopedInsightReferenceField(
-        queryset=Insight.objects.all(),
-        help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
     )
     detector_config = DetectorConfigField(
         required=False,
@@ -1264,13 +1277,6 @@ class AlertSimulateSerializer(serializers.Serializer):
         "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
 
-    def validate_insight(self, value):
-        _require_insight_viewer_access(self.context, value)
-        # Same feature gate as create/update: a flag-gated insight kind must get the gated
-        # rejection here too, not fall through to the unsupported-detector error.
-        _enforce_alert_feature_flags(self.context, value)
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         with upgrade_insight(attrs["insight"]):
             query = attrs["insight"].query
@@ -1285,6 +1291,40 @@ class AlertSimulateSerializer(serializers.Serializer):
         # same way saving one is, or the preview becomes the way to use it.
         _enforce_llm_feature_access(self.context, value)
         return _validate_detector_config(value)
+
+
+class AlertSuggestThresholdsSerializer(_InsightReferenceSerializer):
+    def validate_insight(self, value):
+        value = super().validate_insight(value)
+        if value.alertable_query_kind != NodeKind.METRICS_QUERY:
+            raise ValidationError("Threshold suggestions are only available for metrics insights.")
+        return value
+
+
+class ThresholdCandidateSerializer(serializers.Serializer):
+    value = serializers.FloatField(help_text="Threshold value.")
+    description = serializers.CharField(help_text="How the value relates to the recent values of the metric.")
+
+
+class AlertSuggestThresholdsResponseSerializer(serializers.Serializer):
+    upper = ThresholdCandidateSerializer(
+        many=True, help_text="Candidate 'more than' bounds, from the least to the most strict."
+    )
+    lower = ThresholdCandidateSerializer(
+        many=True, help_text="Candidate 'less than' bounds, from the least to the most strict."
+    )
+    recommended_direction = serializers.ChoiceField(
+        choices=["upper", "lower"],
+        allow_null=True,
+        help_text="Which bound the recommended value is for. Null when the insight has no data.",
+    )
+    recommended_value = serializers.FloatField(
+        allow_null=True, help_text="Recommended threshold value. Null when the insight has no data."
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["jev", "heuristic"],
+        help_text="Whether the decision model picked the recommendation, or a percentile heuristic did.",
+    )
 
 
 class BreakdownSimulationResultSerializer(serializers.Serializer):
@@ -1885,6 +1925,36 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         response_serializer = AlertSimulateResponseSerializer(result)
         return Response(response_serializer.data)
+
+    @extend_schema(
+        request=AlertSuggestThresholdsSerializer,
+        responses={200: AlertSuggestThresholdsResponseSerializer},
+        description=(
+            "Suggest threshold values for a new alert on a metrics insight, from the insight's recent values. "
+            "When available, a decision model picks the recommended value."
+        ),
+    )
+    # Returns values derived from an insight's results, so it needs insight read like simulate.
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="suggest_thresholds",
+        required_scopes=["alert:read", "insight:read", "metrics:read"],
+        throttle_classes=[
+            BurstRateThrottle,
+            SustainedRateThrottle,
+            AlertThresholdSuggestionBurstThrottle,
+            AlertThresholdSuggestionSustainedThrottle,
+        ],
+    )
+    def suggest_thresholds(self, request, *args, **kwargs):
+        serializer = AlertSuggestThresholdsSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        insight = serializer.validated_data["insight"]
+        suggestions = suggest_metrics_alert_thresholds(
+            team_id=self.team.id, user_id=request.user.id, query=insight.query, metric_name=insight.name
+        )
+        return Response(AlertSuggestThresholdsResponseSerializer(suggestions).data)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):

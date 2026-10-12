@@ -209,11 +209,11 @@ const alertSimulate = (): ToolBase<ReturnType<typeof AlertSimulateSchema>, Schem
     handler: async (context: Context, params: z.infer<ReturnType<typeof AlertSimulateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.evaluation_delay_intervals !== undefined) {
-            body['evaluation_delay_intervals'] = params.evaluation_delay_intervals
-        }
         if (params.insight !== undefined) {
             body['insight'] = params.insight
+        }
+        if (params.evaluation_delay_intervals !== undefined) {
+            body['evaluation_delay_intervals'] = params.evaluation_delay_intervals
         }
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config

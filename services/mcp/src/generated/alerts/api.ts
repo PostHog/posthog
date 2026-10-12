@@ -2872,6 +2872,7 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = () => zod.object({
+    insight: zod.union([zod.number(), zod.string()]).describe('Numeric insight ID or saved insight short ID.'),
     evaluation_delay_intervals: zod
         .number()
         .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
@@ -2880,9 +2881,6 @@ export const AlertsSimulateCreateBody = () => zod.object({
         .describe(
             'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
         ),
-    insight: zod
-        .union([zod.number(), zod.string()])
-        .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
     detector_config: zod
         .union([
             zod.object({

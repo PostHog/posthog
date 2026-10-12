@@ -227,7 +227,6 @@ export const MetricsViewer = (): JSX.Element => {
                             type="secondary"
                             onClick={() => createAlert()}
                             loading={savedInsightLoading}
-                            tooltip="Get notified when this metric crosses a threshold (uses insight alerts)"
                             disabledReason={
                                 insightEditorDisabledReason ??
                                 noQueryReason ??

@@ -904,14 +904,14 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
+    /** Numeric insight ID or saved insight short ID. */
+    insight: number | string
     /**
      * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
      * @minimum 0
      * @maximum 100
      */
     evaluation_delay_intervals?: number
-    /** Numeric insight ID or saved insight short ID to simulate the detector on. */
-    insight: number | string
     /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
     detector_config?: DetectorConfigApi
     /** Zero-based index of the series to analyze (trends insights only). */
@@ -982,6 +982,63 @@ export interface AlertSimulateResponseApi {
     sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
     /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
     breakdown_results?: BreakdownSimulationResultApi[]
+}
+
+export interface AlertSuggestThresholdsApi {
+    /** Numeric insight ID or saved insight short ID. */
+    insight: number | string
+}
+
+export interface ThresholdCandidateApi {
+    /** Threshold value. */
+    value: number
+    /** How the value relates to the recent values of the metric. */
+    description: string
+}
+
+/**
+ * * `upper` - upper
+ * * `lower` - lower
+ */
+export type RecommendedDirectionEnumApi = (typeof RecommendedDirectionEnumApi)[keyof typeof RecommendedDirectionEnumApi]
+
+export const RecommendedDirectionEnumApi = {
+    Upper: 'upper',
+    Lower: 'lower',
+} as const
+
+/**
+ * * `jev` - jev
+ * * `heuristic` - heuristic
+ */
+export type AlertSuggestThresholdsResponseSourceEnumApi =
+    (typeof AlertSuggestThresholdsResponseSourceEnumApi)[keyof typeof AlertSuggestThresholdsResponseSourceEnumApi]
+
+export const AlertSuggestThresholdsResponseSourceEnumApi = {
+    Jev: 'jev',
+    Heuristic: 'heuristic',
+} as const
+
+export interface AlertSuggestThresholdsResponseApi {
+    /** Candidate 'more than' bounds, from the least to the most strict. */
+    upper: ThresholdCandidateApi[]
+    /** Candidate 'less than' bounds, from the least to the most strict. */
+    lower: ThresholdCandidateApi[]
+    /** Which bound the recommended value is for. Null when the insight has no data.
+     *
+     * * `upper` - upper
+     * * `lower` - lower */
+    recommended_direction: RecommendedDirectionEnumApi | null
+    /**
+     * Recommended threshold value. Null when the insight has no data.
+     * @nullable
+     */
+    recommended_value: number | null
+    /** Whether the decision model picked the recommendation, or a percentile heuristic did.
+     *
+     * * `jev` - jev
+     * * `heuristic` - heuristic */
+    source: AlertSuggestThresholdsResponseSourceEnumApi
 }
 
 export interface ThresholdWithAlertApi {

@@ -1942,6 +1942,22 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert AlertCheck.objects.count() == checks_before
 
 
+class TestAlertSuggestThresholds(TrendsInsightAPITest):
+    @mock.patch("products.alerts.backend.presentation.views.alert.suggest_metrics_alert_thresholds")
+    def test_rejects_non_metrics_insight(self, mock_suggest) -> None:
+        trends_insight = self.create_trends_insight()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/suggest_thresholds",
+            {"insight": trends_insight["id"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "only available for metrics insights" in response.json()["detail"]
+        mock_suggest.assert_not_called()
+
+
 class TestAlertTestDelivery(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()

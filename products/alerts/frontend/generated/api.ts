@@ -15,6 +15,8 @@ import type {
     AlertDestinationResponseApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
+    AlertSuggestThresholdsApi,
+    AlertSuggestThresholdsResponseApi,
     AlertTestDeliveryResponseApi,
     AlertsListParams,
     AlertsRetrieveParams,
@@ -238,6 +240,26 @@ export const alertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertSimulateApi),
+    })
+}
+
+export const getAlertsSuggestThresholdsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/alerts/suggest_thresholds/`
+}
+
+/**
+ * Suggest threshold values for a new alert on a metrics insight, from the insight's recent values. When available, a decision model picks the recommended value.
+ */
+export const alertsSuggestThresholdsCreate = async (
+    projectId: string,
+    alertSuggestThresholdsApi: AlertSuggestThresholdsApi,
+    options?: RequestInit
+): Promise<AlertSuggestThresholdsResponseApi> => {
+    return apiMutator<AlertSuggestThresholdsResponseApi>(getAlertsSuggestThresholdsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertSuggestThresholdsApi),
     })
 }
 
