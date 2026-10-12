@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (AUTUMN_API_VERSION_2_3_0, AUTUMN_API_VERSION_2_4_0)
     default_version = AUTUMN_API_VERSION_2_4_0

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +37,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=(
+            "@amplitude/analytics-browser",
+            "@amplitude/analytics-node",
+            "@amplitude/analytics-react-native",
+            "amplitude-js",
+        ),
+        pypi=("amplitude-analytics",),
+        env=("^AMPLITUDE_",),
+        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+    )
+
     api_docs_url = "https://amplitude.com/docs/apis/analytics"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

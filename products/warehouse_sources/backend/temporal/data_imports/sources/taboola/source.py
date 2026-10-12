@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^TABOOLA_",))
+
     supported_versions = ("1.0",)
     default_version = "1.0"
     api_docs_url = "https://developers.taboola.com/backstage-api/reference"

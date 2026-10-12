@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LeverSource(ResumableSource[LeverSourceConfig, LeverResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://hire.lever.co/developer/documentation"

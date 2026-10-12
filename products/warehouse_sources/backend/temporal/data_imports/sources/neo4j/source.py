@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class Neo4jSource(SimpleSource[Neo4jSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(DEEP_LINK, env=("^NEO4J_",))
+
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
     api_docs_url = "https://neo4j.com/docs/query-api/current/"

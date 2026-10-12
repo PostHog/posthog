@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -66,6 +67,8 @@ def report_query(config: SingularSourceConfig) -> SingularReportQuery:
 
 @SourceRegistry.register
 class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     supported_versions = ("v2.0",)
     default_version = "v2.0"
     api_docs_url = "https://support.singular.net/hc/en-us/articles/360045245692-Reporting-API-Reference"

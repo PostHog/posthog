@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^(IP2_WHOIS|IP2WHOIS)_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://www.ip2whois.com/developers-api"

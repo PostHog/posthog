@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Metronome exposes no pinnable API version. `/v1/` and `/v2/` are route namespaces that
     # coexist permanently — v2 contracts sit alongside v1 rate cards and packages — and no header,

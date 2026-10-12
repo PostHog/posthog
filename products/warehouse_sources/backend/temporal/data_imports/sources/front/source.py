@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
+    codebase_detection = detect(IN_CLI, env=("^FRONTAPP_", "^FRONT_API_"))
+
     api_docs_url = "https://dev.frontapp.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

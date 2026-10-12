@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,6 +56,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^(SHARE_POINT|SHAREPOINT)_",))
+
     lists_tables_without_credentials = True  # Placeholder configs leave file import off and need no network access.
     # A renamed or moved file keeps its drive item id.
     uses_stable_schema_resource_ids = True

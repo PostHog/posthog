@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SlashSource(ResumableSource[SlashSourceConfig, SlashResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.slash.com/changelog"
 

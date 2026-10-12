@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChessComSource(SimpleSource[ChessComSourceConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^(CHESS_COM|CHESSCOM)_",))
+
     api_docs_url = "https://www.chess.com/news/view/published-data-api"
 
     lists_tables_without_credentials = True

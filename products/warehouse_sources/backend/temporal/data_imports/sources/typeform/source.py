@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TypeformSource(SimpleSource[TypeformSourceConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@typeform/api-client",), env=("^TYPEFORM_",), competes_with=(ProductKey.SURVEYS,)
+    )
+
     api_docs_url = "https://www.typeform.com/developers/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

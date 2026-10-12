@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -41,6 +42,8 @@ _SITE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 @SourceRegistry.register
 class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("chargebee",), pypi=("chargebee",), env=("^CHARGEBEE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

@@ -1,6 +1,7 @@
 import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -53,6 +54,8 @@ class PipedriveSource(
     ResumableSource[PipedriveSourceConfig, PipedriveResumeConfig],
     WebhookSource[PipedriveSourceConfig],
 ):
+    codebase_detection = detect(IN_CLI, npm=("pipedrive",), env=("^PIPEDRIVE_",))
+
     supported_versions = ("v1", "v2")
     default_version = "v2"
     # v1 only differs from v2 in the `activities` endpoint; the vendor deprecated the v1

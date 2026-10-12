@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppstackSource(ResumableSource[AppstackSourceConfig, AppstackResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^APPSTACK_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.appstack.tech/api/export"
 

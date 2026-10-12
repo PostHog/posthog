@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodySource(ResumableSource[CodySourceConfig, CodyResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^CODY_",))
+
     api_docs_url = "https://sourcegraph.com/docs/analytics/api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

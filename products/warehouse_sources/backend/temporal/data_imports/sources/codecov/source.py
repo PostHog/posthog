@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,8 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("codecov",), env=("^CODECOV_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

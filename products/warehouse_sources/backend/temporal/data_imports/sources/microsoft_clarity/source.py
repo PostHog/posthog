@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ def _dimension_options() -> list[SourceFieldSelectConfigOption]:
 
 @SourceRegistry.register
 class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^(MICROSOFT_CLARITY|MICROSOFTCLARITY)_",))
+
     lists_tables_without_credentials = True  # static, single endpoint — safe for public docs
     api_docs_url = "https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api"
 

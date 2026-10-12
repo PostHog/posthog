@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@honeybadger-io/js",),
+        pypi=("honeybadger",),
+        rubygems=("honeybadger",),
+        env=("^HONEYBADGER_",),
+        competes_with=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

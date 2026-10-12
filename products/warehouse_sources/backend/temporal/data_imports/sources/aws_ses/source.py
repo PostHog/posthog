@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
+    # A bare /^AWS_/ would fire on every AWS project, so we match only
+    # the SES-specific prefix.
+    codebase_detection = detect(IN_CLI, npm=("@aws-sdk/client-ses", "@aws-sdk/client-sesv2"), env=("^AWS_SES_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

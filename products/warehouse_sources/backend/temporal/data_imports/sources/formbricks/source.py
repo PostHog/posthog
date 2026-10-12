@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@formbricks/js",), env=("^FORMBRICKS_",))
+
     supported_versions = FORMBRICKS_SUPPORTED_VERSIONS
     default_version = FORMBRICKS_DEFAULT_VERSION
     api_docs_url = "https://formbricks.com/docs/api-reference/rest-api"

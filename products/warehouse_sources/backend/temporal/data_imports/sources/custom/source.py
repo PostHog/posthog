@@ -18,6 +18,7 @@ from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import is_cloud
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -796,6 +797,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     config is rejoined in :meth:`_assemble_manifest` before it reaches the
     REST engine.
     """
+
+    codebase_detection = not_detectable(COMMON_WORD)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

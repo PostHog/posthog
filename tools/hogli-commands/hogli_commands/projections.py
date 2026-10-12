@@ -109,7 +109,8 @@ PROJECTIONS: tuple[Projection, ...] = (
         renderer="products/wizard/backend/tool_catalog/projection.py",
         inputs=(
             "products/wizard/backend/tool_catalog/*",
-            "products/warehouse_sources/backend/facade/types.py",
+            "products/warehouse_sources/backend/facade/codebase_detection.py",
+            "products/warehouse_sources/backend/temporal/data_imports/sources/**",
         ),
         outputs=("products/wizard/tool-catalog.generated.json",),
     ),

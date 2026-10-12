@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@mistralai/mistralai",), pypi=("mistralai",), env=("^MISTRAL_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.mistral.ai/api/"

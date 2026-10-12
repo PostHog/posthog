@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MondaySource(SimpleSource[MondaySourceConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@mondaydotcomorg/api",), env=("^MONDAY_",))
+
     supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07)
     default_version = MONDAY_VERSION_2026_07
     api_docs_url = "https://developer.monday.com/api-reference"

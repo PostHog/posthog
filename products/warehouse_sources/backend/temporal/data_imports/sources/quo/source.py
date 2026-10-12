@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import SHORT_NAME, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QuoSource(ResumableSource[QuoSourceConfig, QuoResumeConfig]):
+    codebase_detection = not_detectable(SHORT_NAME)
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     supported_versions = (QUO_API_VERSION_V1, QUO_API_VERSION_2026_03_30)

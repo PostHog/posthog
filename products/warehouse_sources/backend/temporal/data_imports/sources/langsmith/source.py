@@ -1,5 +1,8 @@
 from typing import Any, Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +44,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("langsmith",),
+        pypi=("langsmith",),
+        env=("^LANGSMITH_", "^LANGCHAIN_API_KEY$"),
+        competes_with=(ProductKey.LLM_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

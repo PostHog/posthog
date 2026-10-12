@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResumeConfig]):
+    codebase_detection = detect(IN_CLI, env=("^SHIPSTATION_",))
+
     api_docs_url = "https://docs.shipstation.com/"
 
     supported_versions = SHIPSTATION_SUPPORTED_VERSIONS

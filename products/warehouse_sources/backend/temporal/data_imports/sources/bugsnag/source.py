@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@bugsnag/js",),
+        pypi=("bugsnag",),
+        rubygems=("bugsnag",),
+        env=("^BUGSNAG_",),
+        competes_with=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2",)  # Data Access API X-Version header value
     default_version = "2"

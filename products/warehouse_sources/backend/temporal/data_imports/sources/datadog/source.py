@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +46,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@datadog/datadog-api-client", "dd-trace"),
+        pypi=("datadog", "datadog-api-client"),
+        rubygems=("dogapi",),
+        env=("^DATADOG_", "^DD_API_KEY$", "^DD_APP_KEY$"),
+        competes_with=(ProductKey.LOGS, ProductKey.TRACING, ProductKey.ERROR_TRACKING),
+    )
+
     api_docs_url = "https://docs.datadoghq.com/api/latest/"
 
     supported_versions = DATADOG_SUPPORTED_VERSIONS

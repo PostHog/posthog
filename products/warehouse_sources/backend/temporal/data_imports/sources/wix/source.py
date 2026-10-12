@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import SHORT_NAME, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WixSource(ResumableSource[WixSourceConfig, WixResumeConfig]):
+    codebase_detection = not_detectable(SHORT_NAME)
+
     # Wix versions each API family in its path rather than the account as a whole, so there is no
     # single account-wide version to pin.
     api_docs_url = "https://dev.wix.com/docs/rest/api-reference"

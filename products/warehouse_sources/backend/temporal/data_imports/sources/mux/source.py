@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("@mux/mux-node",), pypi=("mux-python",), env=("^MUX_",))
+
     api_docs_url = "https://www.mux.com/docs/api-reference"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in the public docs without credentials.

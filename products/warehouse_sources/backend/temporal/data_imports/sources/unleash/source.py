@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UnleashSource(ResumableSource[UnleashSourceConfig, UnleashResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("unleash-client",),
+        pypi=("unleashclient",),
+        env=("^UNLEASH_",),
+        competes_with=(ProductKey.FEATURE_FLAGS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://docs.getunleash.io/reference/api/unleash"

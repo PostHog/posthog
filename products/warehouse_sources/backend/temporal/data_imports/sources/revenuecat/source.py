@@ -5,6 +5,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -133,6 +134,12 @@ class RevenueCatSource(
     ResumableSource[RevenueCatSourceConfig, RevenueCatResumeConfig],
     WebhookSource[RevenueCatSourceConfig],
 ):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@revenuecat/purchases-js", "react-native-purchases", "@revenuecat/purchases-capacitor"),
+        env=("^REVENUE_?CAT_",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

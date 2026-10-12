@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +49,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("langfuse",), pypi=("langfuse",), env=("^LANGFUSE_",), competes_with=(ProductKey.LLM_ANALYTICS,)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://langfuse.com/docs/api-and-data-platform/features/public-api"
 

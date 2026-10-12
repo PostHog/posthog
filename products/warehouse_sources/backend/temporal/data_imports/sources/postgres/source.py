@@ -7,6 +7,8 @@ from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -460,6 +462,22 @@ class PostgresSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    # NOTE: DATABASE_URL is ambiguous - MySQL/SQLite projects (Prisma,
+    # Rails) use it too. We only read key NAMES, not the scheme, so this
+    # is a deliberate precision/recall tradeoff biased toward the most
+    # common convention (DATABASE_URL -> Postgres).
+    # Neon and Supabase are hosted Postgres, and a project on either still
+    # names its connection with the generic signals below. Two sources over
+    # one database import the same tables twice.
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("pg", "postgres", "postgres.js", "knex", "sequelize"),
+        pypi=("psycopg", "psycopg2", "psycopg2-binary", "asyncpg"),
+        rubygems=("pg",),
+        env=("^DATABASE_URL$", "^POSTGRES_", "^PG(HOST|DATABASE|USER|PORT)$"),
+        superseded_by=("Neon", "Supabase"),
+    )
+
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@mailchimp/mailchimp_marketing",), pypi=("mailchimp-marketing",), env=("^MAILCHIMP_",)
+    )
+
     supported_versions = ("3.0",)
     default_version = "3.0"
     api_docs_url = "https://mailchimp.com/developer/marketing/api/"

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,6 +26,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FlyIoSource(SimpleSource[FlyIoSourceConfig]):
+    # `fly.toml` is not one of the manifests we read, so env keys are the
+    # only signal available.
+    codebase_detection = detect(IN_CLI, env=("^FLY_API_TOKEN$", "^FLY_APP_NAME$"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://fly.io/docs/machines/api/"
 

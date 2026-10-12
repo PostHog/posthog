@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -58,6 +59,10 @@ class MailgunSource(
     ResumableSource[MailgunSourceConfig, MailgunResumeConfig],
     WebhookSource[MailgunSourceConfig],
 ):
+    codebase_detection = detect(
+        IN_CLI, npm=("mailgun.js", "mailgun-js"), pypi=("mailgun",), rubygems=("mailgun-ruby",), env=("^MAILGUN_",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Mailgun versions each resource in its own URL path (no account or header version), so the

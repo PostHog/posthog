@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("mixpanel", "mixpanel-browser"),
+        pypi=("mixpanel",),
+        rubygems=("mixpanel-ruby",),
+        env=("^MIXPANEL_",),
+        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+    )
+
     api_docs_url = "https://developer.mixpanel.com/reference/raw-data-export-api"
 
     supported_versions = SUPPORTED_API_VERSIONS

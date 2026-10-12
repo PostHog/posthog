@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=(
+            "launchdarkly-node-server-sdk",
+            "@launchdarkly/node-server-sdk",
+            "launchdarkly-js-client-sdk",
+            "launchdarkly-react-client-sdk",
+        ),
+        pypi=("launchdarkly-server-sdk",),
+        rubygems=("launchdarkly-server-sdk",),
+        env=("^LAUNCHDARKLY_", "^LD_SDK_KEY$"),
+        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://apidocs.launchdarkly.com"

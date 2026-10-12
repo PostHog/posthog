@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     # The Report Service API carries no version token in its path, headers, or params, so there is
     # no vendor version to pin.
     api_docs_url = "https://dev.adjust.com/en/api/rs-api/"

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("@honeycombio/opentelemetry-node", "honeycomb-beeline"),
+        pypi=("honeycomb-beeline", "libhoney"),
+        env=("^HONEYCOMB_",),
+        competes_with=(ProductKey.TRACING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("1",)  # v1 API, addressed via the /1/ URL path prefix
     default_version = "1"

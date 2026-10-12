@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError, ProgrammingError
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -107,6 +109,13 @@ SnowflakeErrors = {
 
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[SnowflakeSourceConfig, SnowflakeResumeState]):
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("snowflake-sdk",),
+        pypi=("snowflake-connector-python", "snowflake-sqlalchemy"),
+        env=("^SNOWFLAKE_",),
+    )
+
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION

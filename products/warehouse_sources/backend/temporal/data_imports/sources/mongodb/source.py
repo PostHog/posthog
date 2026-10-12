@@ -2,6 +2,7 @@ from typing import Any, Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -152,6 +153,16 @@ _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
 
 @SourceRegistry.register
 class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], ValidateDatabaseHostMixin):
+    # Matches both MONGO_* and MONGODB_* prefixes (e.g. MONGO_HOST,
+    # MONGODB_URI) in one pattern.
+    codebase_detection = detect(
+        IN_CLI,
+        npm=("mongodb", "mongoose"),
+        pypi=("pymongo", "motor"),
+        rubygems=("mongo", "mongoid"),
+        env=("^MONGO(DB)?_",),
+    )
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB

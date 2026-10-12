@@ -2,6 +2,9 @@ from typing import cast
 
 from requests.exceptions import RequestException
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +43,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResumeConfig]):
+    codebase_detection = detect(
+        DEEP_LINK,
+        npm=("@rudderstack/analytics-js", "@rudderstack/rudder-sdk-node", "rudder-sdk-js"),
+        pypi=("rudder-sdk-python",),
+        env=("^RUDDERSTACK_",),
+        competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

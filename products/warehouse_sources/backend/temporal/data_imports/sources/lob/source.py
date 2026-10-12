@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("lob",), pypi=("lob",), env=("^LOB_API_KEY$",))
+
     api_docs_url = "https://docs.lob.com/"
 
     @property

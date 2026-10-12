@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -60,6 +61,8 @@ BING_ADS_LISTING_MESSAGE_OVERRIDES: dict[str, str] = {
 
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(DEEP_LINK, pypi=("bingads",), env=("^BING_ADS_", "^MICROSOFT_ADS_"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v13",)
     default_version = "v13"

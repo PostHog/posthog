@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResumeConfig]):
+    codebase_detection = detect(
+        IN_CLI, npm=("@huggingface/inference",), pypi=("huggingface-hub",), env=("^HUGGINGFACE_", "^HF_TOKEN$")
+    )
+
     api_docs_url = "https://huggingface.co/docs/hub/api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

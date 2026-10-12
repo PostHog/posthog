@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeConfig]):
+    codebase_detection = detect(IN_CLI, env=("^GREENHOUSE_",))
+
     supported_versions = (GREENHOUSE_V1, GREENHOUSE_V3)
     default_version = GREENHOUSE_V3
     api_docs_url = "https://harvestdocs.greenhouse.io"

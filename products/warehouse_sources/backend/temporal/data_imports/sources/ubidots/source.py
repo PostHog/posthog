@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UbidotsSource(ResumableSource[UbidotsSourceConfig, UbidotsResumeConfig]):
+    codebase_detection = detect(DEEP_LINK, env=("^UBIDOTS_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.ubidots.com/reference/welcome"
     supported_versions = SUPPORTED_UBIDOTS_API_VERSIONS

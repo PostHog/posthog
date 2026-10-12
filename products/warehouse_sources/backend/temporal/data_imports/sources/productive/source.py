@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProductiveSource(ResumableSource[ProductiveSourceConfig, ProductiveResumeConfig]):
+    codebase_detection = not_detectable(COMMON_WORD)
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

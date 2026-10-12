@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAuthMixin):
+    codebase_detection = detect(IN_CLI, npm=("resend",), pypi=("resend",), env=("^RESEND_API_KEY$",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://resend.com/docs/api-reference/introduction"
 

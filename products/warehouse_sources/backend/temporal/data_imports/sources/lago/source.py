@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
+    codebase_detection = detect(IN_CLI, npm=("lago-javascript-client",), pypi=("lago-python-client",), env=("^LAGO_",))
+
     api_docs_url = "https://docs.getlago.com/api-reference"
 
     @property

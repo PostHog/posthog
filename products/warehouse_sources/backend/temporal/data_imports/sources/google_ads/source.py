@@ -15,6 +15,7 @@ from posthog.models.integration import (
     google_ads_hierarchy_level,
 )
 
+from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -95,6 +96,8 @@ _SCOPE_INSUFFICIENT_ERROR = (
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
+    codebase_detection = detect(DEEP_LINK, npm=("google-ads-api",), pypi=("google-ads",), env=("^GOOGLE_ADS_",))
+
     supported_versions = ("v23", "v24", "v25")
     default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
