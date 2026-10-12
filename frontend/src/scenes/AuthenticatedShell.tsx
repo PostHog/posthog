@@ -46,7 +46,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
     useMountedLogic(webmcpLogic)
-    // Mount billing for the whole session, so billing data and alerts stay loaded when the scene changes.
     useMountedLogic(billingLogic)
     useSetupHighlight()
 
