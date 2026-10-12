@@ -4,6 +4,7 @@ import { IconCheckCircle, IconClock, IconLetter, IconWarning } from '@posthog/ic
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { WorkflowIdeaApi } from '../../generated/api.schemas'
@@ -34,15 +35,16 @@ export function WorkflowIdeaInProgressCard({
             <ol className="m-0 flex list-none flex-col gap-2 p-0 text-sm">
                 <li className="flex items-start gap-2">
                     <IconCheckCircle className="mt-0.5 shrink-0 text-success" />
-                    <span>Draft saved with {ideaEmails(idea.definition).length} emails</span>
+                    <span>Draft saved with {pluralize(ideaEmails(idea.definition).length, 'email')}</span>
                 </li>
                 {idea.reached_since_used ? (
                     <li className="flex items-start gap-2" data-attr="workflow-idea-reached-since">
                         <IconLetter className="mt-0.5 shrink-0 text-secondary" />
                         <span>
                             <strong>{humanFriendlyNumber(idea.reached_since_used)}</strong>{' '}
-                            {evidence.audience ?? 'people'} would have got the first email since you saved this draft.
-                            They still need to {evidence.goal ?? 'reach the goal'}.
+                            {idea.reached_since_used === 1 ? 'person' : (evidence.audience ?? 'people')} would have got
+                            the first email since you saved this draft. They still need to{' '}
+                            {evidence.goal ?? 'reach the goal'}.
                         </span>
                     </li>
                 ) : null}
