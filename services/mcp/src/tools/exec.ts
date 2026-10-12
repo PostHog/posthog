@@ -842,6 +842,53 @@ function acceptedTopLevelShape(nested: unknown, schema: ZodObjectAny | undefined
     return named.length > 0 ? renderFieldShape(named) : '{...}'
 }
 
+const MINUTE_PRECISION_DATETIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/
+
+function valueAtPath(value: unknown, path: readonly PropertyKey[]): unknown {
+    return path.reduce<unknown>(
+        (node, key) =>
+            isRecord(node) || Array.isArray(node) ? (node as Record<PropertyKey, unknown>)[key] : undefined,
+        value
+    )
+}
+
+function withValueAtPath(value: unknown, path: readonly PropertyKey[], leaf: unknown): unknown {
+    if (path.length === 0) {
+        return leaf
+    }
+    const [key, ...rest] = path as [PropertyKey, ...PropertyKey[]]
+    const container = value as Record<PropertyKey, unknown>
+    const copy = (Array.isArray(value) ? [...value] : { ...container }) as Record<PropertyKey, unknown>
+    copy[key] = withValueAtPath(container[key], rest, leaf)
+    return copy
+}
+
+/**
+ * RFC 3339 needs seconds, so zod rejects `2026-10-12T10:00Z`. Callers send that form and the
+ * API accepts it, so the missing `:00` is added to each value zod rejected, and to nothing else.
+ */
+function withDatetimeSecondsAdded(
+    error: z.ZodError,
+    input: Record<string, unknown>,
+    schema: ZodObjectAny
+): Record<string, unknown> | undefined {
+    let dated = input
+    for (const issue of error.issues) {
+        const value = issue.code === 'invalid_format' ? valueAtPath(dated, issue.path) : undefined
+        const match = typeof value === 'string' ? MINUTE_PRECISION_DATETIME.exec(value) : null
+        if (match) {
+            dated = withValueAtPath(dated, issue.path, `${match[1]}:00${match[2]}`) as Record<string, unknown>
+        }
+    }
+    return dated !== input && schema.safeParse(dated).success ? dated : undefined
+}
+
+/** The repaired payload when it parses as it is or once its datetimes have seconds. */
+function parsedRepair(candidate: Record<string, unknown>, schema: ZodObjectAny): Record<string, unknown> | undefined {
+    const result = schema.safeParse(candidate)
+    return result.success ? candidate : withDatetimeSecondsAdded(result.error, candidate, schema)
+}
+
 /**
  * Rebuilds a flattened payload under the wrapper the schema wanted, so the call the caller meant runs.
  *
@@ -873,7 +920,7 @@ export function rewrapFlattenedArguments(
         return undefined
     }
 
-    return schema.safeParse(rebuilt).success ? rebuilt : undefined
+    return parsedRepair(rebuilt, schema)
 }
 
 /**
@@ -905,7 +952,7 @@ export function unwrapOverWrappedArguments(
         return undefined
     }
     const unwrapped = { ...siblings, ...inner }
-    return schema.safeParse(unwrapped).success ? unwrapped : undefined
+    return parsedRepair(unwrapped, schema)
 }
 
 /** Repairs a call whose payload sits one level off from where the schema wants it, in either direction. */
@@ -917,44 +964,16 @@ function repairArgumentNesting(
     return rewrapFlattenedArguments(error, input, schema) ?? unwrapOverWrappedArguments(input, schema)
 }
 
-const MINUTE_PRECISION_DATETIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/
-const MAX_DATETIME_REPAIR_DEPTH = 32
-
-/**
- * RFC 3339 needs seconds, so zod rejects `2026-10-12T10:00Z`. Callers send that form and the
- * API accepts it, so the missing `:00` is added. Only the branches that change are copied.
- */
-function withDatetimeSeconds(value: unknown, depth = 0): unknown {
-    if (typeof value === 'string') {
-        const match = MINUTE_PRECISION_DATETIME.exec(value)
-        return match ? `${match[1]}:00${match[2]}` : value
-    }
-    if (depth >= MAX_DATETIME_REPAIR_DEPTH) {
-        return value
-    }
-    if (Array.isArray(value)) {
-        const items = value.map((item) => withDatetimeSeconds(item, depth + 1))
-        return items.some((item, index) => item !== value[index]) ? items : value
-    }
-    if (isRecord(value)) {
-        const entries = Object.entries(value).map(([key, item]) => [key, withDatetimeSeconds(item, depth + 1)] as const)
-        return entries.some(([key, item]) => item !== value[key]) ? Object.fromEntries(entries) : value
-    }
-    return value
-}
-
 /** Repairs the caller mistakes that have one safe reading, so the call runs instead of failing validation. */
 export function repairToolArguments(
     error: z.ZodError,
     input: unknown,
     schema: ZodObjectAny | undefined
 ): Record<string, unknown> | undefined {
-    const dated = withDatetimeSeconds(input)
-    if (!schema || dated === input) {
-        return repairArgumentNesting(error, input, schema)
+    if (!schema || !isRecord(input)) {
+        return undefined
     }
-    const result = schema.safeParse(dated, { reportInput: true })
-    return result.success ? (dated as Record<string, unknown>) : repairArgumentNesting(result.error, dated, schema)
+    return repairArgumentNesting(error, input, schema) ?? withDatetimeSecondsAdded(error, input, schema)
 }
 
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {

@@ -2721,11 +2721,17 @@ describe('exec tool', () => {
                     expect(repairFor(datetimeSchema, input)).toEqual(expected)
                 })
 
-                it('repairs a generated tool field', () => {
+                it('repairs a generated datetime field and leaves free text alone', () => {
                     const tool = GENERATED_TOOL_MAP['annotation-create']!()
-                    const repaired = repairFor(tool.schema, { content: 'deploy', date_marker: '2026-10-12T10:00Z' })
+                    const repaired = repairFor(tool.schema, {
+                        content: '2026-10-12T10:00Z',
+                        date_marker: '2026-10-12T10:00Z',
+                    })
 
-                    expect(repaired).toMatchObject({ date_marker: '2026-10-12T10:00:00Z' })
+                    expect(repaired).toMatchObject({
+                        content: '2026-10-12T10:00Z',
+                        date_marker: '2026-10-12T10:00:00Z',
+                    })
                 })
 
                 it('repairs a call that is also nested one level too deep', () => {
