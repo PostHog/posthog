@@ -16,6 +16,8 @@ const LOGFIRE_STRIP_KEYS = [
 
 const TOOL_ARGUMENT_KEYS = ['gen_ai.tool.call.arguments', 'tool_arguments']
 const TOOL_RESULT_KEYS = ['gen_ai.tool.call.result', 'tool_response']
+// Match the other OTel JSON parsing limits to bound ingestion-worker allocations.
+const MAX_TOOL_STATE_LENGTH = 500_000
 
 function readToolState(props: NonNullable<PluginEvent['properties']>, keys: string[]): unknown {
     for (const key of keys) {
@@ -25,6 +27,9 @@ function readToolState(props: NonNullable<PluginEvent['properties']>, keys: stri
         }
         if (typeof value !== 'string') {
             return typeof value === 'object' && value !== null ? value : String(value)
+        }
+        if (value.length > MAX_TOOL_STATE_LENGTH) {
+            return value
         }
         try {
             const parsed = parseJSON(value)

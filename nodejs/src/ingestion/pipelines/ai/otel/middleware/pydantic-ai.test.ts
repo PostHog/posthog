@@ -274,6 +274,32 @@ describe('pydantic-ai middleware', () => {
             expect(event.properties!['$ai_output_state']).toEqual(toolResponse)
         })
 
+        it.each([500_000, 500_001])('handles %i-character tool arguments and results', (length) => {
+            const toolArgs = { value: 'x'.repeat(length - JSON.stringify({ value: '' }).length) }
+            const toolResult = [{ value: 'y'.repeat(length - JSON.stringify([{ value: '' }]).length) }]
+            const serializedArgs = JSON.stringify(toolArgs)
+            const serializedResult = JSON.stringify(toolResult)
+            const event = createEvent('$ai_span', {
+                $ai_parent_id: 'parent-1',
+                'logfire.msg': 'tool run',
+                [argumentsKey]: serializedArgs,
+                [resultKey]: serializedResult,
+            })
+            convertOtelEvent(event)
+
+            if (length > 500_000) {
+                expect(typeof event.properties!['$ai_input_state']).toBe('string')
+                expect(typeof event.properties!['$ai_output_state']).toBe('string')
+                expect(event.properties!['$ai_input_state']).toBe(serializedArgs)
+                expect(event.properties!['$ai_output_state']).toBe(serializedResult)
+            } else {
+                expect(event.properties!['$ai_input_state']).toEqual(toolArgs)
+                expect(event.properties!['$ai_output_state']).toEqual(toolResult)
+            }
+            expect(event.properties).not.toHaveProperty(argumentsKey)
+            expect(event.properties).not.toHaveProperty(resultKey)
+        })
+
         it.each([
             ['Sunny, 25°C', 'Sunny, 25°C'],
             ['{"temperature":', '{"temperature":'],
@@ -322,6 +348,8 @@ describe('pydantic-ai middleware', () => {
     })
 
     describe('mixed tool attribute versions', () => {
+        const oversizedToolState = JSON.stringify({ value: 'x'.repeat(500_000) })
+
         it.each([
             [
                 'both standard attributes',
@@ -347,6 +375,13 @@ describe('pydantic-ai middleware', () => {
             ['zero and false', 0, false, '0', 'false'],
             ['empty arguments and null result', '', null, '', 'null'],
             ['null arguments and zero result', null, 0, 'null', '0'],
+            [
+                'oversized standard values',
+                oversizedToolState,
+                oversizedToolState,
+                oversizedToolState,
+                oversizedToolState,
+            ],
         ])('prefers standard values with %s', (_label, toolArgs, toolResult, expectedInput, expectedOutput) => {
             const event = createEvent('$ai_span', {
                 $ai_parent_id: 'parent-1',
