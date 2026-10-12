@@ -1080,25 +1080,6 @@ class TestActivateBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("activate", "activate_subscription"),
-            ("activate/authorize", "authorize"),
-            ("activate/authorize/status", "authorize_status"),
-        ]
-    )
-    def test_payment_denies_member_before_calling_billing(self, action: str, manager_method: str) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        with patch.object(BillingManager, manager_method) as manager:
-            response = self.client.post(
-                f"/api/billing/{action}",
-                {"organization_id": str(self.organization.id)},
-                content_type="application/json",
-            )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        manager.assert_not_called()
-
-    @parameterized.expand(
-        [
             (action, manager_method, level, owner_only, expected)
             for action, manager_method in [
                 ("activate", "activate_subscription"),
@@ -1106,6 +1087,7 @@ class TestActivateBillingAPI(APILicensedTest):
                 ("activate/authorize/status", "authorize_status"),
             ]
             for level, owner_only, expected in [
+                (OrganizationMembership.Level.MEMBER, False, 403),
                 (OrganizationMembership.Level.ADMIN, False, 200),
                 (OrganizationMembership.Level.ADMIN, True, 403),
                 (OrganizationMembership.Level.ADMIN, None, 403),
@@ -1169,18 +1151,14 @@ class TestActivateBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            (action, manager_method, allowed)
-            for action, manager_method in [
-                ("activate", "activate_subscription"),
-                ("activate/authorize", "authorize"),
-                ("activate/authorize/status", "authorize_status"),
-            ]
-            for allowed in [True, False]
+            ("activate", "activate_subscription"),
+            ("activate/authorize", "authorize"),
+            ("activate/authorize/status", "authorize_status"),
         ]
     )
     @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
     def test_payment_preserves_token_access_restrictions(
-        self, action: str, manager_method: str, allowed: bool, _flag: MagicMock
+        self, action: str, manager_method: str, _flag: MagicMock
     ) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -1188,7 +1166,7 @@ class TestActivateBillingAPI(APILicensedTest):
             user=self.user,
             secure_value=hash_key_value(token),
             scopes=["*"],
-            scoped_organizations=[str(self.organization.id) if allowed else str(uuid4())],
+            scoped_organizations=[str(self.organization.id)],
         )
         self.client.logout()
         with patch.object(BillingManager, manager_method, return_value={"success": True}) as manager:

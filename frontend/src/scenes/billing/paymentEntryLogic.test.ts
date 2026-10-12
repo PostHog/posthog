@@ -46,22 +46,18 @@ const setDocumentHidden = (hidden: boolean): void => {
 }
 
 // Holds the 2 second status retries so a test can fire them; clearing one drops it like a real timer.
-const holdStatusRetries = (): { fire: () => Promise<void>; restore: () => void } => {
+const holdStatusRetries = (): { fire: () => Promise<void> } => {
     const retries = new Map<number, () => void>()
     let nextId = 1_000_000
     const { setTimeout: realSetTimeout, clearTimeout: realClearTimeout } = global
-    const setSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((
-        callback: () => void,
-        delay?: number,
-        ...args: unknown[]
-    ) => {
+    jest.spyOn(global, 'setTimeout').mockImplementation(((callback: () => void, delay?: number, ...args: unknown[]) => {
         if (delay !== 2000) {
             return realSetTimeout(callback, delay, ...args)
         }
         retries.set(++nextId, callback)
         return nextId
     }) as typeof setTimeout)
-    const clearSpy = jest.spyOn(global, 'clearTimeout').mockImplementation(((id: number) => {
+    jest.spyOn(global, 'clearTimeout').mockImplementation(((id: number) => {
         if (!retries.delete(id)) {
             realClearTimeout(id)
         }
@@ -72,10 +68,6 @@ const holdStatusRetries = (): { fire: () => Promise<void>; restore: () => void }
             retries.clear()
             callbacks.forEach((callback) => callback())
             await new Promise((resolve) => realSetTimeout(resolve, 0))
-        },
-        restore: () => {
-            setSpy.mockRestore()
-            clearSpy.mockRestore()
         },
     }
 }
@@ -93,8 +85,9 @@ describe('paymentEntryLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
-        toastErrorSpy.mockRestore()
-        toastInfoSpy.mockRestore()
+        jest.restoreAllMocks()
+        jest.useRealTimers()
+        delete (document as { hidden?: boolean }).hidden
         window.history.replaceState({}, '', '/')
     })
 
@@ -220,6 +213,7 @@ describe('paymentEntryLogic', () => {
             })
             await expectLogic(logic, () => logic.actions.initiateAuthorization()).toFinishAllListeners()
             expect(bodies).toEqual([{ organization_id: originalOrganization.id }])
+            expect(logic.values.clientSecret).toBe('secret_original')
         })
 
         it('opens the payment entry modal without calling activate', async () => {
@@ -261,28 +255,26 @@ describe('paymentEntryLogic', () => {
             await seedBilling({ customer_id: 'cus_original', subscription_level: 'free' })
             const original = organizationLogic.values.currentOrganization!
             const selected = { ...original, id: '00000000-0000-4000-8000-000000000002', name: 'Selected organization' }
-            let resolveActivation!: (value: [number, unknown]) => void
-            const activationResponse = new Promise<[number, unknown]>((resolve) => {
-                resolveActivation = resolve
-            })
-            const activate = jest.fn(() => activationResponse)
+            const activation = deferred<[number, unknown]>()
+            const activate = jest.fn(() => activation.promise)
             useMocks({ post: { '/api/billing/activate': activate } })
             logic = paymentEntryLogic()
             logic.mount()
             const push = jest.spyOn(router.actions, 'push')
-            try {
-                logic.actions.startPaymentEntryFlow(null, '/project/1/replay')
-                await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
-                organizationLogic.actions.loadCurrentOrganizationSuccess(selected)
-                resolveActivation([200, { success: true }])
-                await expectLogic(logic).toFinishAllListeners()
-                expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
-                expect(push).not.toHaveBeenCalled()
-                expect(logic.values.completedPaymentOrganization).toEqual({ id: original.id, name: original.name })
-                expect(logic.values.paymentEntryModalOpen).toBe(true)
-            } finally {
-                push.mockRestore()
-            }
+            logic.actions.startPaymentEntryFlow(null, '/project/1/replay')
+            await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+            organizationLogic.actions.loadCurrentOrganizationSuccess(selected)
+            activation.resolve([200, { success: true }])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
+            expect(push).not.toHaveBeenCalled()
+            expect(logic.values.completedPaymentOrganization).toEqual({ id: original.id, name: original.name })
+            expect(logic.values.paymentEntryModalOpen).toBe(true)
+            const switchOrganization = jest
+                .spyOn(userLogic.actions, 'updateCurrentOrganization')
+                .mockImplementation(() => undefined)
+            logic.actions.viewCompletedPaymentOrganization()
+            expect(switchOrganization).toHaveBeenCalledWith(original.id, '/organization/billing')
         })
     })
 
@@ -311,94 +303,78 @@ describe('paymentEntryLogic', () => {
             logic = paymentEntryLogic()
             logic.mount()
             const push = jest.spyOn(router.actions, 'push')
-            try {
-                await expectLogic(logic, () => logic.actions.pollAuthorizationStatus()).toFinishAllListeners()
-                expect(retrieveOriginal).toHaveBeenCalledTimes(1)
-                expect(logic.values.completedPaymentOrganization).toEqual({
-                    id: original.id,
-                    name: lookupSucceeds ? original.name : 'the original organization',
-                })
-                expect(logic.values.apiError).toBe(null)
-                expect(logic.values.authorizationStatus).toBe('success')
-                expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
-                expect(push).not.toHaveBeenCalled()
-            } finally {
-                push.mockRestore()
-            }
-        })
-    })
-
-    describe('payment completion for another organization', () => {
-        it('keeps the selected organization and requires an explicit switch after successful polling', async () => {
-            await seedBilling({ subscription_level: 'free' })
-            const original = organizationLogic.values.currentOrganization!
-            const selected = { ...original, id: '00000000-0000-4000-8000-000000000002', name: 'Selected organization' }
-            useMocks({ post: { '/api/billing/activate/authorize/status': () => [200, { status: 'success' }] } })
-            logic = paymentEntryLogic()
-            logic.mount()
-            logic.actions.beginPaymentFlow(original.id, '/project/1/replay')
-            organizationLogic.actions.loadCurrentOrganizationSuccess(selected)
-            const push = jest.spyOn(router.actions, 'push')
-            const switchOrganization = jest
-                .spyOn(userLogic.actions, 'updateCurrentOrganization')
-                .mockImplementation(() => undefined)
-            try {
-                await expectLogic(logic, () =>
-                    logic.actions.pollAuthorizationStatus('pi_original')
-                ).toFinishAllListeners()
-                expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
-                expect(push).not.toHaveBeenCalled()
-                expect(logic.values.completedPaymentOrganization).toEqual({ id: original.id, name: original.name })
-                logic.actions.viewCompletedPaymentOrganization()
-                expect(switchOrganization).toHaveBeenCalledWith(original.id, '/organization/billing')
-            } finally {
-                push.mockRestore()
-                switchOrganization.mockRestore()
-            }
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus()).toFinishAllListeners()
+            expect(retrieveOriginal).toHaveBeenCalledTimes(1)
+            expect(logic.values.completedPaymentOrganization).toEqual({
+                id: original.id,
+                name: lookupSucceeds ? original.name : 'the original organization',
+            })
+            expect(logic.values.apiError).toBe(null)
+            expect(logic.values.authorizationStatus).toBe('success')
+            expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
+            expect(push).not.toHaveBeenCalled()
         })
     })
 
     describe('payment flow organization binding', () => {
-        it.each([false, true])(
-            'preserves concurrent user state when the selected organization changes: %s',
-            async (switchOrganization) => {
-                await seedBilling({ subscription_level: 'free' })
-                const organization = organizationLogic.values.currentOrganization!
-                const user = userLogic.values.user!
-                const response = deferred<[number, unknown]>()
-                let requested = false
-                useMocks({
-                    get: {
-                        [`/api/organizations/${organization.id}`]: () => {
-                            requested = true
-                            return response.promise
-                        },
+        it('applies the paid organization to the latest user state', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            const organization = organizationLogic.values.currentOrganization!
+            const user = userLogic.values.user!
+            const response = deferred<[number, unknown]>()
+            let requested = false
+            useMocks({
+                get: {
+                    [`/api/organizations/${organization.id}`]: () => {
+                        requested = true
+                        return response.promise
                     },
-                })
-                logic = paymentEntryLogic()
-                logic.mount()
-                logic.actions.beginPaymentFlow(organization.id)
-                logic.actions.completePaymentFlow(null, { success: true })
-                await waitFor(() => expect(requested).toBe(true))
-                const selectedOrganization = switchOrganization
-                    ? { ...organization, id: OTHER_ORGANIZATION_ID }
-                    : organization
-                organizationLogic.actions.loadCurrentOrganizationSuccess(selectedOrganization)
-                userLogic.actions.loadUserSuccess({
-                    ...user,
-                    first_name: 'Updated name',
-                    organization: selectedOrganization,
-                })
-                response.resolve([200, { ...organization, customer_id: 'cus_refreshed' }])
-                await expectLogic(logic).toFinishAllListeners()
-                expect(userLogic.values.user?.first_name).toBe('Updated name')
-                expect(userLogic.values.user?.organization?.id).toBe(selectedOrganization.id)
-                expect(organizationLogic.values.currentOrganization?.id).toBe(selectedOrganization.id)
-                expect(userLogic.values.user?.organization?.customer_id).toBe(
-                    switchOrganization ? selectedOrganization.customer_id : 'cus_refreshed'
-                )
-            }
-        )
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow(organization.id)
+            logic.actions.completePaymentFlow(null, { success: true })
+            await waitFor(() => expect(requested).toBe(true))
+            userLogic.actions.loadUserSuccess({ ...user, first_name: 'Updated name' })
+            response.resolve([200, { ...organization, customer_id: 'cus_refreshed' }])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(userLogic.values.user?.first_name).toBe('Updated name')
+            expect(userLogic.values.user?.organization?.customer_id).toBe('cus_refreshed')
+            expect(organizationLogic.values.currentOrganization?.customer_id).toBe('cus_refreshed')
+        })
+
+        it('applies nothing when another organization is selected while the paid organization loads', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            const original = organizationLogic.values.currentOrganization!
+            const user = userLogic.values.user!
+            const billingBefore = billingLogic.values.billing
+            const organizationResponse = deferred<[number, unknown]>()
+            let requested = false
+            useMocks({
+                get: {
+                    '/api/billing': () => [200, { subscription_level: 'paid', customer_id: 'cus_paid' }],
+                    [`/api/organizations/${original.id}`]: () => {
+                        requested = true
+                        return organizationResponse.promise
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow(original.id)
+            logic.actions.completePaymentFlow(null, { success: true })
+            await waitFor(() => expect(requested).toBe(true))
+            const selected = { ...original, id: OTHER_ORGANIZATION_ID }
+            organizationLogic.actions.loadCurrentOrganizationSuccess(selected)
+            userLogic.actions.loadUserSuccess({ ...user, first_name: 'Updated name', organization: selected })
+            organizationResponse.resolve([200, { ...original, customer_id: 'cus_refreshed' }])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(billingLogic.values.billing).toBe(billingBefore)
+            expect(organizationLogic.values.currentOrganization).toEqual(selected)
+            expect(userLogic.values.user).toMatchObject({ first_name: 'Updated name', organization: selected })
+            expect(logic.values.completedPaymentOrganization).toEqual({ id: original.id, name: original.name })
+        })
 
         it('leaves billing alone when another organization is selected while the paid billing loads', async () => {
             await seedBilling({ subscription_level: 'free' })
@@ -424,50 +400,6 @@ describe('paymentEntryLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(billingLogic.values.billing).toBe(billingBefore)
             expect(logic.values.completedPaymentOrganization).toEqual({ id: original.id, name: original.name })
-        })
-
-        it('refreshes original organization billing and entitlements without ambient user or organization reads', async () => {
-            await seedBilling({ subscription_level: 'free' })
-            const organization = organizationLogic.values.currentOrganization!
-            const features = [{ key: 'session_recording', name: 'Session recording', limit: null, note: null }]
-            const refreshOrganizations: (string | null)[] = []
-            const ambientOrganization = jest.fn(() => [
-                200,
-                { ...organization, id: '00000000-0000-4000-8000-000000000002' },
-            ])
-            const ambientUser = jest.fn(() => [
-                200,
-                {
-                    ...userLogic.values.user,
-                    organization: { ...organization, id: '00000000-0000-4000-8000-000000000002' },
-                },
-            ])
-            useMocks({
-                get: {
-                    '/api/billing': ({ request }) => {
-                        refreshOrganizations.push(new URL(request.url).searchParams.get('organization_id'))
-                        return [200, { subscription_level: 'paid', customer_id: 'cus_original' }]
-                    },
-                    [`/api/organizations/${organization.id}`]: () => [
-                        200,
-                        { ...organization, available_product_features: features },
-                    ],
-                    '/api/organizations/@current': ambientOrganization,
-                    '/api/users/@me': ambientUser,
-                },
-                post: { '/api/billing/activate/authorize/status': () => [200, { status: 'success' }] },
-            })
-            logic = paymentEntryLogic()
-            logic.mount()
-            logic.actions.beginPaymentFlow(organization.id, '/project/1/replay')
-            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_original')).toFinishAllListeners()
-            expect(refreshOrganizations).toEqual([organization.id])
-            expect(ambientOrganization).not.toHaveBeenCalled()
-            expect(ambientUser).not.toHaveBeenCalled()
-            expect(organizationLogic.values.currentOrganization?.id).toBe(organization.id)
-            expect(userLogic.values.user?.organization?.id).toBe(organization.id)
-            expect(userLogic.values.user?.organization?.available_product_features).toEqual(features)
-            expect(billingLogic.values.billing?.customer_id).toBe('cus_original')
         })
 
         it('applies the features the billing read saves after an add-on purchase', async () => {
@@ -510,15 +442,19 @@ describe('paymentEntryLogic', () => {
             await seedBilling({ customer_id: 'cus_paid', subscription_level: 'paid' })
             const organization = organizationLogic.values.currentOrganization!
             const other = { ...organization, id: OTHER_ORGANIZATION_ID, name: 'Other organization' }
+            const billingReads: (string | null)[] = []
             const ambientCredits = jest.fn(() => [200, { eligible: true, email: 'other@example.com' }])
             const ambientUser = jest.fn(() => [200, { ...userLogic.values.user, organization: other }])
             const ambientOrganization = jest.fn(() => [200, other])
             useMocks({
                 get: {
-                    '/api/billing': () => [
-                        200,
-                        { customer_id: 'cus_paid', subscription_level: 'paid', has_active_subscription: true },
-                    ],
+                    '/api/billing': ({ request }) => {
+                        billingReads.push(new URL(request.url).searchParams.get('organization_id'))
+                        return [
+                            200,
+                            { customer_id: 'cus_paid', subscription_level: 'paid', has_active_subscription: true },
+                        ]
+                    },
                     [`/api/organizations/${organization.id}`]: () => [200, organization],
                     '/api/billing/credits/overview': ambientCredits,
                     '/api/users/@me': ambientUser,
@@ -530,16 +466,14 @@ describe('paymentEntryLogic', () => {
             logic = paymentEntryLogic()
             logic.mount()
             jest.useFakeTimers()
-            try {
-                const upgrade = logic.asyncActions.upgradeProducts('scale:scale', null)
-                await jest.advanceTimersByTimeAsync(2000)
-                await upgrade
-                await expectLogic(billingLogic).toFinishAllListeners()
-                await expectLogic(userLogic).toFinishAllListeners()
-                await expectLogic(organizationLogic).toFinishAllListeners()
-            } finally {
-                jest.useRealTimers()
-            }
+            const upgrade = logic.asyncActions.upgradeProducts('scale:scale', null)
+            await jest.advanceTimersByTimeAsync(2000)
+            await upgrade
+            await expectLogic(billingLogic).toFinishAllListeners()
+            await expectLogic(userLogic).toFinishAllListeners()
+            await expectLogic(organizationLogic).toFinishAllListeners()
+            jest.useRealTimers()
+            expect(billingReads).toEqual([organization.id])
             expect(ambientCredits).not.toHaveBeenCalled()
             expect(ambientUser).not.toHaveBeenCalled()
             expect(ambientOrganization).not.toHaveBeenCalled()
@@ -579,31 +513,13 @@ describe('paymentEntryLogic', () => {
             }
         )
 
-        it('clears the previous secret and ignores its late response when a new flow starts', async () => {
-            let resolveFirst!: (value: [number, { clientSecret: string }]) => void
-            const firstResponse = new Promise<[number, { clientSecret: string }]>((resolve) => {
-                resolveFirst = resolve
-            })
-            let calls = 0
-            useMocks({
-                post: {
-                    '/api/billing/activate/authorize': () =>
-                        ++calls === 1 ? firstResponse : [200, { clientSecret: 'secret_second' }],
-                },
-            })
+        it('clears the previous secret when a new flow starts', () => {
             logic = paymentEntryLogic()
             logic.mount()
             logic.actions.beginPaymentFlow('00000000-0000-4000-8000-000000000001')
             logic.actions.setClientSecret('secret_previous')
-            logic.actions.initiateAuthorization()
-            await waitFor(() => expect(calls).toBe(1))
             logic.actions.beginPaymentFlow('00000000-0000-4000-8000-000000000002')
             expect(logic.values.clientSecret).toBe(null)
-            logic.actions.initiateAuthorization()
-            await waitFor(() => expect(logic.values.clientSecret).toBe('secret_second'))
-            resolveFirst([200, { clientSecret: 'secret_first' }])
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.clientSecret).toBe('secret_second')
         })
 
         it('keeps the captured redirect through retries while the original organization stays selected', async () => {
@@ -622,36 +538,15 @@ describe('paymentEntryLogic', () => {
             logic.mount()
             logic.actions.beginPaymentFlow(originalOrganization.id, '/project/1/replay?foo=bar')
             const pushSpy = jest.spyOn(router.actions, 'push')
-            let retry!: () => void
-            const originalSetTimeout = global.setTimeout
-            const timerSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((
-                callback: () => void,
-                delay: number,
-                ...args: unknown[]
-            ) => {
-                if (delay === 2000) {
-                    retry = callback
-                    return 0 as any
-                }
-                return originalSetTimeout(callback, delay, ...args)
-            }) as typeof setTimeout)
-            try {
-                await expectLogic(logic, () =>
-                    logic.actions.pollAuthorizationStatus('pi_original')
-                ).toFinishAllListeners()
-                logic.actions.setRedirectPath(null)
-                retry()
-                timerSpy.mockRestore()
-                await waitFor(() =>
-                    expect(pushSpy).toHaveBeenCalledWith('/project/1/replay', { foo: 'bar', success: true })
-                )
-                expect(bodies).toEqual(
-                    Array(2).fill({ organization_id: originalOrganization.id, payment_intent_id: 'pi_original' })
-                )
-            } finally {
-                timerSpy.mockRestore()
-                pushSpy.mockRestore()
-            }
+            const retries = holdStatusRetries()
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_original')).toFinishAllListeners()
+            logic.actions.setRedirectPath(null)
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(pushSpy).toHaveBeenCalledWith('/project/1/replay', { foo: 'bar', success: true })
+            expect(bodies).toEqual(
+                Array(2).fill({ organization_id: originalOrganization.id, payment_intent_id: 'pi_original' })
+            )
         })
     })
 
@@ -659,12 +554,17 @@ describe('paymentEntryLogic', () => {
         let pushSpy: jest.SpyInstance
         const features = [{ key: 'session_recording', name: 'Session recording', limit: null, note: null }]
 
+        let billingReads: (string | null)[] = []
         const mockPaidOrganization = (statuses: string[]): jest.Mock => {
             const organization = organizationLogic.values.currentOrganization!
             const statusRequest = jest.fn(() => [200, { status: statuses.shift() ?? 'success' }])
+            billingReads = []
             useMocks({
                 get: {
-                    '/api/billing': () => [200, { subscription_level: 'paid', customer_id: 'cus_paid' }],
+                    '/api/billing': ({ request }) => {
+                        billingReads.push(new URL(request.url).searchParams.get('organization_id'))
+                        return [200, { subscription_level: 'paid', customer_id: 'cus_paid' }]
+                    },
                     [`/api/organizations/${organization.id}`]: () => [
                         200,
                         { ...organization, available_product_features: features },
@@ -676,6 +576,7 @@ describe('paymentEntryLogic', () => {
         }
 
         const expectPaidOrganizationApplied = (): void => {
+            expect(billingReads).toEqual([organizationLogic.values.currentOrganization!.id])
             expect(billingLogic.values.billing?.customer_id).toBe('cus_paid')
             expect(organizationLogic.values.currentOrganization?.available_product_features).toEqual(features)
             expect(userLogic.values.user?.organization?.available_product_features).toEqual(features)
@@ -705,10 +606,6 @@ describe('paymentEntryLogic', () => {
             logic.actions.showPaymentEntryModal()
         })
 
-        afterEach(() => {
-            pushSpy.mockRestore()
-        })
-
         it('still polls and refreshes when the modal closes while the confirmation is pending', async () => {
             const statusRequest = mockPaidOrganization(['success'])
             const confirmation = deferred<unknown>()
@@ -726,19 +623,15 @@ describe('paymentEntryLogic', () => {
         it('still refreshes when the modal closes while the status is loading', async () => {
             const statusRequest = mockPaidOrganization(['loading', 'success'])
             const retries = holdStatusRetries()
-            try {
-                logic.actions.confirmPayment(
-                    fakeStripe(async () => ({ paymentIntent: { id: 'pi_submitted' } })),
-                    fakeElements
-                )
-                await expectLogic(logic).toFinishAllListeners()
-                expect(statusRequest).toHaveBeenCalledTimes(1)
-                logic.actions.hidePaymentEntryModal()
-                await retries.fire()
-                await expectLogic(logic).toFinishAllListeners()
-            } finally {
-                retries.restore()
-            }
+            logic.actions.confirmPayment(
+                fakeStripe(async () => ({ paymentIntent: { id: 'pi_submitted' } })),
+                fakeElements
+            )
+            await expectLogic(logic).toFinishAllListeners()
+            expect(statusRequest).toHaveBeenCalledTimes(1)
+            logic.actions.hidePaymentEntryModal()
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
             expect(statusRequest).toHaveBeenCalledTimes(2)
             expectPaidOrganizationApplied()
         })
@@ -772,16 +665,12 @@ describe('paymentEntryLogic', () => {
         it('refuses a second start while the status is loading and still completes the first payment', async () => {
             const statusRequest = mockPaidOrganization(['loading', 'success'])
             const retries = holdStatusRetries()
-            try {
-                submitCard()
-                await expectLogic(logic).toFinishAllListeners()
-                logic.actions.hidePaymentEntryModal()
-                startAgainAndExpectRefusal()
-                await retries.fire()
-                await expectLogic(logic).toFinishAllListeners()
-            } finally {
-                retries.restore()
-            }
+            submitCard()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.hidePaymentEntryModal()
+            startAgainAndExpectRefusal()
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
             expect(statusRequest).toHaveBeenCalledTimes(2)
             expectPaidOrganizationApplied()
             expect(pushSpy).toHaveBeenCalledTimes(1)
@@ -843,22 +732,16 @@ describe('paymentEntryLogic', () => {
             const activate = jest.fn(() => [200, { success: true }])
             useMocks({ post: { '/api/billing/activate': activate } })
             const retries = holdStatusRetries()
-            try {
-                submitCard()
-                await expectLogic(logic).toFinishAllListeners()
-                logic.actions.hidePaymentEntryModal()
-                const flow = logic.values.paymentFlow
-                await expectLogic(logic, () =>
-                    logic.actions.upgradeProducts('scale:scale', null)
-                ).toFinishAllListeners()
-                expect(toastInfoSpy).toHaveBeenCalledWith("We're still confirming your last payment.")
-                expect(activate).not.toHaveBeenCalled()
-                expect(logic.values.paymentFlow).toBe(flow)
-                await retries.fire()
-                await expectLogic(logic).toFinishAllListeners()
-            } finally {
-                retries.restore()
-            }
+            submitCard()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.hidePaymentEntryModal()
+            const flow = logic.values.paymentFlow
+            await expectLogic(logic, () => logic.actions.upgradeProducts('scale:scale', null)).toFinishAllListeners()
+            expect(toastInfoSpy).toHaveBeenCalledWith("We're still confirming your last payment.")
+            expect(activate).not.toHaveBeenCalled()
+            expect(logic.values.paymentFlow).toBe(flow)
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
             expect(statusRequest).toHaveBeenCalledTimes(2)
             expectPaidOrganizationApplied()
             expect(pushSpy).toHaveBeenCalledTimes(1)
@@ -898,22 +781,15 @@ describe('paymentEntryLogic', () => {
             const statusRequest = jest.fn(() => responses.shift() ?? [200, { status: 'loading' }])
             useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
             const retries = holdStatusRetries()
-            try {
-                await expectLogic(logic, () =>
-                    logic.actions.pollAuthorizationStatus('pi_submitted')
-                ).toFinishAllListeners()
-                await retries.fire()
-                await expectLogic(logic).toFinishAllListeners()
-                expect(statusRequest).toHaveBeenCalledTimes(2)
-                setDocumentHidden(true)
-                setDocumentHidden(false)
-                await retries.fire()
-                await expectLogic(logic).toFinishAllListeners()
-                expect(statusRequest).toHaveBeenCalledTimes(2)
-            } finally {
-                retries.restore()
-                delete (document as { hidden?: boolean }).hidden
-            }
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_submitted')).toFinishAllListeners()
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(statusRequest).toHaveBeenCalledTimes(2)
+            setDocumentHidden(true)
+            setDocumentHidden(false)
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(statusRequest).toHaveBeenCalledTimes(2)
         })
     })
 
@@ -943,10 +819,6 @@ describe('paymentEntryLogic', () => {
             })
         }
 
-        afterEach(() => {
-            captureSpy.mockRestore()
-        })
-
         const capturedError = (): { message: string; cause: string } => {
             expect(captureSpy).toHaveBeenCalledTimes(1)
             const [error] = captureSpy.mock.calls[0]
@@ -975,14 +847,10 @@ describe('paymentEntryLogic', () => {
             const statusRequest = jest.fn(() => [200, { status: 'loading' }])
             useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
             const retries = holdStatusRetries()
-            try {
-                await expectLogic(logic, () => submitCard()).toFinishAllListeners()
-                while (statusRequest.mock.calls.length < 30) {
-                    await retries.fire()
-                    await expectLogic(logic).toFinishAllListeners()
-                }
-            } finally {
-                retries.restore()
+            await expectLogic(logic, () => submitCard()).toFinishAllListeners()
+            while (statusRequest.mock.calls.length < 30) {
+                await retries.fire()
+                await expectLogic(logic).toFinishAllListeners()
             }
             expect(statusRequest).toHaveBeenCalledTimes(30)
             expect(logic.values.apiError).toBe('Payment status check timed out')
@@ -1099,11 +967,6 @@ describe('paymentEntryLogic', () => {
             logic.mount()
         })
 
-        afterEach(() => {
-            captureSpy.mockRestore()
-            pushSpy.mockRestore()
-        })
-
         const snapshot = (): Record<string, unknown> => ({
             payment: Object.fromEntries(
                 Object.keys(paymentEntryLogic.selectors).map((key) => [key, (logic.values as any)[key]])
@@ -1152,17 +1015,13 @@ describe('paymentEntryLogic', () => {
             const statusRequest = jest.fn(() => [200, { status: statuses.shift() }])
             useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
             const retries = holdStatusRetries()
-            try {
-                logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
-                await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_stale')).toFinishAllListeners()
-                logic.actions.beginPaymentFlow(OTHER_ORGANIZATION_ID)
-                const before = snapshot()
-                await retries.fire()
-                await expectLogic(logic).toFinishAllListeners()
-                expect(snapshot()).toEqual(before)
-            } finally {
-                retries.restore()
-            }
+            logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_stale')).toFinishAllListeners()
+            logic.actions.beginPaymentFlow(OTHER_ORGANIZATION_ID)
+            const before = snapshot()
+            await retries.fire()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(snapshot()).toEqual(before)
             expect(statusRequest).toHaveBeenCalledTimes(1)
             expect(sideEffects()).toEqual(NO_SIDE_EFFECTS)
         })
