@@ -30,7 +30,12 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
-import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal, getEmailQueuePriorityClass } from './messaging/email-priority'
+import {
+    EMAIL_QUEUE_PRIORITY,
+    cdpEmailQueuedTotal,
+    getEmailQueuePriority,
+    getEmailQueuePriorityClass,
+} from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
@@ -183,8 +188,7 @@ export class HogExecutorAsyncService {
                         // send's class rather than the previous email action's.
                         if (invocation.queue === 'email') {
                             nextInvocation.queueMetadata = invocation.queueMetadata
-                            nextInvocation.queuePriority =
-                                EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
+                            nextInvocation.queuePriority = getEmailQueuePriority(nextInvocation.hogFunction.metadata)
                         }
                         // isTest is forwarded so a test send stays out of the email's engagement tracking.
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
@@ -334,8 +338,7 @@ export class HogExecutorAsyncService {
     ): void {
         const { originQueue, originPriority } = entryInvocation.queueMetadata ?? {}
         result.invocation.queueMetadata = { ...result.invocation.queueMetadata, originQueue, originPriority }
-        result.invocation.queuePriority =
-            EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(result.invocation.hogFunction.metadata)]
+        result.invocation.queuePriority = getEmailQueuePriority(result.invocation.hogFunction.metadata)
     }
 
     private routeToQueue(
