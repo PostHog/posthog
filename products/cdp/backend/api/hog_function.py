@@ -24,7 +24,6 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -79,6 +78,10 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 from products.cdp.backend.models.plugin import TranspilerError
+from products.cdp.backend.presentation.hog_invocations.rerun import (
+    HogInvocationRerunRequestSerializer,
+    HogInvocationRerunResponseSerializer,
+)
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
