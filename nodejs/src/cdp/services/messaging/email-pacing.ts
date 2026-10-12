@@ -166,7 +166,7 @@ export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap:
 }
 
 export interface TeamEmailCapConfig {
-    // Optional and off by default, so a send path that builds an EmailService without caps keeps its old behavior.
+    // Optional and off by default, so an EmailService built without caps sends uncapped.
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
