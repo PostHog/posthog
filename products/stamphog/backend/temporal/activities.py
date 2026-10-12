@@ -1648,7 +1648,12 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
     # The run's own evidence is the earlier answer, so a provider error keeps the review pending. A
     # re-review queued on an error would start without that evidence and could approve too early.
     earlier = (run.output or {}).get("review_evidence") or []
-    if any(item["state"] == ReviewEvidenceState.PENDING for item in _read_review_evidence(run, earlier)):
+    pending = [item for item in _read_review_evidence(run, earlier) if item["state"] == ReviewEvidenceState.PENDING]
+    # The reviewer's nudge can come before the WAIT is saved and find nothing to re-review, so an
+    # unanswered provider must retry here rather than leave the PR at WAIT.
+    if any(item.get("provider_error") for item in pending):
+        raise RuntimeError(f"Run {run.id}: a review evidence provider failed; retrying the recheck")
+    if pending:
         return {"requested": False}
     pull_request = run.pull_request
     request_rereview_after_external_review(

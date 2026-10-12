@@ -1981,10 +1981,10 @@ def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
         patch.object(activities, "request_rereview_after_external_review", side_effect=dispatch_error) as rereview,
     ):
         posted = _run_activity(post_verdict, inp)
-        if dispatch_error is None:
+        if dispatch_error is None and now is not None:
             _run_activity(rereview_after_external_review_finished, inp)
         else:
-            with pytest.raises(type(dispatch_error)):
+            with pytest.raises(RuntimeError):
                 _run_activity(rereview_after_external_review_finished, inp)
 
     run.refresh_from_db()
