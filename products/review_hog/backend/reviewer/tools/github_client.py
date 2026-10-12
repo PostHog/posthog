@@ -27,8 +27,8 @@ from products.review_hog.backend.app_identity import posthog_app_login
 logger = logging.getLogger(__name__)
 
 
-def is_app_bot_author(user: dict[str, Any] | None) -> bool:
-    """Whether a GitHub review/comment author is OUR app's bot identity.
+def matches_app_bot(user: dict[str, Any] | None, app_login: str | None) -> bool:
+    """Whether a GitHub review/comment author is OUR app's bot identity, given `posthog_app_login()`.
 
     Guards the marker-based idempotency scans: on a public repo anyone can paste a marker, and a
     spoofed match suppresses a publish or gets a stranger's comment PATCHed. `type == "Bot"` blocks
@@ -36,17 +36,24 @@ def is_app_bot_author(user: dict[str, Any] | None) -> bool:
     markers pasted by OTHER installed bots are rejected too. Unset, it fails closed in production,
     because any installed bot would pass. Local development and tests fall back to the type check:
     the app's own login isn't derivable from an installation token without extra API calls.
+
+    Async callers resolve `app_login` once through `database_sync_to_async` and pass it in, because
+    reading the instance setting can query the database, which Django refuses on an event loop.
     """
     author = user or {}
     if author.get("type") != "Bot":
         return False
-    expected = posthog_app_login()
-    if expected:
-        return str(author.get("login") or "").lower() == expected
+    if app_login:
+        return str(author.get("login") or "").lower() == app_login
     if settings.DEBUG or settings.TEST:
         return True
     logger.warning("GITHUB_APP_SLUG is not set; no GitHub author counts as the ReviewHog app")
     return False
+
+
+def is_app_bot_author(user: dict[str, Any] | None) -> bool:
+    """`matches_app_bot` against the configured app login, for sync callers only."""
+    return matches_app_bot(user, posthog_app_login())
 
 
 GITHUB_API_BASE = "https://api.github.com"

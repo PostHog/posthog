@@ -445,7 +445,6 @@ async def test_flash_dedup_transient_failure_retries_before_the_last_attempt(pr_
         await _dedupe_with_a_failing_flash_call(pr_metadata, non_retryable=False, final_attempt=False)
 
 
-@pytest.mark.django_db
 def test_already_raised_lists_each_other_reviewers_comment_once() -> None:
     # The status comment says another reviewer already raised these. ReviewHog's own comments and earlier
     # findings must not appear, a human who pastes ReviewHog's public marker must not leave the list, and
@@ -468,7 +467,7 @@ def test_already_raised_lists_each_other_reviewers_comment_once() -> None:
         Duplicate(issue=_issue("1-5", "a.py", 5, 5), duplicate_of="3"),
     ]
 
-    raised = already_raised(duplicates, comments)
+    raised = already_raised(duplicates, comments, None)
 
     assert raised == [
         AlreadyRaised(title="Issue 1-4", level="P1", comment_id=1, commenter="greptile-apps[bot]"),

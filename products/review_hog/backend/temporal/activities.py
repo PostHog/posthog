@@ -34,6 +34,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
@@ -1619,7 +1620,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
-            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
+            app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments, app_login)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
