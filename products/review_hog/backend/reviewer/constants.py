@@ -153,7 +153,7 @@ SINGLE_AGENT_SOURCE = "flash-single-agent"
 # Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
 # so the resolution stage can recognize its own threads by content. Installation bot logins vary per
 # deployment, so there is no stable login to match on; this marker is the reliable signal. Same
-# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+# HTML-comment style as the review-body and status markers, invisible in rendered markdown.
 REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
 
 # A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
