@@ -21,6 +21,9 @@ from collections.abc import Callable, Iterable
 
 from django.conf import settings
 
+from rest_framework import serializers
+from slack_sdk.errors import SlackApiError
+
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import User
@@ -271,9 +274,17 @@ def _posthog_user_display_name(user: User) -> str:
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
     # `<@U…>` mention when the reviewer's email resolves in this workspace, else escaped name.
+    # A failed lookup (a missing users:read.email scope, a spent lookup budget) costs only the
+    # mention. The next lookup fails the same way, so the remaining reviewers get names too.
     mentions: list[str] = []
+    lookups_available = True
     for user in reviewer_users[:_MAX_REVIEWER_MENTIONS]:
-        slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
+        slack_user_id = None
+        if user.email and lookups_available:
+            try:
+                slack_user_id = lookup_slack_user_id_by_email(slack, user.email)
+            except (SlackApiError, serializers.ValidationError):
+                lookups_available = False
         mentions.append(f"<@{slack_user_id}>" if slack_user_id else _escape_mrkdwn(_posthog_user_display_name(user)))
     return mentions
 
