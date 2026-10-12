@@ -39,6 +39,8 @@ _UNITS: dict[str, str | None] = {
     "ops": "{op}/s",
     "pps": "{packet}/s",
     "hertz": "1/s",
+    "cps": "{count}/s",
+    "/s": "1/s",
 }
 
 _REDUCERS: dict[str, Reducer] = {
