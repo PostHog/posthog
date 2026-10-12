@@ -1347,8 +1347,8 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
 # --- Single-agent review (the main Flash session and its lens sessions) ---------------------------
 
 
-def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool) -> str:
-    """The task prompt of the main session, or of one lens session on lens part `chunk_id`."""
+def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
+    """The prompt of the main session, or of one lens session on lens part `chunk_id`."""
     snapshot = load_pr_snapshot(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
     )
@@ -1368,6 +1368,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
+        guidelines=guidelines,
         scope_files=scope_files,
         for_lens=for_lens,
     ).render()
@@ -1379,7 +1380,7 @@ async def _run_single_agent_session(
     pass_number: int,
     chunk_id: int,
     source: str,
-    system_prompt: str,
+    guidelines: str,
     step_name: str,
     for_lens: bool,
 ) -> None:
@@ -1401,7 +1402,7 @@ async def _run_single_agent_session(
         logger.info("Reusing the persisted %s result for this turn", step_name)
         return
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input, chunk_id, for_lens
+        input, chunk_id, for_lens, guidelines
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         try:
@@ -1411,7 +1412,8 @@ async def _run_single_agent_session(
                 repository=input.repository,
                 branch=input.branch,
                 prompt=prompt,
-                system_prompt=system_prompt,
+                # The guidelines sit inside the prompt, after the part sibling sessions share.
+                system_prompt="",
                 model_to_validate=SingleAgentReview,
                 step_name=step_name,
                 workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
@@ -1445,7 +1447,7 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
         pass_number=SINGLE_AGENT_PASS_NUMBER,
         chunk_id=SINGLE_AGENT_CHUNK_ID,
         source=SINGLE_AGENT_SOURCE,
-        system_prompt=load_core_prompt(),
+        guidelines=load_core_prompt(),
         step_name="single-agent-review",
         for_lens=False,
     )
@@ -1462,7 +1464,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
         pass_number=lens.pass_number,
         chunk_id=input.chunk_id,
         source=lens.source,
-        system_prompt=load_prompt_file(lens_prompt_path(lens.prompt_file)),
+        guidelines=load_prompt_file(lens_prompt_path(lens.prompt_file)),
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
     )
