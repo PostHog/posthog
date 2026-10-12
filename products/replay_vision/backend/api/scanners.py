@@ -1316,6 +1316,16 @@ class BulkObserveRequestSerializer(serializers.Serializer):
     )
 
 
+class ScanOutcome(models.TextChoices):
+    STARTED = "started", "Started"
+    ALREADY_RUNNING = "already_running", "Already running"
+    ALREADY_SCANNED = "already_scanned", "Already scanned"
+    SKIPPED_LIMIT = "skipped_limit", "Skipped, in-flight limit reached"
+    SKIPPED_QUOTA = "skipped_quota", "Skipped, the org's credit quota for this period was reached"
+    SKIPPED_SCANNER_LIMIT = "skipped_scanner_limit", "Skipped, scanner's own credit limit reached"
+    FAILED = "failed", "Failed to start"
+
+
 class BulkObserveResultSerializer(serializers.Serializer):
     """Per-session outcome of a bulk scan trigger."""
 
@@ -1323,15 +1333,7 @@ class BulkObserveResultSerializer(serializers.Serializer):
     # Named scan_outcome (not outcome) so its generated enum doesn't collide with other products'
     # `outcome` enums — a bare `outcome` ChoiceField forces the shared OutcomeEnum to be renamed.
     scan_outcome = serializers.ChoiceField(
-        choices=[
-            ("started", "Started"),
-            ("already_running", "Already running"),
-            ("already_scanned", "Already scanned"),
-            ("skipped_limit", "Skipped, in-flight limit reached"),
-            ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
-            ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
-            ("failed", "Failed to start"),
-        ],
+        choices=ScanOutcome.choices,
         help_text=(
             "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is "
             "already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a "
@@ -1366,19 +1368,9 @@ class BulkObserveResponseSerializer(serializers.Serializer):
     )
 
 
-class InlineScanRequestSerializer(serializers.Serializer):
-    """Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at."""
+class InlineScanConfigSerializer(serializers.Serializer):
+    """A question asked inline, without saving a scanner first."""
 
-    session_ids = serializers.ListField(
-        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
-        allow_empty=False,
-        max_length=MAX_SESSIONS_PER_SCAN,
-        help_text=(
-            f"Session recording IDs to scan, at most {MAX_SESSIONS_PER_SCAN} per request. Scans start "
-            "until the in-flight limit or monthly credit quota is reached; the rest are reported as "
-            "skipped rather than failing the whole batch."
-        ),
-    )
     prompt = serializers.CharField(
         max_length=MAX_PROMPT_LENGTH,
         help_text="What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
@@ -1430,6 +1422,21 @@ class InlineScanRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError({"scanner_config": message})
         attrs["scanner_config"] = merged
         return attrs
+
+
+class InlineScanRequestSerializer(InlineScanConfigSerializer):
+    """Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
+        allow_empty=False,
+        max_length=MAX_SESSIONS_PER_SCAN,
+        help_text=(
+            f"Session recording IDs to scan, at most {MAX_SESSIONS_PER_SCAN} per request. Scans start "
+            "until the in-flight limit or monthly credit quota is reached; the rest are reported as "
+            "skipped rather than failing the whole batch."
+        ),
+    )
 
 
 class InlineScanResponseSerializer(BulkObserveResponseSerializer):

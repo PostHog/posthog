@@ -14,7 +14,12 @@ from django.conf import settings
 
 import requests
 
-from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.github.transport import (
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    github_request,
+    raise_if_github_rate_limited,
+)
 from posthog.egress.limiter.policies import Priority
 
 logger = logging.getLogger(__name__)
@@ -56,6 +61,13 @@ class GitHubAPIError(Exception):
         super().__init__(message)
         self.status = status
         self.api_message = api_message
+
+
+def is_transient_github_error(error: BaseException) -> bool:
+    """A GitHub failure a later attempt can get past: our own budget, GitHub's rate limit, a 5xx, or the network."""
+    return isinstance(error, GitHubEgressBudgetExhausted | GitHubRateLimitError | requests.RequestException) or (
+        isinstance(error, GitHubAPIError) and error.status >= 500
+    )
 
 
 def _api_message(response: requests.Response) -> str:

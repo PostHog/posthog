@@ -32,7 +32,7 @@ export function PeopleList({
 
     return (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-secondary">{kind === 'excepted' ? 'Except:' : 'People:'}</span>
+            <span className="text-secondary">{kind === 'excepted' ? 'except:' : 'People:'}</span>
             {listed.map((person) => (
                 <LemonSnack
                     key={person.id}

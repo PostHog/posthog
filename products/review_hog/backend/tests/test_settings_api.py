@@ -12,8 +12,6 @@ from products.review_hog.backend.models import ReviewProjectSettings, ReviewUser
 from products.skills.backend.models.skills import LLMSkill
 from products.stamphog.backend.facade.testing import seed_repo_config
 
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
-
 
 class TestReviewUserSettingsAPI(APIBaseTest):
     # The serializer resolves stamphog_connected off the stamphog product DB on every response.
@@ -30,6 +28,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json() == {
             "default_review_mode": "follow",
+            "review_drafts": True,
             "resolve_comments": False,
             "urgency_threshold": "consider",
             "celebrate_clean_reviews": True,
@@ -37,6 +36,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "sources": {
                 "default_review_mode": "default",
+                "review_drafts": "default",
                 "resolve_comments": "default",
                 "urgency_threshold": "default",
                 "celebrate_clean_reviews": "default",
@@ -106,8 +106,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             connected_by_user_id=connected_by_user_id,
         )
 
-        with patch(_INTERNAL_FLAG, return_value=True):
-            res = self.client.get(self.url)
+        res = self.client.get(self.url)
 
         assert res.status_code == 200
         assert res.json()["stamphog_connected"] is expected

@@ -7,7 +7,7 @@ from __future__ import annotations
 # (`max_poll_seconds`) so the dropped-finalization salvage fires before the activity's
 # timeout — keep it below `WORKFLOW_HARD_CEILING_S`. Tuning this is a config decision,
 # not a per-run override knob.
-DEFAULT_MAX_RUNTIME_S = 15 * 60
+DEFAULT_MAX_RUNTIME_S = 20 * 60
 
 # Slack added on top of `DEFAULT_MAX_RUNTIME_S` for the Temporal activity
 # `start_to_close_timeout`, so heartbeat-based failures get a chance to surface
@@ -47,6 +47,10 @@ SCOUT_RUN_REAPED_METADATA_KEY = "reaped_at"
 # into that run's prompt, so it is held to the 1,000 characters `report_steering` cuts a durable
 # note to: steering meant for one run must not crowd out the run's own instructions.
 MAX_RUN_NOTE_CHARS = 1_000
+
+# Cap on the pre-check rows a scheduled run carries into its prompt. The rows are raw product data
+# the scout owner's query selected, so they must not crowd out the run's own instructions.
+MAX_PRECHECK_ROWS_BYTES = 8 * 1024
 
 SCOUT_TRIAL_METADATA_KEY = "scout_trial"
 TRIAL_MAX_RUNTIME_S = 30 * 60

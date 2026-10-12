@@ -76,6 +76,7 @@ export const manifest: ProductManifest = {
             path: 'Actions',
             category: 'Schema',
             href: urls.actions(),
+            searchKeywords: ['event group', 'grouped events'],
             iconType: 'action' as FileSystemIconType,
             sceneKey: 'Actions',
         },

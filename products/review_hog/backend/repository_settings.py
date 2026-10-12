@@ -32,6 +32,7 @@ from products.review_hog.backend.models import (
     ReviewUserRepositoryChoice,
 )
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef, find_matching_row, resolve_owner
+from products.review_hog.backend.preferences import DefaultReviewMode
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +320,7 @@ class OverviewEntry:
     my_choice: ReviewUserRepositoryChoice | None
     my_result: AutomaticReviewDecision
     inherited_result: AutomaticReviewDecision
+    repository_result: AutomaticReviewDecision
 
 
 class RepositoryOverview:
@@ -360,9 +362,13 @@ class RepositoryOverview:
             author = self.viewer.for_repository(ref)
             result = rule.resolve(author)
             inherited = rule.resolve(replace(author, repository_choice=None))
+            repository_result = rule.resolve(
+                replace(author, repository_choice=None, default_mode=DefaultReviewMode.FOLLOW)
+            )
         else:
             result = AutomaticReviewDecision(flash=False, reason=AutomaticReviewReason.NOT_IN_PROJECT)
             inherited = result
+            repository_result = result
         if owner is None:
             owner_kind, owner_project = RepositoryOwnerKind.NONE, None
         elif in_project:
@@ -382,7 +388,14 @@ class RepositoryOverview:
             my_choice=choice,
             my_result=result,
             inherited_result=inherited,
+            repository_result=repository_result,
         )
+
+    def choices_unlike_default(self) -> int:
+        """The viewer's repository choices, in any installation, that give something other than their default."""
+        if self.viewer.default_mode == DefaultReviewMode.FOLLOW:
+            return len(self.viewer.choices)
+        return sum(1 for choice in self.viewer.choices if choice.mode != self.viewer.default_mode)
 
     def _in_view(self, entry: OverviewEntry, view: str) -> bool:
         if view == RepositoryOverviewView.IN_PROJECT:

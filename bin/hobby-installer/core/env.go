@@ -9,8 +9,13 @@ import (
 	"time"
 )
 
+// Service-to-service secrets that each get their own random value, so a leak from one
+// container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY.
+var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET"}
+
 type EnvConfig struct {
 	PosthogSecret        string
+	DedicatedSecrets     map[string]string
 	EncryptionSaltKeys   string
 	Domain               string
 	TLSBlock             string
@@ -24,6 +29,15 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 	secret, err := GenerateSecret()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate secret: %w", err)
+	}
+
+	dedicatedSecrets := make(map[string]string, len(dedicatedSecretKeys))
+	for _, key := range dedicatedSecretKeys {
+		value, err := GenerateSecret()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate %s: %w", key, err)
+		}
+		dedicatedSecrets[key] = value
 	}
 
 	encryptionKey, err := GenerateEncryptionKey()
@@ -45,6 +59,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 
 	return &EnvConfig{
 		PosthogSecret:        secret,
+		DedicatedSecrets:     dedicatedSecrets,
 		EncryptionSaltKeys:   encryptionKey,
 		Domain:               domain,
 		TLSBlock:             tlsBlock,
@@ -78,6 +93,9 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 		c.PosthogNodeTag,
 		c.SessionRecordingDate,
 	)
+	for _, key := range dedicatedSecretKeys {
+		content += fmt.Sprintf("%s=%s\n", key, c.DedicatedSecrets[key])
+	}
 
 	return os.WriteFile(".env", []byte(content), 0600)
 }
@@ -96,6 +114,8 @@ func LoadExistingEnv() map[string]string {
 		"SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS",
 		"OBJECT_STORAGE_MINIO_REMOVED",
 	}
+
+	keys = append(keys, dedicatedSecretKeys...)
 
 	for _, key := range keys {
 		if val := ReadEnvValue(key); val != "" {
@@ -136,6 +156,19 @@ func UpdateEnvForUpgrade(version string) error {
 			return err
 		}
 		if err := AppendToEnv("ENCRYPTION_SALT_KEYS", key); err != nil {
+			return err
+		}
+	}
+
+	for _, key := range dedicatedSecretKeys {
+		if existing[key] != "" {
+			continue
+		}
+		value, err := GenerateSecret()
+		if err != nil {
+			return err
+		}
+		if err := AppendToEnv(key, value); err != nil {
 			return err
 		}
 	}
