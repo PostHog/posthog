@@ -65,6 +65,7 @@ from products.experiments.backend.metric_resolution import (
     MetricRole,
     apply_saved_metric_overrides,
     get_effective_experiment_metrics,
+    get_effective_inline_metrics,
     get_metrics_for_calculation,
     saved_metric_link_role,
     saved_metric_links,
@@ -487,14 +488,11 @@ def build_primary_calculation_configs(
 def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> MetricCalculationConfig | None:
     """The config that `build_calculation_configs` builds for one metric, or None when the experiment
     calculates no metric with this uuid."""
-    return next(
-        (
-            calculation_config
-            for calculation_config in build_calculation_configs(experiment)
-            if calculation_config.metric_id == metric_uuid
-        ),
-        None,
-    )
+    metric = next((metric for metric in get_metrics_for_calculation(experiment) if metric.uuid == metric_uuid), None)
+    if metric is None:
+        return None
+    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    return settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
 
 
 def find_calculation_config_by_key(
@@ -540,11 +538,12 @@ def inline_metric_calculation_keys(experiment: Experiment, settings: ExperimentC
     """The key of each inline metric of the experiment, by metric uuid.
 
     When inline metrics share a uuid, the first one in primary-then-secondary order wins. The daily
-    calculation computes that metric for the uuid, so the key matches what it computes.
+    calculation computes that metric for the uuid, so the key matches what it computes. This reads no
+    rows, so the daily inline discovery does not load the saved-metric links.
     """
     keys: dict[str, str] = {}
-    for metric in get_effective_experiment_metrics(experiment):
-        if metric.source == "inline" and metric.uuid not in keys:
+    for metric in get_effective_inline_metrics(experiment):
+        if metric.uuid not in keys:
             calculation_config = settings.build_metric_config(
                 metric_id=metric.uuid, role=metric.role, definition=metric.definition
             )
