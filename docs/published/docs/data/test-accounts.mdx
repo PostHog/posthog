@@ -102,6 +102,20 @@ If you need one filter list that works everywhere, use inline person property fi
 Cohort filters have also been reported to exclude anonymous users along with the cohort members.
 See [issue #39835](https://github.com/PostHog/posthog/issues/39835) for the current status.
 
+## Events without a person profile
+
+Person property filters and cohort filters only match events that have a person profile.
+Events captured without one, such as anonymous events when `person_profiles` is `identified_only`, never match them.
+These events stay in your results, even when they come from your own team.
+In the events table, the person column shows these events with the note "This distinct ID has no person profile".
+
+To filter out internal traffic that has no person profile, do one of these:
+
+- Add an event property filter, such as `$host does not contain localhost`.
+- Identify your internal users, so they get a person profile and match your person filters.
+
+See [person profiles](/docs/data/persons#capturing-person-profiles) for more.
+
 ## API
 
 You can apply the filter to existing insights over the API:
