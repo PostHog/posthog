@@ -12,7 +12,7 @@ from posthog.llm.managed_decision_model import ManagedDecisionModel
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 
-from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage
+from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage, guess_stage
 
 logger = structlog.get_logger(__name__)
 
@@ -87,5 +87,9 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
             answer = result.answers.get(f"e{index}")
             if isinstance(answer, ChoiceAnswer) and answer.choice in valid_stages:
                 required = MIN_CONFIDENCE_BY_STAGE.get(answer.choice, MIN_CONFIDENCE)
-                stages[name] = cast(LifecycleStage, answer.choice) if answer.confidence >= required else "other"
+                confident = answer.confidence >= required
+                # Jev can call a busy usage event a sign-up, and its volume then outranks every real moment. The two
+                # highest weights need the event name to look like the stage too.
+                agrees = answer.choice not in MIN_CONFIDENCE_BY_STAGE or guess_stage(name) == answer.choice
+                stages[name] = cast(LifecycleStage, answer.choice) if confident and agrees else "other"
     return stages
