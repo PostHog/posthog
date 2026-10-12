@@ -152,6 +152,32 @@ class TestImageExporter(APIBaseTest):
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("user_query_error", QueryError("Unknown table"), False),
+            ("unexpected_error", ValueError("render failed"), True),
+        ]
+    )
+    def test_export_failure_reaches_error_tracking_only_when_not_a_user_error(
+        self,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+        _name: str,
+        error: Exception,
+        expect_captured: bool,
+    ) -> None:
+        mock_screenshot_asset.side_effect = error
+
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+            self.assertRaises(type(error)),
+        ):
+            image_exporter.export_image(self.exported_asset)
+
+        assert mock_capture.called is expect_captured
+
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)
