@@ -6,8 +6,10 @@ without going through the MCP server. When a scout config narrows the run to a t
 runner stamps the list on the task. This module answers whether one API request belongs to a
 tool the run holds. The run comes from the token's task binding, never from a header.
 
-Only operations that need a write scope are checked. Reads stay governed by the token scopes,
-so the MCP server and the agent server keep their own bookkeeping reads.
+A request is checked when it uses a method other than GET, HEAD, or OPTIONS, or when it needs a
+write scope. The method matters because some actions change state behind a read scope. Safe
+reads stay governed by the token scopes, so the MCP server and the agent server keep their own
+bookkeeping reads.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from collections.abc import Iterable
 from functools import lru_cache
 from typing import Any
 from uuid import UUID
+
+from rest_framework.permissions import SAFE_METHODS
 
 from posthog.mcp_tool_definitions import McpToolApiOperation, get_mcp_tool_definitions
 from posthog.mcp_tool_operations import request_matches_operation
@@ -27,8 +31,8 @@ _RUN = "/api/projects/{project_id}/tasks/{task_id}/runs/{id}/"
 
 # Endpoints the sandbox calls with the run's token outside any PostHog MCP tool: the agent server
 # and harness in `packages/agent/`, and the MCP server's calls to external gateway servers, which
-# keep their own policy. A new write endpoint in that code must be added here, or a narrowed run
-# gets it refused. `test_scout_tool_policy.py` fails when an entry stops resolving to a view.
+# keep their own policy. A new non-GET endpoint in that code must be added here, or a narrowed
+# run gets it refused. `test_scout_tool_policy.py` fails when an entry stops resolving to a view.
 SANDBOX_HARNESS_OPERATIONS: tuple[McpToolApiOperation, ...] = tuple(
     McpToolApiOperation(method=method, path=path)
     for method, path in (
@@ -68,9 +72,9 @@ def scout_tool_denial(
 ) -> str | None:
     """Why this request is refused, or None when the run may make it.
 
-    Costs one task read, and only for a write from a task-bound token.
+    Costs one task read, and only for a checked request from a task-bound token.
     """
-    if all(scope.endswith(":read") for scope in required_scopes):
+    if method.upper() in SAFE_METHODS and all(scope.endswith(":read") for scope in required_scopes):
         return None
     allowlist = tasks_facade.mcp_tool_allowlist_for_task(sandbox_task_id)
     if allowlist is None:

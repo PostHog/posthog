@@ -17,9 +17,9 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   Callers must evaluate feature flags for the project.
   `scout_held_mcp_tools` is the one answer to what a narrowed run holds: the picked list, `SCOUT_RUN_CONTEXT_TOOLS`, and the always-available tools.
 - `tool_policy.py`
-  Refuses API writes a narrowed run did not pick a tool for. The runner stamps `allowed_mcp_tools` on `Task.state` (`mcp_tool_allowlist`) while `scouts-tool-access` is on, and `APIScopePermission` calls `scout_tool_denial` through `facade/tool_policy.py` for every write from a task-bound token.
-  A request passes when its path and view match an `api_operations` entry of a held tool (`posthog/mcp_tool_operations.py`) or of `SANDBOX_HARNESS_OPERATIONS`. Reads are not checked.
-  A new write endpoint the agent server or harness calls with the run's token belongs in `SANDBOX_HARNESS_OPERATIONS`, and a hand-written MCP write tool lists its endpoints in `services/mcp/schema/tool-definitions.json`.
+  Refuses API writes a narrowed run did not pick a tool for. The runner stamps `allowed_mcp_tools` on `Task.state` (`mcp_tool_allowlist`) while `scouts-tool-access` is on, and `APIScopePermission` calls `scout_tool_denial` through `facade/tool_policy.py` for every request from a task-bound token.
+  A non-GET request, or one that needs a write scope, passes only when its path and view match an `api_operations` entry of a held tool (`posthog/mcp_tool_operations.py`) or of `SANDBOX_HARNESS_OPERATIONS`. The method counts because some actions change state behind a read scope.
+  A new non-GET endpoint the agent server or harness calls with the run's token belongs in `SANDBOX_HARNESS_OPERATIONS`. A hand-written MCP tool that makes a non-GET call lists its endpoints in `services/mcp/schema/tool-definitions.json`.
 
 - `runner.py`
   Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session, pumps the agent loop until budget exhaustion or natural completion, finalizes the run, and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py` delegates straight to this.

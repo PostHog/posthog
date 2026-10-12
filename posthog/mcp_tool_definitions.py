@@ -74,8 +74,8 @@ class McpToolDefinition:
     # Exposed to every client regardless of a `tools` or `features` allowlist.
     always_available: bool
     # The endpoints the handler calls. A generated tool lists its one operation. A hand-written
-    # tool lists at least every endpoint it writes through, because `posthog/mcp_tool_operations.py`
-    # refuses a scout run's write when no tool the run holds lists the endpoint.
+    # tool lists at least every endpoint it calls with a method other than GET, because a narrowed
+    # scout run is refused such a call when no tool it holds lists the endpoint.
     api_operations: tuple[McpToolApiOperation, ...]
 
     @property
