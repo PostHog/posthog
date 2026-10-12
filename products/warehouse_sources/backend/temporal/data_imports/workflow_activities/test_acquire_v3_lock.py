@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
@@ -435,6 +436,7 @@ class TestTakeOverStaleRunningJob:
             pytest.param(True, 25, True, id="stale_holder_past_max_hold"),
         ],
     )
+    @time_machine.travel("2026-01-15 12:00:00+00:00", tick=False)
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")
     @patch(f"{MODULE}.BatchQueue")
