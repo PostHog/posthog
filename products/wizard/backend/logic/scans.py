@@ -72,8 +72,9 @@ def _apply_scan(scan: WizardScan, tools: dict[str, WizardScanTool], existing: di
             )
             _classify(row)
             to_create.append(row)
-        # A scan that reaches us after a newer one for the same workspace must not move state back.
-        elif scanned_at > row.last_seen_at:
+        # A scan that reaches us after a newer sighting or removal for the same workspace must not move
+        # state back, so it is compared with whichever of the two happened last.
+        elif scanned_at > max(row.last_seen_at, row.removed_at or row.last_seen_at):
             row.signals = _signals_json(tool)
             row.last_seen_scan = scan
             row.last_seen_at = scanned_at
