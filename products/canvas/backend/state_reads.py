@@ -21,7 +21,7 @@ class StateCursor:
     def decode(cls, cursor: str) -> "StateCursor":
         """Raises ValueError for a malformed cursor."""
         try:
-            decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+            decoded = json.loads(base64.b64decode(cursor.encode(), altchars=b"-_", validate=True))
         except (ValueError, TypeError) as error:
             raise ValueError("Invalid state cursor.") from error
         if not isinstance(decoded, list) or len(decoded) != 2 or not all(isinstance(part, str) for part in decoded):

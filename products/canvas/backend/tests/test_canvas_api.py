@@ -1853,7 +1853,8 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert second["next_cursor"] is None
 
         # The decoded cursor must be the [scope, key] pair, not any two-item JSON value.
-        for bad_cursor in ("not-a-cursor", base64.urlsafe_b64encode(b'"ab"').decode()):
+        valid_cursor = first["next_cursor"]
+        for bad_cursor in ("not-a-cursor", base64.urlsafe_b64encode(b'"ab"').decode(), f"{valid_cursor}!!!!"):
             assert self.client.get(url, {"cursor": bad_cursor}).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_state_cursor_for_a_long_non_ascii_key_is_accepted(self):
