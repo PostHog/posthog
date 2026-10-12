@@ -107,6 +107,7 @@ whose path is given here handles its own failures, so the same action elsewhere 
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
+    loadRelatedExperiments: 'scenes.experiments.experimentTabLogic', // A retry banner on the flag's Experiments tab
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
