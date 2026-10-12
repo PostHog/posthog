@@ -318,6 +318,15 @@ V2_SAFETY_FIELDS = frozenset({"version", "active", "deleted"})
 V2_UPDATE_FIELDS = V2_SAFETY_FIELDS | {"filters", "name", "key", "tags"}
 V2_CREATE_FIELDS = V2_UPDATE_FIELDS - {"deleted"}
 V2_APPROVAL_ACTIONS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+# Every family that can gate a flag write. The gate offers all of them and the product that
+# owns the flag decides which one evaluates, so an experiment's flag is governed wherever it is
+# edited rather than only through the experiment endpoints. See approvals' `ownership` module.
+FLAG_WRITE_APPROVAL_ACTIONS = (
+    *V2_APPROVAL_ACTIONS,
+    "experiment.launch",
+    "experiment.pause",
+    "experiment.update",
+)
 
 _MISSING: Any = object()
 
@@ -1891,7 +1900,7 @@ class FeatureFlagSerializer(
         # approval has nowhere to go. Existence only, so PolicyEngine's precedence is irrelevant.
         if (
             ApprovalPolicy.objects.enabled()
-            .filter(organization_id=team.organization_id, action_key__in=V2_APPROVAL_ACTIONS)
+            .filter(organization_id=team.organization_id, action_key__in=FLAG_WRITE_APPROVAL_ACTIONS)
             .filter(Q(team=team) | Q(team__isnull=True))
             .exists()
         ):
@@ -2569,7 +2578,7 @@ class FeatureFlagSerializer(
 
         return instance
 
-    @approval_gate(list(V2_APPROVAL_ACTIONS))
+    @approval_gate(list(FLAG_WRITE_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # Service-layer callers may carry no body, and an endpoint that declares no request schema
