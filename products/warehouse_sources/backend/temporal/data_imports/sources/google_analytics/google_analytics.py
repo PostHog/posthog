@@ -12,6 +12,7 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -332,14 +333,20 @@ def _initial_start_date(today: dt.date, history_days: int | None = None) -> dt.d
     return today - dt.timedelta(days=history_days)
 
 
+@frozen
+class _SyncWindow:
+    start: dt.date
+    end: dt.date
+
+
 def _resolve_window(
     today: dt.date, db_incremental_field_last_value: Any, history_days: int | None = None
-) -> tuple[dt.date, dt.date]:
+) -> _SyncWindow:
     # End at yesterday: today's aggregates are still accruing and would land as
     # permanently stale rows for schemas whose primary key is just `date`.
     end_date = today - dt.timedelta(days=1)
     if db_incremental_field_last_value is None:
-        return _initial_start_date(today, history_days), end_date
+        return _SyncWindow(start=_initial_start_date(today, history_days), end=end_date)
 
     if isinstance(db_incremental_field_last_value, dt.datetime):
         last = db_incremental_field_last_value.date()
@@ -349,7 +356,7 @@ def _resolve_window(
         last = dt.date.fromisoformat(str(db_incremental_field_last_value)[:10])
 
     start = max(last - dt.timedelta(days=LOOKBACK_DAYS), _initial_start_date(today, history_days))
-    return start, end_date
+    return _SyncWindow(start=start, end=end_date)
 
 
 def _iter_chunks(start: dt.date, end: dt.date) -> collections.abc.Iterator[tuple[dt.date, dt.date]]:
@@ -381,11 +388,13 @@ def google_analytics_source(
 
     def get_rows() -> collections.abc.Iterator[list[dict[str, Any]]]:
         today = _today()
-        start_date, end_date = _resolve_window(
+        window = _resolve_window(
             today,
             db_incremental_field_last_value if should_use_incremental_field else None,
             config.history_days,
         )
+        start_date = window.start
+        end_date = window.end
 
         resume_chunk_start: str | None = None
         resume_offset = 0

@@ -53,10 +53,10 @@ TODAY = dt.date(2026, 4, 30)
     ],
 )
 def test_resolve_window_start(last_value, expected_start):
-    start, end = _resolve_window(TODAY, last_value)
-    assert start == expected_start
+    window = _resolve_window(TODAY, last_value)
+    assert window.start == expected_start
     # Today's aggregates are still accruing — the window always ends at yesterday.
-    assert end == TODAY - dt.timedelta(days=1)
+    assert window.end == TODAY - dt.timedelta(days=1)
 
 
 @pytest.mark.parametrize(
