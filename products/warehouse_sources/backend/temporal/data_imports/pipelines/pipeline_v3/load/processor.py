@@ -116,7 +116,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources import Sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined, OwnershipLostError
 
 logger = structlog.get_logger(__name__)
@@ -763,7 +762,7 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
 
     def merge_source_cursors(current: Any, candidate: Any) -> dict[str, Any]:
-        source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
+        source = SourceRegistry.get_source(schema.source.source_type)
         return merge_cursor_payloads(source, current, candidate, logger)
 
     promoted = schema.promote_staged_incremental_values(

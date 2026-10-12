@@ -10,7 +10,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.run_mode import derive_run_mode
 
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey
 
 from .common.registry import SourceRegistry
 
@@ -39,7 +39,7 @@ def load_all_sources() -> None:
         _load_source(module_path)
 
 
-def source_module_path(source_type: ExternalDataSourceType) -> str | None:
+def source_module_path(source_type: SourceKey) -> str | None:
     """The source module that registers ``source_type``, or None when no directory matches.
 
     A source directory is the enum member's name in lowercase with underscores added
@@ -51,7 +51,7 @@ def source_module_path(source_type: ExternalDataSourceType) -> str | None:
     return _source_modules_by_squashed_name().get(name.lower())
 
 
-def load_source(source_type: ExternalDataSourceType) -> None:
+def load_source(source_type: SourceKey) -> None:
     """Import only the module that registers ``source_type``.
 
     Request paths ask the registry for a handful of source types, and importing every

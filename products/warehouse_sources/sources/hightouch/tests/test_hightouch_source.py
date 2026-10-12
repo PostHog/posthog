@@ -14,7 +14,7 @@ class TestHightouchSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Hightouch"
+        assert config.name == "Hightouch"
         assert config.label == "Hightouch"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA

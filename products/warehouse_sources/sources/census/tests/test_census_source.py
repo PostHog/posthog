@@ -13,7 +13,7 @@ class TestCensusSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Census"
+        assert config.name == "Census"
         assert config.label == "Census (Fivetran)"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA

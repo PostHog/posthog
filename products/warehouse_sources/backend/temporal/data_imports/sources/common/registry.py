@@ -1,33 +1,22 @@
 import threading
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey, source_key
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource
 
-
-# The type of a registry key. Sources name this alias rather than the enum, so the key type can
-# become `str` without a change in any vendor directory.
-SourceKey = ExternalDataSourceType
+__all__ = ["SourceKey", "SourceRegistry", "known_source_key", "source_key"]
 
 
-def source_key(key: str) -> SourceKey:
-    """The registry key for a source type string: its enum member, or the string itself.
-
-    A string that matches a member resolves to that member, so every enum caller keeps working.
-    A string with no member stays a plain string, cast to the enum type.
-    """
-    try:
-        return ExternalDataSourceType(key)
-    except ValueError:
-        return cast(SourceKey, key)
+def _class_path(source_class: type) -> str:
+    return f"{source_class.__module__}.{source_class.__qualname__}"
 
 
 class SourceRegistry:
     """Registry for all available data warehouse sources"""
 
-    _sources: dict[ExternalDataSourceType, "AnySource"] = {}
+    _sources: dict[SourceKey, "AnySource"] = {}
     _loaded: bool = False
     _load_lock = threading.Lock()
 
@@ -59,12 +48,20 @@ class SourceRegistry:
         source_class_instance = source_class()
         source_type = source_key(source_class_instance.source_type)
 
+        # Two vendors that claim one key would silently replace each other, and every row with that
+        # key would sync through whichever module imported last.
+        registered = cls._sources.get(source_type)
+        if registered is not None and _class_path(type(registered)) != _class_path(source_class):
+            raise ValueError(
+                f"Source key {source_type!r} is registered by both {_class_path(type(registered))} "
+                f"and {_class_path(source_class)}"
+            )
         cls._sources[source_type] = source_class_instance
 
         return source_class
 
     @classmethod
-    def _load_one(cls, source_type: ExternalDataSourceType) -> None:
+    def _load_one(cls, source_type: SourceKey) -> None:
         # Importing every source module costs seconds per process, and a request typically
         # needs a handful of types. Import only the module for this type; `get_source` falls
         # back to the full load when that leaves the type unregistered.
@@ -75,7 +72,7 @@ class SourceRegistry:
         load_source(source_type)
 
     @classmethod
-    def get_source(cls, source_type: ExternalDataSourceType) -> "AnySource":
+    def get_source(cls, source_type: SourceKey) -> "AnySource":
         """Get a source instance by type"""
 
         # Callers may hand us the raw string value (e.g. an `oauth_accounts` query param). The
@@ -95,22 +92,35 @@ class SourceRegistry:
         return cls._sources[source_type]
 
     @classmethod
-    def get_all_sources(cls) -> dict[ExternalDataSourceType, "AnySource"]:
+    def get_all_sources(cls) -> dict[SourceKey, "AnySource"]:
         """Get all registered sources"""
 
         cls._ensure_loaded()
         return cls._sources
 
     @classmethod
-    def is_registered(cls, source_type: ExternalDataSourceType) -> bool:
+    def is_registered(cls, source_type: SourceKey) -> bool:
         """Check if a source type is registered"""
 
         cls._ensure_loaded()
         return source_type in cls._sources
 
     @classmethod
-    def get_registered_types(cls) -> list[ExternalDataSourceType]:
+    def get_registered_types(cls) -> list[SourceKey]:
         """Get all registered source types"""
 
         cls._ensure_loaded()
         return list(cls._sources.keys())
+
+
+def known_source_key(key: str) -> SourceKey:
+    """Resolve a stored or submitted source type string to its registry key.
+
+    Returns the `ExternalDataSourceType` member when one exists, else the plugin key, and raises
+    ValueError for a string that is neither. It takes the place of `ExternalDataSourceType(key)`, which
+    rejects every plugin key. A plugin key is checked by importing only its own vendor module.
+    """
+    resolved = source_key(key)
+    if not isinstance(resolved, ExternalDataSourceType):
+        SourceRegistry.get_source(resolved)
+    return resolved

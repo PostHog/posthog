@@ -14,7 +14,7 @@ class TestSmartEngageSource:
 
     def test_get_source_config_is_released(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "SmartEngage"
+        assert config.name == "SmartEngage"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         # The source must stay visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource

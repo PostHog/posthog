@@ -48,11 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.query_folder_state
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import (
-    DataWarehouseTableCreatedVia,
-    DataWarehouseTableFormat,
-    ExternalDataSourceType,
-)
+from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat, SourceKey
 
 LOGGER = get_logger(__name__)
 
@@ -198,7 +194,7 @@ class PipelineInputs:
     run_id: str
     schema_id: uuid.UUID
     dataset_name: str
-    job_type: ExternalDataSourceType
+    job_type: SourceKey
     team_id: int
 
 

@@ -27,12 +27,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb, type ExternalDataSourceType } from '~/types'
 
-import {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
 import { splitQualifiedTableName, supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
@@ -197,8 +194,8 @@ function InternalNewSourceScene({
 
 interface NewSourcesWizardProps {
     onComplete?: () => void
-    allowedSources?: ExternalDataSourceTypeEnumApi[] // Filter to only show these source types
-    initialSource?: ExternalDataSourceTypeEnumApi // Pre-select this source and start on step 2
+    allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
+    initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
     hideBackButton?: boolean
     autoConfigureTables?: boolean // Onboarding: pre-select all syncable tables for a one-click sync
     sourceWizardLogicProps?: SourceWizardLogicProps
@@ -546,7 +543,7 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 // Connectors in the "Databases" category that PostHog reaches over the provider's public HTTPS API
 // with a key the provider issues. The customer has no network path in front of them, so the
 // firewall hint would name a setup step that does not exist.
-const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceTypeEnumApi[] = ['BigQuery', 'DynamoDB', 'Firebase']
+const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceType[] = ['BigQuery', 'DynamoDB', 'Firebase']
 
 // Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
 // scoped to that category rather than shown for OAuth/API connectors.

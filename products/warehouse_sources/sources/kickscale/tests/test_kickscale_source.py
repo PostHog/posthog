@@ -14,7 +14,7 @@ class TestKickscaleSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Kickscale"
+        assert config.name == "Kickscale"
         assert config.label == "Kickscale"
         assert config.category == DataWarehouseSourceCategory.SALES
         assert config.releaseStatus == ReleaseStatus.ALPHA

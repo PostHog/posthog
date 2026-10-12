@@ -37,6 +37,7 @@ copyPublicFolder(
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
+copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
@@ -244,6 +245,21 @@ function copyEmojibaseData() {
     fs.mkdirSync(to, { recursive: true })
     for (const file of ['data.json', 'messages.json']) {
         fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
+    }
+}
+
+// A warehouse source plugin keeps its icon in its own directory, and its catalog entry points at
+// /static/warehouse-sources/<vendor>/icon.png. Copying the icons to that path in dist puts them on the
+// static host with the rest of dist, so no vendor needs a file in frontend/public.
+function copyWarehouseSourceIcons() {
+    const sourcesDir = path.resolve(__dirname, '..', 'products', 'warehouse_sources', 'sources')
+    for (const entry of fs.readdirSync(sourcesDir, { withFileTypes: true })) {
+        const icon = path.resolve(sourcesDir, entry.name, 'icon.png')
+        if (entry.isDirectory() && fs.existsSync(icon)) {
+            const to = path.resolve(__dirname, 'dist', 'warehouse-sources', entry.name)
+            fs.mkdirSync(to, { recursive: true })
+            fs.copyFileSync(icon, path.resolve(to, 'icon.png'))
+        }
     }
 }
 

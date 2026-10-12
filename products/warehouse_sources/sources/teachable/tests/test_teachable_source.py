@@ -14,7 +14,7 @@ class TestTeachableSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Teachable"
+        assert config.name == "Teachable"
         assert config.label == "Teachable"
         assert config.category == DataWarehouseSourceCategory.E_COMMERCE
         assert config.releaseStatus == ReleaseStatus.ALPHA

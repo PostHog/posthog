@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources import (
     SourceRegistry,
     source_module_path,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey
 
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -86,7 +86,7 @@ class SourceConfigGenerator:
                 logger.info(f"Generating config for {source_type}")
                 module_path = self._module_path(source_type)
                 if module_path in modules:
-                    raise ValueError(f"Module name collision for {source_type.name}: {module_path}")
+                    raise ValueError(f"Module name collision for {source_type}: {module_path}")
                 modules[module_path] = self._generate_module(source_type, source_config)
         except Exception as e:
             logger.exception(f"Error generating config: {e}")
@@ -95,16 +95,18 @@ class SourceConfigGenerator:
         return modules
 
     @staticmethod
-    def _module_path(source_type: ExternalDataSourceType) -> str:
+    def _module_path(source_type: SourceKey) -> str:
         source_module = source_module_path(source_type)
         if source_module is not None and source_module.startswith(f"{PLUGIN_SOURCES_PACKAGE}."):
             return f"{source_module.removesuffix('.source').replace('.', '/')}/_config.py"
+        if not isinstance(source_type, ExternalDataSourceType):
+            raise ValueError(f"{source_type} has no enum member, so its vendor must live in {PLUGIN_SOURCES_PACKAGE}")
         module_name = source_type.name.lower()
         if not module_name.isidentifier():
             raise ValueError(f"{source_type.name} does not lower() to a valid module name")
         return str((GENERATED_CONFIGS_DIR / f"{module_name}.py").relative_to(REPO_ROOT))
 
-    def _generate_module(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> str:
+    def _generate_module(self, source_type: SourceKey, source_config: SourceConfig) -> str:
         self.generated_classes = {}
         self.imports = set()
         self.typing_import = set()
@@ -113,14 +115,14 @@ class SourceConfigGenerator:
         return self._build_module()
 
     @staticmethod
-    def _config_import(source_type: ExternalDataSourceType) -> str:
+    def _config_import(source_type: SourceKey) -> str:
         # A vendor in the `products.warehouse_sources.sources` package imports shared code only from `products.warehouse_sources.sources.sdk` (tach).
         source_module = source_module_path(source_type)
         if source_module is not None and source_module.startswith(f"{PLUGIN_SOURCES_PACKAGE}."):
             return f"from {PLUGIN_SOURCES_PACKAGE}.sdk import config"
         return "from products.warehouse_sources.backend.temporal.data_imports.sources.common import config"
 
-    def generate_source_config(self, source_type: ExternalDataSourceType, source_config: SourceConfig) -> None:
+    def generate_source_config(self, source_type: SourceKey, source_config: SourceConfig) -> None:
         self.imports.add(self._config_import(source_type))
 
         class_name = self._get_config_class_name(source_type)
@@ -478,8 +480,8 @@ class SourceConfigGenerator:
 
         raise ValueError(f"Converter value {field.converter} not recognized")
 
-    def _get_config_class_name(self, source_type: ExternalDataSourceType) -> str:
-        return f"{source_type.value}SourceConfig"
+    def _get_config_class_name(self, source_type: SourceKey) -> str:
+        return f"{source_type}SourceConfig"
 
     def _get_nested_class_name(self, field_name: str, parent_class: str) -> str:
         parent_prefix = parent_class.replace("SourceConfig", "")

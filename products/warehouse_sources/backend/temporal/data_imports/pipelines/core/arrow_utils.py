@@ -591,10 +591,9 @@ def source_uses_delta_write_column_selection(source_type: str) -> bool:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
         SourceRegistry,  # noqa: PLC0415
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception:
         return False
     return not source.supports_column_selection and not source.has_managed_hogql_schema

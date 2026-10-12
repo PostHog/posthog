@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     get_nonsensitive_and_sensitive_field_names,
 )
+from products.warehouse_sources.backend.source_icons import SourceIconFinder
+from products.warehouse_sources.backend.temporal.data_imports.sources import source_module_path
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -55,7 +57,8 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
 # enrichment. Adding descriptions is an improvement, so drop the entry when one does.
 SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "PgAnalyze"}
 
-# Catalog icons are declared as a `/static/` URL and served from `frontend/public`.
+# Catalog icons are declared as a `/static/` URL and served from `frontend/public`, or for a plugin
+# vendor from its own directory through `SourceIconFinder`.
 ICON_ROOT = Path(settings.BASE_DIR) / "frontend" / "public"
 
 # Sources whose declared icon has no file, so every catalog tile for them requests an image that
@@ -248,13 +251,24 @@ def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
 
 
 @pytest.mark.parametrize("source_type", SOURCE_TYPES, ids=str)
+def test_source_key_names_its_config_and_vendor_module(source_type):
+    # A web worker imports only the vendor module that the key names, so a plugin key that does not
+    # match its directory cannot be created or synced there, while the fully loaded test process
+    # still finds it. The key is also stored in a 128-character column and names the generated config class.
+    assert len(source_type) <= 128
+    assert f"{source_type}SourceConfig".isidentifier()
+    assert source_module_path(source_type) == type(ALL_SOURCES[source_type]).__module__
+
+
+@pytest.mark.parametrize("source_type", SOURCE_TYPES, ids=str)
 def test_source_icon_file_exists(source_type):
     icon_path = ALL_SOURCES[source_type].get_source_config.iconPath
     assert icon_path.startswith(settings.STATIC_URL), (
         f"{source_type} declares iconPath {icon_path!r}; catalog icons are served from {settings.STATIC_URL}."
     )
 
-    exists = (ICON_ROOT / icon_path.removeprefix(settings.STATIC_URL)).is_file()
+    static_path = icon_path.removeprefix(settings.STATIC_URL)
+    exists = (ICON_ROOT / static_path).is_file() or bool(SourceIconFinder().find(static_path))
     listed = str(source_type) in SOURCES_WITHOUT_AN_ICON_FILE
 
     if listed:
@@ -263,7 +277,7 @@ def test_source_icon_file_exists(source_type):
 
     assert exists, (
         f"{source_type} declares iconPath {icon_path!r}, but no such file exists under "
-        f"frontend/public. Every catalog tile for it would request a 404 and fall back to the "
+        f"frontend/public or the vendor directory. Every catalog tile for it would request a 404 and fall back to the "
         f"placeholder icon. Add the file, or correct the path."
     )
 

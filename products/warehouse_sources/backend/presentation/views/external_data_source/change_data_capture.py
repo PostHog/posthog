@@ -38,7 +38,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     repair_cdc_source,
     source_type_supports_cdc,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base
 
@@ -186,7 +185,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
-        source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source_impl = base.SourceRegistry.get_source(source_type)
         if not isinstance(source_impl, PostgresSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

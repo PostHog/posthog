@@ -14,7 +14,7 @@ class TestTinyemailSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "Tinyemail"
+        assert config.name == "Tinyemail"
         assert config.label == "tinyEmail"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         assert config.releaseStatus == ReleaseStatus.ALPHA

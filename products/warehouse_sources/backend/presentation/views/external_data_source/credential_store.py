@@ -18,7 +18,8 @@ from posthog.api.utils import action
 from posthog.models.user import User
 
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.source_management import known_source_key
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 
 from . import base
 
@@ -43,8 +44,7 @@ class SourceConnectLinkSerializer(serializers.Serializer):
 
 
 class SourceCredentialCreateSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type these credentials are for (e.g. 'Stripe', 'Postgres').",
     )
     payload = serializers.DictField(
@@ -125,8 +125,7 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
     detected primary keys and incremental cursors.
     """
 
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type to validate against.",
     )
 
@@ -163,7 +162,7 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
             if isinstance(value, str):
                 payload[key] = value.strip()
 
-        source_type_model = ExternalDataSourceType(source_type)
+        source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
 
         error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
@@ -262,7 +261,7 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 data={"message": "Missing required parameter: source_type"},
             )
         try:
-            source_type_model = ExternalDataSourceType(source_type)
+            source_type_model = known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

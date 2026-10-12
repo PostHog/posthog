@@ -14,7 +14,7 @@ class TestSigmaComputingSource:
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
-        assert config.name.value == "SigmaComputing"
+        assert config.name == "SigmaComputing"
         assert config.label == "Sigma Computing"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
