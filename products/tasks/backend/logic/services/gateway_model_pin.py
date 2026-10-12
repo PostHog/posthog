@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from products.tasks.backend.model_catalog import MODELS, normalize_model_id
+from products.tasks.backend.model_catalog import CLAUDE, MODELS, normalize_model_id, runtime_adapter_for_model
 
 # Run-state stamp naming the product whose model-pinned token the sandbox holds.
 GATEWAY_PRODUCT_STATE_KEY = "ai_gateway_product"
@@ -55,6 +55,13 @@ def model_allowed_by_product_pin(product: str, model: str | None) -> bool:
     if pin is None or not model:
         return True
     return normalize_model_id(model) in {normalize_model_id(entry) for entry in pin}
+
+
+def go_gateway_serves(runtime_adapter: str | None, model: str | None) -> bool:
+    if not model:
+        return True
+    adapter = runtime_adapter or runtime_adapter_for_model(model)
+    return adapter != CLAUDE or "/" not in normalize_model_id(model)
 
 
 def pinned_run_allows_model(state: dict[str, Any] | None, model: str | None) -> bool:

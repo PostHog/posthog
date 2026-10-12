@@ -1413,6 +1413,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             state=ctx.state,
             model=ctx.model,
             runtime=ctx.task_runtime,
+            runtime_adapter=ctx.runtime_adapter,
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
@@ -1484,6 +1485,7 @@ def ai_gateway_env_vars(
     model: str | None = None,
     runtime: str | None = None,
     prior_slack_run: bool = False,
+    runtime_adapter: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1519,6 +1521,7 @@ def ai_gateway_env_vars(
                 internal=internal,
                 prior_slack_run=prior_slack_run,
                 distinct_id=distinct_id,
+                runtime_adapter=runtime_adapter,
             )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()

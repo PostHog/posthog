@@ -586,6 +586,7 @@ class TestProvisioningBoundaries:
         ctx.sandbox_environment_id = None
         ctx.model = "claude-sonnet-5"
         ctx.task_runtime = "acp"
+        ctx.runtime_adapter = "claude"
         return ctx
 
     def _task(self):
@@ -651,6 +652,7 @@ class TestProvisioningBoundaries:
             model="claude-sonnet-5",
             runtime="acp",
             prior_slack_run=False,
+            runtime_adapter="claude",
         )
 
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
@@ -1267,7 +1269,12 @@ class TestMintRefusalScope:
         assert refusal == "model_outside_pin"
 
     def test_unpinned_products_take_any_model(self):
-        assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
+        assert (
+            mint_refusal(
+                "signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp", runtime_adapter="codex"
+            )
+            is None
+        )
 
     @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
     def test_products_billed_elsewhere_skip_the_credit_check(self, product):
@@ -1574,6 +1581,24 @@ class TestPosthogCodeSandboxMint:
         assert refusal == "model_outside_pin"
 
     @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "runtime_adapter,model,expected",
+        [
+            ("claude", "deepseek-ai/deepseek-v4-flash-0731", "claude_slash_model"),
+            (None, "moonshotai/kimi-k3", "claude_slash_model"),
+            ("codex", "deepseek-ai/deepseek-v4-flash-0731", None),
+            ("claude", "claude-opus-5", None),
+        ],
+    )
+    def test_claude_runs_on_namespaced_models_stay_on_the_python_gateway(self, runtime_adapter, model, expected):
+        team = self._team(paid=True)
+        with patch(_ROLLOUT, return_value=True), patch(_CREDIT_LOOKUP, return_value=None):
+            refusal = mint_refusal(
+                "posthog_code", team_id=team.id, state=None, model=model, runtime="acp", runtime_adapter=runtime_adapter
+            )
+        assert refusal == expected
+
+    @pytest.mark.django_db
     @pytest.mark.parametrize("model", [None, "claude-opus-5", "zai-org/glm-5.3"])
     def test_free_plan_refuses_a_model_outside_the_free_pin(self, model):
         team = self._team(paid=False)
@@ -1582,27 +1607,19 @@ class TestPosthogCodeSandboxMint:
         assert refusal == "model_outside_pin"
 
     @pytest.mark.django_db
-    def test_free_plan_mints_the_free_pin_and_stamps_it(self, mint_settings):
+    def test_free_plan_run_stays_on_the_python_gateway(self, mint_settings):
         team = self._team(paid=False)
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
         with (
             patch(_ROLLOUT, return_value=True),
             patch(_CREDIT_LOOKUP, return_value=None),
-            patch(
-                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
-            ) as mint,
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
+            patch.object(utils, "logger") as log,
         ):
             env = ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="@cf/zai-org/glm-5.2")
-        # An org with no synced billing mints provisional.
-        mint.assert_called_once_with(
-            ai_product="posthog_code",
-            team_id=team.id,
-            user=None,
-            allowed_models=FREE_TIER_MODELS,
-            limit_tier="provisional",
-        )
-        assert env["AI_GATEWAY_PRODUCT"] == "posthog_code"
-        assert env[utils._PIN_KEY_ENV] == FREE_TIER_PIN_KEY
+        mint.assert_not_called()
+        assert "AI_GATEWAY_TOKEN" not in env
+        assert log.info.call_args.kwargs["extra"]["reason"] == "claude_slash_model"
 
     @pytest.mark.django_db
     def test_paid_plan_mints_the_product_pin(self, mint_settings):

@@ -35,6 +35,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_MODELS,
     PRODUCT_ALLOWED_MODELS,
+    go_gateway_serves,
     model_allowed_by_product_pin,
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
@@ -234,6 +235,7 @@ def mint_refusal(
     internal: bool = False,
     prior_slack_run: bool = False,
     distinct_id: str | None = None,
+    runtime_adapter: str | None = None,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
     if ai_product == "slack_app" and not has_slack_provenance(
@@ -250,6 +252,8 @@ def mint_refusal(
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
         return "model_outside_pin"
+    if not go_gateway_serves(runtime_adapter, model):
+        return "claude_slash_model"
     bucket = PRODUCT_CREDIT_BUCKET.get(ai_product)
     if bucket is None:
         return None
