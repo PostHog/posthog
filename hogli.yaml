@@ -540,7 +540,8 @@ build:
     build:desktop-api-client:
         bin_script: build-desktop-api-client.sh
         description: Regenerate the desktop app's typed API client from the OpenAPI
-            schema. Warns and skips when the desktop toolchain is not installed
+            schema. Locally, warns and skips when the desktop toolchain is not
+            installed. In CI, a skipped regen fails
     build:openapi-exec-docs:
         cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
         description: Render the MCP exec tool's command reference into the markdown

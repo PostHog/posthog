@@ -255,7 +255,7 @@ It contains only what `packages/api-client/endpoint-allowlist.json` names:
 
 Everything those reference is generated with them. The full schema documents thousands of routes, and generating all of them made every backend change churn this file; the allowlist keeps a regen to the routes the desktop uses.
 
-The generator is `packages/api-client/scripts/update-openapi-client.ts`. `hogli build:openapi` runs it after the other OpenAPI generators, and Backend CI's "Validate OpenAPI types" job runs `hogli build:openapi` on backend PRs. A backend change that alters an allowlisted endpoint or schema therefore gets the regenerated `generated.ts` committed to its PR automatically, together with the frontend and MCP types. If the generator fails in CI (for example, an allowlisted path left the schema), the job shows a warning and leaves `generated.ts` unchanged. Fix the allowlist in a desktop PR.
+The generator is `packages/api-client/scripts/update-openapi-client.ts`. `hogli build:openapi` runs it after the other OpenAPI generators, and Backend CI's "Validate OpenAPI types" job runs `hogli build:openapi` on backend PRs. A backend change that alters an allowlisted endpoint or schema therefore gets the regenerated `generated.ts` committed to its PR automatically, together with the frontend and MCP types. If the generator fails in CI (for example, an allowlisted path left the schema), the job fails. Released desktop apps still call that path, so remove it from the allowlist and its call sites in a desktop PR first, then from the backend.
 
 To call a new endpoint or import a new schema type:
 

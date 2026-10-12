@@ -2662,7 +2662,6 @@ jobs:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install desktop API client generator
-              continue-on-error: true
               working-directory: products/desktop
               run: |
                   if [ ! -f ../../bin/build-desktop-api-client.sh ]; then

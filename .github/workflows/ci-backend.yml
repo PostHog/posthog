@@ -2555,10 +2555,8 @@ jobs:
             # Installs only the desktop API client generator, not the Electron app. The desktop
             # workspace defaults to the hoisted linker, which ignores --filter and installs every
             # package, so the isolated linker is forced here. A branch that predates the generator
-            # move skips this step. A failed install only makes `hogli build:openapi` warn and skip
-            # the desktop client.
+            # move skips this step.
             - name: Install desktop API client generator
-              continue-on-error: true
               working-directory: products/desktop
               run: |
                   if [ ! -f ../../bin/build-desktop-api-client.sh ]; then

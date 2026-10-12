@@ -15,7 +15,7 @@ const CONFIG = {
         'frontend/src/generated/**',
         'products/*/frontend/generated/**',
         'services/mcp/src/**/generated/**',
-        // Backend CI regenerates it on backend PRs, so it must not pull in desktop owners.
+        // Backend CI regenerates it from the schema on backend PRs and replaces any hand edit, so it must not pull in desktop owners.
         'products/desktop/packages/api-client/src/generated.ts',
         'pnpm-lock.yaml',
         'Cargo.lock',
