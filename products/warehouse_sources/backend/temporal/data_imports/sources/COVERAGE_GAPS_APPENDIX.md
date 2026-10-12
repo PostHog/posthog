@@ -5757,10 +5757,10 @@ Today (4): `clients`, `projects`, `tags`, `users`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/8879268/TVmV4YYU>
 
-- [ ] `GET /api/Logs?date=&step=` — time logs are the entire point of a time tracker — the central fact table is missing, so hours cannot be queried at all (high)
-- [ ] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high)
-- [ ] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high)
-- [ ] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium)
+- ~~`GET /api/Logs?date=&step=`~~ — not added: it returns only the API key owner's recent time logs, not the account's. The account-wide time logs come from `PUT /api/Reports/activitydx` (the `time_logs` table).
+- [x] `PUT /api/Reports/activitydx` — bulk time-log report over a date range with client/project/user filters — the practical backfill path for logs (high). Added as `time_logs` (31-day date windows, incremental on `date`).
+- [x] `GET /api/Projects/{projectId}/tasklist` — project task lookup resolving the task each time log is booked against (high). Added as `project_tasks` (fan-out over `projects`, one row per task across every task list).
+- [x] `GET /api/Projects/{projectId}/userlist` — project-to-team-member assignment join table (medium). Added as `project_members` (fan-out over `projects`).
 - [ ] `GET /api/Teams/{teamId}/teammembers` — team membership for grouping users in reporting (medium)
 - [ ] `GET /api/Projects/{projectId}/overview` — project detail including budget/rate fields not on the list response (low)
 - [ ] `GET /api/Reports/dashboardOptimized` — pre-aggregated dashboard totals by client/project/user (low)
