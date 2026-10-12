@@ -651,6 +651,8 @@ class StatusCommentInput:
     # False when Temporal retries the turn after this failure. A Standard turn posts its failure
     # comment only on the last attempt, so a retry that succeeds leaves no stale notice on the PR.
     last_attempt: bool = True
+    # A Standard run that started before the reactions patch has a status comment to mark as failed.
+    uses_status_comment: bool = True
 
 
 @frozen
@@ -2433,6 +2435,7 @@ def _fail_run(
     review_mode: str = REVIEW_MODE_FULL,
     run_index: int | None = None,
     last_attempt: bool = True,
+    uses_status_comment: bool = True,
 ) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
@@ -2455,7 +2458,7 @@ def _fail_run(
         head_sha=report.head_sha,
     )
     # A Standard turn has no status comment to mark as failed, so it says so in a comment of its own.
-    if review_mode == REVIEW_MODE_FLASH:
+    if review_mode == REVIEW_MODE_FLASH and not uses_status_comment:
         if last_attempt:
             post_failure_comment(team_id, report_id, review_mode=review_mode)
     else:
@@ -2473,7 +2476,12 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     histories replay unchanged (new unconditional commands break replay determinism).
     """
     await database_sync_to_async(_fail_run, thread_sensitive=False)(
-        input.team_id, input.report_id, input.review_mode, input.run_index, input.last_attempt
+        input.team_id,
+        input.report_id,
+        input.review_mode,
+        input.run_index,
+        input.last_attempt,
+        input.uses_status_comment,
     )
 
 

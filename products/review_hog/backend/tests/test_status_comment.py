@@ -747,16 +747,35 @@ class TestFailedTurnNotice(BaseTest):
                 "standard_posts_a_failure_comment",
                 REVIEW_MODE_FLASH,
                 False,
+                False,
                 True,
                 ["/repos/o/r/issues/123/comments"],
                 [],
             ),
             # An activity retry finds the comment it already posted for this head.
-            ("standard_posts_once_per_head", REVIEW_MODE_FLASH, True, True, [], []),
+            ("standard_posts_once_per_head", REVIEW_MODE_FLASH, False, True, True, [], []),
             # Temporal retries the turn, and a retry that succeeds must not sit next to a failure notice.
-            ("standard_waits_for_the_last_attempt", REVIEW_MODE_FLASH, False, False, [], []),
+            ("standard_waits_for_the_last_attempt", REVIEW_MODE_FLASH, False, False, False, [], []),
             # A Standard turn never edits the status comment an earlier Deep turn left on the report.
-            ("deep_edits_the_status_comment", REVIEW_MODE_FULL, False, True, [], ["/repos/o/r/issues/comments/555"]),
+            (
+                "deep_edits_the_status_comment",
+                REVIEW_MODE_FULL,
+                True,
+                False,
+                True,
+                [],
+                ["/repos/o/r/issues/comments/555"],
+            ),
+            # A Standard run that started before the reactions path posted a status comment of its own.
+            (
+                "legacy_standard_edits_its_status_comment",
+                REVIEW_MODE_FLASH,
+                True,
+                False,
+                True,
+                [],
+                ["/repos/o/r/issues/comments/555"],
+            ),
         ]
     )
     @patch(_INTEGRATION)
@@ -766,6 +785,7 @@ class TestFailedTurnNotice(BaseTest):
         self,
         _name: str,
         review_mode: str,
+        uses_status_comment: bool,
         already_posted: bool,
         last_attempt: bool,
         expected_posts: list[str],
@@ -784,7 +804,13 @@ class TestFailedTurnNotice(BaseTest):
         existing = [{"id": 9, "body": f"x\n{marker}", "user": {"login": "posthog[bot]", "type": "Bot"}}]
         mock_paginated.return_value = iter(existing if already_posted else [])
 
-        _fail_run(self.team.id, report_id, review_mode=review_mode, last_attempt=last_attempt)
+        _fail_run(
+            self.team.id,
+            report_id,
+            review_mode=review_mode,
+            last_attempt=last_attempt,
+            uses_status_comment=uses_status_comment,
+        )
 
         assert _posts(mock_request) == expected_posts
         assert _patches(mock_request) == expected_patches

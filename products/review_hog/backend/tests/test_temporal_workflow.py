@@ -440,12 +440,12 @@ async def _run_full_review_pr_workflow(
         marker_calls["status"] = input.marker
         return None
 
-    # Each failure edit as (review_mode, last_attempt).
-    fail_status_calls: list[tuple[str, bool]] = []
+    # Each failure edit as (review_mode, last_attempt, uses_status_comment).
+    fail_status_calls: list[tuple[str, bool, bool]] = []
 
     @activity.defn(name="fail_status_comment_activity")
     async def fail_status(input: StatusCommentInput) -> None:
-        fail_status_calls.append((input.review_mode, input.last_attempt))
+        fail_status_calls.append((input.review_mode, input.last_attempt, input.uses_status_comment))
         return None
 
     # The PR's 👀 while the turn runs, as ("add",) and ("remove", reaction_id).
@@ -718,7 +718,7 @@ async def test_review_pr_workflow_removes_label_trigger_after_failure(review_mod
     assert recorded["remove_label"] == [7]
     # A Standard turn has no status comment, but its failure still returns the report to rest and
     # tells the PR. A dead turn must not leave its 👀 behind either.
-    assert recorded["fail_status"] == [(review_mode, True)]
+    assert recorded["fail_status"] == [(review_mode, True, review_mode == "full")]
     assert recorded["reactions"] == [("add",), ("remove", 42)]
 
 
@@ -727,12 +727,12 @@ async def test_review_pr_workflow_removes_label_trigger_after_failure(review_mod
     "dedup_failures, expected_failed, expected_fail_status",
     [
         # The second attempt succeeds, so the first attempt's failure must not tell the PR.
-        (5, False, [("flash", False)]),
-        (10, True, [("flash", False), ("flash", True)]),
+        (5, False, [("flash", False, False)]),
+        (10, True, [("flash", False, False), ("flash", True, False)]),
     ],
 )
 async def test_review_pr_workflow_reports_a_failure_only_on_the_last_attempt(
-    dedup_failures: int, expected_failed: bool, expected_fail_status: list[tuple[str, bool]]
+    dedup_failures: int, expected_failed: bool, expected_fail_status: list[tuple[str, bool, bool]]
 ):
     # Dedup runs up to five activity attempts, so five failures fail one workflow attempt.
     recorded = await _run_full_review_pr_workflow(

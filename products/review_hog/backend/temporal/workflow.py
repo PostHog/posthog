@@ -833,6 +833,7 @@ class ReviewPRWorkflow:
                             review_design=review_design,
                             run_index=meta.run_index,
                             last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
+                            uses_status_comment=status_comment,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
