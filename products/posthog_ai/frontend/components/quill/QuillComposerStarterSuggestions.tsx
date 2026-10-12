@@ -16,12 +16,12 @@ import {
 import type { PermissionMode } from '../../utils/composerModes'
 
 const STARTER_SUGGESTION_ICONS = {
-    trends: { Icon: IconTrending, color: 'var(--color-product-product-analytics-light)' },
+    trends: { Icon: IconTrending, color: 'var(--color-product-customer-analytics-light)' },
     bug: { Icon: IconBug, color: 'var(--color-product-error-tracking-light)' },
     canvas: { Icon: IconPalette, color: 'var(--color-product-product-analytics-light)' },
     code: { Icon: IconCode, color: 'var(--color-product-tasks-light)' },
     revenue: { Icon: IconPiggyBank, color: 'var(--color-product-revenue-analytics-light)' },
-    feedback: { Icon: IconMessage, color: 'var(--color-product-support-light)' },
+    feedback: { Icon: IconMessage, color: 'var(--color-product-llm-analytics-light)' },
 }
 
 export type ComposerStarterSuggestionIcon = keyof typeof STARTER_SUGGESTION_ICONS
@@ -82,8 +82,12 @@ export function QuillComposerStarterSuggestions({
                             }
                         >
                             <ItemMedia>
-                                <IconStack className="[--quill-icon-stack-ring:var(--card)]">
-                                    <IconStackItem color={color} active={activeId === suggestion.id}>
+                                <IconStack className="[--quill-icon-stack-ring:transparent]">
+                                    <IconStackItem
+                                        color={color}
+                                        active={activeId === suggestion.id}
+                                        className="bg-clip-padding"
+                                    >
                                         <Icon />
                                     </IconStackItem>
                                 </IconStack>
