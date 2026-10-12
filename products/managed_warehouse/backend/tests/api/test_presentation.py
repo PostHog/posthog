@@ -1243,6 +1243,19 @@ def test_deprovision_for_org_deletion_treats_converged_states_as_done(
 
 
 @pytest.mark.django_db
+@override_settings(HOGTOWER_API_URL="http://hogtower.invalid")
+@patch("products.managed_warehouse.backend.presentation.views.deprovision")
+def test_deprovision_for_org_deletion_does_not_skip_a_hogtower_501(mock_deprovision: MagicMock) -> None:
+    # With hogtower configured, 501 is the adapter's "unmapped route", not "no control plane":
+    # skipping would let the org cascade drop the pointer to a live warehouse.
+    org, _team, _server = _provisioned_org()
+    mock_deprovision.return_value = Response({"error": "not supported"}, status=501)
+
+    with pytest.raises(RuntimeError):
+        managed_warehouse.deprovision_for_org_deletion(org.id)
+
+
+@pytest.mark.django_db
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_provision_rejected_for_org_pending_deletion(mock_request: MagicMock) -> None:
     # The deletion workflow's deprovision step runs once, early: a warehouse provisioned for a

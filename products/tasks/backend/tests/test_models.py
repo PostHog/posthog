@@ -668,6 +668,44 @@ class TestTask(TestCase):
         self.assertEqual(task.github_user_integration, user_integration)
         mock_execute_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("connected_creator", True, "user"),
+            ("creator_without_personal_github", False, "bot"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_posthog_ai_authorship_follows_the_creators_personal_github(
+        self, _name, connected, expected_mode, mock_execute_workflow
+    ):
+        user = User.objects.create(email="phai@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        user_integration = (
+            UserIntegration.objects.create(
+                user=user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="install-1",
+                config={},
+                sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+            )
+            if connected
+            else None
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="PostHog AI",
+                description="Repo-less",
+                origin_product=Task.OriginProduct.POSTHOG_AI,
+                user_id=user.id,
+            )
+
+        self.assertIsNone(task.github_integration)
+        self.assertEqual(task.github_user_integration, user_integration)
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["pr_authorship_mode"], expected_mode)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):
         user = User.objects.create(email="signal-no-int@test.com")

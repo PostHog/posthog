@@ -5,15 +5,12 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
-import { getSidebarProduct } from '../../ProjectTree/defaultTree'
-import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
-import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
 import { NavProductRow } from './NavProductRow'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
-import { NavProductTooltip } from './NavProductTooltip'
+import { NavStarredProductsTree } from './NavStarredProductsTree'
 import { NavTabSection } from './NavTabSection'
 
 export function NavTabProducts(): JSX.Element {
@@ -33,10 +30,12 @@ export function NavTabProducts(): JSX.Element {
         <div className="flex flex-col h-full min-h-0 group/colorful-product-icons colorful-product-icons-true">
             {/* Parents own the spacing: this gap separates the sections, and each section's gap separates
                 its title from its rows. Titles and rows carry no vertical padding or margin. */}
+            {/* The stable gutter keeps the scrollbar's space when it is hidden, so the section chevrons do not
+                shift when expanding All products adds a scrollbar */}
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
-                innerClassName="px-1 pb-2"
+                innerClassName="px-1 pb-2 [scrollbar-gutter:stable]"
                 contentClassName="flex flex-col gap-3"
                 styledScrollbars
             >
@@ -57,21 +56,7 @@ export function NavTabProducts(): JSX.Element {
                             {/* The tree insets its rows by 5px and pads itself by 4px vertically. This lines its
                             icons up with the rows above and cancels its own vertical padding. */}
                             <div className="-ml-[5px] -my-1">
-                                <ProjectTree
-                                    root="shortcuts://"
-                                    shortcutScope="products"
-                                    logicKey={PRODUCTS_STARRED_TREE_KEY}
-                                    onlyTree
-                                    showShortcutHelp={false}
-                                    renderItemTooltip={(treeItem) => {
-                                        const product = getSidebarProduct(treeItem.record?.href)
-                                        return product ? <NavProductTooltip item={product} /> : undefined
-                                    }}
-                                    renderItemTooltipDocLink={(treeItem) => {
-                                        const product = getSidebarProduct(treeItem.record?.href)
-                                        return product ? sidebarProductMeta(product).docsHref : undefined
-                                    }}
-                                />
+                                <NavStarredProductsTree />
                             </div>
                         </NavTabSection>
                     </section>
@@ -92,8 +77,8 @@ export function NavTabProducts(): JSX.Element {
                     >
                         {allProductsCollapsible && (
                             <Collapsible.Trigger
-                                className="min-h-6 py-0.5 rounded hover:bg-fill-button-tertiary-hover focus-visible:bg-fill-button-tertiary-hover pr-2"
-                                labelClassName="flex-1 text-xs font-semibold text-tertiary normal-case tracking-normal"
+                                className="min-h-7 rounded hover:bg-fill-button-tertiary-hover focus-visible:bg-fill-button-tertiary-hover pr-2"
+                                labelClassName="flex-1 text-xs font-semibold text-secondary normal-case"
                                 data-attr="nav-apps-project-toggle"
                             >
                                 {allProductsVisible ? 'All products' : 'See all products'}

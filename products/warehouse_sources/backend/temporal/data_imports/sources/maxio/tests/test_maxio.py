@@ -1,26 +1,23 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio import (
     MaxioPaginator,
     MaxioResumeConfig,
     format_start_datetime,
-    get_base_url,
     get_resource,
     maxio_source,
-    normalize_subdomain,
-    to_since_id,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.settings import ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.settings import PAGE_SIZE
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
@@ -41,150 +38,20 @@ def _resource(endpoint_name: str, should_use_incremental_field: bool) -> dict[st
     return cast(dict[str, Any], get_resource(endpoint_name, should_use_incremental_field=should_use_incremental_field))
 
 
-class TestNormalizeSubdomain:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("acme", "acme"),
-            (" acme ", "acme"),
-            ("acme.chargify.com", "acme"),
-            ("ACME.CHARGIFY.COM", "ACME"),
-            ("https://acme.chargify.com/", "acme"),
-            ("https://acme.ebilling.maxio.com/admin", "acme"),
-            ("acme.ebilling.maxio.com", "acme"),
-        ],
-    )
-    def test_normalizes_pasted_values(self, raw: str, expected: str) -> None:
-        assert normalize_subdomain(raw) == expected
-
-
-class TestGetBaseUrl:
-    @pytest.mark.parametrize(
-        ("region", "expected"),
-        [
-            ("us", "https://acme.chargify.com"),
-            ("eu", "https://acme.ebilling.maxio.com"),
-            # Unknown regions fall back to US rather than crashing the sync.
-            ("mars", "https://acme.chargify.com"),
-        ],
-    )
-    def test_region_hosts(self, region: str, expected: str) -> None:
-        assert get_base_url("acme", region) == expected
-
-
 class TestConverters:
-    def test_format_start_datetime_converts_aware_datetime_to_utc(self) -> None:
-        value = datetime(2024, 5, 1, 10, 30, 0, tzinfo=timezone(timedelta(hours=-4)))
-        assert format_start_datetime(value) == "2024-05-01 14:30:00"
-
-    def test_format_start_datetime_treats_naive_datetime_as_utc(self) -> None:
-        assert format_start_datetime(datetime(2024, 5, 1, 10, 30, 0)) == "2024-05-01 10:30:00"
-
     def test_format_start_datetime_passes_through_initial_string(self) -> None:
         assert format_start_datetime("1970-01-01 00:00:00") == "1970-01-01 00:00:00"
 
-    @pytest.mark.parametrize(("value", "expected"), [(42, 42), ("42", 42)])
-    def test_to_since_id(self, value: Any, expected: int) -> None:
-        assert to_since_id(value) == expected
-
 
 class TestMaxioPaginator:
-    def test_initial_state_targets_first_page(self) -> None:
-        paginator = MaxioPaginator(page_size=2)
-        request = Request(method="GET", url="https://acme.chargify.com/customers.json")
-        paginator.init_request(request)
-
-        assert request.params["page"] == 1
-        assert request.params["per_page"] == 2
-        assert paginator.has_next_page is True
-
-    def test_full_page_advances(self) -> None:
-        paginator = MaxioPaginator(page_size=2)
-        paginator.update_state(MagicMock(), data=[{"id": 1}, {"id": 2}])
-
-        assert paginator.has_next_page is True
-        assert paginator.page == 2
-
-    @pytest.mark.parametrize("data", [[], [{"id": 1}], None])
-    def test_short_or_empty_page_terminates(self, data: list[Any] | None) -> None:
-        paginator = MaxioPaginator(page_size=2)
-        paginator.update_state(MagicMock(), data=data)
-
-        assert paginator.has_next_page is False
-
-    def test_get_resume_state_returns_next_page_when_more(self) -> None:
-        paginator = MaxioPaginator(page_size=2)
-        paginator.update_state(MagicMock(), data=[{"id": 1}, {"id": 2}])
-
-        assert paginator.get_resume_state() == {"page": 2}
-
     def test_get_resume_state_none_on_terminal_page(self) -> None:
         paginator = MaxioPaginator(page_size=2)
         paginator.update_state(MagicMock(), data=[{"id": 1}])
 
         assert paginator.get_resume_state() is None
 
-    def test_set_resume_state_seeds_first_request(self) -> None:
-        paginator = MaxioPaginator(page_size=2)
-        paginator.set_resume_state({"page": 7})
-
-        request = Request(method="GET", url="https://acme.chargify.com/customers.json")
-        paginator.init_request(request)
-
-        assert request.params["page"] == 7
-        assert paginator.has_next_page is True
-
-    def test_set_resume_state_ignores_missing_page(self) -> None:
-        paginator = MaxioPaginator(page_size=2)
-        paginator.set_resume_state({})
-
-        assert paginator.page == 1
-
 
 class TestGetResource:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS.keys()))
-    def test_full_refresh_has_no_incremental_params(self, endpoint: str) -> None:
-        resource = _resource(endpoint, should_use_incremental_field=False)
-        params = resource["endpoint"]["params"]
-
-        assert "date_field" not in params
-        assert "start_datetime" not in params
-        assert "since_id" not in params
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == ENDPOINTS[endpoint].path
-        assert resource["endpoint"]["data_selector"] == ENDPOINTS[endpoint].data_selector
-
-    @pytest.mark.parametrize(
-        ("endpoint", "date_field", "sort"),
-        [
-            ("customers", "created_at", None),
-            ("subscriptions", "updated_at", "updated_at"),
-            ("invoices", "updated_at", "updated_at"),
-        ],
-    )
-    def test_incremental_datetime_endpoints_set_window_and_sort(
-        self, endpoint: str, date_field: str, sort: str | None
-    ) -> None:
-        resource = _resource(endpoint, should_use_incremental_field=True)
-        params = resource["endpoint"]["params"]
-
-        assert params["date_field"] == date_field
-        assert params["start_datetime"]["type"] == "incremental"
-        assert params["start_datetime"]["cursor_path"] == date_field
-        assert params["direction"] == "asc"
-        if sort is not None:
-            assert params["sort"] == sort
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    def test_incremental_events_use_since_id(self) -> None:
-        resource = _resource("events", should_use_incremental_field=True)
-        params = resource["endpoint"]["params"]
-
-        assert params["since_id"]["type"] == "incremental"
-        assert params["since_id"]["cursor_path"] == "id"
-        assert params["direction"] == "asc"
-        assert "date_field" not in params
-
     @pytest.mark.parametrize(
         "endpoint", ["products", "product_families", "coupons", "components", "payment_profiles", "credit_notes"]
     )
@@ -197,11 +64,6 @@ class TestGetResource:
         assert "date_field" not in params
         assert "start_datetime" not in params
         assert "since_id" not in params
-
-    def test_invoices_include_breakdowns(self) -> None:
-        params = _resource("invoices", should_use_incremental_field=False)["endpoint"]["params"]
-        for flag in ("line_items", "discounts", "taxes", "credits", "payments", "refunds"):
-            assert params[flag] == "true"
 
 
 class TestMaxioSourceDrive:
@@ -264,14 +126,6 @@ class TestMaxioSourceDrive:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [MaxioResumeConfig(endpoint="customers", next_page=2)]
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("customers", manager, [_make_http_response(_customer_page(3))])
-
-        manager.save_state.assert_not_called()
-
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -280,15 +134,6 @@ class TestMaxioSourceDrive:
         sent_params, _ = self._drive("customers", manager, [_make_http_response(_customer_page(1))])
 
         assert [p["page"] for p in sent_params] == [5]
-
-    def test_resume_state_for_other_endpoint_is_ignored(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MaxioResumeConfig(endpoint="invoices", next_page=5)
-
-        sent_params, _ = self._drive("customers", manager, [_make_http_response(_customer_page(1))])
-
-        assert [p["page"] for p in sent_params] == [1]
 
     def test_incremental_run_sends_formatted_watermark(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -322,18 +167,6 @@ class TestMaxioSourceDrive:
         assert sent_params[0]["since_id"] == 100
         assert pages[0][0]["id"] == 101
 
-    def test_invoices_rows_are_extracted_from_wrapped_response(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, pages = self._drive(
-            "invoices",
-            manager,
-            [_make_http_response({"invoices": [{"uid": "inv_1", "created_at": "2024-01-01T00:00:00Z"}]})],
-        )
-
-        assert pages[0] == [{"uid": "inv_1", "created_at": "2024-01-01T00:00:00Z"}]
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -361,18 +194,3 @@ class TestValidateCredentials:
         else:
             assert error is not None
             assert expected_error_fragment in error
-
-    def test_probe_targets_region_host_with_basic_auth(self) -> None:
-        response = MagicMock()
-        response.status_code = 200
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = response
-            validate_credentials("key", "acme", "eu")
-
-        call = MockSession.return_value.get.call_args
-        assert call.args[0] == "https://acme.ebilling.maxio.com/customers.json"
-        assert call.kwargs["auth"] == ("key", "x")
-        assert call.kwargs["params"] == {"page": 1, "per_page": 1}

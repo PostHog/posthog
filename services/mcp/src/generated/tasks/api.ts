@@ -27,7 +27,7 @@ export const LoopsListQueryParams = () => zod.object({
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Create a loop
  */
 export const LoopsCreateParams = () => zod.object({
@@ -357,7 +357,7 @@ export const LoopsCreateBody = () => zod
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Get a loop
  */
 export const LoopsRetrieveParams = () => zod.object({

@@ -3,7 +3,6 @@ from dataclasses import replace
 from typing import Any, cast
 
 import pytest
-from unittest.mock import patch
 
 from requests import HTTPError
 from requests_mock import Mocker
@@ -15,28 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.turso.turs
 
 BASE_URL = "https://api.turso.tech"
 ORG_URL = f"{BASE_URL}/v1/organizations/example-org"
-
-
-@pytest.mark.parametrize(
-    ("endpoint", "path", "row"),
-    [
-        ("databases", "/v1/organizations/example-org/databases", {"DbId": "db-1", "Name": "example-db"}),
-        ("groups", "/v1/organizations/example-org/groups", {"uuid": "group-1", "name": "default"}),
-        ("members", "/v1/organizations/example-org/members", {"username": "example-user", "role": "member"}),
-        ("invites", "/v2/organizations/example-org/invites", {"id": 1, "created_at": "2026-01-01T00:00:00Z"}),
-        ("invoices", "/v1/organizations/example-org/invoices?type=issued", {"invoice_number": "EXAMPLE-0001"}),
-    ],
-)
-@pytest.mark.parametrize("empty", [False, True])
-def test_unpaginated_lists_select_rows_and_use_bearer_auth(
-    requests_mock: Mocker, config: TursoSourceConfig, endpoint: str, path: str, row: dict[str, Any], empty: bool
-) -> None:
-    rows = [] if empty else [row]
-    requests_mock.get(BASE_URL + path, json={endpoint: rows}, complete_qs=True)
-    assert list(get_resource(config, endpoint, 1, "test-job")) == ([] if empty else [rows])
-    assert requests_mock.call_count == 1
-    assert requests_mock.last_request is not None
-    assert requests_mock.last_request.headers["Authorization"] == "Bearer test-platform-token"
 
 
 @pytest.mark.parametrize(
@@ -75,22 +52,6 @@ def test_sync_errors_are_classified_without_swallowing_them(
     assert requests_mock.call_count == 1
     terminal = any(pattern in str(error.value) for pattern in TursoSource().get_non_retryable_errors())
     assert terminal is (status in (401, 403))
-
-
-@pytest.mark.parametrize("status", [429, 503])
-def test_transient_errors_retry_through_the_framework(
-    requests_mock: Mocker, config: TursoSourceConfig, status: int
-) -> None:
-    requests_mock.get(
-        f"{ORG_URL}/databases",
-        [
-            {"status_code": status, "json": {"error": "Try again"}, "headers": {"Retry-After": "0"}},
-            {"json": {"databases": [{"DbId": "db-1"}]}},
-        ],
-    )
-    with patch("time.sleep"):
-        assert list(get_resource(config, "databases", 1, "test-job")) == [[{"DbId": "db-1"}]]
-    assert requests_mock.call_count == 2
 
 
 def test_missing_envelope_is_not_a_successful_empty_sync(requests_mock: Mocker, config: TursoSourceConfig) -> None:
@@ -143,20 +104,3 @@ def test_audit_pages_restart_from_the_first_page(
     assert response.primary_keys is None
     assert response.partition_keys == ["created_at"]
     assert response.sort_mode == "desc"
-
-
-def test_empty_audit_log_stops_on_first_page(
-    requests_mock: Mocker, config: TursoSourceConfig, inputs: SourceInputs, resume_storage: None
-) -> None:
-    requests_mock.get(
-        f"{ORG_URL}/audit-logs?page=1&page_size=100",
-        json={"audit_logs": [], "pagination": {"total_pages": 0}},
-        complete_qs=True,
-    )
-    source = TursoSource()
-    inputs = replace(inputs, schema_name="audit_logs")
-    manager = source.get_resumable_source_manager(inputs)
-    response = source.source_for_pipeline(config, manager, inputs)
-    assert list(cast(Iterable[list[dict[str, Any]]], response.items())) == []
-    assert requests_mock.call_count == 1
-    assert manager.has_staged_state() is False

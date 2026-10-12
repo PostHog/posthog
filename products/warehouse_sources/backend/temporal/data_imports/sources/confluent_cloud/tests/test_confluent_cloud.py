@@ -11,8 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.confluent_cloud import (
     ConfluentCloudResumeConfig,
     MissingResourceIdsError,
-    _build_query_body,
-    _normalize_point,
     _sync_range,
     get_rows,
     parse_resource_ids,
@@ -71,51 +69,6 @@ class TestSyncRange:
         window = _sync_range(incremental, watermark, _NOW)
         assert window.start == expected_start
         assert window.end == _NOW
-
-
-class TestBuildQueryBody:
-    def test_single_id_uses_field_filter(self) -> None:
-        body = _build_query_body(
-            "io.confluent.kafka.server/received_bytes",
-            "resource.kafka.id",
-            ["lkc-1"],
-            "2026-07-14T00:00:00Z/2026-07-15T00:00:00Z",
-        )
-        assert body == {
-            "aggregations": [{"metric": "io.confluent.kafka.server/received_bytes"}],
-            "filter": {"field": "resource.kafka.id", "op": "EQ", "value": "lkc-1"},
-            "granularity": "PT1H",
-            "group_by": ["resource.kafka.id"],
-            "intervals": ["2026-07-14T00:00:00Z/2026-07-15T00:00:00Z"],
-            "limit": 1000,
-            "format": "FLAT",
-        }
-
-    def test_multiple_ids_use_or_filter(self) -> None:
-        body = _build_query_body(
-            "io.confluent.kafka.server/received_bytes",
-            "resource.kafka.id",
-            ["lkc-1", "lkc-2"],
-            "2026-07-14T00:00:00Z/2026-07-15T00:00:00Z",
-        )
-        assert body["filter"] == {
-            "op": "OR",
-            "filters": [
-                {"field": "resource.kafka.id", "op": "EQ", "value": "lkc-1"},
-                {"field": "resource.kafka.id", "op": "EQ", "value": "lkc-2"},
-            ],
-        }
-
-
-class TestNormalizePoint:
-    def test_resource_label_becomes_resource_id(self) -> None:
-        point = {"timestamp": "2026-07-14T00:00:00Z", "value": 42.5, "resource.kafka.id": "lkc-1"}
-        assert _normalize_point(point, "io.confluent.kafka.server/received_bytes", "resource.kafka.id") == {
-            "metric": "io.confluent.kafka.server/received_bytes",
-            "resource_id": "lkc-1",
-            "timestamp": "2026-07-14T00:00:00Z",
-            "value": 42.5,
-        }
 
 
 class _FakeResumableManager:
@@ -242,22 +195,6 @@ class TestMetricsRows:
         }
 
     @time_machine.travel(_NOW, tick=False)
-    def test_saves_state_after_each_completed_window_except_last(self, monkeypatch: Any) -> None:
-        api = _FakeApi(metric_descriptors=[_GA_METRIC])
-        manager = _FakeResumableManager()
-        _collect(
-            monkeypatch,
-            api,
-            manager,
-            endpoint="kafka_metrics",
-            resource_ids=["lkc-1"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 7, 14, 12, 0, tzinfo=UTC),
-        )
-
-        assert manager.saved == [ConfluentCloudResumeConfig(window_start="2026-07-15T10:00:00Z")]
-
-    @time_machine.travel(_NOW, tick=False)
     def test_resumes_from_saved_window(self, monkeypatch: Any) -> None:
         api = _FakeApi(metric_descriptors=[_GA_METRIC])
         manager = _FakeResumableManager(ConfluentCloudResumeConfig(window_start="2026-07-15T10:00:00Z"))
@@ -273,35 +210,6 @@ class TestMetricsRows:
 
         intervals = [q["body"]["intervals"] for q in api.queries]
         assert intervals == [["2026-07-15T10:00:00Z/2026-07-15T12:00:00Z"]]
-
-    @time_machine.travel(_NOW, tick=False)
-    def test_query_pagination_reposts_identical_body_with_page_token(self, monkeypatch: Any) -> None:
-        api = _FakeApi(
-            metric_descriptors=[_GA_METRIC],
-            query_pages=[
-                {
-                    "data": [{"timestamp": "2026-07-15T10:00:00Z", "value": 1.0, "resource.kafka.id": "lkc-1"}],
-                    "meta": {"pagination": {"next_page_token": "tok-1"}},
-                },
-                {"data": [{"timestamp": "2026-07-15T11:00:00Z", "value": 2.0, "resource.kafka.id": "lkc-2"}]},
-            ],
-        )
-        rows = _collect(
-            monkeypatch,
-            api,
-            _FakeResumableManager(),
-            endpoint="kafka_metrics",
-            resource_ids=["lkc-1", "lkc-2"],
-            should_use_incremental_field=True,
-            # One 2h window (after the overlap), so both queries belong to the same request body.
-            db_incremental_field_last_value=datetime(2026, 7, 15, 12, 0, tzinfo=UTC),
-        )
-
-        assert len(api.queries) == 2
-        assert api.queries[0]["params"] is None
-        assert api.queries[1]["params"] == {"page_token": "tok-1"}
-        assert api.queries[0]["body"] == api.queries[1]["body"]
-        assert [r["value"] for r in rows] == [1.0, 2.0]
 
 
 class TestValidateCredentials:

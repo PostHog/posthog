@@ -2,6 +2,7 @@ import { IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -214,7 +215,14 @@ export function convertFileSystemEntryToTreeDataItem({
             name: itemName,
             displayName,
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
-            record: { ...item, user },
+            record: {
+                ...item,
+                href:
+                    getFileSystemIconType(item) === 'insight/hog' && item.ref
+                        ? urls.sqlEditor({ insightShortId: item.ref })
+                        : item.href,
+                user,
+            },
             checked: checkedItems[nodeId],
             visualOrder: item.visualOrder,
         }

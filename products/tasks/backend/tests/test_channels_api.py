@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -18,7 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, resolve_scopes
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
@@ -591,9 +591,12 @@ class ChannelsAPITestCase(TestCase):
         task(public_id, self.user, 90, archived=True)
         task(public_id, third, 5, deleted=True)
         task(private_id, self.user, 1)
-        with team_scope(self.team.id):
-            Canvas.objects.create(team=self.team, channel_id=public_id, name="Board", created_by=self.other_user)
-            Canvas.objects.create(team=self.team, channel_id=public_id, name="Gone", created_by=third, deleted=True)
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Board", created_by_id=self.other_user.id
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Gone", created_by_id=third.id, deleted=True
+        )
 
         response = self.client.get(f"{self._channels_url()}contributors/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -1008,11 +1011,11 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
             ("unbound_trial", "scout-trial:", "unbound", False, status.HTTP_404_NOT_FOUND),
             ("sibling_judge", "scout-trial-judge:", "other", False, status.HTTP_404_NOT_FOUND),
             ("ordinary_task", "", "other", False, status.HTTP_200_OK),
-            ("judge_token", "scout-trial-judge:", "own", True, status.HTTP_403_FORBIDDEN),
+            ("internal_scope_only", "scout-trial:", "own", True, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_sandbox_thread_reads_respect_trial_task_binding(
-        self, _name: str, origin_prefix: str, binding: str, judge_token: bool, expected_status: int
+        self, _name: str, origin_prefix: str, binding: str, internal_scope_only: bool, expected_status: int
     ) -> None:
         task = Task.objects.create(
             team=self.team,
@@ -1043,7 +1046,9 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
             user=self.author,
             application=application,
             token=f"pha_thread_{uuid4().hex}",
-            scope=" ".join(resolve_scopes("signals_scout_judge" if judge_token else "signals_scout_experiment")),
+            scope="scout_experiment_internal:read"
+            if internal_scope_only
+            else " ".join(resolve_scopes("signals_scout_experiment")),
             expires=django_timezone.now() + timedelta(hours=1),
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id if binding == "own" else self.task.id if binding == "other" else None,

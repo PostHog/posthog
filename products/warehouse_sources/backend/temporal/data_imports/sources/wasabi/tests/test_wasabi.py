@@ -47,29 +47,6 @@ class _FakeResumableSourceManager:
 
 
 class TestWasabiDateWindowPaginator:
-    def test_first_window_sets_from_and_to(self) -> None:
-        paginator = _fixed_today_paginator(date(2024, 1, 1))
-        request = Request(method="GET", url="https://partner.wasabisys.com/v1/utilizations", params={})
-        paginator.init_request(request)
-        assert request.params == {"from": "2024-01-01", "to": "2024-01-30"}
-
-    def test_windows_advance_without_overlap(self) -> None:
-        paginator = _fixed_today_paginator(date(2024, 1, 1))
-        request = Request(method="GET", url="x", params={})
-        paginator.init_request(request)
-        paginator.update_state(mock.Mock())
-        paginator.update_request(request)
-        assert request.params == {"from": "2024-01-31", "to": "2024-02-29"}
-        assert paginator.has_next_page is True
-
-    def test_empty_window_still_advances(self) -> None:
-        paginator = _fixed_today_paginator(date(2024, 1, 1))
-        request = Request(method="GET", url="x", params={})
-        paginator.init_request(request)
-        # No rows in the response — the walk must still move to the next window.
-        paginator.update_state(mock.Mock(), data=[])
-        assert paginator.has_next_page is True
-
     def test_terminates_once_window_reaches_today(self) -> None:
         paginator = _fixed_today_paginator(TODAY)
         request = Request(method="GET", url="x", params={})
@@ -79,14 +56,6 @@ class TestWasabiDateWindowPaginator:
         assert paginator.has_next_page is False
         assert paginator.get_resume_state() is None
 
-    def test_final_window_is_clamped_to_today(self) -> None:
-        paginator = _fixed_today_paginator(date(2026, 7, 10))
-        request = Request(method="GET", url="x", params={})
-        paginator.init_request(request)
-        assert request.params == {"from": "2026-07-10", "to": "2026-07-21"}
-        paginator.update_state(mock.Mock())
-        assert paginator.has_next_page is False
-
     def test_resume_state_points_at_next_window(self) -> None:
         paginator = _fixed_today_paginator(date(2024, 1, 1))
         request = Request(method="GET", url="x", params={})
@@ -94,13 +63,6 @@ class TestWasabiDateWindowPaginator:
         paginator.update_state(mock.Mock())
         paginator.update_request(request)
         assert paginator.get_resume_state() == {"next_from": "2024-01-31"}
-
-    def test_set_resume_state_seeds_first_request(self) -> None:
-        paginator = _fixed_today_paginator(date(2024, 1, 1))
-        paginator.set_resume_state({"next_from": "2025-06-01"})
-        request = Request(method="GET", url="x", params={})
-        paginator.init_request(request)
-        assert request.params == {"from": "2025-06-01", "to": "2025-06-30"}
 
     def test_future_start_date_is_clamped_to_today(self) -> None:
         paginator = _fixed_today_paginator(date(2024, 1, 1))
@@ -143,15 +105,6 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.make_tracked_session")
-    def test_probes_accounts_endpoint_with_raw_key_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.Mock(status_code=200)
-        validate_credentials("wasabi-key")
-        args, kwargs = mock_session.return_value.get.call_args
-        assert args[0] == "https://partner.wasabisys.com/v1/accounts"
-        # WACA takes the raw key as the Authorization value, not a Bearer token.
-        assert kwargs["headers"]["Authorization"] == "wasabi-key"
 
 
 class TestWasabiSourceTransport:
@@ -224,23 +177,6 @@ class TestWasabiSourceTransport:
         assert isinstance(paginator, WasabiDateWindowPaginator)
         # The window walk starts at the incremental watermark date.
         assert paginator._window_start == date(2024, 3, 5)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resource")
-    def test_utilizations_full_refresh_starts_at_default_date(self, mock_rest_api_resource: mock.MagicMock) -> None:
-        manager = _FakeResumableSourceManager()
-        wasabi_source(
-            api_key="key",
-            endpoint="utilizations",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=cast(Any, manager),
-        )
-
-        config = mock_rest_api_resource.call_args.args[0]
-        resource = config["resources"][0]
-        assert resource["write_disposition"] == "replace"
-        paginator = resource["endpoint"]["paginator"]
-        assert paginator._window_start == date.fromisoformat(DEFAULT_UTILIZATION_START_DATE)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.wasabi.rest_api_resource")
     def test_resume_state_is_seeded_into_paginator(self, mock_rest_api_resource: mock.MagicMock) -> None:

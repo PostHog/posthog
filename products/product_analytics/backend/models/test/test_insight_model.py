@@ -173,6 +173,7 @@ class TestInsightModel(BaseTest):
                     "properties": None,
                     "interval": None,
                     "breakdownFilter": None,
+                    "compareFilter": None,
                 },
             ),
             (
@@ -191,6 +192,7 @@ class TestInsightModel(BaseTest):
                     "properties": None,
                     "interval": None,
                     "breakdownFilter": None,
+                    "compareFilter": None,
                 },
             ),
             (
@@ -209,6 +211,7 @@ class TestInsightModel(BaseTest):
                     "properties": None,
                     "interval": None,
                     "breakdownFilter": None,
+                    "compareFilter": None,
                 },
             ),
             (
@@ -235,6 +238,7 @@ class TestInsightModel(BaseTest):
                     "properties": [browser_equals_chrome],
                     "interval": None,
                     "breakdownFilter": None,
+                    "compareFilter": None,
                 },
             ),
             (
@@ -247,6 +251,7 @@ class TestInsightModel(BaseTest):
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                     "interval": None,
                     "breakdownFilter": None,
+                    "compareFilter": None,
                 },
             ),
         ]

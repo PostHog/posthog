@@ -524,6 +524,8 @@ def oracle_can_modify(
 
 
 class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
+    self_member_id: uuid.UUID
+    other_member_id: uuid.UUID
     other_user: User
     role_a: "Role"
     role_b: "Role"
@@ -546,6 +548,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         cls.organization.save()
 
         cls.other_user = User.objects.create_and_join(cls.organization, "other-pbt@posthog.com", "testtest")
+        cls.self_member_id = OrganizationMembership.objects.get(user=cls.user, organization=cls.organization).pk
+        cls.other_member_id = OrganizationMembership.objects.get(user=cls.other_user, organization=cls.organization).pk
         cls.role_a = Role.objects.create(name="PBT Role A", organization=cls.organization)
         cls.role_b = Role.objects.create(name="PBT Role B", organization=cls.organization)
         RoleMembership.objects.create(user=cls.user, role=cls.role_a)
@@ -567,17 +571,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
 
     def _set_membership_level(self, level: OrganizationMembership.Level) -> None:
-        membership = self._membership(self.user)
-        membership.level = level
-        membership.save()
+        # Permission resolution needs the row value, not membership save side effects.
+        OrganizationMembership.objects.filter(pk=self.self_member_id).update(level=level)
 
     def _row_kwargs(self, target: str) -> dict:
         if target == "team_default":
             return {}
         if target == "self_member":
-            return {"organization_member": self._membership(self.user)}
+            return {"organization_member_id": self.self_member_id}
         if target == "other_member":
-            return {"organization_member": self._membership(self.other_user)}
+            return {"organization_member_id": self.other_member_id}
         if target == "role_a":
             return {"role": self.role_a}
         if target == "role_other_org":

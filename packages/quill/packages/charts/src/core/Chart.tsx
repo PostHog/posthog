@@ -218,6 +218,7 @@ export function Chart<Meta = unknown>({
         xTickLabelRotation,
         yTickFormatter,
         axisOrientation,
+        isPercent,
         override: marginsOverride,
         valueRangeSeries,
         maxCategoryLabelWidth,

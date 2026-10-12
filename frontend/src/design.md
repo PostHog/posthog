@@ -150,6 +150,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - `chrome`: toolbars, menubars, nav
 - Text:
   - `subtle-foreground`: tertiary meta text, one step quieter than `muted-foreground`
+  - `primary-on-foreground`: brand text, such as a link, on an inverted surface that uses `foreground` as its background (tooltips). It swaps to the other mode's brand: yellow on a dark tooltip in light mode, orange on a light tooltip in dark mode. Plain `primary` fades on those surfaces.
 - Interactive fills (overlay on any surface):
   - `fill-hover`, `fill-selected`, `fill-expanded`
 - Lines:

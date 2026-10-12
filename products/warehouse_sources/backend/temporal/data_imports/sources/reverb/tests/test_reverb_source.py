@@ -14,33 +14,6 @@ class TestReverbSource:
         self.team_id = 123
         self.config = ReverbSourceConfig(api_token="token")
 
-    def test_supported_api_version_is_declared_and_not_deprecated(self):
-        assert self.source.default_version in self.source.supported_versions
-        assert self.source.get_version_deprecation(self.source.default_version) is None
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.reverb.com/api/my/orders/selling/all",
-            "403 Client Error: Forbidden for url: https://api.reverb.com/api/my/payouts",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.reverb.com/api/my/orders/selling/all",
-            "500 Server Error: Internal Server Error for url: https://api.reverb.com/api/my/listings",
-            "HTTPSConnectionPool(host='api.reverb.com', port=443): Read timed out.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

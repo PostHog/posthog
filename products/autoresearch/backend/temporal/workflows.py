@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.access import has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
+    from products.autoresearch.backend.inference.failures import UNSCORABLE_AFTER_FAILED_DAYS, find_unscorable_champion
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
     from products.autoresearch.backend.models import (
@@ -138,6 +139,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             user=user,
             run=manual_run,
             query_context=BATCH_QUERY,
+            scheduled=manual_run is None,
         )
     return RunInferenceResult(
         run_id=str(run.pk),
@@ -191,7 +193,9 @@ def inference_workflow_id(pipeline_id: str, prediction_date: str) -> str:
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
 # Scoring can take minutes for large populations. The recipe path runs at most five batch
-# queries in sequence, so one attempt covers all of them at the full limit.
+# queries in sequence (50 minutes at the full limit). Shadow scoring then starts models for up to
+# SHADOW_TIME_BUDGET_S (20 minutes), and the last model it starts runs an anchor count, a feature
+# query, and a predict sandbox (about 30 minutes at worst). One attempt covers all of it.
 _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A lost worker is detected in minutes rather than at the end of a multi-hour attempt.
@@ -288,12 +292,13 @@ class RunValidationResult:
 # Validation does all its work (HogQL + sklearn) inside a single activity to
 # keep the Temporal payload small — we only return summary counts, not raw data.
 _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
-# Each date runs two batch queries of up to HOGQL_INCREASED_MAX_EXECUTION_TIME (600 s) each.
-# An attempt claims another date only while that worst case, plus the metrics and writes, still
-# fits in the attempt. The rest of a larger backlog stays pending for the next sweep, so the
-# attempt completes instead of timing out part-way.
+# Each date runs one predictions query per model that scored it, up to the five models of a
+# shadow set, plus one realized-labels query. Each takes up to HOGQL_INCREASED_MAX_EXECUTION_TIME
+# (600 s). An attempt claims another date only while that worst case, plus the metrics and
+# writes, still fits in the attempt. The rest of a larger backlog stays pending for the next
+# sweep, so the attempt completes instead of timing out part-way.
 _VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=2)
-_VALIDATION_DATE_RESERVE = timedelta(minutes=30)
+_VALIDATION_DATE_RESERVE = timedelta(minutes=70)
 # Covers both attempts plus their backoff, as for inference.
 _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
@@ -457,7 +462,7 @@ def evaluate_pipeline_outcome(
 class KickoffTrainingResult:
     kicked_off: bool
     # "started" | "budget_exhausted" | "already_running" | "already_ran_today" | "not_eligible"
-    # | "tasks_gated" | "no_creator" | "not_launchable"
+    # | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -468,6 +473,8 @@ class KickoffTrainingResult:
 
 _COORDINATOR_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
 _KICKOFF_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10))
+# The iterations of a rescue run. It does not come out of the pipeline budget.
+RESCUE_ITERATION_BUDGET = 3
 
 
 @activity.defn(name="autoresearch-coordinator.load_active_pipelines")
@@ -549,9 +556,14 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 
         # The column is nullable (an admin can clear it); read that as exhausted rather
         # than refunding the budget mid-flight.
-        remaining = pipeline.iteration_budget_remaining
-        if remaining is None or remaining <= 0:
-            return KickoffTrainingResult(kicked_off=False, reason="budget_exhausted")
+        remaining = pipeline.iteration_budget_remaining or 0
+        # A champion that cannot score stops all predictions, and only a training run can replace
+        # it. So an exhausted pipeline still gets a small rescue run that spends no budget.
+        rescue = remaining <= 0
+        if rescue:
+            champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+            if find_unscorable_champion(champion) is None:
+                return KickoffTrainingResult(kicked_off=False, reason="budget_exhausted")
 
         if AutoresearchTrainingRun.objects.filter(
             pipeline=pipeline,
@@ -565,6 +577,15 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=today).exists():
             return KickoffTrainingResult(kicked_off=False, reason="already_ran_today")
 
+        # At most one rescue run in each window of UNSCORABLE_AFTER_FAILED_DAYS UTC days, so a pipeline
+        # that no candidate can fix costs a bounded amount.
+        rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
+        if (
+            rescue
+            and AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=rescue_window_start).exists()
+        ):
+            return KickoffTrainingResult(kicked_off=False, reason="rescue_throttled")
+
         # Training runs in a Tasks sandbox that requires a real owning user. CLI-created
         # pipelines have no creator, so fail before spending budget rather than launching
         # a run that would crash in the tasks facade.
@@ -576,16 +597,27 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
 
-        daily_budget = min(10, remaining)
         try:
             with transaction.atomic():
-                pipeline.iteration_budget_remaining = remaining - daily_budget
-                pipeline.save(update_fields=["iteration_budget_remaining"])
-                run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
+                if rescue:
+                    run_training(
+                        pipeline=pipeline,
+                        iteration_budget=RESCUE_ITERATION_BUDGET,
+                        user_id=pipeline.created_by_id,
+                        rescue=True,
+                    )
+                else:
+                    daily_budget = min(10, remaining)
+                    pipeline.iteration_budget_remaining = remaining - daily_budget
+                    pipeline.save(update_fields=["iteration_budget_remaining"])
+                    run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
         except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
             return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))
+    if rescue:
+        logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
+        return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
     return KickoffTrainingResult(kicked_off=True, reason="started")
 
 

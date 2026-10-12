@@ -52,6 +52,24 @@ class TestReportsForBriefing(BaseTest):
         )
         return report
 
+    def _named_report(self, title: str) -> SignalReport:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title=title,
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+            latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "reviewer", "user_uuid": str(self.user.uuid)}]),
+        )
+        return report
+
     def _score(self, report: SignalReport, pr_merged: float, *, readable: bool, age: timedelta) -> None:
         served = RankingModelResult(
             model_name="report_embeddings",
@@ -133,8 +151,27 @@ class TestReportsForBriefing(BaseTest):
             team_id=self.team.id, user=self.user, exclude_report_ids=[str(shown_open.id), str(resolved.id)]
         )
 
-        # An unowned P0 is for the person the same way the briefing ranks it, so both counts agree.
+        # By default an unowned P0 is for the person the same way the briefing ranks it, so both counts agree.
         assert (counts.in_project, counts.for_person) == (1, 1)
+
+    @parameterized.expand([("included", True, {"Mine", "Nobody's P0"}), ("excluded", False, {"Mine"})])
+    def test_include_unowned_decides_whether_a_p0_nobody_owns_is_a_candidate(
+        self, _name: str, include_unowned: bool, expected: set[str]
+    ) -> None:
+        self._named_report("Mine")
+        self._urgent_report("Nobody's P0")
+
+        reports = reports_for_briefing(team_id=self.team.id, user_id=self.user.id, include_unowned=include_unowned)
+
+        assert {report.title for report in reports} == expected
+
+    def test_excluding_unowned_reports_leaves_them_in_the_project_count_only(self) -> None:
+        self._named_report("Mine")
+        self._urgent_report("Nobody's P0")
+
+        counts = open_report_counts(team_id=self.team.id, user=self.user, include_unowned=False)
+
+        assert (counts.in_project, counts.for_person) == (2, 1)
 
     def test_merge_chance_comes_from_the_latest_readable_served_score(self) -> None:
         rescored = self._urgent_report("Rescored")

@@ -36,7 +36,7 @@ export function TodayPaneOption({
                     nativeButton={false}
                     render={<LinkPrimitive to={to} />}
                     className={cn(
-                        'w-full min-w-0 text-foreground [&>span]:w-full',
+                        'w-full min-w-0 font-semibold text-foreground [&>span]:w-full',
                         'data-highlighted:border-transparent data-highlighted:ring-0',
                         active
                             ? 'bg-fill-selected data-highlighted:bg-fill-selected'

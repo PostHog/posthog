@@ -32,7 +32,7 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 ///
 /// Two lanes can overflow: `AnalyticsMain` always, and `AiEvents` only when
 /// its limiter is present — setup builds `ai_limiter` exactly when the AI
-/// overflow valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed and
+/// overflow valve (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`) is armed and
 /// overflow is enabled, so limiter presence IS the valve here; the kafka sink
 /// independently ignores overflow stamps on the AI lane when the topic is
 /// unset. Each lane consults its own limiter instance — `analytics_limiter`

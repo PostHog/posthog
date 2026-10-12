@@ -1,8 +1,8 @@
 """Stripe / billing customer signals read from the duckgres Postgres DWH."""
 
 import datetime as dt
-from dataclasses import dataclass
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
 from .duckgres_client import duckgres_cursor
@@ -10,13 +10,12 @@ from .duckgres_client import duckgres_cursor
 LOGGER = get_logger(__name__)
 
 
-@dataclass
+@frozen
 class StripeSignals:
-    """Stripe + billing customer data for a single PostHog organization."""
+    """Stripe customer data for a single PostHog organization."""
 
     posthog_organization_id: str
     billing_customer_id: str
-    billing_customer_name: str | None
     stripe_customer_id: str | None
     address_line_1: str | None
     address_line_2: str | None
@@ -44,7 +43,6 @@ WITH posthog_customer AS (
         cts._fivetran_synced AS mapping_synced_at,
         bc.id                AS billing_customer_id,
         bc.organization_id   AS posthog_organization_id,
-        bc.name              AS billing_customer_name,
         bc._fivetran_synced  AS billing_customer_synced_at
     FROM ducklake.billing_public.billing_customertostripecustomer cts
     JOIN ducklake.billing_public.billing_customer bc
@@ -56,7 +54,6 @@ enriched AS (
     SELECT
         pc.posthog_organization_id,
         pc.billing_customer_id,
-        pc.billing_customer_name,
         sc.id AS stripe_customer_id,
         sc.address_line_1,
         sc.address_line_2,
@@ -119,7 +116,6 @@ def fetch_stripe_signals(
         StripeSignals(
             posthog_organization_id=str(row["posthog_organization_id"]),
             billing_customer_id=str(row["billing_customer_id"]),
-            billing_customer_name=row["billing_customer_name"],
             stripe_customer_id=row["stripe_customer_id"],
             address_line_1=row["address_line_1"],
             address_line_2=row["address_line_2"],

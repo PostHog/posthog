@@ -24,8 +24,8 @@ SummaryLength = Literal["short", "medium", "long"]
 
 _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
     "short": "1-2 sentences",
-    "medium": "1 paragraph",
-    "long": "3-5 paragraphs",
+    "medium": "4-6 sentences in two short paragraphs separated by a blank line",
+    "long": "3-5 short paragraphs separated by blank lines",
 }
 
 

@@ -48,9 +48,8 @@ MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max limit for notebook dataframe materialization (the sandbox kernel fetching a whole frame
-# over the object-storage frame store). Tier 1 of the rollout ladder in
-# products/notebooks/backend/sql_v2_frame_store.md — raised toward the kernel executor's
-# _MATERIALIZE_ROW_CAP (2M) on query-log evidence.
+# over the object-storage frame store). Raise it toward the kernel executor's
+# _MATERIALIZE_ROW_CAP (2M) only when query-log evidence supports it.
 MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT = 500000  # 500k rows
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
@@ -183,6 +182,7 @@ class HogQLQuerySettings(BaseModel):
     grace_hash_join_initial_buckets: Optional[int] = None
     force_data_skipping_indices: Optional[list[str]] = None
     force_optimize_projection: Optional[bool] = None
+    query_plan_max_limit_for_top_k_optimization: Optional[int] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
     optimize_skip_unused_shards: Optional[bool] = None

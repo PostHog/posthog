@@ -8,6 +8,7 @@ from posthoganalytics.ai.prompts import PromptResult
 
 from products.signals.backend.system_one_prompts import (
     DEFAULT_SYSTEM_ONE_MODEL,
+    JEVK_MODEL,
     SystemOnePrompt,
     _parse_prompt,
     _PromptCache,
@@ -20,7 +21,8 @@ from products.signals.backend.temporal.report_safety_judge import REPORT_SAFETY_
 from products.signals.backend.temporal.safety_filter import SIGNAL_SAFETY_SYSTEM_ONE_PROMPT
 
 
-def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> None:
+@pytest.mark.parametrize("model", [JEVK_MODEL, DEFAULT_SYSTEM_ONE_MODEL])
+def test_managed_prompt_keeps_policy_model_question_and_threshold_together(model: str) -> None:
     fallback = bundled_prompt("signals-actionability-issue", "old {description}", "old question", 0.85)
     policy = (
         "When in doubt, classify as ACTIONABLE.\n"
@@ -32,7 +34,7 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
         name=fallback.name,
         version=2,
         prompt=policy,
-        config={"model": DEFAULT_SYSTEM_ONE_MODEL, "question": "new question", "threshold": 0.91},
+        config={"model": model, "question": "new question", "threshold": 0.91},
     )
 
     with (
@@ -45,7 +47,7 @@ def test_managed_prompt_keeps_policy_model_question_and_threshold_together() -> 
     assert managed is not None
     assert (managed.policy, managed.model, managed.question, managed.threshold, managed.version, managed.source) == (
         policy,
-        DEFAULT_SYSTEM_ONE_MODEL,
+        model,
         "new question",
         0.91,
         2,
@@ -185,7 +187,7 @@ def test_failed_refresh_reverts_a_managed_safety_prompt_to_bundled() -> None:
 
 @pytest.mark.parametrize("changed", [None, "policy", "question", "threshold", "model", "version", "source"])
 def test_model_experiment_requires_a_model_only_candidate(changed: str | None) -> None:
-    primary = replace(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, source="managed", version=2)
+    primary = replace(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, model=JEVK_MODEL, source="managed", version=2)
     candidate = replace(primary, model="posthog/hogference/jeeves-0.1", version=3)
     if changed == "policy":
         candidate = replace(candidate, policy="different policy")

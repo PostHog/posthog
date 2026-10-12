@@ -176,7 +176,10 @@ export function ObservationLabelControl({
     return (
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded bg-surface-secondary px-3 py-2">
             <RatingHotkeys onThumb={onThumb} disabled={saving || !!label || !!editDisabledReason} />
-            <span className="text-sm">Did the scanner get this right?</span>
+            <div className="flex flex-col">
+                <span className="text-sm">Did the scanner get this right?</span>
+                <span className="text-xs text-muted">Ratings help this scanner improve.</span>
+            </div>
             <Popover
                 // Waits for the saved label, since the feedback autosave writes onto it.
                 visible={feedbackOpen && !!label}

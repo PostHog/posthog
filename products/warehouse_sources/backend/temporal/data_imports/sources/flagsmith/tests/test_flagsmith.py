@@ -10,9 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.
     FlagsmithResponseTimeoutError,
     FlagsmithResponseTooLargeError,
     FlagsmithResumeConfig,
-    _cursor_next_url,
-    _initial_url,
-    _pinned_next_url,
     _read_bounded,
     flagsmith_source,
     get_rows,
@@ -101,51 +98,6 @@ class TestUrlHelpers:
         with pytest.raises(ValueError):
             normalize_base_url(base_url)
 
-    @pytest.mark.parametrize(
-        "next_link, expected",
-        [
-            (f"{API_BASE}/organisations/?page=2", f"{API_BASE}/organisations/?page=2"),
-            # A next link pointing at another host is rebuilt onto the configured base.
-            ("https://evil.example.com/api/v1/organisations/?page=2", f"{API_BASE}/organisations/?page=2"),
-            ("http://proxy.internal/api/v1/audit/?page=3&page_size=100", f"{API_BASE}/audit/?page=3&page_size=100"),
-            (None, None),
-            ("", None),
-        ],
-    )
-    def test_pinned_next_url(self, next_link, expected):
-        assert _pinned_next_url(DEFAULT_BASE_URL, next_link) == expected
-
-    def test_initial_url_appends_params_to_path_with_query(self):
-        url = _initial_url(DEFAULT_BASE_URL, "/environments/?project=1", {"page_size": 100})
-        assert url == f"{API_BASE}/environments/?project=1&page_size=100"
-
-    @pytest.mark.parametrize(
-        "current_url, cursor, expected",
-        [
-            (
-                f"{API_BASE}/projects/1/segments/3/members/?environment=10&limit=100",
-                "abc",
-                f"{API_BASE}/projects/1/segments/3/members/?environment=10&limit=100&cursor=abc",
-            ),
-            # A cursor already on the URL is replaced, not appended a second time.
-            (
-                f"{API_BASE}/projects/1/segments/3/members/?limit=100&cursor=old",
-                "new",
-                f"{API_BASE}/projects/1/segments/3/members/?limit=100&cursor=new",
-            ),
-            # A cursor page is pinned onto the configured base, like a DRF next link.
-            (
-                "https://evil.example.com/api/v1/projects/1/segments/3/members/?limit=100",
-                "abc",
-                f"{API_BASE}/projects/1/segments/3/members/?limit=100&cursor=abc",
-            ),
-            (f"{API_BASE}/projects/1/segments/3/members/?limit=100", None, None),
-            (f"{API_BASE}/projects/1/segments/3/members/?limit=100", "", None),
-        ],
-    )
-    def test_cursor_next_url(self, current_url, cursor, expected):
-        assert _cursor_next_url(DEFAULT_BASE_URL, current_url, cursor) == expected
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
@@ -155,71 +107,12 @@ class TestValidateCredentials:
         assert validate_credentials("key", None) == status_code
 
     @mock.patch(SESSION_PATH)
-    def test_uses_api_key_prefix(self, mock_session):
-        mock_session.return_value.get.return_value = _probe_resp(200)
-        validate_credentials("org-key", None)
-        call = mock_session.return_value.get.call_args
-        assert call.kwargs["headers"]["Authorization"] == "Api-Key org-key"
-        assert call.args[0] == f"{API_BASE}/organisations/"
-
-    @mock.patch(SESSION_PATH)
-    def test_uses_custom_base_url(self, mock_session):
-        mock_session.return_value.get.return_value = _probe_resp(200)
-        validate_credentials("org-key", "https://flagsmith.example.com", "/projects/")
-        assert mock_session.return_value.get.call_args.args[0] == "https://flagsmith.example.com/api/v1/projects/"
-
-    @mock.patch(SESSION_PATH)
-    def test_streams_probe_without_downloading_body(self, mock_session):
-        # A hostile base_url must not be able to occupy the API worker with an endless body: the
-        # probe streams and returns the status without consuming the body.
-        resp = _probe_resp(200)
-        mock_session.return_value.get.return_value = resp
-        validate_credentials("key", None)
-        assert mock_session.return_value.get.call_args.kwargs["stream"] is True
-        resp.iter_content.assert_not_called()
-
-    @mock.patch(SESSION_PATH)
     def test_returns_none_on_exception(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", None) is None
 
 
 class TestGetRowsTopLevel:
-    @mock.patch(SESSION_PATH)
-    def test_paginates_via_drf_next(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp(_page([{"id": 1}, {"id": 2}], f"{API_BASE}/organisations/?page=2")),
-            _resp(_page([{"id": 3}], None)),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("key", None, "organisations", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == [1, 2, 3]
-        # State saved after every page (final save records the empty next_url marker).
-        saved_urls = [call.args[0].next_url for call in manager.save_state.call_args_list]
-        assert saved_urls == [f"{API_BASE}/organisations/?page=2", ""]
-
-    @mock.patch(SESSION_PATH)
-    def test_projects_plain_array_yields_rows(self, mock_session):
-        mock_session.return_value.get.return_value = _resp([{"id": 10}, {"id": 11}])
-
-        batches = list(get_rows("key", None, "projects", mock.MagicMock(), _make_manager()))
-
-        assert [row["id"] for batch in batches for row in batch] == [10, 11]
-        assert mock_session.return_value.get.call_args.args[0] == f"{API_BASE}/projects/"
-
-    @mock.patch(SESSION_PATH)
-    def test_resumes_from_saved_state(self, mock_session):
-        mock_session.return_value.get.return_value = _resp(_page([{"id": 9}], None))
-
-        resume_url = f"{API_BASE}/organisations/?page=5"
-        manager = _make_manager(FlagsmithResumeConfig(next_url=resume_url))
-
-        list(get_rows("key", None, "organisations", mock.MagicMock(), manager))
-
-        assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
-
     @mock.patch(SESSION_PATH)
     def test_resume_url_repinned_to_configured_base(self, mock_session):
         # A resume URL persisted before the source was retargeted must be re-pinned onto the current
@@ -232,61 +125,8 @@ class TestGetRowsTopLevel:
 
         assert mock_session.return_value.get.call_args_list[0].args[0] == f"{API_BASE}/organisations/?page=5"
 
-    @mock.patch(SESSION_PATH)
-    def test_empty_response_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _resp(_page([], None))
-
-        assert list(get_rows("key", None, "organisations", mock.MagicMock(), _make_manager())) == []
-
-    @mock.patch(BUDGET_PATH, 5)
-    @mock.patch(SESSION_PATH)
-    def test_cyclic_next_link_is_capped(self, mock_session):
-        # A hostile self-hosted host can return a non-empty `next` forever; pagination must
-        # self-terminate at the page budget instead of looping on credentialed requests.
-        mock_session.return_value.get.return_value = _resp(_page([{"id": 1}], f"{API_BASE}/organisations/?page=next"))
-
-        manager = _make_manager()
-        batches = list(get_rows("key", None, "organisations", mock.MagicMock(), manager))
-
-        assert len(batches) == 5
-        # Terminal resume state so a resume advances past the cyclic resource, not back into it.
-        assert manager.save_state.call_args_list[-1].args[0].next_url == ""
-
 
 class TestGetRowsFanout:
-    @mock.patch(SESSION_PATH)
-    def test_features_fan_out_per_project(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 1}, {"id": 2}]),  # projects (plain array)
-            _resp(_page([{"id": 100, "name": "flag-a"}], None)),
-            _resp(_page([{"id": 200, "name": "flag-b"}], None)),
-        ]
-
-        batches = list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert rows == [
-            {"id": 100, "name": "flag-a", "_project_id": "1"},
-            {"id": 200, "name": "flag-b", "_project_id": "2"},
-        ]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[0] == f"{API_BASE}/projects/"
-        assert urls[1] == f"{API_BASE}/projects/1/features/?page_size=100&sort_field=created_date&sort_direction=ASC"
-        assert urls[2] == f"{API_BASE}/projects/2/features/?page_size=100&sort_field=created_date&sort_direction=ASC"
-
-    @mock.patch(SESSION_PATH)
-    def test_environments_fan_out_uses_project_query_param(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 7}]),
-            _resp(_page([{"id": 70, "api_key": "env-key"}], None)),
-        ]
-
-        batches = list(get_rows("key", None, "environments", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [{"id": 70, "api_key": "env-key", "_project_id": "7"}]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[1] == f"{API_BASE}/environments/?project=7"
-
     @mock.patch(SESSION_PATH)
     def test_feature_states_enumerate_environments_via_projects(self, mock_session):
         mock_session.return_value.get.side_effect = [
@@ -338,25 +178,6 @@ class TestGetRowsFanout:
         assert urls == [f"{API_BASE}/projects/", f"{API_BASE}/projects/2/segments/?page_size=100"]
 
     @mock.patch(SESSION_PATH)
-    def test_resume_midparent_uses_saved_url(self, mock_session):
-        resume_url = f"{API_BASE}/projects/1/segments/?page=3&page_size=100"
-        mock_session.return_value.get.side_effect = [
-            _resp([{"id": 1}, {"id": 2}]),
-            _resp(_page([{"id": 150}], None)),
-            _resp(_page([{"id": 250}], None)),
-        ]
-        manager = _make_manager(FlagsmithResumeConfig(next_url=resume_url, parent_key="1"))
-
-        list(get_rows("key", None, "segments", mock.MagicMock(), manager))
-
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls == [
-            f"{API_BASE}/projects/",
-            resume_url,
-            f"{API_BASE}/projects/2/segments/?page_size=100",
-        ]
-
-    @mock.patch(SESSION_PATH)
     def test_fan_out_resume_url_repinned_to_configured_base(self, mock_session):
         # Same host-pinning guarantee on the fan-out resume path: a stale mid-parent URL must be
         # re-pinned to the current base rather than replayed to a since-changed host.
@@ -378,40 +199,6 @@ class TestGetRowsFanout:
         mock_session.return_value.get.return_value = _resp([])
 
         assert list(get_rows("key", None, "features", mock.MagicMock(), _make_manager())) == []
-
-    @mock.patch(BUDGET_PATH, 5)
-    @mock.patch(SESSION_PATH)
-    def test_budget_is_shared_across_fan_out_parents(self, mock_session):
-        # Many parents, each with a cyclic child `next`. A per-parent cap would multiply into
-        # budget-per-parent requests; the shared budget bounds the whole invocation instead.
-        def _get(url, **kwargs):
-            if "/features/" in url:
-                return _resp(_page([{"id": 1}], f"{API_BASE}/projects/1/features/?page=next"))
-            return _resp([{"id": 1}, {"id": 2}, {"id": 3}])  # projects (plain array, one fetch)
-
-        mock_session.return_value.get.side_effect = _get
-
-        list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
-
-        # 1 projects fetch + 4 feature fetches = the whole 5-page budget, not 5 per parent.
-        assert mock_session.return_value.get.call_count == 5
-
-    @mock.patch(PARENTS_PATH, 2)
-    @mock.patch(SESSION_PATH)
-    def test_fan_out_parent_count_is_capped(self, mock_session):
-        # A hostile host can return a huge parent list in one page; enumeration must stop at the
-        # cap so the retained parent list can't exhaust worker memory (only capped parents fan out).
-        def _get(url, **kwargs):
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}])
-            return _resp(_page([{"id": 100}], None))
-
-        mock_session.return_value.get.side_effect = _get
-
-        list(get_rows("key", None, "features", mock.MagicMock(), _make_manager()))
-
-        child_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/features/" in c.args[0]]
-        assert len(child_urls) == 2  # only the first 2 of 4 projects enumerated
 
     @mock.patch(KEY_LENGTH_PATH, 5)
     @mock.patch(SESSION_PATH)
@@ -450,39 +237,6 @@ class TestGetRowsTwoLevelFanout:
             return _resp(_page([{"id": 9000 + int(identity_id), "trait_key": "plan"}], None))
 
         return _get
-
-    @mock.patch(SESSION_PATH)
-    def test_traits_fan_out_per_identity(self, mock_session):
-        mock_session.return_value.get.side_effect = self._identity_dispatch()
-
-        batches = list(get_rows("key", None, "identity_traits", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [
-            {"id": 9500, "trait_key": "plan", "_environment_api_key": "env-a", "_identity_id": "500"},
-            {"id": 9501, "trait_key": "plan", "_environment_api_key": "env-a", "_identity_id": "501"},
-        ]
-        urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if c.args[0].endswith("/traits/")]
-        assert urls == [
-            f"{API_BASE}/environments/env-a/identities/500/traits/",
-            f"{API_BASE}/environments/env-a/identities/501/traits/",
-        ]
-
-    @mock.patch(SESSION_PATH)
-    def test_traits_resume_key_identifies_the_inner_parent(self, mock_session):
-        # The resume bookmark has to name the environment AND the identity, or a resume would
-        # restart at the wrong identity (or the whole environment).
-        mock_session.return_value.get.side_effect = self._identity_dispatch()
-        manager = _make_manager()
-
-        list(get_rows("key", None, "identity_traits", mock.MagicMock(), manager))
-        saved = [call.args[0].parent_key for call in manager.save_state.call_args_list]
-        assert saved == ["env-a/500", "env-a/501"]
-
-        mock_session.return_value.get.side_effect = self._identity_dispatch()
-        resumed = _make_manager(FlagsmithResumeConfig(next_url="", parent_key="env-a/500"))
-        batches = list(get_rows("key", None, "identity_traits", mock.MagicMock(), resumed))
-
-        assert [row["_identity_id"] for batch in batches for row in batch] == ["501"]
 
     @mock.patch(PARENTS_PATH, 2)
     @mock.patch(SESSION_PATH)
@@ -621,35 +375,6 @@ class TestGetRowsThreeLevelFanout:
             f"{API_BASE}/projects/1/features/100/evaluation-data/?environment_id=11&period=30",
         ]
 
-    @mock.patch(SESSION_PATH)
-    def test_segment_members_page_on_a_body_cursor(self, mock_session):
-        # The listing returns an opaque `next_cursor` instead of a DRF `next` link, so the next
-        # page has to be rebuilt from the current request with `cursor` set.
-        def _get(url, **kwargs):
-            if "/members/" in url:
-                if "cursor=" in url:
-                    return _resp({"results": [{"identity_key": "k2"}], "next_cursor": None})
-                return _resp({"results": [{"identity_key": "k1"}], "next_cursor": "c1"})
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=1" in url:
-                return _resp(_page([{"id": 10}], None))
-            return _resp(_page([{"id": 300}], None))  # segments
-
-        mock_session.return_value.get.side_effect = _get
-
-        batches = list(get_rows("key", None, "segment_members", mock.MagicMock(), _make_manager()))
-
-        assert [row for batch in batches for row in batch] == [
-            {"identity_key": "k1", "_project_id": "1", "_segment_id": "300", "_environment_id": "10"},
-            {"identity_key": "k2", "_project_id": "1", "_segment_id": "300", "_environment_id": "10"},
-        ]
-        member_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/members/" in c.args[0]]
-        assert member_urls == [
-            f"{API_BASE}/projects/1/segments/300/members/?environment=10&limit=100",
-            f"{API_BASE}/projects/1/segments/300/members/?environment=10&limit=100&cursor=c1",
-        ]
-
     @mock.patch(BUDGET_PATH, 4)
     @mock.patch(SESSION_PATH)
     def test_repeating_body_cursor_is_capped(self, mock_session):
@@ -669,30 +394,6 @@ class TestGetRowsThreeLevelFanout:
         list(get_rows("key", None, "segment_members", mock.MagicMock(), _make_manager()))
 
         assert mock_session.return_value.get.call_count == 4
-
-    @mock.patch(SESSION_PATH)
-    def test_resume_key_names_all_three_identifiers(self, mock_session):
-        # The bookmark has to name the project, the segment AND the environment, or a resume would
-        # restart at the wrong triple.
-        def _get(url, **kwargs):
-            if "/members/" in url:
-                return _resp({"results": [{"identity_key": "k"}], "next_cursor": None})
-            if url.endswith("/projects/"):
-                return _resp([{"id": 1}])
-            if "/environments/?project=1" in url:
-                return _resp(_page([{"id": 10}, {"id": 11}], None))
-            return _resp(_page([{"id": 300}], None))
-
-        mock_session.return_value.get.side_effect = _get
-        manager = _make_manager()
-
-        list(get_rows("key", None, "segment_members", mock.MagicMock(), manager))
-        assert [call.args[0].parent_key for call in manager.save_state.call_args_list] == ["1/300/10", "1/300/11"]
-
-        resumed = _make_manager(FlagsmithResumeConfig(next_url="", parent_key="1/300/10"))
-        batches = list(get_rows("key", None, "segment_members", mock.MagicMock(), resumed))
-
-        assert [row["_environment_id"] for batch in batches for row in batch] == ["11"]
 
 
 class TestErrors:

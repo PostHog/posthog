@@ -182,7 +182,6 @@ def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = Fal
     """
     current = config.get(CDC_RESET_PENDING_KEY)
     fields = dict(current) if isinstance(current, dict) else {}
-    fields["clear_deferred_runs"] = True
     fields["trigger"] = True
     if awaiting_slot:
         fields["awaiting_slot"] = True

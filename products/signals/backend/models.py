@@ -1,11 +1,12 @@
 import json
 import uuid
 import logging
+import builtins
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -15,7 +16,7 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.migration_helpers import deprecate_field
@@ -37,6 +38,7 @@ from products.signals.backend.artefact_schemas import (
     StatusArtefactContent,
     TaskRunArtefact,
     artefact_type_for,
+    artefact_type_for_model,
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
@@ -64,6 +66,15 @@ class SignalReportWorkState(models.TextChoices):
     WORKING = "working", "Working"
     IN_REVIEW = "in_review", "In review"
     DONE = "done", "Done"
+
+
+class SignalReportSuppressionSource(models.TextChoices):
+    # Who or what took a suppressed report out of the inbox, derived from its artefacts. Only
+    # DISMISSED means someone chose it; the rest are verdicts nobody has reviewed yet.
+    DISMISSED = "dismissed", "Dismissed"
+    SAFETY_JUDGE = "safety_judge", "Safety judge"
+    NOT_ACTIONABLE = "not_actionable", "Not actionable"
+    SYSTEM = "system", "System"
 
 
 def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
@@ -297,6 +308,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        MONITORING = "monitoring"
         RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
@@ -382,6 +394,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    monitoring_started_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -453,6 +466,21 @@ class SignalReport(UUIDModel):
         if self.signals_researched is not None:
             return self.signals_researched
         return max(self.signals_at_run - SIGNALS_AT_RUN_INCREMENT, 0)
+
+    def selected_repository(self) -> str | None:
+        """The repository the report's research selected, from the latest repo_selection artefact."""
+        content = (
+            self.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        try:
+            data = json.loads(content or "")
+        except (TypeError, ValueError):
+            return None
+        repository = data.get("repository") if isinstance(data, dict) else None
+        return repository.strip() if isinstance(repository, str) and repository.strip() else None
 
     def transition_to(
         self,
@@ -1202,6 +1230,9 @@ def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalReportArtefact.ArtefactType.choices)
 
 
+_ContentT = TypeVar("_ContentT", bound=BaseModel)
+
+
 @frozen
 class LatestActionability:
     """The `actionability` and `already_addressed` of a report's newest parseable judgment.
@@ -1251,6 +1282,7 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_HANDOVER = "implementation_handover"
         RANKING_SCORE = "ranking_score"
         IMPACT_MEASUREMENT_PLAN = "impact_measurement_plan"
+        SOURCE_SUGGESTION = "source_suggestion"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1275,6 +1307,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
             ArtefactType.RANKING_SCORE,
+            ArtefactType.SOURCE_SUGGESTION,
         }
     )
     # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
@@ -1520,6 +1553,75 @@ class SignalReportArtefact(UUIDModel):
         if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
+
+    @classmethod
+    def _latest_of(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[BaseModel],
+        created_before: datetime | None,
+        created_after: datetime | None,
+    ) -> "models.QuerySet[SignalReportArtefact]":
+        artefacts = cls.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type_for_model(model))
+        if created_before is not None:
+            artefacts = artefacts.filter(created_at__lte=created_before)
+        if created_after is not None:
+            artefacts = artefacts.filter(created_at__gte=created_after)
+        # `id` breaks a `created_at` tie, so two readers never disagree on which row is the latest.
+        return artefacts.order_by("-created_at", "-id").only("content")
+
+    @staticmethod
+    def _parse_as(artefact: "SignalReportArtefact | None", model: builtins.type[_ContentT]) -> _ContentT | None:
+        if artefact is None:
+            return None
+        try:
+            return model.model_validate_json(artefact.content)
+        except ValidationError:
+            return None
+
+    @classmethod
+    def latest_content(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[_ContentT],
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> _ContentT | None:
+        """The newest artefact of `model`'s type on the report, parsed, or None when there is none or
+        it doesn't parse. The read side of `append_status`: a status type's current value is its
+        newest row. `created_before` / `created_after` bound the rows considered, inclusively."""
+        artefact = cls._latest_of(
+            team_id=team_id,
+            report_id=report_id,
+            model=model,
+            created_before=created_before,
+            created_after=created_after,
+        ).first()
+        return cls._parse_as(artefact, model)
+
+    @classmethod
+    async def alatest_content(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[_ContentT],
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> _ContentT | None:
+        """Async `latest_content`."""
+        artefact = await cls._latest_of(
+            team_id=team_id,
+            report_id=report_id,
+            model=model,
+            created_before=created_before,
+            created_after=created_after,
+        ).afirst()
+        return cls._parse_as(artefact, model)
 
     @classmethod
     def append_finding(
@@ -2478,6 +2580,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # The activity band that sampled this project into the background lane. `None` for a
     # hand-picked `team_ids` project and for every `team`-managed row that the band lane never made.
     background_band = models.PositiveSmallIntegerField(null=True, blank=True)
+    # How many background runs in a row nobody engaged with. The coordinator multiplies the band
+    # interval by `background.backoff.factor` once per level, so `run_interval_minutes` keeps the
+    # nominal cadence. `None` means level 0. Read only while the row is `managed_by=background`.
+    background_backoff_level = models.PositiveSmallIntegerField(null=True, blank=True)
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
         max_length=20,
@@ -2621,6 +2727,17 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
     write_scopes = models.JSONField(default=list, db_default=[])
+    # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
+    # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
+    # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it
+    # — the same bar `write_scopes` clears, and for the same reason: a project-wide scope is held
+    # by people and by unattended agents alike, and pausing is unbounded while resuming passes
+    # the enabled-scout cap, so one bulk write can silence a fleet that cannot be restored in one
+    # step. It never blocks a system transition: an inactivity sweep or the failure breaker still
+    # pauses a locked scout.
+    lifecycle_locked = models.BooleanField(default=False, db_default=False)
+    allowed_mcp_tools = models.JSONField(null=True, blank=True)
+    tool_preset = models.CharField(max_length=64, null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -2634,6 +2751,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
     # `created_at` anchors those.
     schedule_changed_at = models.DateTimeField(null=True, blank=True)
+    # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
+    # No rows, or a single false value, skips the run, so a scout that watches something rare can
+    # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
+    # bound as HogQL placeholders, and `{interval_minutes}` is the scout's schedule interval. Null
+    # falls back to the default its canonical skill ships, if any (`scout-precheck-query`).
+    precheck_query = models.TextField(null=True, blank=True)
+    # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
+    precheck_disabled = models.BooleanField(default=False, db_default=False)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -2979,6 +3104,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
+    trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
     # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
@@ -3002,6 +3129,10 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "skill_name", "-created_at"],
                 name="signal_scout_run_recent_idx",
             ),
+            # The team-wide run search and the fleet summary filter on team only, with no scout key, so
+            # the index above cannot serve their newest-first order and the planner sorts every one of
+            # the team's runs before it applies the limit.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_run_team_new_idx"),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table
@@ -3145,6 +3276,15 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "-updated_at", "-id"], name="signal_scratchpad_team_upd_idx"),
+            # The unique `(team, key)` index cannot serve a `key` prefix LIKE under a non-C collation.
+            models.Index(
+                fields=["team", "key"],
+                name="signal_scratchpad_key_like_idx",
+                opclasses=["int4_ops", "varchar_pattern_ops"],
+            ),
         ]
 
 

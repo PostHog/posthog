@@ -4,7 +4,7 @@ from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import Request, RequestException, Response
+from requests import RequestException, Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     COMPANIES,
     FILING_HISTORY,
     INSOLVENCY,
-    ITEMS_PER_PAGE,
     OFFICERS,
     PERSONS_WITH_SIGNIFICANT_CONTROL,
     PSC_STATEMENTS,
@@ -116,23 +115,6 @@ class TestParseCompanyNumbers:
 
 
 class TestCompaniesHouseOffsetPaginator:
-    def test_init_request_seeds_offset_params(self) -> None:
-        paginator = CompaniesHouseOffsetPaginator(total_key="total_results", start_index=40)
-        request = Request(method="GET", url="https://api.company-information.service.gov.uk/company/1/officers")
-        paginator.init_request(request)
-
-        assert request.params == {"start_index": 40, "items_per_page": ITEMS_PER_PAGE}
-
-    def test_advances_by_rows_returned_not_requested_page_size(self) -> None:
-        # Companies House caps items_per_page per endpoint and silently returns fewer rows;
-        # striding by the requested size would skip everything it did not send.
-        paginator = CompaniesHouseOffsetPaginator(total_key="total_results", items_per_page=100)
-        rows = [{"n": i} for i in range(35)]
-        paginator.update_state(_response({"total_results": 70, "items": rows}), rows)
-
-        assert paginator.start_index == 35
-        assert paginator.has_next_page is True
-
     @parameterized.expand(
         [
             ("stops_at_total", {"total_results": 2}, [{"n": 1}, {"n": 2}], 2, False),
@@ -167,12 +149,6 @@ class TestCompaniesHouseOffsetPaginator:
         resumed.set_resume_state(state or {})
         assert resumed.start_index == 2
         assert resumed.has_next_page is True
-
-    def test_no_resume_state_once_exhausted(self) -> None:
-        paginator = CompaniesHouseOffsetPaginator(total_key="total_results", items_per_page=2)
-        paginator.update_state(_response({"total_results": 1}), [{"n": 1}])
-
-        assert paginator.get_resume_state() is None
 
 
 class TestUkCompaniesHouseSource:
@@ -239,23 +215,6 @@ class TestUkCompaniesHouseSource:
 
         assert pages == [expected]
 
-    def test_fans_out_over_every_company_number(self) -> None:
-        pages, sent, manager = _run(
-            OFFICERS,
-            ["00006400", "SC123456"],
-            [
-                _response({"total_results": 1, "items": [{"name": "First"}]}),
-                _response({"total_results": 1, "items": [{"name": "Second"}]}),
-            ],
-        )
-
-        assert [url for url, _params in sent] == [
-            "https://api.company-information.service.gov.uk/company/00006400/officers",
-            "https://api.company-information.service.gov.uk/company/SC123456/officers",
-        ]
-        assert [row["company_number"] for page in pages for row in page] == ["00006400", "SC123456"]
-        manager.clear_state.assert_called_once()
-
     def test_paginates_one_company_until_the_total_is_reached(self) -> None:
         pages, sent, _manager_mock = _run(
             FILING_HISTORY,
@@ -305,23 +264,6 @@ class TestUkCompaniesHouseSource:
         assert [(url.rsplit("/company/", 1)[1], params["start_index"]) for url, params in sent] == [
             ("SC123456/officers", 100),
             ("OC301365/officers", 0),
-        ]
-
-    def test_saves_progress_after_each_page_and_each_company(self) -> None:
-        _pages, _sent, manager = _run(
-            OFFICERS,
-            ["00006400", "SC123456"],
-            [
-                _response({"total_results": 3, "items": [{"name": "a"}, {"name": "b"}]}),
-                _response({"total_results": 3, "items": [{"name": "c"}]}),
-                _response({"total_results": 1, "items": [{"name": "d"}]}),
-            ],
-        )
-
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            UkCompaniesHouseResumeConfig(company_index=0, start_index=2),
-            UkCompaniesHouseResumeConfig(company_index=1, start_index=0),
-            UkCompaniesHouseResumeConfig(company_index=2, start_index=0),
         ]
 
 

@@ -8,6 +8,11 @@ from django.conf import settings
 import jwt
 from cryptography.hazmat.primitives import serialization
 
+# For JWTs a third party signs with keys it publishes. Asymmetric signatures only: an HMAC
+# family would let anyone holding the published key sign with it as a shared secret, and
+# "none" carries no signature at all.
+ASYMMETRIC_SIGNING_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+
 JWT_ALGORITHM = "HS256"
 
 

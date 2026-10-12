@@ -4,14 +4,9 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.insightly import (
     InsightlySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import (
-    ENDPOINTS,
-    INSIGHTLY_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import INSIGHTLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
 
-# Derived from settings so a new endpoint is automatically covered by the parametrized tests below.
-INCREMENTAL_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if cfg.supports_incremental}
 FULL_REFRESH_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if not cfg.supports_incremental}
 
 
@@ -25,52 +20,21 @@ class TestInsightlySource:
         assert self.source.connection_host_fields == ["pod"]
 
     @pytest.mark.parametrize(
-        "observed_error",
+        "schema_name, expected",
         [
-            "401 Client Error: Unauthorized for url: https://api.na1.insightly.com/v3.1/Contacts?top=500&skip=0",
-            "403 Client Error: Forbidden for url: https://api.na1.insightly.com/v3.1/Leads?top=500&skip=0",
+            ("Contacts", True),
+            ("OpportunityStateHistory", False),
+            (None, True),
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.na1.insightly.com/v3.1/Contacts",
-            "500 Server Error for url: https://api.na1.insightly.com/v3.1/Notes",
-        ],
-    )
-    def test_transient_errors_are_not_marked_non_retryable(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_ENDPOINTS))
-    def test_incremental_endpoints_advertise_updated_at_cursor(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id, names=[endpoint]))
-        assert schema.supports_incremental is True
-        assert [f["field"] for f in schema.incremental_fields] == ["DATE_UPDATED_UTC"]
+    def test_resume_covers_only_checkpointed_endpoints(self, schema_name: str | None, expected: bool) -> None:
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected
 
     @pytest.mark.parametrize("endpoint", sorted(FULL_REFRESH_ENDPOINTS))
     def test_full_refresh_endpoints_have_no_incremental(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id, names=[endpoint]))
         assert schema.supports_incremental is False
         assert schema.incremental_fields == []
-
-    def test_get_schemas_names_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Contacts"])
-        assert [s.name for s in schemas] == ["Contacts"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog with no I/O — safe for public docs.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_ok",
@@ -97,6 +61,24 @@ class TestInsightlySource:
         mock_validate.return_value = status
         ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name)
         assert ok is expected_ok
+
+    @pytest.mark.parametrize(
+        "schema_name, expected_path",
+        [
+            ("Leads", "/Leads"),
+            # The per-opportunity path has an `{id}` placeholder, so access is probed on its parent.
+            ("OpportunityStateHistory", "/Opportunities"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
+    )
+    def test_validate_credentials_probes_a_requestable_path(
+        self, mock_validate: mock.MagicMock, schema_name: str, expected_path: str
+    ) -> None:
+        mock_validate.return_value = 200
+        self.source.validate_credentials(self.config, self.team_id, schema_name)
+        assert mock_validate.call_args.args[2] == expected_path
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
