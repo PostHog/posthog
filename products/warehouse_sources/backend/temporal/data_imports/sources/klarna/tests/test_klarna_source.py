@@ -58,6 +58,13 @@ def test_probe_bad_request_keeps_the_vendor_failure() -> None:
             KlarnaSource().validate_credentials(KlarnaSourceConfig(api_key="klarna_test_api_fake"), 1)
 
 
+@pytest.mark.parametrize("status", [204, 302])
+def test_probe_rejects_non_200_success_responses(status: int) -> None:
+    with scripted_network([ScriptedResponse(status=status)]):
+        with pytest.raises(ValueError, match="unexpected response"):
+            KlarnaSource().validate_credentials(KlarnaSourceConfig(api_key="klarna_test_api_fake"), 1)
+
+
 @pytest.mark.parametrize(
     ("endpoint", "incremental_field", "error_type"),
     [("orders", None, UnknownResourceError), ("payouts", "payout_date", ValueError)],
