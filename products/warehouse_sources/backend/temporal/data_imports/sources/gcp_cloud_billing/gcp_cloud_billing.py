@@ -1,4 +1,3 @@
-import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -29,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
     SCOPES,
     TOKEN_URL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
+    GcpCloudBillingKeyFileConfig,
+)
 
 
 class GcpCloudBillingCredentialsError(ValueError):
@@ -57,21 +59,23 @@ class BillingTokenRequest(GoogleRequest):
 
 
 class BillingServiceAccountAuth(AuthConfigBase):
-    def __init__(self, service_account_json: str) -> None:
+    def __init__(self, key_file: GcpCloudBillingKeyFileConfig) -> None:
         try:
-            info = json.loads(service_account_json)
-            if not isinstance(info, dict) or info.get("type") != "service_account":
-                raise ValueError("Expected a service account key")
-            if any(not isinstance(info.get(name), str) or not info[name] for name in ("client_email", "private_key")):
+            if not key_file.client_email or not key_file.private_key:
                 raise ValueError("Expected a service account email and private key")
             # Pin the token host because uploaded keys can contain a customer-controlled token_uri.
-            key = {name: info[name] for name in ("client_email", "private_key", "private_key_id") if name in info}
-            key["token_uri"] = TOKEN_URL
+            key = {
+                "client_email": key_file.client_email,
+                "private_key": key_file.private_key,
+                "private_key_id": key_file.private_key_id,
+                "token_uri": TOKEN_URL,
+            }
             self.credentials = service_account.Credentials.from_service_account_info(key, scopes=SCOPES)
         except (ValueError, TypeError, KeyError) as error:
-            raise GcpCloudBillingCredentialsError("Invalid GCP service account key. Enter a valid JSON key.") from error
-        self._key_json = service_account_json
-        self._private_key = key["private_key"]
+            raise GcpCloudBillingCredentialsError(
+                "Invalid GCP service account key. Upload a valid JSON key file."
+            ) from error
+        self._private_key = key_file.private_key
         self._request = BillingTokenRequest(session=make_tracked_session(capture=False))
 
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
@@ -86,7 +90,7 @@ class BillingServiceAccountAuth(AuthConfigBase):
         return request
 
     def secret_values(self) -> tuple[str, ...]:
-        return tuple(value for value in (self._key_json, self._private_key, self.credentials.token) if value)
+        return tuple(value for value in (self._private_key, self.credentials.token) if value)
 
 
 @frozen
@@ -94,9 +98,9 @@ class GcpCloudBillingResumeConfig:
     paginator_state: dict[str, Any] | None = None
 
 
-def probe_credentials(service_account_json: str, schema_name: str | None) -> None:
+def probe_credentials(key_file: GcpCloudBillingKeyFileConfig, schema_name: str | None) -> None:
     endpoint = schema_for_resource(ENDPOINTS, schema_name or "billing_accounts")
-    auth = BillingServiceAccountAuth(service_account_json)
+    auth = BillingServiceAccountAuth(key_file)
     with make_tracked_session(redact_values=auth.secret_values()) as session:
         path = endpoint.path
         if endpoint.fanout:
@@ -119,7 +123,7 @@ def probe_credentials(service_account_json: str, schema_name: str | None) -> Non
 
 
 def gcp_cloud_billing_source(
-    service_account_json: str,
+    key_file: GcpCloudBillingKeyFileConfig,
     endpoint_name: str,
     team_id: int,
     job_id: str,
@@ -137,7 +141,7 @@ def gcp_cloud_billing_source(
 
     client: ClientConfig = {
         "base_url": CLOUD_BILLING_URL,
-        "auth": BillingServiceAccountAuth(service_account_json),
+        "auth": BillingServiceAccountAuth(key_file),
         "paginator": {
             "type": "cursor",
             "cursor_path": "nextPageToken",

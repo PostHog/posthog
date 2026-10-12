@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
     GcpCloudBillingSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
+    GcpCloudBillingKeyFileConfig,
     GcpCloudBillingSourceConfig,
 )
 
@@ -19,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     [(200, None, True), (401, None, False), (403, None, True), (401, "services", False), (403, "services", False)],
 )
 def test_credentials_distinguish_invalid_key_from_missing_scope(
-    service_account_json: str, status: int, schema: str | None, valid: bool
+    key_file: GcpCloudBillingKeyFileConfig, status: int, schema: str | None, valid: bool
 ) -> None:
     with scripted_network(
         [
@@ -30,33 +31,36 @@ def test_credentials_distinguish_invalid_key_from_missing_scope(
         ]
     ):
         success, message = GcpCloudBillingSource().validate_credentials(
-            GcpCloudBillingSourceConfig(service_account_json=service_account_json), team_id=1, schema_name=schema
+            GcpCloudBillingSourceConfig(key_file=key_file), team_id=1, schema_name=schema
         )
     assert success is valid
     assert (message is None) is valid
 
 
 @pytest.mark.parametrize(
-    "key",
+    "client_email,private_key",
     [
-        "not-json",
-        "[]",
-        '{"type":"authorized_user"}',
-        '{"type":"service_account"}',
-        '{"type":"service_account","client_email":"fake@example.com","private_key":123}',
+        ("", "-----BEGIN PRIVATE KEY-----"),
+        ("fake@example.com", ""),
+        ("fake@example.com", "not-a-pem-key"),
     ],
 )
-def test_malformed_keys_fail_without_network(key: str) -> None:
+def test_malformed_keys_fail_without_network(client_email: str, private_key: str) -> None:
+    key = GcpCloudBillingKeyFileConfig(
+        client_email=client_email, private_key=private_key, private_key_id="fake-key-id", token_uri=""
+    )
     with scripted_network([]):
         valid, message = GcpCloudBillingSource().validate_credentials(
-            GcpCloudBillingSourceConfig(service_account_json=key), team_id=1
+            GcpCloudBillingSourceConfig(key_file=key), team_id=1
         )
     assert valid is False
-    assert message == "Invalid GCP service account key. Enter a valid JSON key."
+    assert message == "Invalid GCP service account key. Upload a valid JSON key file."
 
 
 @pytest.mark.parametrize("empty_parents", [False, True])
-def test_child_permission_probe_uses_account_and_budget_host(service_account_json: str, empty_parents: bool) -> None:
+def test_child_permission_probe_uses_account_and_budget_host(
+    key_file: GcpCloudBillingKeyFileConfig, empty_parents: bool
+) -> None:
     script = [
         ScriptedResponse(json={"access_token": "fake-token", "expires_in": 3600}),
         ScriptedResponse(json={} if empty_parents else {"billingAccounts": [{"name": "billingAccounts/fake-account"}]}),
@@ -65,7 +69,7 @@ def test_child_permission_probe_uses_account_and_budget_host(service_account_jso
         script.append(ScriptedResponse(status=403, json={"error": {"code": 403, "status": "PERMISSION_DENIED"}}))
     with scripted_network(script) as network:
         valid, _ = GcpCloudBillingSource().validate_credentials(
-            GcpCloudBillingSourceConfig(service_account_json=service_account_json), team_id=1, schema_name="budgets"
+            GcpCloudBillingSourceConfig(key_file=key_file), team_id=1, schema_name="budgets"
         )
     assert valid is empty_parents
     if not empty_parents:
@@ -75,22 +79,20 @@ def test_child_permission_probe_uses_account_and_budget_host(service_account_jso
         )
 
 
-def test_revoked_key_returns_safe_message(service_account_json: str) -> None:
+def test_revoked_key_returns_safe_message(key_file: GcpCloudBillingKeyFileConfig) -> None:
     with scripted_network(
         [ScriptedResponse(status=400, json={"error": "invalid_grant", "error_description": "Invalid JWT Signature."})]
     ):
         valid, message = GcpCloudBillingSource().validate_credentials(
-            GcpCloudBillingSourceConfig(service_account_json=service_account_json), team_id=1
+            GcpCloudBillingSourceConfig(key_file=key_file), team_id=1
         )
     assert valid is False
     assert message == "Google rejected the service account key. Replace the key and reconnect."
 
 
-def test_transient_token_failure_propagates(service_account_json: str) -> None:
+def test_transient_token_failure_propagates(key_file: GcpCloudBillingKeyFileConfig) -> None:
     with (
         scripted_network([ScriptedResponse(status=503, json={"error": "temporarily_unavailable"})] * 20),
         pytest.raises(TransportError),
     ):
-        GcpCloudBillingSource().validate_credentials(
-            GcpCloudBillingSourceConfig(service_account_json=service_account_json), team_id=1
-        )
+        GcpCloudBillingSource().validate_credentials(GcpCloudBillingSourceConfig(key_file=key_file), team_id=1)

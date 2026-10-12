@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
     GcpCloudBillingSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpcloudbilling import (
+    GcpCloudBillingKeyFileConfig,
     GcpCloudBillingSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tests.contract_harness import (
@@ -29,9 +30,9 @@ def token_response(token: str = "fake-access-token") -> ScriptedResponse:
     return ScriptedResponse(json={"access_token": token, "expires_in": 3600, "token_type": "Bearer"})
 
 
-def test_signed_extraction_meets_worker_contract(service_account_json: str) -> None:
+def test_signed_extraction_meets_worker_contract(key_file: GcpCloudBillingKeyFileConfig) -> None:
     source = GcpCloudBillingSource()
-    config = GcpCloudBillingSourceConfig(service_account_json=service_account_json)
+    config = GcpCloudBillingSourceConfig(key_file=key_file)
     verdict = check_extraction(
         start_source(source, config), [schema.name for schema in source.get_schemas(config, team_id=1)]
     )
@@ -45,11 +46,9 @@ def test_signed_extraction_meets_worker_contract(service_account_json: str) -> N
     [("billing_accounts", "billingAccounts", "/v1/billingAccounts"), ("services", "services", "/v1/services")],
 )
 def test_top_level_pagination_and_committed_resume(
-    service_account_json: str, schema: str, selector: str, path: str
+    key_file: GcpCloudBillingKeyFileConfig, schema: str, selector: str, path: str
 ) -> None:
-    result = SourceDriver(
-        GcpCloudBillingSource(), GcpCloudBillingSourceConfig(service_account_json=service_account_json)
-    ).run(
+    result = SourceDriver(GcpCloudBillingSource(), GcpCloudBillingSourceConfig(key_file=key_file)).run(
         schema,
         [
             token_response(),
@@ -104,7 +103,7 @@ def test_top_level_pagination_and_committed_resume(
     ],
 )
 def test_fanout_paginates_parents_and_children(
-    service_account_json: str,
+    key_file: GcpCloudBillingKeyFileConfig,
     schema: str,
     parent_selector: str,
     parent: str,
@@ -116,9 +115,7 @@ def test_fanout_paginates_parents_and_children(
     first_parent = f"{parent}/parent-a"
     second_parent = f"{parent}/parent-b"
     child = f"/v1/{first_parent}/{child_path}"
-    result = SourceDriver(
-        GcpCloudBillingSource(), GcpCloudBillingSourceConfig(service_account_json=service_account_json)
-    ).run(
+    result = SourceDriver(GcpCloudBillingSource(), GcpCloudBillingSourceConfig(key_file=key_file)).run(
         schema,
         [
             token_response(),
@@ -154,7 +151,7 @@ def test_fanout_paginates_parents_and_children(
 
 
 @pytest.mark.parametrize("fanout", [False, True])
-def test_resume_starts_after_saved_page(service_account_json: str, fanout: bool) -> None:
+def test_resume_starts_after_saved_page(key_file: GcpCloudBillingKeyFileConfig, fanout: bool) -> None:
     state = (
         {
             "completed": ["v1/services/done/skus"],
@@ -168,18 +165,18 @@ def test_resume_starts_after_saved_page(service_account_json: str, fanout: bool)
     if fanout:
         pages.append(ScriptedResponse(json={"services": [{"name": "services/done"}, {"name": "services/current"}]}))
     pages.append(ScriptedResponse(json={"skus" if fanout else "services": [{"name": "last"}]}))
-    result = SourceDriver(
-        GcpCloudBillingSource(), GcpCloudBillingSourceConfig(service_account_json=service_account_json)
-    ).run("skus" if fanout else "services", pages, resume_state=GcpCloudBillingResumeConfig(paginator_state=state))
+    result = SourceDriver(GcpCloudBillingSource(), GcpCloudBillingSourceConfig(key_file=key_file)).run(
+        "skus" if fanout else "services", pages, resume_state=GcpCloudBillingResumeConfig(paginator_state=state)
+    )
     assert result.raised is None
     assert result.params("pageToken")[-1] == "saved-page"
     assert len(result.rows) == 1
     assert "/v1/services/done/skus" not in result.paths
 
 
-def test_auth_refreshes_expired_token_without_retargeting_key(service_account_json: str) -> None:
+def test_auth_refreshes_expired_token_without_retargeting_key(key_file: GcpCloudBillingKeyFileConfig) -> None:
     with scripted_network([token_response("first-token"), token_response("second-token")]) as network:
-        auth = BillingServiceAccountAuth(service_account_json)
+        auth = BillingServiceAccountAuth(key_file)
         first = auth(Request("GET", "https://cloudbilling.googleapis.com/v1/services").prepare())
         auth.credentials.expiry = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
         second = auth(Request("GET", "https://cloudbilling.googleapis.com/v1/services").prepare())

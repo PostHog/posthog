@@ -6,8 +6,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldFileUploadConfig,
+    SourceFieldFileUploadJsonFormatConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -69,13 +69,14 @@ class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpClou
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="service_account_json",
-                        label="Service account JSON key",
-                        type=SourceFieldInputConfigType.PASSWORD,
+                    SourceFieldFileUploadConfig(
+                        name="key_file",
+                        label="Service account JSON key file",
+                        fileFormat=SourceFieldFileUploadJsonFormatConfig(
+                            format=".json",
+                            keys=["client_email", "private_key", "private_key_id", "token_uri"],
+                        ),
                         required=True,
-                        secret=True,
-                        placeholder="",
                     ),
                 ],
             ),
@@ -85,7 +86,7 @@ class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpClou
         return {
             "401 Client Error": "Google rejected the credentials. Replace the service account key and reconnect.",
             "403 Client Error": "Google denied access. Enable the billing APIs and grant the required billing permissions.",
-            "Invalid GCP service account key": "Enter a valid service account JSON key.",
+            "Invalid GCP service account key": "Upload a valid service account JSON key file.",
             "Google rejected the service account key": "Replace the service account key and reconnect.",
             "Google token exchange refused a redirect": "Replace the service account key and reconnect.",
         }
@@ -101,7 +102,7 @@ class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpClou
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            probe_credentials(config.service_account_json, schema_name)
+            probe_credentials(config.key_file, schema_name)
         except GcpCloudBillingCredentialsError as error:
             return False, str(error)
         except HTTPError as error:
@@ -139,7 +140,7 @@ class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpClou
         inputs: SourceInputs,
     ) -> SourceResponse:
         return gcp_cloud_billing_source(
-            service_account_json=config.service_account_json,
+            key_file=config.key_file,
             endpoint_name=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
