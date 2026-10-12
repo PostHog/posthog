@@ -28,7 +28,7 @@ from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_FAILURE_ERROR_TYPES
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelContributorsDTO,
@@ -335,6 +335,12 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
+    )
+    error_type = serializers.ChoiceField(
+        choices=TASK_RUN_FAILURE_ERROR_TYPES,
+        required=False,
+        allow_null=True,
+        help_text="Why the run failed, set by the caller that marked it failed.",
     )
 
 
@@ -987,6 +993,8 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.SLACK,
             # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
             tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
+            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
+            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

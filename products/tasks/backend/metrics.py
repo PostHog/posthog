@@ -435,8 +435,7 @@ DesktopAccessOutcome = Literal[
 ]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
-# fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
-# a degraded gateway must not silently remove the only cost backstop), org_deactivated when
+# fail_open when a gateway/token error let the run proceed unchecked (a degraded gateway must not silently remove the only cost backstop), org_deactivated when
 # the local deactivated-organization check blocked the run before any gateway call.
 CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "posthog_tasks_code_usage_gate_check_total",
@@ -462,9 +461,8 @@ def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
-# TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
-# unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
-# shrink in production before considering anything stricter.
+# TaskRun lookup could ride the team_id index. "false" means no team links the installation,
+# so the lookup is skipped and the delivery matches no run.
 GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
     "posthog_tasks_github_webhook_task_run_lookup_total",
     "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",

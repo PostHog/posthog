@@ -153,7 +153,7 @@ SINGLE_AGENT_SOURCE = "flash-single-agent"
 # Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
 # so the resolution stage can recognize its own threads by content. Installation bot logins vary per
 # deployment, so there is no stable login to match on; this marker is the reliable signal. Same
-# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+# HTML-comment style as the review-body and status markers, invisible in rendered markdown.
 REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
 
 # A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
@@ -597,6 +597,11 @@ OUTCOME_MAX_REPORTS_PER_SWEEP = 50
 # whole report is decided, the retry and every later sweep would replay the same calls and never
 # finish it. Candidates past this ceiling settle without a judge call so the report always completes.
 OUTCOME_MAX_JUDGE_CALLS_PER_REPORT = 30
+# Ceiling on reaction reads for one report: each finding comment with a reaction costs one GitHub read
+# to see who left it. Outcomes persist only once the whole report is decided, so a report that spends
+# the installation's budget stops the team's sweep and replays the same reads on every retry. Comments
+# past the ceiling go to the line check and judge, which under-counts `reacted` rather than inventing it.
+OUTCOME_MAX_REACTION_READS_PER_REPORT = 30
 # A judge call that fails settles its finding as `judge_failed` rather than throwing away the whole
 # report's completed judgments and replaying them next sweep. These two bound that tolerance, because
 # an outcome is written once and never re-decided: recording a report's worth of `judge_failed` during
