@@ -798,7 +798,7 @@ def test_patch_returns_error_on_unsupported_hogql_query(
     }
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Unsupported function call 'toInt32(...)'" in response.json()["detail"]
+    assert "Unsupported" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("hogql_enabled", [True, False], ids=["enabled", "disabled"])

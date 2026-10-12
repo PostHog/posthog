@@ -13,9 +13,20 @@ import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metri
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
+
 // The split button each variant row offers. The menu is the feature: it names the populations the
 // Recordings tab can open for this metric, and a funnel names different ones from a mean metric.
 const MAIN_BUTTON = '[data-attr="experiment-metrics-view-recordings"]'
+
+const FUNNEL_RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_FUNNEL_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_FUNNEL_METRIC, { funnel: FUNNELS_METRIC_RESULT })
+)
+const MEAN_RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_MEAN_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_MEAN_METRIC, { mean: MEAN_METRIC_RESULT })
+)
 
 const meta: Meta = {
     component: App,
@@ -30,6 +41,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                ...FUNNEL_RECALCULATION.get,
+                ...MEAN_RECALCULATION.get,
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`]:
                     EXPERIMENT_WITH_FUNNEL_METRIC,
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]: EXPERIMENT_WITH_MEAN_METRIC,
@@ -46,16 +59,14 @@ const meta: Meta = {
                 '/api/projects/:team_id/property_definitions/seen_together': {},
             },
             post: {
+                ...FUNNEL_RECALCULATION.post,
+                ...MEAN_RECALCULATION.post,
                 // Answered so the scene does not raise a failure toast over the table.
                 '/api/projects/:team_id/experiments/calculate_running_time/': {},
+                // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURE_QUERY_RESULT]
-                    }
-
-                    return [200, FUNNELS_METRIC_RESULT]
+                    return body.query.kind === NodeKind.ExperimentExposureQuery ? [200, EXPOSURE_QUERY_RESULT] : [404]
                 },
             },
         }),
@@ -67,14 +78,10 @@ type Story = StoryObj<{}>
 
 const meanMetricDecorator = mswDecorator({
     post: {
+        // Exposures still load through experimentLogic; metric results come from the recalculation run.
         '/api/environments/:team_id/query/:kind': async ({ request }) => {
             const body = (await request.json()) as Record<string, any>
-
-            if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                return [200, EXPOSURE_QUERY_RESULT]
-            }
-
-            return [200, MEAN_METRIC_RESULT]
+            return body.query.kind === NodeKind.ExperimentExposureQuery ? [200, EXPOSURE_QUERY_RESULT] : [404]
         },
     },
 })

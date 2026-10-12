@@ -35,7 +35,7 @@ def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
     single_variant_shipped = is_single_variant_shipped(flag)
 
     if ctx.is_running:
-        if not flag.active:
+        if ctx.is_paused:
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
                 subcode=RUNNING_BUT_FLAG_DISABLED,
