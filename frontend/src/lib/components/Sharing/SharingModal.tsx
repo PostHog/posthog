@@ -43,6 +43,7 @@ import { InsightType } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SharePasswordsTable } from './SharePasswordsTable'
+import { SharingBrandingSettings } from './SharingBrandingSettings'
 import { sharingLogic } from './sharingLogic'
 
 function getResourceType(
@@ -125,6 +126,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
         sharingAllowed,
+        sharingSettings,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
         sharingLogic(logicProps)
@@ -382,6 +384,10 @@ export function SharingModalContent({
                                             />
                                         )}
                                     </LemonField>
+
+                                    {dashboardId && whitelabelAvailable && sharingSettings.whitelabel && (
+                                        <SharingBrandingSettings logicProps={logicProps} />
+                                    )}
 
                                     {isInsightVizNode(insight?.query) &&
                                         insightShortId && (

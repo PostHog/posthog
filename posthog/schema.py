@@ -3257,6 +3257,8 @@ class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    brandLinkUrl: str | None = None
+    brandLogoMediaId: str | None = None
     detailed: bool | None = None
     hideExtraDetails: bool | None = None
     legend: bool | None = None

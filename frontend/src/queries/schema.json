@@ -53770,6 +53770,12 @@
         "SharingConfigurationSettings": {
             "additionalProperties": false,
             "properties": {
+                "brandLinkUrl": {
+                    "type": "string"
+                },
+                "brandLogoMediaId": {
+                    "type": "string"
+                },
                 "detailed": {
                     "type": "boolean"
                 },

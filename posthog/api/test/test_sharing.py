@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import timedelta
 from functools import wraps
 from urllib.parse import quote
@@ -30,6 +31,8 @@ from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.test.insight_queries import browser_filtered_pageview_query
 
@@ -1162,6 +1165,78 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         # Empty dict should be filled with defaults
         assert data["settings"] == {}
+
+    @parameterized.expand(
+        [
+            ("own_project_logo", "own", None, status.HTTP_200_OK),
+            ("other_project_logo", "other_project", None, status.HTTP_400_BAD_REQUEST),
+            ("pending_logo", "pending", None, status.HTTP_400_BAD_REQUEST),
+            ("unknown_logo", "unknown", None, status.HTTP_400_BAD_REQUEST),
+            ("malformed_logo", "malformed", None, status.HTTP_400_BAD_REQUEST),
+            ("https_link", "own", "https://example.com", status.HTTP_200_OK),
+            ("javascript_link", "own", "javascript:alert(1)", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_brand_settings_validation(
+        self, _name: str, logo: str, link: str | None, expected_status: int, _patched_exporter_task: Mock
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        logo_ids = {
+            "own": str(UploadedMedia.objects.create(team=self.team, content_type="image/png").id),
+            "other_project": str(UploadedMedia.objects.create(team=other_team, content_type="image/png").id),
+            "pending": str(UploadedMedia.objects.create(team=self.team, content_type="image/png", pending=True).id),
+            "unknown": str(uuid.uuid4()),
+            "malformed": "not-a-uuid",
+        }
+        settings: dict[str, object] = {"whitelabel": True, "brandLogoMediaId": logo_ids[logo]}
+        if link is not None:
+            settings["brandLinkUrl"] = link
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": settings},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["settings"] == settings
+
+    @parameterized.expand(
+        [
+            ("boost_with_whitelabel", True, True, True),
+            ("boost_without_whitelabel", True, False, False),
+            ("free_with_whitelabel", False, True, False),
+        ]
+    )
+    def test_shared_dashboard_includes_brand_only_with_white_labelling(
+        self, _name: str, feature_available: bool, whitelabel: bool, expect_brand: bool
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.WHITE_LABELLING, "name": AvailableFeature.WHITE_LABELLING}]
+            if feature_available
+            else []
+        )
+        self.organization.save()
+        media = UploadedMedia.objects.create(team=self.team, content_type="image/png")
+        config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            settings={
+                "whitelabel": whitelabel,
+                "brandLogoMediaId": str(media.id),
+                "brandLinkUrl": "https://example.com",
+            },
+        )
+
+        exported = self.client.get(f"/shared/{config.access_token}.json").json()
+
+        brand = {key: exported.get(key) for key in ("brandLogoMediaId", "brandLinkUrl")}
+        if expect_brand:
+            assert brand == {"brandLogoMediaId": str(media.id), "brandLinkUrl": "https://example.com"}
+        else:
+            assert brand == {"brandLogoMediaId": None, "brandLinkUrl": None}
 
     def test_invalid_settings_type_rejected(self):
         """Test that invalid settings type is rejected"""

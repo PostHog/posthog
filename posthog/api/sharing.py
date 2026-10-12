@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections.abc import Callable
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
@@ -46,6 +47,7 @@ from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
+from posthog.models.uploaded_media import PRIVATE_MEDIA_PURPOSES, UploadedMedia
 from posthog.models.user import User
 from posthog.rate_limit import (
     BurstRateThrottle,
@@ -360,6 +362,11 @@ class SharePasswordCreateSerializer(serializers.Serializer):
         return value
 
 
+def _is_http_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
 class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
@@ -387,10 +394,32 @@ class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serialize
 
             validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
             result = validated_settings.model_dump(exclude_none=True)
-            return result
         except Exception as e:
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
+
+        brand_logo_media_id = result.get("brandLogoMediaId")
+        if brand_logo_media_id is not None and not self._is_project_image(brand_logo_media_id):
+            raise serializers.ValidationError("The logo must be an image uploaded to this project.")
+
+        brand_link_url = result.get("brandLinkUrl")
+        if brand_link_url is not None and not _is_http_url(brand_link_url):
+            raise serializers.ValidationError("The logo link must start with http:// or https://.")
+
+        return result
+
+    def _is_project_image(self, media_id: str) -> bool:
+        try:
+            media_uuid = uuid.UUID(media_id)
+        except ValueError:
+            return False
+        return (
+            UploadedMedia.objects.filter(
+                pk=media_uuid, team__project_id=self.context["get_team"]().project_id, pending=False
+            )
+            .exclude(purpose__in=PRIVATE_MEDIA_PURPOSES)
+            .exists()
+        )
 
     @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
@@ -1427,6 +1456,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             merged_data = base_settings.model_dump()
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
+                    # Brand values are validated on save, so a viewer's URL must not override them
+                    if field_name in ("brandLogoMediaId", "brandLinkUrl"):
+                        continue
                     raw_value = request.GET.get(field_name)
                     if field_name == "theme":
                         if raw_value in {"light", "dark", "system"}:
@@ -1455,6 +1487,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
+            if resource.dashboard and final_settings.brandLogoMediaId:
+                exported_data["brandLogoMediaId"] = final_settings.brandLogoMediaId
+                if final_settings.brandLinkUrl and _is_http_url(final_settings.brandLinkUrl):
+                    exported_data["brandLinkUrl"] = final_settings.brandLinkUrl
 
         if final_settings.noHeader:
             exported_data.update({"noHeader": True})

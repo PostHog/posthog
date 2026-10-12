@@ -40,6 +40,8 @@ const defaultSharingSettings = {
     showInspector: false,
     hideExtraDetails: false,
     theme: 'system',
+    brandLogoMediaId: null as string | null,
+    brandLinkUrl: null as string | null,
 }
 
 const propsToApiParams = async (
@@ -82,6 +84,8 @@ export interface sharingLogicValues {
     sharingConfiguration: SharingConfigurationType | null
     sharingConfigurationLoading: boolean
     sharingSettings: {
+        brandLinkUrl: string | null
+        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
@@ -93,6 +97,8 @@ export interface sharingLogicValues {
     sharingSettingsChanged: boolean
     sharingSettingsErrors: DeepPartialMap<
         {
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -108,6 +114,8 @@ export interface sharingLogicValues {
     sharingSettingsTouches: Record<string, boolean>
     sharingSettingsValidationErrors: DeepPartialMap<
         {
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -144,6 +152,8 @@ export interface sharingLogicActions {
         value: true
     }
     resetSharingSettings: (values?: {
+        brandLinkUrl: string | null
+        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
@@ -152,6 +162,8 @@ export interface sharingLogicActions {
         whitelabel: boolean
     }) => {
         values?: {
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -202,6 +214,8 @@ export interface sharingLogicActions {
     }
     setSharingSettingsValues: (
         values: DeepPartial<{
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -211,6 +225,8 @@ export interface sharingLogicActions {
         }>
     ) => {
         values: DeepPartial<{
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -230,6 +246,8 @@ export interface sharingLogicActions {
         errors: Record<string, any>
     }
     submitSharingSettingsRequest: (sharingSettings: {
+        brandLinkUrl: string | null
+        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
@@ -238,6 +256,8 @@ export interface sharingLogicActions {
         whitelabel: boolean
     }) => {
         sharingSettings: {
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -247,6 +267,8 @@ export interface sharingLogicActions {
         }
     }
     submitSharingSettingsSuccess: (sharingSettings: {
+        brandLinkUrl: string | null
+        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
@@ -255,6 +277,8 @@ export interface sharingLogicActions {
         whitelabel: boolean
     }) => {
         sharingSettings: {
+            brandLinkUrl: string | null
+            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
@@ -405,6 +429,13 @@ export const sharingLogic = kea<sharingLogicType>([
             }
             if (name === 'whitelabel' && props.insightShortId) {
                 posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: value })
+            }
+            if ((name === 'brandLogoMediaId' || name === 'brandLinkUrl') && props.dashboardId) {
+                posthog.capture(`dashboard custom branding updated`, {
+                    dashboard_id: props.dashboardId,
+                    setting: name,
+                    has_value: !!value,
+                })
             }
             // Auto-save all embed config changes to settings
             if (values.sharingConfiguration) {

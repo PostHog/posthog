@@ -9,6 +9,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { examples } from '~/queries/examples'
+import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightShortId, InsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'
@@ -19,7 +20,11 @@ const fakeInsight: Partial<InsightModel> = {
     query: examples.InsightTrendsQuery,
 }
 
-type StoryArgs = SharingModalProps & { licensed?: boolean; passwordRequired?: boolean }
+type StoryArgs = SharingModalProps & {
+    licensed?: boolean
+    passwordRequired?: boolean
+    sharingSettings?: SharingConfigurationSettings
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Sharing',
@@ -29,7 +34,7 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
     },
     render: (args) => {
-        const { licensed = false, passwordRequired = false, ...props } = args
+        const { licensed = false, passwordRequired = false, sharingSettings, ...props } = args
         const [modalOpen, setModalOpen] = useState(false)
 
         useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ACCESS_CONTROL] : [])
@@ -48,6 +53,7 @@ const meta: Meta<StoryArgs> = {
                                 enabled: true,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
                                 password_required: passwordRequired,
+                                settings: sharingSettings,
                             },
                         }),
                     {}
@@ -125,6 +131,22 @@ export const DashboardSharing: Story = {
 
 export const DashboardSharingLicensed: Story = {
     args: { title: 'Dashboard permissions', licensed: true, passwordRequired: true, dashboardId: 123 },
+    decorators: [
+        (Story) => (
+            <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+                <Story />
+            </BindLogic>
+        ),
+    ],
+}
+
+export const DashboardSharingCustomBranding: Story = {
+    args: {
+        title: 'Dashboard permissions',
+        licensed: true,
+        dashboardId: 123,
+        sharingSettings: { whitelabel: true, brandLinkUrl: 'https://example.com' },
+    },
     decorators: [
         (Story) => (
             <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
