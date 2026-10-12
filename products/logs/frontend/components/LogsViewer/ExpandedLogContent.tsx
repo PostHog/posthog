@@ -18,6 +18,7 @@ export function ExpandedLogContent({ log }: ExpandedLogContentProps): JSX.Elemen
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <LogContextLinks
                 log={log}
+                surface="row"
                 onOpenRelatedErrors={(scope) => {
                     // openLogDetails resets the tab and the scope, so both have to follow it.
                     openLogDetails(log)
