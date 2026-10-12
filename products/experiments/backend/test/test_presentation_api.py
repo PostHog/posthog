@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -710,22 +709,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("load_fails", True, {}, None, None),
-            ("no_metric", False, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
-            ("inline_primary_metric_counts", False, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("inline_secondary_metric_counts", False, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("shared_primary_metric_counts", False, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
-            ("shared_secondary_metric_counts", False, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
-            ("shared_metric_without_type_counts", False, {}, {}, [_HEALTH_PAUSED]),
+            ("no_metric", {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
+            ("inline_primary_metric_counts", {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("inline_secondary_metric_counts", {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("shared_primary_metric_counts", {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
+            ("shared_secondary_metric_counts", {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
+            ("shared_metric_without_type_counts", {}, {}, [_HEALTH_PAUSED]),
         ]
     )
-    def test_detail_reports_health_findings(
+    def test_health_reports_findings(
         self,
         _name: str,
-        load_fails: bool,
         inline_metrics: dict[str, list[dict[str, Any]]],
         shared_metric_link: dict[str, Any] | None,
-        expected: list[tuple[str, str | None]] | None,
+        expected: list[tuple[str, str | None]],
     ) -> None:
         experiment = Experiment.objects.create(
             team=self.team,
@@ -767,22 +764,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
 
-        load_failure = (
-            patch(
-                "products.experiments.backend.presentation.serializers.load_health_context",
-                side_effect=RuntimeError("health context failed"),
-            )
-            if load_fails
-            else nullcontext()
-        )
-        with load_failure:
-            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        health = response.json()["health"]
-        if expected is None:
-            self.assertIsNone(health)
-            return
+        health = response.json()
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")

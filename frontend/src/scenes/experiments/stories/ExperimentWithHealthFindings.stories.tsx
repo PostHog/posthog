@@ -13,22 +13,19 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-const EXPERIMENT_WITH_HEALTH_FINDINGS = {
-    ...EXPERIMENT_WITH_MEAN_METRIC,
-    health: {
-        findings: [
-            {
-                code: 'flag_off_while_running',
-                subcode: 'running_but_no_rollout',
-                severity: 'warning',
-                title: 'The experiment is running, but no new users are being exposed',
-                detail: 'The linked feature flag has a 0% rollout, so no new users are being exposed. Users exposed earlier are still included in the results. End the experiment with a conclusion, or increase the rollout percentage to expose users.',
-                evidence: {},
-                actions: ['open_feature_flag'],
-                diagnostic_ref: 'A5',
-            },
-        ],
-    },
+const EXPERIMENT_HEALTH = {
+    findings: [
+        {
+            code: 'flag_off_while_running',
+            subcode: 'running_but_no_rollout',
+            severity: 'warning',
+            title: 'The experiment is running, but no new users are being exposed',
+            detail: 'The linked feature flag has a 0% rollout, so no new users are being exposed. Users exposed earlier are still included in the results. End the experiment with a conclusion, or increase the rollout percentage to expose users.',
+            evidence: {},
+            actions: ['open_feature_flag'],
+            diagnostic_ref: 'A5',
+        },
+    ],
 }
 
 const EXPOSURES_WITH_BIAS_RISK = {
@@ -72,8 +69,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]:
-                    EXPERIMENT_WITH_HEALTH_FINDINGS,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]: EXPERIMENT_WITH_MEAN_METRIC,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/health/`]: EXPERIMENT_HEALTH,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
                 [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]: {},

@@ -38,7 +38,6 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
@@ -51,11 +50,6 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
-from products.experiments.backend.health.context import load_health_context
-from products.experiments.backend.health.registry import (
-    EXPERIMENT_HEALTH_CHECKS,
-    evaluate as evaluate_health,
-)
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -574,13 +568,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "experiment would resolve to if launched now."
         ),
     )
-    health = serializers.SerializerMethodField(
-        help_text=(
-            "Health check diagnostics for this experiment: problems in its configuration and its feature "
-            "flag that keep it from producing trustworthy results, each with a fix. Read `findings` first "
-            "when you diagnose an experiment. Null when the health checks could not run."
-        ),
-    )
     version = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -677,7 +664,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "is_legacy",
             "can_freeze_exposure",
             "resolved_exposure_event",
-            "health",
             "user_access_level",
             "tags",
         ]
@@ -693,7 +679,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "can_freeze_exposure",
             "resolved_exposure_event",
-            "health",
             "user_access_level",
         ]
 
@@ -715,17 +700,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
-
-    @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
-    def get_health(self, obj: Experiment) -> dict[str, Any] | None:
-        try:
-            findings = evaluate_health(load_health_context(obj), EXPERIMENT_HEALTH_CHECKS)
-        except Exception as error:
-            # Every experiment read carries the findings, so a failed load must not fail the read.
-            # The page then applies its own rules, as it does for a null value.
-            capture_exception(error)
-            return None
-        return ExperimentHealthSerializer({"findings": findings}).data
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

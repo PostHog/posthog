@@ -23,7 +23,7 @@ export interface HealthDebugCheck {
 }
 
 export interface HealthDebugInput {
-    health: ExperimentHealthApi | null | undefined
+    health: ExperimentHealthApi | null
     panelFindings: HealthPanelFinding[] | null
     browserWarning: ExperimentWarning | null
     browserNoMetricsWarning: boolean
@@ -38,14 +38,8 @@ export interface HealthDebugInput {
 const NO_FINDING = 'no finding'
 const NOT_SENT = 'not sent'
 
-export function describeServerHealth(health: ExperimentHealthApi | null | undefined): string {
-    if (health === null) {
-        return 'null: the server could not run the health checks'
-    }
-    if (health === undefined) {
-        return 'missing: a flag save outside the experiment API dropped the findings, so reload the page'
-    }
-    return `${health.findings.length} findings`
+export function describeServerHealth(health: ExperimentHealthApi | null): string {
+    return health ? `${health.findings.length} findings` : 'not loaded: the health request is pending or failed'
 }
 
 export function describePanel(panelFindings: HealthPanelFinding[] | null): string {

@@ -6,6 +6,7 @@ import { resolveMultipleVariantHandling } from 'scenes/experiments/utils'
 import type { ExperimentExposureCriteria, ExperimentMetricUnion } from '~/queries/schema/schema-general'
 import type { Experiment, ExperimentIdType } from '~/types'
 
+import type { ExperimentHealthApi } from '../generated/api.schemas'
 import {
     type HealthDebugCheck,
     type HealthDebugFact,
@@ -22,6 +23,7 @@ export interface experimentHealthDebugLogicValues {
     browserExperimentWarning: ExperimentWarning | null // experimentLogic
     browserNoMetricsWarning: boolean // experimentLogic
     experiment: Experiment // experimentLogic
+    experimentHealth: ExperimentHealthApi | null // experimentLogic
     experimentLoadCount: number // experimentLogic
     exposureCriteria: ExperimentExposureCriteria | undefined // experimentLogic
     exposures: any // experimentLogic
@@ -69,6 +71,7 @@ export interface experimentHealthDebugLogicMeta {
         ) => HealthDebugInput['pageMetricCounts']
         healthDebugChecks: (
             experiment: Experiment,
+            experimentHealth: any,
             healthFindings: HealthPanelFinding[] | null,
             browserExperimentWarning: ExperimentWarning | null,
             browserNoMetricsWarning: boolean,
@@ -83,6 +86,7 @@ export interface experimentHealthDebugLogicMeta {
         ) => HealthDebugCheck[]
         healthDebugFacts: (
             experiment: Experiment,
+            experimentHealth: any,
             healthFindings: HealthPanelFinding[] | null,
             pageMetricCounts: {
                 primary: number
@@ -110,6 +114,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             experimentLogic(props),
             [
                 'experiment',
+                'experimentHealth',
                 'healthFindings',
                 'browserExperimentWarning',
                 'browserNoMetricsWarning',
@@ -134,6 +139,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
         healthDebugChecks: [
             (s) => [
                 s.experiment,
+                s.experimentHealth,
                 s.healthFindings,
                 s.browserExperimentWarning,
                 s.browserNoMetricsWarning,
@@ -145,6 +151,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             ],
             (
                 experiment: Experiment,
+                experimentHealth: ExperimentHealthApi | null,
                 healthFindings: HealthPanelFinding[] | null,
                 browserWarning: HealthDebugInput['browserWarning'],
                 browserNoMetricsWarning: boolean,
@@ -155,7 +162,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
                 exposureCriteria: ExperimentExposureCriteria | undefined
             ): HealthDebugCheck[] =>
                 buildHealthDebugChecks({
-                    health: experiment.health,
+                    health: experimentHealth,
                     panelFindings: healthFindings,
                     browserWarning,
                     browserNoMetricsWarning,
@@ -170,14 +177,15 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
                 }),
         ],
         healthDebugFacts: [
-            (s) => [s.experiment, s.healthFindings, s.pageMetricCounts, s.experimentLoadCount],
+            (s) => [s.experiment, s.experimentHealth, s.healthFindings, s.pageMetricCounts, s.experimentLoadCount],
             (
                 experiment: Experiment,
+                experimentHealth: ExperimentHealthApi | null,
                 healthFindings: HealthPanelFinding[] | null,
                 pageMetricCounts: HealthDebugInput['pageMetricCounts'],
                 experimentLoadCount: number
             ): HealthDebugFact[] => [
-                { label: 'Server health', value: describeServerHealth(experiment.health) },
+                { label: 'Server health', value: describeServerHealth(experimentHealth) },
                 { label: 'Health panel', value: describePanel(healthFindings) },
                 {
                     label: 'Page load',

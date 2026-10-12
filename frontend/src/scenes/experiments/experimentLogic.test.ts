@@ -31,7 +31,10 @@ import {
     MultivariateFlagVariant,
 } from '~/types'
 
-import type { ExperimentHealthFindingApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentHealthApi,
+    ExperimentHealthFindingApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 import type { ExperimentHealthFinding } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import { ExperimentWarning, experimentLogic } from './experimentLogic'
@@ -385,7 +388,6 @@ describe('experimentLogic', () => {
                 desc: 'no exposure answer',
                 exposures: null,
                 handling: undefined,
-                health: undefined,
                 expected: {
                     health_ui: 'warnings',
                     exposures_total: null,
@@ -399,7 +401,6 @@ describe('experimentLogic', () => {
                 desc: 'an answer without exposures, cached before the server ran its checks',
                 exposures: { timeseries: [], total_exposures: {} },
                 handling: undefined,
-                health: undefined,
                 expected: {
                     exposures_total: 0,
                     exposures_multiple: 0,
@@ -412,7 +413,6 @@ describe('experimentLogic', () => {
                 desc: 'an uneven split with users in several variants',
                 exposures: unevenExposures,
                 handling: 'exclude' as const,
-                health: undefined,
                 expected: {
                     exposures_total: 1000,
                     exposures_multiple: 50,
@@ -431,7 +431,6 @@ describe('experimentLogic', () => {
                     health_findings: [],
                 },
                 handling: 'first_seen' as const,
-                health: undefined,
                 expected: {
                     exposures_total: 1000,
                     exposures_multiple: null,
@@ -443,25 +442,23 @@ describe('experimentLogic', () => {
                 },
             },
             {
-                desc: 'a reader with health findings on a legacy experiment, and an answer where the server finds no exposure',
+                desc: 'an answer where the server finds no exposure',
                 exposures: {
                     timeseries: [{ variant: 'control' }, { variant: 'test' }],
                     total_exposures: { control: 0, test: 0 },
                     health_findings: [{ code: 'zero_exposures' }],
                 },
                 handling: undefined,
-                health: { findings: [] },
                 expected: { health_ui: 'warnings', exposures_total: 0, zero_exposures_server: true },
             },
         ])(
             'reports the exposure state with the completed refresh: $desc',
-            async ({ exposures, handling, health, expected }) => {
+            async ({ exposures, handling, expected }) => {
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
                 // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
                 logic.actions.setExperiment({
                     ...experiment,
                     exposure_criteria: { ...experiment.exposure_criteria, multiple_variant_handling: handling },
-                    health,
                 })
                 if (exposures) {
                     logic.actions.loadExposuresSuccess(exposures)
@@ -2857,6 +2854,7 @@ describe('experimentLogic', () => {
         it.each<{
             desc: string
             overrides: Partial<Experiment>
+            health?: ExperimentHealthApi
             expected: ExperimentWarning | null
             healthFindingsFlag?: boolean
         }>([
@@ -2998,77 +2996,62 @@ describe('experimentLogic', () => {
             },
             {
                 desc: 'server finding wins over the local rules',
-                overrides: {
-                    ...running,
-                    feature_flag: flag(true, multivariantFilters),
-                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
-                },
+                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
                 expected: { key: 'running_but_flag_disabled' },
             },
             {
                 desc: 'server without a finding wins over the local rules',
-                overrides: {
-                    ...running,
-                    feature_flag: flag(false, multivariantFilters),
-                    health: { findings: [] },
-                },
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
+                health: { findings: [] },
                 expected: null,
             },
             {
                 desc: 'server shipped-variant finding carries the variant key',
-                overrides: {
-                    ...running,
-                    feature_flag: flag(true, shippedVariantFilters),
-                    health: {
-                        findings: [
-                            healthFinding('no_metric', null),
-                            healthFinding('variant_shipped_while_running', 'running_but_single_variant_shipped', {
-                                variant_key: 'test',
-                            }),
-                        ],
-                    },
+                overrides: { ...running, feature_flag: flag(true, shippedVariantFilters) },
+                health: {
+                    findings: [
+                        healthFinding('no_metric', null),
+                        healthFinding('variant_shipped_while_running', 'running_but_single_variant_shipped', {
+                            variant_key: 'test',
+                        }),
+                    ],
                 },
                 expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
             },
             {
                 desc: 'server finding of another code is no flag-state warning',
-                overrides: {
-                    ...running,
-                    feature_flag: flag(false, multivariantFilters),
-                    health: { findings: [healthFinding('no_metric', null)] },
-                },
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
+                health: { findings: [healthFinding('no_metric', null)] },
                 expected: null,
             },
             {
                 desc: 'server findings for a reader without the health findings flag leave the local rules',
-                overrides: {
-                    ...running,
-                    feature_flag: flag(false, multivariantFilters),
-                    health: { findings: [] },
-                },
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
+                health: { findings: [] },
                 healthFindingsFlag: false,
                 expected: { key: 'running_but_flag_disabled' },
             },
-        ])('$desc → $expected', ({ overrides, expected, healthFindingsFlag = true }) => {
+        ])('$desc → $expected', ({ overrides, health, expected, healthFindingsFlag = true }) => {
             setHealthFindingsFlag(healthFindingsFlag)
             logic.actions.setExperiment(createExperiment(overrides))
+            if (health) {
+                logic.actions.loadExperimentHealthSuccess(health)
+            }
             expect(logic.values.experimentWarning).toEqual(expected)
         })
 
         it.each<{
             desc: string
             overrides: Partial<Experiment>
+            health: ExperimentHealthApi
             expected: Record<string, unknown>
             healthFindingsFlag?: boolean
         }>([
             {
                 desc: 'a server finding the local rules miss',
-                overrides: {
-                    ...running,
-                    ...newEngineMetrics,
-                    feature_flag: flag(true, multivariantFilters),
-                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
-                },
+                overrides: { ...running, ...newEngineMetrics, feature_flag: flag(true, multivariantFilters) },
+                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
                 expected: {
                     health_ui: 'panel',
                     health_finding_codes: ['flag_off_while_running'],
@@ -3081,26 +3064,20 @@ describe('experimentLogic', () => {
             },
             {
                 desc: 'a server subcode the page does not know',
-                overrides: {
-                    ...running,
-                    feature_flag: flag(true, multivariantFilters),
-                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_archived')] },
-                },
+                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_archived')] },
                 expected: { flag_state_browser: null, flag_state_server: 'running_but_flag_archived' },
             },
             {
-                desc: 'a reader with health findings on a legacy experiment, which shows the separate warnings',
-                overrides: { ...running, feature_flag: flag(true, multivariantFilters), health: { findings: [] } },
+                desc: 'a reader with the flag on a legacy experiment, which shows the separate warnings',
+                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                health: { findings: [] },
                 expected: { health_ui: 'warnings', health_finding_count: 0 },
             },
             {
                 desc: 'a reader without the health findings flag, who sees the separate warnings',
-                overrides: {
-                    ...running,
-                    ...newEngineMetrics,
-                    feature_flag: flag(false, multivariantFilters),
-                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
-                },
+                overrides: { ...running, ...newEngineMetrics, feature_flag: flag(false, multivariantFilters) },
+                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
                 healthFindingsFlag: false,
                 expected: {
                     health_ui: 'warnings',
@@ -3109,57 +3086,46 @@ describe('experimentLogic', () => {
                     flag_state_server: 'running_but_flag_disabled',
                 },
             },
-            {
-                desc: 'a reader without health findings',
-                overrides: { ...running, feature_flag: flag(false, multivariantFilters), health: null },
-                expected: {
-                    health_ui: 'warnings',
-                    health_finding_codes: null,
-                    health_finding_subcodes: null,
-                    health_finding_count: null,
-                    flag_state_browser: 'running_but_flag_disabled',
-                    flag_state_server: null,
-                    no_metric_server: null,
-                },
-            },
         ])(
-            'reports the local rules and the server checks with the experiment view: $desc',
-            ({ overrides, expected, healthFindingsFlag = true }) => {
+            'compares the local rules with the server checks when the health loads: $desc',
+            ({ overrides, health, expected, healthFindingsFlag = true }) => {
                 setHealthFindingsFlag(healthFindingsFlag)
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
 
-                logic.actions.loadExperimentSuccess(createExperiment(overrides))
+                logic.actions.setExperiment(createExperiment(overrides))
+                logic.actions.loadExperimentHealthSuccess(health, 'experiment_load')
 
-                const viewedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment viewed')
-                expect(viewedEvents).toHaveLength(1)
-                expect(viewedEvents[0][1]).toMatchObject(expected)
+                const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
+                expect(checkedEvents).toHaveLength(1)
+                expect(checkedEvents[0][1]).toMatchObject(expected)
             }
         )
 
-        it('applies the local rules after a local flag write makes the server findings stale', () => {
-            setHealthFindingsFlag(true)
-            logic.actions.setExperiment(
-                createExperiment({
-                    ...running,
-                    feature_flag: flag(true, multivariantFilters),
-                    health: { findings: [] },
-                })
-            )
-            expect(logic.values.experimentWarning).toBeNull()
+        it('loads the health with each experiment load and again after a write, comparing only once', async () => {
+            const health: ExperimentHealthApi = { findings: [] }
+            useMocks({ get: { '/api/projects/:team/experiments/7/health/': health } })
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const keyedLogic = experimentLogic({ experimentId: 7 })
+            keyedLogic.mount()
+            const draft = createExperiment({
+                id: 7,
+                start_date: undefined,
+                feature_flag: flag(true, multivariantFilters),
+            })
 
-            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+            await expectLogic(keyedLogic, () => {
+                keyedLogic.actions.loadExperimentSuccess(draft)
+            })
+                .toDispatchActions(['loadExperimentHealth', 'loadExperimentHealthSuccess'])
+                .toMatchValues({ experimentHealth: health })
 
-            expect(logic.values.experimentWarning).toEqual({ key: 'running_but_flag_disabled' })
-        })
+            await expectLogic(keyedLogic, () => {
+                keyedLogic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+            }).toDispatchActions(['loadExperimentHealth', 'loadExperimentHealthSuccess'])
 
-        it('keeps null health after a local flag write, so the page keeps applying its own rules', () => {
-            logic.actions.setExperiment(
-                createExperiment({ ...running, feature_flag: flag(true, multivariantFilters), health: null })
-            )
-
-            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
-
-            expect(logic.values.experiment.health).toBeNull()
+            const checkedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment health checked')
+            expect(checkedEvents).toHaveLength(1)
+            keyedLogic.unmount()
         })
     })
 
@@ -3216,8 +3182,8 @@ describe('experimentLogic', () => {
                 metrics: [],
                 metrics_secondary: [],
                 saved_metrics: [],
-                health: { findings: [] },
             })
+            logic.actions.loadExperimentHealthSuccess({ findings: [] })
 
             logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
             logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')

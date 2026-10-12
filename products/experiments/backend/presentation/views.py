@@ -73,6 +73,11 @@ from products.experiments.backend.facade.legacy_migration import (
     migrate_experiment as migrate_legacy_experiment,
 )
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -94,6 +99,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
     ExperimentMetricsRecalculationJobSerializer,
@@ -884,6 +890,23 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Health check findings for this experiment: problems in its configuration and its feature flag
+        that keep it from producing trustworthy results, each with a fix.
+
+        The checks here read the experiment, its flag and its linked metrics. The checks that read
+        exposures come with the exposure query.
+        """
+        experiment: Experiment = self.get_object()
+        findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
+        return Response(ExperimentHealthSerializer({"findings": findings}).data)
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,

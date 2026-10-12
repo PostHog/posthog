@@ -54,21 +54,21 @@ describe('ExperimentWarningBanner', () => {
             status: ExperimentStatus.Running,
             start_date: dayjs().subtract(3, 'day').toISOString(),
             feature_flag: { id: 1, key: 'checkout-flag', active: true, filters: { groups: [] } },
-            health: {
-                findings: [
-                    {
-                        code: 'variant_shipped_while_running',
-                        subcode: 'running_but_single_variant_shipped',
-                        severity: 'warning',
-                        title: '',
-                        detail: '',
-                        evidence: { variant_key: variantKey },
-                        actions: [],
-                        diagnostic_ref: null,
-                    },
-                ],
-            },
         } as unknown as Experiment)
+        logic.actions.loadExperimentHealthSuccess({
+            findings: [
+                {
+                    code: 'variant_shipped_while_running',
+                    subcode: 'running_but_single_variant_shipped',
+                    severity: 'warning',
+                    title: '',
+                    detail: '',
+                    evidence: { variant_key: variantKey },
+                    actions: [],
+                    diagnostic_ref: null,
+                },
+            ],
+        })
 
         const { container } = render(
             <Provider>
