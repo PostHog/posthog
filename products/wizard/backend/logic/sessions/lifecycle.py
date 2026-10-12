@@ -67,16 +67,22 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
                 partial(_enqueue_event_definition_sync, params.team_id, params.session_id),
                 robust=True,
             )
-        dto = to_session_dto(session)
 
+    # Built after the commit, so that a lazy `created_by` load on the create path doesn't run while the row is locked.
+    dto = to_session_dto(session)
     report_session_upserted(previous_run_phase, dto)
     publish_session_update(dto)
     return dto, created
 
 
 def _lock_session(params: UpsertWizardSessionInput) -> WizardSession | None:
+    # `created_by` is nullable, so the join is a LEFT OUTER JOIN. Postgres refuses FOR UPDATE on the
+    # nullable side of that join, so `of=("self",)` limits the lock to the session row.
     return (
-        WizardSession.objects.select_for_update().filter(team_id=params.team_id, session_id=params.session_id).first()
+        WizardSession.objects.select_for_update(of=("self",))
+        .select_related("created_by")
+        .filter(team_id=params.team_id, session_id=params.session_id)
+        .first()
     )
 
 
