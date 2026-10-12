@@ -35,7 +35,10 @@ return response.body
             label: 'Model',
             required: false,
             default: 'jev',
-            choices: [{ label: 'Jev', value: 'jev' }],
+            choices: [
+                { label: 'Jev', value: 'jev' },
+                { label: 'GPT-6 Luna', value: 'gpt-6-luna' },
+            ],
             description: 'The model that picks the category.',
         },
         {

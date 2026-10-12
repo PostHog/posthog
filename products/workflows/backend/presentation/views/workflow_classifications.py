@@ -50,9 +50,13 @@ MAX_CONTEXT_DEPTH = 100
 # to route the model on /v1/systemone, and the vendor's data processing must be covered for customer context.
 class ClassificationModel(models.TextChoices):
     JEV = "jev", "Jev"
+    GPT_6_LUNA = "gpt-6-luna", "GPT-6 Luna"
 
 
-CLASSIFICATION_MODELS: dict[str, str] = {ClassificationModel.JEV: DEFAULT_DECISION_MODEL}
+CLASSIFICATION_MODELS: dict[str, str] = {
+    ClassificationModel.JEV: DEFAULT_DECISION_MODEL,
+    ClassificationModel.GPT_6_LUNA: "openai/gpt-6-luna",
+}
 
 
 def _nesting_exceeds(value: Any, limit: int) -> bool:

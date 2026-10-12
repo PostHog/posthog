@@ -82,8 +82,15 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         decide.assert_not_called()
 
     # The step sends a null model when the author never opened the picker.
-    @parameterized.expand([("model_omitted", {}), ("model_null", {"model": None}), ("jev", {"model": "jev"})])
-    def test_returns_the_chosen_category(self, _name: str, body: dict) -> None:
+    @parameterized.expand(
+        [
+            ("model_omitted", {}, DEFAULT_DECISION_MODEL),
+            ("model_null", {"model": None}, DEFAULT_DECISION_MODEL),
+            ("jev", {"model": "jev"}, DEFAULT_DECISION_MODEL),
+            ("gpt_6_luna", {"model": "gpt-6-luna"}, "openai/gpt-6-luna"),
+        ]
+    )
+    def test_returns_the_chosen_category(self, _name: str, body: dict, expected_model: str) -> None:
         answer = ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
         with patch(_DECIDE, return_value=_result(answer)) as decide:
             response = self._post(body)
@@ -97,7 +104,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         sent = decide.call_args.args[0]
         assert sent.team_id == self.team.id
         assert sent.privacy_mode is True
-        assert sent.model == DEFAULT_DECISION_MODEL
+        assert sent.model == expected_model
         # User text stays in the state, never in the instructions.
         assert sent.state == {"subject": "Buy SEO"}
         assert sent.questions == {
