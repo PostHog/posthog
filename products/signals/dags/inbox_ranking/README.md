@@ -7,7 +7,8 @@ inbox_ranking/
 ├── common.py       # shared: S3 destination config, daily partition def, gating, Parquet IO
 ├── dataset/
 │   ├── dag.py      # the dataset assets + job + schedule
-│   └── queries.py  # HogQL label SQL, embeddings SQL, stream merging
+│   ├── queries.py  # HogQL label SQL, embeddings SQL, stream merging
+│   └── project_vectors.py  # per-team context vectors (pure function)
 ├── training/
 │   ├── dag.py        # examples → candidate → champion assets + job + schedule
 │   ├── examples.py   # birth-grain training examples over the snapshots
@@ -21,7 +22,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds eight assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds nine assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -34,7 +35,8 @@ s3://<bucket>/<prefix>/
 ├── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
 ├── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
 ├── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
-└── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
+├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
+└── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
@@ -46,6 +48,30 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - `user_distinct_id` comes from `user_uuid` when that uuid names a member of the report team's organization. Otherwise it comes from `github_login`, through the same GitHub identity mapping the `pr_merged` and `pr_closed` attribution uses. `identity_resolution` says which one matched (`user_uuid`, `github_login` or `unresolved`).
 - An entry that maps to no member stays as a row with a null `user_distinct_id`, so a reviewer with no history is counted and not dropped.
 - **The asset is current-state-only.** The index is rebuilt in full on every reviewer change, and reviewer artefacts can be edited in place or deleted, so no earlier set can be rebuilt. A forward-run partition holds the set at run time (at most a few hours after the cutoff). A backfilled partition holds today's set, flagged by `features_observed_at`. History starts on the day the asset first ran.
+
+### Project vectors
+
+`inbox_project_vectors` is a (team, kind) leaf with context vectors for a ranking model that reads a team's engagement history next to the report's own vector.
+`dataset/project_vectors.py` holds the pure function `project_vectors(labels, embeddings, as_of)`, and the asset calls it with `as_of` = the end of dt=D.
+
+| `kind`    | Mean of                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| `typical` | every report vector of the team                                                                  |
+| `open`    | the last 50 reports anyone on the team opened before `as_of`                                     |
+| `action`  | the last 50 reports anyone on the team acted on through a UI intent action (`UI_ACTION_COLUMNS`) |
+| `dismiss` | the last 50 reports anyone on the team dismissed from the UI                                     |
+
+- The columns are `team_id`, `kind`, `vector` (small-1536), `n_reports` and `as_of`.
+- The inputs are the dt=D `inbox_report_embeddings` and `inbox_report_labels` snapshots only. The engagement moments are the labels' first-event timestamps of the inbox app events, so MCP reads and agent actions never count. A project is a team, not an organization.
+- A kind with fewer than `MIN_HISTORY_REPORTS` reports keeps its row, with its real `n_reports` and an all-zero vector. A team with no report vector before `as_of` has no rows.
+- The asset filters the embeddings snapshot through `training_consent_team_ids()` again, so an opt-out after the snapshot was written takes effect.
+- **It is a leaf.** Nothing joins it, it is not in `inbox_report_model_data`'s deps, and its object carries its own `PROJECT_VECTORS_SCHEMA_VERSION`, so a failure here does not fail the training table. Its deps on the embeddings and labels assets keep it after the embeddings snapshot, so the two vector-heavy steps do not share the run pod's memory.
+
+Point-in-time contract:
+
+- A report born on day D uses the project vectors of dt=D−1. Their `as_of` is D 00:00 UTC, strictly before the birth, and that matches serving, where the sweep reads the newest snapshot.
+- A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
+- The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 
 ### Partition semantics
 
