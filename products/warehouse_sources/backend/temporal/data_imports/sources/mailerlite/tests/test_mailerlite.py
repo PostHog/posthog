@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterable
 from typing import Any, cast
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -137,6 +138,100 @@ class TestPagination:
 
         with pytest.raises(ValueError, match="disallowed host"):
             _run("subscribers", manager, [])
+
+
+def _query(url: str) -> dict[str, list[str]]:
+    return parse_qs(urlsplit(url).query)
+
+
+class TestFanout:
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_path", "child_path", "parent_key", "expected_parent_query", "expected_child_query"),
+        [
+            (
+                "campaign_subscriber_activity",
+                "/campaigns",
+                "/campaigns/c1/reports/subscriber-activity",
+                "campaign_id",
+                {"limit": ["100"], "filter[status]": ["sent"]},
+                {"limit": ["100"], "include": ["subscriber"]},
+            ),
+            (
+                "group_subscribers",
+                "/groups",
+                "/groups/c1/subscribers",
+                "group_id",
+                {"limit": ["100"]},
+                {"limit": ["100"]},
+            ),
+            (
+                "segment_subscribers",
+                "/segments",
+                "/segments/c1/subscribers",
+                "segment_id",
+                {"limit": ["100"]},
+                {"limit": ["100"]},
+            ),
+        ],
+    )
+    def test_walks_every_child_page_and_tags_rows_with_the_parent(
+        self,
+        endpoint: str,
+        parent_path: str,
+        child_path: str,
+        parent_key: str,
+        expected_parent_query: dict[str, list[str]],
+        expected_child_query: dict[str, list[str]],
+    ) -> None:
+        child_next = f"{MAILERLITE_BASE_URL}{child_path}?cursor=abc"
+        responses = [
+            _page([{"id": "c1"}], None),
+            _page([{"id": "a1"}], child_next),
+            _page([{"id": "a2"}], None),
+        ]
+
+        batches, sent_urls, _ = _run(endpoint, _make_manager(), responses)
+
+        assert [row for batch in batches for row in batch] == [
+            {"id": "a1", parent_key: "c1"},
+            {"id": "a2", parent_key: "c1"},
+        ]
+        assert urlsplit(sent_urls[0]).path == f"/api{parent_path}"
+        assert _query(sent_urls[0]) == expected_parent_query
+        assert urlsplit(sent_urls[1]).path == f"/api{child_path}"
+        assert _query(sent_urls[1]) == expected_child_query
+        assert sent_urls[2] == child_next
+
+    def test_automation_activity_requests_each_status(self) -> None:
+        # One page per status for the single automation, each answering one activity row.
+        responses = [_page([{"id": "au1"}], None)] + [
+            _page([{"id": f"run-{status}", "status": status.title()}], None)
+            for status in ("active", "completed", "canceled", "failed")
+        ]
+
+        batches, sent_urls, _ = _run("automation_activity", _make_manager(), responses)
+
+        assert [urlsplit(url).path for url in sent_urls[1:]] == ["/api/automations/au1/activity"] * 4
+        assert [_query(url)["filter[status]"] for url in sent_urls[1:]] == [
+            ["active"],
+            ["completed"],
+            ["canceled"],
+            ["failed"],
+        ]
+        rows = [row for batch in batches for row in batch]
+        assert {row["automation_id"] for row in rows} == {"au1"}
+        assert "activity_status" not in rows[0]
+
+    def test_resume_skips_completed_parents(self) -> None:
+        manager = _make_manager(MailerLiteResumeConfig(completed=["/groups/g1/subscribers"]))
+        responses = [_page([{"id": "g1"}, {"id": "g2"}], None), _page([{"id": "s1"}], None)]
+
+        batches, sent_urls, _ = _run("group_subscribers", manager, responses)
+
+        assert [urlsplit(url).path for url in sent_urls] == ["/api/groups", "/api/groups/g2/subscribers"]
+        assert batches == [[{"id": "s1", "group_id": "g2"}]]
+        saved = manager.save_state.call_args.args[0]
+        assert saved.completed == ["/groups/g1/subscribers", "/groups/g2/subscribers"]
 
 
 class TestRetry:
