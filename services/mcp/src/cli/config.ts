@@ -8,14 +8,41 @@ export interface CliConfig {
 
 const DEFAULT_HOST = 'https://us.posthog.com'
 
-function firstEnv(names: string[]): string | undefined {
+const HOST_ENV_NAMES = ['POSTHOG_HOST', 'POSTHOG_CLI_HOST']
+
+function firstEnvEntry(names: string[]): { name: string; value: string } | undefined {
     for (const name of names) {
         const value = process.env[name]
         if (value) {
-            return value
+            return { name, value }
         }
     }
     return undefined
+}
+
+function firstEnv(names: string[]): string | undefined {
+    return firstEnvEntry(names)?.value
+}
+
+// Users often set the host without a scheme (`us.posthog.com`), which makes every request URL relative.
+function normalizeHost(value: string, source: string): string {
+    const trimmed = value.trim()
+    const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+    let url: URL
+    try {
+        url = new URL(withScheme)
+    } catch {
+        throw new Error(`Invalid PostHog host "${value}" in ${source}. Use a full URL, such as https://us.posthog.com.`)
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        throw new Error(`Invalid PostHog host "${value}" in ${source}. The URL must start with https:// or http://.`)
+    }
+    return withScheme.replace(/\/+$/, '')
+}
+
+function resolveHost(): string {
+    const entry = firstEnvEntry(HOST_ENV_NAMES)
+    return entry ? normalizeHost(entry.value, entry.name) : DEFAULT_HOST
 }
 
 function parseVersion(value: string | undefined): number {
@@ -32,7 +59,7 @@ export function resolveCliConfig(): CliConfig {
     const projectId = firstEnv(['POSTHOG_PROJECT_ID', 'POSTHOG_CLI_PROJECT_ID', 'POSTHOG_CLI_ENV_ID'])
 
     return {
-        host: firstEnv(['POSTHOG_HOST', 'POSTHOG_CLI_HOST']) ?? DEFAULT_HOST,
+        host: resolveHost(),
         version: parseVersion(firstEnv(['POSTHOG_MCP_VERSION', 'POSTHOG_CLI_MCP_VERSION'])),
         ...(apiKey ? { apiKey } : {}),
         ...(organizationId ? { organizationId } : {}),
