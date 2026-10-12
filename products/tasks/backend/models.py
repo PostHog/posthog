@@ -1183,7 +1183,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # Audits never carry GitHub credentials; other internal tasks may use them only with a repository.
+        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
+        # credential. Provisioning injects any attached integration; these runs read member-authored
+        # text, so an attached token turns planted text into repository access.
         github_resolution_allowed = origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
             bool(repository)
             or origin_product
