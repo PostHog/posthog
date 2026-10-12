@@ -38,6 +38,7 @@ def _source_field(key: str) -> serializers.ChoiceField:
 
 class ReviewPreferenceSourcesSerializer(serializers.Serializer):
     default_review_mode = _source_field("default_review_mode")
+    review_drafts = _source_field("review_drafts")
     resolve_comments = _source_field("resolve_comments")
     urgency_threshold = _source_field("urgency_threshold")
     celebrate_clean_reviews = _source_field("celebrate_clean_reviews")
@@ -62,6 +63,12 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         help_text="Automatic reviews of the user's own pull requests in every repository this project reviews: "
         "'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' "
         "turns automatic reviews off everywhere. A choice for one repository wins over this default.",
+    )
+    review_drafts = serializers.BooleanField(
+        required=False,
+        help_text="Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets "
+        "its first automatic review when it is marked ready for review. Applies to automatic reviews only: the "
+        "reviewhog label, an @posthog review comment, and the Review button still review drafts.",
     )
     resolve_comments = serializers.BooleanField(
         required=False,
