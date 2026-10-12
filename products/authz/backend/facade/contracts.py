@@ -11,27 +11,24 @@ validation on construction.
 """
 
 from dataclasses import field, fields
-from datetime import datetime
 from typing import Self
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import Action, Level, ResourceType, SplineStatus
+from .enums import Action, Level, ResourceType
 
 
-@dataclass(frozen=True)
-class SplineReticulatorDTO:
-    id: UUID
-    name: str
-    status: SplineStatus
-    created_at: datetime
+@dataclass(frozen=True, kw_only=True)
+class OpenFgaStatus:
+    """Whether the OpenFGA server answers, and which store and authorization model the client uses."""
 
-
-@dataclass(frozen=True)
-class CreateSplineReticulatorInput:
-    team_id: int
-    name: str
+    reachable: bool
+    api_url: str
+    store_name: str | None
+    store_id: str | None
+    authorization_model_id: str | None
+    error: str | None
 
 
 @dataclass(frozen=True, kw_only=True)

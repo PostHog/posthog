@@ -11,13 +11,6 @@ models.TextChoices, for an enum that backs model or serializer choices.
 
 from enum import StrEnum
 
-from posthog.enums import LabeledStrEnum
-
-
-class SplineStatus(LabeledStrEnum):
-    PENDING = "pending"
-    RETICULATED = "reticulated"
-
 
 class Action(StrEnum):
     """An operation a subject asks to perform on a resource."""

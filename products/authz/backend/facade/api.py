@@ -11,28 +11,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import overload
 
-from ..logic import spline_reticulators
-from ..models import SplineReticulator
+from ..logic import openfga_status
 from . import contracts
-from .enums import Action, Level, SplineStatus, SubjectType
+from .enums import Action, Level, SubjectType
 
 
-def _to_dto(obj: SplineReticulator) -> contracts.SplineReticulatorDTO:
-    return contracts.SplineReticulatorDTO(
-        id=obj.id,
-        name=obj.name,
-        status=SplineStatus(obj.status),
-        created_at=obj.created_at,
-    )
-
-
-def create(input: contracts.CreateSplineReticulatorInput) -> contracts.SplineReticulatorDTO:
-    obj = spline_reticulators.create_spline_reticulator(team_id=input.team_id, name=input.name)
-    return _to_dto(obj)
-
-
-def list_all() -> list[contracts.SplineReticulatorDTO]:
-    return [_to_dto(obj) for obj in spline_reticulators.list_spline_reticulators()]
+def get_openfga_status() -> contracts.OpenFgaStatus:
+    """Return whether OpenFGA is reachable, and the store and authorization model the client uses."""
+    return openfga_status.get_openfga_status()
 
 
 # In every function below, `subject=None` and `context=None` mean the current request's subject and
