@@ -6,7 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, H
 # Based off of https://www.twilio.com/docs/sendgrid/api-reference/contacts/add-or-update-a-contact
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-sendgrid",
