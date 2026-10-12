@@ -139,6 +139,12 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A new or edited schedule anchors on the edit time and waits for its next slot rather than catching up on a past one.
   Reach for it when the run should land at a wall-clock time: a digest before standup, a weekday-only watch.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
+- `precheck_query` — defaults to null: a HogQL `SELECT` that a scheduled run evaluates before it starts, with `{since}`, `{now}`, and `{interval_minutes}` placeholders.
+  No rows, or one row with one false value (such as a zero `count()`), skips the run before it creates a run row or a sandbox. Any other result starts the run, and the rows enter the run prompt. A query error also starts the run.
+  Only scheduled runs evaluate it: a manual, workflow, or report-check run always starts.
+  Set it for a scout that has nothing to do on most ticks. Test the query with `posthog:scout-config-precheck-test` before you save it, because a scheduled check runs as the scout's acting user and the dry run runs as you.
+  A canonical scout can ship a default in its `scout-precheck-query` frontmatter. `precheck_query` overrides that default, null restores it, and `precheck_disabled: true` turns off both.
+  The full recipe, the placeholder semantics, and how to diagnose a tick with no run row are in [`references/scheduled-precheck.md`](references/scheduled-precheck.md).
 - `emit` — defaults to **`true`**: the scout writes its reports straight to the inbox.
   Set **`emit=false` (dry-run)** to inspect an ordinary run's reasoning without publishing reports to the inbox.
   Private trials capture reports and memory separately and work while the source scout is paused or has `emit=false`.
