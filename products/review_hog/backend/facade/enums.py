@@ -1,6 +1,6 @@
 """Choices the review contracts carry. No Django here, so clients and other products can read them."""
 
-from enum import StrEnum
+from enum import Enum, StrEnum
 
 from posthog.enums import LabeledStrEnum
 
@@ -121,3 +121,42 @@ class RepositoryOverviewView(LabeledStrEnum):
     IN_PROJECT = "in_project", "In this project"
     EXCEPTIONS = "exceptions", "With exceptions"
     MINE = "mine", "My choices"
+
+
+class IssuePriority(Enum):
+    """Priority levels for code review issues."""
+
+    MUST_FIX = "must_fix"  # Critical issues that should block merge
+    SHOULD_FIX = "should_fix"  # Significant improvements needed
+    CONSIDER = "consider"  # Nice-to-have improvements
+
+
+class ReviewReportScope(StrEnum):
+    """Whose reviews a read covers."""
+
+    MINE = "mine"
+    EVERYONE = "everyone"
+    # The user's own last Deep reviews. Only the perspective stats read this scope.
+    OWN_DEEP = "own_deep"
+
+
+class ReviewActivityFilter(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+
+
+class ReviewPRState(LabeledStrEnum):
+    NOT_REVIEWED = "not_reviewed", "Not reviewed"
+    QUEUED = "queued", "Queued"
+    REVIEWING = "reviewing", "Reviewing"
+    RESOLVING = "resolving", "Resolving"
+    IDLE = "idle", "Idle"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class ReviewRequestOutcomeStatus(LabeledStrEnum):
+    PENDING = "pending", "Pending"
+    COMPLETED = "completed", "Completed"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"
+    UNKNOWN = "unknown", "Unknown"

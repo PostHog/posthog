@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -16,7 +17,9 @@ from products.review_hog.backend.facade.enums import (
     ResolveSkipReason,
     ReviewInstallationClaimScope,
     ReviewProjectSettingsBotPullRequests,
+    ReviewPRState,
     ReviewRepositoryPersonKind,
+    ReviewRequestOutcomeStatus,
     ReviewRequestRefusal,
     ReviewUserRepositoryChoiceMode,
     UrgencyThreshold,
@@ -29,6 +32,66 @@ RUN_MODE_REVIEW = "review"
 RUN_MODE_REVIEW_ONLY = "review_only"
 RUN_MODE_RESOLVE_ONLY = "resolve_only"
 RUN_MODE_FLASH = "flash"
+
+# REVIEW MODE
+# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
+# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
+# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
+REVIEW_MODE_FULL = "full"
+REVIEW_MODE_FLASH = "flash"
+
+# How a turn finds its issues, decided per turn at fetch. Plain strings, like the review mode.
+REVIEW_DESIGN_PIPELINE = "pipeline"
+REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
+
+REVIEW_STAGES = [
+    "fetching",
+    "chunking",
+    "selecting",
+    "reviewing",
+    "deduplicating",
+    "validating",
+    "finalizing",
+    # The single-agent design writes no chunk, selection, or validator state, so it has its own shorter sequence.
+    "single_agent_preparing",
+    "single_agent_reviewing",
+    "single_agent_finalizing",
+]
+
+RESOLUTION_RESOLVING = "resolving"
+RESOLUTION_STOPPED = "stopped"
+RESOLUTION_COMPLETED = "completed"
+
+OWN_DEEP_STATS_REVIEW_LIMIT = 10
+
+# Mirrors `IssueValidation.category` (the live LLM contract); redefined here so the durable
+# artefact shape doesn't drift with the regenerated review-tool schema.
+ReviewIssueCategory = Literal[
+    "bug",
+    "security",
+    "performance",
+    "code_quality",
+    "best_practice",
+    "documentation",
+    "testing",
+    "accessibility",
+    "compatibility",
+]
+
+# Why a single-agent turn drops a finding. A `dedup_*` drop repeats an earlier turn's finding, a main
+# finding (anchor), or a finding of its own session or lens (sibling). Only records from before Flash
+# stopped reading PR comments carry `dedup_comment`. `cap` is the cut in `compose_flash_findings`, and
+# `budget` the cut the pull request's finding budget adds on top (`finding_budget.py`).
+# `old_code` is a follow-up turn's P3 finding on code that did not change since the last reviewed head.
+DropDisposition = Literal[
+    "old_code",
+    "dedup_prior",
+    "dedup_comment",
+    "dedup_anchor",
+    "dedup_sibling",
+    "cap",
+    "budget",
+]
 
 
 @frozen
@@ -303,3 +366,213 @@ class ReviewRepositoryOverviewPage:
     # Entries that match the search and the view, on every page.
     total: int
     my_choices_unlike_default: int
+
+
+@frozen
+class ResolutionRunState:
+    """The report's latest resolution run, as the list row and the drawer render it."""
+
+    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED
+    done: int = 0
+    total: int = 0
+    fixed: int = 0
+    needs_attention: int = 0
+
+
+@frozen
+class ResolutionSummary:
+    """The report's latest resolution run, completed runs included, as an API reader reports it."""
+
+    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED | RESOLUTION_COMPLETED
+    started_at: datetime
+    completed_at: datetime | None
+    total: int
+    fixed: int
+    needs_attention: int
+    commits: tuple[str, ...]
+
+
+@frozen
+class PRStatusLatestReview:
+    review_id: str
+    review_mode: str | None
+    head_sha: str | None
+    run_index: int
+    completed_at: datetime | None
+    must_fix_count: int
+    should_fix_count: int
+    consider_count: int
+    turn_published: bool
+    status_comment_url: str | None
+
+
+@frozen
+class PRStatusRequestOutcome:
+    status: ReviewRequestOutcomeStatus
+    reason: str | None = None
+    review_id: str | None = None
+    run_index: int | None = None
+
+
+@frozen
+class PRStatus:
+    repository: str
+    pr_number: int
+    report_id: str | None
+    state: ReviewPRState
+    latest_review: PRStatusLatestReview | None
+    latest_resolution: ResolutionSummary | None
+    request_outcome: PRStatusRequestOutcome | None
+
+
+class InvalidPullRequestURLError(ValueError):
+    """The text is not a GitHub pull request URL."""
+
+
+class ReviewNotFoundError(LookupError):
+    """The project has no review with this id, or the review has no completed turn yet."""
+
+
+class ReviewTurnNotFoundError(ReviewNotFoundError):
+    """The review has no completed turn with this run index."""
+
+
+@frozen
+class ReviewProgress:
+    """The in-flight review turn's stage, and its counters when the stage has them."""
+
+    review_stage: str
+    done: int | None
+    total: int | None
+
+
+@frozen
+class ReviewSummary:
+    """One review report as the review list shows it, described by one of its completed turns."""
+
+    id: UUID
+    repository: str
+    pr_number: int | None
+    pr_title: str | None
+    pr_author: str | None
+    additions: int | None
+    deletions: int | None
+    changed_files: int | None
+    head_branch: str
+    github_url: str
+    run_count: int
+    last_run_at: datetime | None
+    published: bool
+    turn_published: bool
+    review_mode: str | None
+    review_design: str | None
+    status_comment_url: str | None
+    full_review_published: bool
+    in_progress: bool
+    progress: ReviewProgress | None
+    resolution: ResolutionRunState | None
+    latest_resolution: ResolutionSummary | None
+    must_fix_count: int
+    should_fix_count: int
+    consider_count: int
+    candidate_count: int
+    dismissed_count: int
+    files_reviewed: int | None
+    chunk_count: int | None
+    perspective_count: int | None
+    perspective_issue_count: int | None
+    blind_spot_issue_count: int | None
+
+
+@frozen
+class ReviewSummaryPage:
+    results: Sequence[ReviewSummary]
+    has_more: bool
+
+
+@frozen
+class ReviewTablePage:
+    count: int
+    # Running reviews that match the scope and every filter except the activity filter.
+    running_count: int
+    results: Sequence[ReviewSummary]
+
+
+@frozen
+class ReviewLineRange:
+    start: int
+    end: int | None
+
+
+@frozen
+class ReviewFinding:
+    title: str
+    file: str
+    lines: Sequence[ReviewLineRange]
+    body: str
+    suggestion: str
+    effective_priority: str
+    reviewer_priority: str
+    source_perspective: str | None
+    validator_category: ReviewIssueCategory | None
+    validator_note: str
+
+
+@frozen
+class ReviewDroppedFinding:
+    title: str
+    file: str
+    lines: Sequence[ReviewLineRange]
+    body: str
+    suggestion: str
+    priority: str
+    source_perspective: str | None
+    disposition: DropDisposition
+    duplicate_of: str | None
+    comment_url: str | None
+    rank: int | None
+
+
+@frozen
+class ReviewSelectionChunk:
+    chunk_id: int
+    chunk_type: str | None
+    files: Sequence[str]
+    perspectives: Sequence[str]
+    skipped: Sequence[str]
+    reason: str
+
+
+@frozen
+class ReviewPerspectiveSelection:
+    roster: Sequence[str]
+    chunks: Sequence[ReviewSelectionChunk]
+
+
+@frozen
+class ReviewDetail:
+    """One completed turn of a review: the list row, the findings, and the published body."""
+
+    review: ReviewSummary
+    run_index: int
+    head_sha: str | None
+    perspective_selection: ReviewPerspectiveSelection | None
+    report_markdown: str | None
+    run_urgency_threshold: str | None
+    findings: Sequence[ReviewFinding]
+    dismissed_findings: Sequence[ReviewFinding]
+    dropped_findings: Sequence[ReviewDroppedFinding]
+
+
+@frozen
+class ReviewPerspectiveStat:
+    skill_name: str
+    raised: int
+    kept: int
+    dismissed: int
+
+
+@frozen
+class ReviewPerspectiveStats:
+    report_count: int
+    perspectives: Sequence[ReviewPerspectiveStat]
