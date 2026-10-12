@@ -37,7 +37,7 @@ from products.posthog_ai.backend.turn_suggestions.benchmark import (
 )
 from products.posthog_ai.backend.turn_suggestions.classifier import SHOW_THRESHOLD, build_draft, card_copy
 from products.posthog_ai.backend.turn_suggestions.judgment import build_judge_state, judge_model
-from products.posthog_ai.backend.turn_suggestions.verdict import NotebookDraft, OfferKind, ScoutDraft
+from products.posthog_ai.backend.turn_suggestions.verdict import NotebookDraft, OfferKind, ScoutDraft, WorkflowDraft
 
 _MARKS = {
     Outcome.CORRECT: "✓",
@@ -130,7 +130,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--draft",
             action="store_true",
-            help="Also ask the language model to write the scout or notebook text for picked offers.",
+            help="Also ask the language model to write the scout, notebook, or workflow text for picked offers.",
         )
         parser.add_argument(
             "--endpoint",
@@ -409,6 +409,9 @@ class Command(BaseCommand):
                 lines += [f"    Notebook: {draft.title}", f"      {draft.summary}"]
                 if draft.incident is not None:
                     lines += [f"      Cause: {draft.incident.cause}", f"      Fix: {draft.incident.fix}"]
+            case WorkflowDraft():
+                lines += ["    Workflow brief:", ""]
+                lines += [f"      {line}" for line in draft.prompt.splitlines()]
         self.stdout.write("\n".join(lines) + "\n")
 
     def _print_distribution(self, results: Sequence[CaseResult]) -> None:

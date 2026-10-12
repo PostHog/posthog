@@ -64,41 +64,70 @@ _NO_MATCH = "none"
 # Option keys map to the percent the alert card preconfigures.
 _ALERT_CHANGE_PERCENT = {"small": 10, "moderate": 20, "large": 50}
 
-_SHOW_OFFER = NoulQuestion(
-    instructions={
-        "question": "Should PostHog AI show a follow-up offer under the answer in `latest_turn`, at this point in the conversation?",
-        "context": (
-            "PostHog AI is the analytics agent inside PostHog. A follow-up offer is a small card under its answer "
-            "that turns the answer into something lasting: a scheduled report in Slack, an alert, a chart "
-            "subscription, a saved notebook, or a workflow draft. An offer at the wrong moment interrupts the user, so show one "
-            "only when it clearly helps."
-        ),
-        "show_when": [
-            "The turn ran PostHog tools that completed, and the answer gives a real result.",
-            "The user digs into something specific: a segment, filter, flow or feature, often compared with an earlier period, a review of what changed on a dashboard, a worry about a number, or a request to keep track of it.",
-            "The turn investigated a problem and found its cause.",
-            "The tool-backed analysis identifies a repeatable action for a specific event or person, such as a reminder after signup when onboarding is incomplete, and gives a concrete trigger and action.",
-            "The question is about one area of the product, such as a flow, page or feature, which the user will likely check again. This counts for more than a question about the whole product.",
-            "The answer is complete and does not wait for the user to reply.",
-        ],
-        "hold_back_when": [
-            "The turn failed, a tool errored, or the answer apologizes or says it found no data.",
-            "The turn ran no PostHog tools, for example advice, brainstorming or planning.",
-            "The answer asks the user a question or offers options to pick from.",
-            "The question satisfies a one-time curiosity: a breakdown such as top pages, referrers, browsers, countries or the device split, a list of users or accounts, or a search for recordings, even when the answer points out something in them. Numbers in the answer do not make it recurring.",
-            "The question is a basic count of the whole product with no filters and no digging, such as how many events, people, users or daily active users there are. A count for one flow or feature, such as how many people finished onboarding, is not a basic count.",
-            "The question is a generic overview of the whole product, such as the most common error or the busiest page, and the user gives no sign they will ask again.",
-            "The turn found nothing worth keeping, and the user gives no sign they will want the answer again.",
-            "The question is a small clarification of an earlier answer, or small talk.",
-            "The turn explained documentation or a concept, or answered a how-to question.",
-            "The turn fixed or wrote a query the user asked for help with, such as a SQL error.",
-            "The turn created or changed something, such as a feature flag, survey or dashboard, and nothing about it needs watching.",
-            "The user asked to rename, reformat or fix something that already exists, such as a dashboard name or a chart axis, and the answer only confirms the change.",
-        ],
-    },
-    criteria_true="An offer clearly helps the user at this point in the conversation.",
-    criteria_false="An offer now would interrupt the user or would not help.",
+# An entry tied to an offer is left out when the turn cannot make that offer.
+_LASTING_RESULTS: tuple[tuple[str, OfferKind | None], ...] = (
+    ("a scheduled report in Slack", None),
+    ("an alert", None),
+    ("a chart subscription", None),
+    ("a saved notebook", None),
+    ("a workflow draft", OfferKind.WORKFLOW),
 )
+
+_SHOW_WHEN: tuple[tuple[str, OfferKind | None], ...] = (
+    ("The turn ran PostHog tools that completed, and the answer gives a real result.", None),
+    (
+        "The user digs into something specific: a segment, filter, flow or feature, often compared with an earlier period, a review of what changed on a dashboard, a worry about a number, or a request to keep track of it.",
+        None,
+    ),
+    ("The turn investigated a problem and found its cause.", None),
+    (
+        "The tool-backed analysis identifies a repeatable action for a specific event or person, such as a reminder after signup when onboarding is incomplete, and gives a concrete trigger and action.",
+        OfferKind.WORKFLOW,
+    ),
+    (
+        "The question is about one area of the product, such as a flow, page or feature, which the user will likely check again. This counts for more than a question about the whole product.",
+        None,
+    ),
+    ("The answer is complete and does not wait for the user to reply.", None),
+)
+
+_HOLD_BACK_WHEN = (
+    "The turn failed, a tool errored, or the answer apologizes or says it found no data.",
+    "The turn ran no PostHog tools, for example advice, brainstorming or planning.",
+    "The answer asks the user a question or offers options to pick from.",
+    "The question satisfies a one-time curiosity: a breakdown such as top pages, referrers, browsers, countries or the device split, a list of users or accounts, or a search for recordings, even when the answer points out something in them. Numbers in the answer do not make it recurring.",
+    "The question is a basic count of the whole product with no filters and no digging, such as how many events, people, users or daily active users there are. A count for one flow or feature, such as how many people finished onboarding, is not a basic count.",
+    "The question is a generic overview of the whole product, such as the most common error or the busiest page, and the user gives no sign they will ask again.",
+    "The turn found nothing worth keeping, and the user gives no sign they will want the answer again.",
+    "The question is a small clarification of an earlier answer, or small talk.",
+    "The turn explained documentation or a concept, or answered a how-to question.",
+    "The turn fixed or wrote a query the user asked for help with, such as a SQL error.",
+    "The turn created or changed something, such as a feature flag, survey or dashboard, and nothing about it needs watching.",
+    "The user asked to rename, reformat or fix something that already exists, such as a dashboard name or a chart axis, and the answer only confirms the change.",
+)
+
+
+def _offerable(entries: Sequence[tuple[str, OfferKind | None]], available: frozenset[OfferKind]) -> list[str]:
+    return [text for text, kind in entries if kind is None or kind in available]
+
+
+def _show_offer(available: frozenset[OfferKind]) -> NoulQuestion:
+    *results, last_result = _offerable(_LASTING_RESULTS, available)
+    return NoulQuestion(
+        instructions={
+            "question": "Should PostHog AI show a follow-up offer under the answer in `latest_turn`, at this point in the conversation?",
+            "context": (
+                "PostHog AI is the analytics agent inside PostHog. A follow-up offer is a small card under its answer "
+                f"that turns the answer into something lasting: {', '.join(results)}, or {last_result}. An offer at "
+                "the wrong moment interrupts the user, so show one only when it clearly helps."
+            ),
+            "show_when": _offerable(_SHOW_WHEN, available),
+            "hold_back_when": list(_HOLD_BACK_WHEN),
+        },
+        criteria_true="An offer clearly helps the user at this point in the conversation.",
+        criteria_false="An offer now would interrupt the user or would not help.",
+    )
+
 
 _INTENT = ChoiceQuestion(
     instructions="What does the question in `latest_turn` ask for?",
@@ -302,7 +331,7 @@ def build_judge_state(transcript: TurnTranscript) -> dict[str, JsonValue]:
 
 
 def build_judge_questions(transcript: TurnTranscript, available: frozenset[OfferKind]) -> dict[str, Question]:
-    questions: dict[str, Question] = {"show_offer": _SHOW_OFFER, "intent": _INTENT}
+    questions: dict[str, Question] = {"show_offer": _show_offer(available), "intent": _INTENT}
     # `show_offer` alone decides whether a card shows, so this question lists only the offers the turn
     # can make and has no "none" option. With one offer there is nothing to pick, and a System One
     # server can reject a choice with a single option.

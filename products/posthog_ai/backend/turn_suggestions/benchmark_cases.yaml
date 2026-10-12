@@ -10,8 +10,8 @@
 # hidden. A case that lists `none` next to offers is borderline: no card or one of those offers is
 # fine, so only an offer of another kind counts against it.
 #
-# Optional fields: `tool_status` (default completed), `earlier` turns, `insights`, `issues`, and
-# `scouts_available` and `workflows_available` (both default true).
+# Optional fields: `tool_status` (default completed), `earlier` turns, `insights`, `issues`,
+# `scouts_available` (default true), and `workflows_available` (default false, as in production).
 
 # Recurring metrics
 - name: weekly-signups
@@ -523,6 +523,13 @@
   tools: []
   answer: For lead generation, pick the leads objective if you collect details in the ad, or conversions if people sign up on your site. PostHog can then track what those signups do next.
 
+- name: onboarding-automation-advice
+  category: knowledge
+  acceptable: [none]
+  question: What is a typical onboarding reminder automation?
+  tools: []
+  answer: One common pattern starts at signup, waits one day, and sends a reminder if onboarding is incomplete.
+
 - name: replay-setup
   category: knowledge
   acceptable: [none]
@@ -589,36 +596,39 @@
 - name: workflow-onboarding-reminder
   category: workflow
   acceptable: [workflow]
+  workflows_available: true
   question: Where are new users getting stuck, and what could help them finish onboarding?
   tools: [query-funnel, execute-sql]
   answer: >-
       New users often stop before connecting their first data source. A targeted follow-up is to trigger
       on signed_up, wait one day, check that onboarding_complete is false, and send an onboarding reminder
-      email linking to the connection guide. No existing workflow covers this follow-up.
+      email linking to the connection guide.
 
 - name: workflow-export-failure-notification
   category: workflow
   acceptable: [workflow]
+  workflows_available: true
   question: How could the support team respond faster when a customer's export fails?
   tools: [execute-sql]
   answer: >-
       The export_failed event includes export_id and failure_reason. Triggering on that event and sending
       those properties to the support Slack channel would give the team a concrete item to investigate.
-      No existing workflow sends this notification.
 
 - name: workflow-unfinished-checkout-webhook
   category: workflow
   acceptable: [workflow]
+  workflows_available: true
   question: What follow-up could help people who start checkout but do not finish?
   tools: [query-funnel, execute-sql]
   answer: >-
       Trigger on checkout_started, wait two hours, and check whether checkout_complete is still false.
       For those people, send a POST request to https://example.com/checkout-reminder with their cart_id.
-      The receiving service sends the reminder. There is no existing workflow for this follow-up.
+      The receiving service sends the reminder.
 
 - name: workflow-metric-report-prefers-scout
   category: workflow
   acceptable: [scout]
+  workflows_available: true
   question: Is signup conversion for paid search getting worse? Can we keep checking each week?
   tools: [query-funnel]
   answer: Paid search signup conversion fell from 24% to 19%. A weekly rerun of the same funnel would track whether it recovers.
@@ -626,6 +636,7 @@
 - name: workflow-metric-threshold-prefers-alert
   category: workflow
   acceptable: [alert]
+  workflows_available: true
   question: Can we get notified when the daily completed checkout count drops?
   tools: [query-trends]
   answer: The saved Daily completed checkouts trend tracks this count. An alert can notify the team when the number decreases.
@@ -635,6 +646,7 @@
 - name: workflow-chart-delivery-prefers-subscription
   category: workflow
   acceptable: [subscription]
+  workflows_available: true
   question: Can the team get this signup chart in Slack every Monday? The chart is all we need.
   tools: [query-trends]
   answer: The saved Weekly signups chart has the requested breakdown. A weekly chart subscription can deliver it to Slack without rerunning an investigation.
@@ -644,34 +656,31 @@
 - name: workflow-already-created
   category: workflow
   acceptable: [none]
+  workflows_available: true
   question: Create an onboarding reminder after signup.
-  tools: [create-workflow]
+  tools: [workflows-create]
   answer: Created the disabled Onboarding reminder workflow. It triggers on signed_up, waits one day, checks onboarding_complete, and sends the reminder email. It is ready for you to review.
 
 - name: workflow-direct-create-request
   category: workflow
   acceptable: [none]
+  workflows_available: true
   question: Create a workflow triggered by signed_up that sends a welcome email.
-  tools: [list-workflows]
+  tools: [workflows-list]
   answer: There is no existing welcome workflow. Which email integration and sender address should the new workflow use?
 
 - name: workflow-missing-trigger-and-action
   category: workflow
   acceptable: [none]
+  workflows_available: true
   question: Could we automate something to improve activation?
   tools: [query-funnel]
   answer: Activation is lower for new users. Which event should start the automation, and what should it do for those users?
 
-- name: workflow-advice-without-tools
-  category: workflow
-  acceptable: [none]
-  question: What is a typical onboarding reminder automation?
-  tools: []
-  answer: One common pattern starts at signup, waits one day, and sends a reminder if onboarding is incomplete. This is general advice, not an analysis of your project.
-
 - name: workflow-failed-analysis
   category: workflow
   acceptable: [none]
+  workflows_available: true
   question: Which onboarding step could benefit from an automated follow-up?
   tools: [query-funnel]
   tool_status: failed
@@ -679,11 +688,9 @@
 
 - name: workflow-builder-unavailable
   category: workflow
-  acceptable: [notebook, none]
-  workflows_available: false
-  question: Why do new users stop onboarding, and what follow-up could help?
-  tools: [query-funnel, execute-sql]
+  acceptable: [none]
+  question: How could the support team respond faster when a customer's export fails?
+  tools: [execute-sql]
   answer: >-
-      The investigation found that users stop before connecting a data source. A follow-up could start
-      at signed_up, wait one day, and send a reminder when onboarding_complete is false.
-      The investigation is worth keeping, but the workflow builder is unavailable in this project.
+      The export_failed event includes export_id and failure_reason. Triggering on that event and sending
+      those properties to the support Slack channel would give the team a concrete item to investigate.

@@ -39,7 +39,12 @@ from products.posthog_ai.backend.turn_suggestions.dispatch import (
     TURN_SUGGESTION_EXPIRES_SECONDS,
     enqueue_turn_suggestion,
 )
-from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
+from products.posthog_ai.backend.turn_suggestions.drafter import (
+    DRAFT_MODEL,
+    draft_scout,
+    draft_workflow,
+    render_turn_prompt,
+)
 from products.posthog_ai.backend.turn_suggestions.judgment import (
     JUDGE_MODEL,
     MAX_REF_OPTIONS,
@@ -566,6 +571,18 @@ class TestJudgeTurn(SimpleTestCase):
         offer = questions["offer"]
         assert isinstance(offer, ChoiceQuestion) and set(offer.criteria) == ALL_OFFERS
 
+    @parameterized.expand(
+        [("builder_available", ALL_OFFERS, True), ("builder_unavailable", ALL_OFFERS - {OfferKind.WORKFLOW}, False)]
+    )
+    def test_the_show_question_describes_workflows_only_when_one_can_be_offered(
+        self, _name: str, available: frozenset[OfferKind], expected: bool
+    ) -> None:
+        show_offer = build_judge_questions(build_turn_transcript(_metric_turn()), available)["show_offer"]
+
+        wire = json.dumps(show_offer.to_json())
+        assert ("workflow draft" in wire) is expected
+        assert ("repeatable action for a specific event or person" in wire) is expected
+
     def test_a_turn_with_one_possible_offer_skips_the_offer_question(self):
         transcript = build_turn_transcript(_metric_turn())
         only_scout = frozenset({OfferKind.SCOUT})
@@ -711,7 +728,7 @@ class TestBenchmark(SimpleTestCase):
         for case in cases:
             assert case.acceptable - {OfferKind.NONE} <= case.available, case.name
 
-    @parameterized.expand([("default", None, True), ("enabled", True, True), ("disabled", False, False)])
+    @parameterized.expand([("default", None, False), ("enabled", True, True), ("disabled", False, False)])
     def test_workflow_availability_matches_the_benchmark_case(
         self, _name: str, workflows_available: bool | None, expected: bool
     ) -> None:
@@ -859,7 +876,7 @@ class TestBenchmark(SimpleTestCase):
 
 class TestClassifyTurn(SimpleTestCase):
     def test_workflow_offer_carries_a_standalone_brief(self) -> None:
-        offer = OfferKind("workflow")
+        offer = OfferKind.WORKFLOW
         brief = "When signed_up fires, wait one day and send a reminder if onboarding_complete is false."
         with (
             patch(f"{CLASSIFIER}.judge_turn", return_value=_judgment(offer=offer)),
@@ -1034,6 +1051,27 @@ class TestDraftScout(SimpleTestCase):
         assert draft is None
 
 
+class TestDraftWorkflow(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("whitespace_only", " \n ", False),
+            ("over_the_limit", "a" * 4001, False),
+            ("emoji_over_the_limit_in_utf16_units", "😀" * 2001, False),
+            ("at_the_limit", "a" * 4000, True),
+            ("emoji_at_the_limit_in_utf16_units", "😀" * 2000, True),
+        ]
+    )
+    def test_a_brief_must_fit_the_builder_composer(self, _name: str, prompt: str, expected: bool) -> None:
+        client = _gateway_reply({"prompt": prompt})
+        with patch("products.posthog_ai.backend.turn_suggestions.drafter.build_openai_client", return_value=client):
+            draft = draft_workflow(build_turn_transcript(_metric_turn()), team_id=1, today=date(2026, 9, 16))
+
+        assert draft == (WorkflowDraft(prompt=prompt) if expected else None)
+        # Some strict-mode providers reject length keywords, so the limit is enforced after parsing.
+        schema = json.dumps(client.chat.completions.create.call_args.kwargs["response_format"])
+        assert "minLength" not in schema and "maxLength" not in schema
+
+
 class TestEnqueueTurnSuggestion(BaseTest):
     def _run(self, origin: str) -> TaskRun:
         task = Task.objects.create(
@@ -1168,10 +1206,28 @@ class TestGenerateTurnSuggestion(BaseTest):
         }
         assert self._available() == frozenset({OfferKind.NOTEBOOK, OfferKind.SCOUT})
 
-    @parameterized.expand([(True, True, True), ("test", True, True), ("control", True, False), (True, False, False)])
-    def test_workflow_offer_requires_the_builder_rollouts(
-        self, variant: bool | str, scene_enabled: bool, expected: bool
+    @parameterized.expand(
+        [
+            ("enabled", True, True, None, True),
+            ("test_variant", "test", True, None, True),
+            ("control_variant", "control", True, None, False),
+            ("scene_off", True, False, None, False),
+            ("turn_created_a_workflow", True, True, "workflows-create", False),
+            ("turn_changed_a_workflow", True, True, "workflows-update", False),
+            ("turn_edited_a_workflow_graph", True, True, "workflows-patch-graph", False),
+            ("turn_listed_workflows", True, True, "workflows-list", True),
+        ]
+    )
+    def test_workflow_offer_requires_the_builder_rollouts_and_no_workflow_built_this_turn(
+        self, _name: str, variant: bool | str, scene_enabled: bool, workflow_tool: str | None, expected: bool
     ) -> None:
+        if workflow_tool is not None:
+            self.mocks["history"].return_value = [
+                _user_message("Remind new users to finish onboarding a day after signup."),
+                _exec_tool_call("t1", f"call {workflow_tool} {{}}", "completed", {"id": "flow-1"}),
+                _agent_text("Done. The onboarding reminder workflow is ready for review."),
+                _turn_complete(),
+            ]
         self.mocks["workflow_flag"].return_value = variant
         self.mocks["flag"].side_effect = lambda key, *args, **kwargs: (
             scene_enabled if key == "phai-scene-auto-open" else True
