@@ -121,6 +121,21 @@ import {
 export const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
 const DASHBOARD_CONTEXT_POLL_INTERVAL_MS = 100
 
+// Mirrors MAX_TEXT_LENGTH in products/posthog_ai/backend/context_wrapper.py. The backend rejects
+// the whole send when one `text` or `instructions` value is longer, e.g. a long query in the SQL editor.
+export const MAX_ATTACHED_TEXT_LENGTH = 4096
+const TRUNCATED_TEXT_SUFFIX = '… [truncated]'
+
+function truncateAttachedText(item: AttachedContext): AttachedContext {
+    if (item.value == null || item.value.length <= MAX_ATTACHED_TEXT_LENGTH) {
+        return item
+    }
+    return {
+        ...item,
+        value: item.value.slice(0, MAX_ATTACHED_TEXT_LENGTH - TRUNCATED_TEXT_SUFFIX.length) + TRUNCATED_TEXT_SUFFIX,
+    }
+}
+
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
@@ -1404,7 +1419,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         const handle = await api.conversations.open(conversationId, {
                             content: streamData.content,
                             trace_id: traceId,
-                            attached_context: attachedContext,
+                            attached_context: attachedContext.map(truncateAttachedText),
                             initial_permission_mode: INITIAL_PERMISSION_MODE,
                             // Bind a brand-new conversation to an existing Task (inbox "Open task") so the
                             // backend resumes that Task's run. Only the first message carries it.
