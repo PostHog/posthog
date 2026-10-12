@@ -104,7 +104,7 @@ class TestBuildParams:
         assert params["call_start_after_unix"] == 1700000000
         assert params["summary_mode"] == "include"
 
-    @parameterized.expand([("agents",), ("voices",), ("triage_tickets",)])
+    @parameterized.expand([("agents",), ("voices",), ("triage_tickets",), ("tools",)])
     def test_full_refresh_endpoints_never_send_a_time_filter(self, endpoint: str) -> None:
         # Full-refresh endpoints have no server-side updated-since filter; sending one would 4xx.
         params = _build_params(ELEVENLABS_ENDPOINTS[endpoint], True, 1700000000, "created_at_unix")
@@ -158,6 +158,143 @@ class TestPagination:
         assert session.send.call_count == 1
 
 
+class TestFanOut:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental", True, 1700000000.5),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_tool_executions_walk_every_tool_and_page(
+        self, _name: str, use_incremental: bool, last_value: Any, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"tools": [{"id": "t1"}, {"id": "t2"}], "has_more": False, "next_cursor": None}),
+                _response({"executions": [{"id": "e1", "tool_id": "t1"}], "has_more": True, "next_cursor": "c1"}),
+                _response({"executions": [{"id": "e2", "tool_id": "t1"}], "has_more": False, "next_cursor": None}),
+                _response({"executions": [{"id": "e3", "tool_id": "t2"}], "has_more": False, "next_cursor": None}),
+            ],
+        )
+        rows = _rows(
+            _source(
+                "tool_executions",
+                _make_manager(),
+                should_use_incremental_field=use_incremental,
+                db_incremental_field_last_value=last_value,
+                incremental_field="timestamp" if use_incremental else None,
+            )
+        )
+
+        assert [row["id"] for row in rows] == ["e1", "e2", "e3"]
+        assert params[0]["sort_by"] == "created_at"
+        assert "start_time" not in params[0]
+        assert params[2]["cursor"] == "c1"
+        # The time filter binds every child page, so incremental runs never re-walk full history.
+        for child_params in params[1:]:
+            if use_incremental:
+                assert child_params["start_time"] == 1700000000
+            else:
+                assert "start_time" not in child_params
+
+
+class TestSecretRedaction:
+    @parameterized.expand(
+        [
+            (
+                "tool_config_headers",
+                "tools",
+                [
+                    {
+                        "tools": [
+                            {
+                                "id": "t1",
+                                "tool_config": {
+                                    "api_schema": {
+                                        "request_headers": {
+                                            "Authorization": "Bearer sk_fake",
+                                            "X-Ref": {"secret_id": "s1"},
+                                        }
+                                    }
+                                },
+                            }
+                        ],
+                        "has_more": False,
+                    }
+                ],
+                lambda row: row["tool_config"]["api_schema"]["request_headers"],
+            ),
+            (
+                "execution_sent_headers",
+                "tool_executions",
+                [
+                    {"tools": [{"id": "t1"}], "has_more": False},
+                    {
+                        "executions": [
+                            {
+                                "id": "e1",
+                                "tool_id": "t1",
+                                "tool_call_details": {
+                                    "headers": {"Authorization": "Bearer sk_fake", "X-Ref": {"secret_id": "s1"}}
+                                },
+                            }
+                        ],
+                        "has_more": False,
+                    },
+                ],
+                lambda row: row["tool_call_details"]["headers"],
+            ),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_literal_header_values_never_reach_the_warehouse(
+        self, _name: str, endpoint: str, bodies: list[dict[str, Any]], headers_of: Any, MockSession
+    ) -> None:
+        _wire(MockSession.return_value, [_response(body) for body in bodies])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        # A secret reference is safe to keep and tells the reader which secret the tool uses.
+        assert headers_of(rows[0]) == {"Authorization": "[REDACTED]", "X-Ref": {"secret_id": "s1"}}
+
+
+class TestUnpaginatedEndpoints:
+    @parameterized.expand(
+        [
+            ("models_bare_array", "models", [{"model_id": "m1"}, {"model_id": "m2"}], ["m1", "m2"], "model_id"),
+            (
+                "groups_keyed_by_id",
+                "workspace_groups",
+                {"g1": {"id": "g1", "name": "a"}, "g2": {"id": "g2", "name": "b"}},
+                ["g1", "g2"],
+                "id",
+            ),
+            # jsonpath unwraps a single match, so a one-group body must still come back as one row.
+            ("single_group", "workspace_groups", {"g1": {"id": "g1", "name": "a"}}, ["g1"], "id"),
+            ("no_groups", "workspace_groups", {}, [], "id"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_whole_collection_becomes_rows(
+        self, _name: str, endpoint: str, body: Any, expected_ids: list[str], id_key: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        response = Response()
+        response.status_code = 200
+        response._content = json.dumps(body).encode()
+        response.url = "https://api.elevenlabs.io/v1/workspace/groups"
+        params = _wire(session, [response])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert [row[id_key] for row in rows] == expected_ids
+        assert session.send.call_count == 1
+        assert "page_size" not in params[0]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -177,6 +314,18 @@ class TestValidateCredentials:
         mts.return_value.get.return_value = mock.MagicMock(status_code=status)
         ok, _msg = validate_credentials("k", schema_name)
         assert ok is expected_ok
+
+    @parameterized.expand(
+        [
+            ("fan_out_child_probes_parent", "tool_executions", "https://api.elevenlabs.io/v1/convai/tools?page_size=1"),
+            ("unpaginated_sends_no_page_size", "workspace_members", "https://api.elevenlabs.io/v1/workspace/members"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_schema_probe_url(self, _name: str, schema_name: str, expected_url: str, mts) -> None:
+        mts.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert validate_credentials("k", schema_name) == (True, None)
+        assert mts.return_value.get.call_args.args[0] == expected_url
 
     @mock.patch(SESSION_PATCH)
     def test_network_error_is_not_valid(self, mts) -> None:
@@ -212,15 +361,25 @@ class TestSourceResponse:
             ("agents", ["agent_id"], "asc", "created_at_unix_secs"),
             ("voices", ["voice_id"], "asc", "created_at_unix"),
             ("triage_tickets", ["agentqa_ticket_id"], "desc", "created_at_unix_secs"),
+            ("models", ["model_id"], "asc", None),
+            ("workspace_members", ["user_id"], "asc", None),
+            ("workspace_groups", ["id"], "asc", None),
+            ("tools", ["id"], "asc", None),
+            # Executions from different tools interleave in time, so the watermark must wait for job end.
+            ("tool_executions", ["tool_id", "id"], "desc", None),
         ]
     )
     @mock.patch(SESSION_PATCH)
     def test_response_shape_per_endpoint(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str, _mts
+        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str | None, _mts
     ) -> None:
         # sort_mode="asc" on a newest-first endpoint corrupts the watermark; the pk must be table-unique.
         response = _source(endpoint, _make_manager())
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"
+        if partition_key is None:
+            # A float or missing timestamp would bucket every row into one bogus 1970 partition.
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [partition_key]
+            assert response.partition_mode == "datetime"

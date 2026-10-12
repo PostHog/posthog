@@ -119,6 +119,7 @@ def mark_cdc_broken(
         if create_visibility_jobs:
             _create_failure_visibility_jobs(source, newly_broken, message, log)
         _schedule_failure_digest(source, log)
+        _emit_sync_alerts(source, newly_broken)
 
     _notify(source, message, log)
     _capture(source, reason, paused=pause, log=log)
@@ -251,6 +252,19 @@ def _schedule_failure_digest(source: ExternalDataSource, log: typing.Any) -> Non
     except Exception:
         # Best-effort: the daily catch-up still delivers via the visibility job rows.
         log.warning("cdc_broken_digest_schedule_failed", exc_info=True)
+
+
+def _emit_sync_alerts(source: ExternalDataSource, schemas: list[ExternalDataSchema]) -> None:
+    # Deferred: the data_warehouse facade imports this pipeline back.
+    from products.data_warehouse.backend.facade.api import SyncAlertEvent, SyncAlertKind, emit_sync_alert
+
+    for schema in schemas:
+        emit_sync_alert(
+            team_id=source.team_id,
+            schema_id=str(schema.id),
+            event=SyncAlertEvent.FAILED,
+            kind=SyncAlertKind.CDC_BROKEN,
+        )
 
 
 def _pause_schedules(source: ExternalDataSource, cdc_schemas: list[ExternalDataSchema], log: typing.Any) -> None:

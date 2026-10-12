@@ -39,9 +39,9 @@ SHIPPED_TO_SOME = {
     "multivariate": SHIPPED_VARIANT["multivariate"],
 }
 
-RUNNING = {"is_launched": True, "has_ended": False}
-ENDED = {"is_launched": True, "has_ended": True}
-DRAFT = {"is_launched": False, "has_ended": False}
+RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
+ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
+DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
 
 
 def _context(
@@ -49,6 +49,7 @@ def _context(
 ) -> HealthContext:
     return HealthContext(
         **status,
+        is_paused=status["is_running"] and not active,
         archived=archived,
         flag=parse_flag_state(
             active=active,

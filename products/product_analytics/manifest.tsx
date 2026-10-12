@@ -25,6 +25,7 @@ import {
     InsightShortId,
     InsightType,
     ProductManifest,
+    SavedInsightsTabs,
 } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -95,7 +96,7 @@ export const manifest: ProductManifest = {
         insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
             `/insights/${id}/subscriptions/${subscriptionId}`,
         insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-        savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+        savedInsights: (tab?: SavedInsightsTabs): string => `/insights${tab ? `?tab=${tab}` : ''}`,
         insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
         insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
@@ -188,7 +189,23 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
-            searchKeywords: ['insights'],
+            searchKeywords: [
+                'insights',
+                'trends',
+                'funnels',
+                'retention',
+                'paths',
+                'journeys',
+                'stickiness',
+                'lifecycle',
+                'calendar heatmap',
+                'charts',
+            ],
+            searchTabs: [
+                { name: 'My insights', href: urls.savedInsights(SavedInsightsTabs.Yours) },
+                { name: 'Alerts', href: urls.alerts() },
+                { name: 'Notifications', href: urls.savedInsights(SavedInsightsTabs.Notifications) },
+            ],
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'],
             sceneKey: 'SavedInsights',
@@ -201,6 +218,14 @@ export const manifest: ProductManifest = {
             type: 'notebook',
             iconType: 'notebook',
             href: urls.notebooks(),
+            searchKeywords: ['documents', 'scratchpad'],
+            searchTabs: [
+                {
+                    name: 'Reusable widgets',
+                    href: urls.notebooks('widgets'),
+                    flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
+                },
+            ],
             sceneKey: 'Notebooks',
             sceneKeys: ['Notebook', 'Notebooks'],
         },
@@ -212,6 +237,7 @@ export const manifest: ProductManifest = {
             iconType: 'event_definition',
             iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
             href: urls.eventDefinitions(),
+            searchKeywords: ['taxonomy', 'tracking plan'],
             sceneKey: 'EventDefinitions',
             sceneKeys: ['EventDefinition', 'EventDefinitions'],
         },
@@ -224,6 +250,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-property-definitions-dark)',
             ],
             href: urls.propertyDefinitions(),
+            searchKeywords: ['attributes', 'traits'],
             sceneKey: 'PropertyDefinitions',
             sceneKeys: ['PropertyDefinition', 'PropertyDefinitions'],
         },
@@ -233,6 +260,7 @@ export const manifest: ProductManifest = {
             iconType: 'property_group',
             iconColor: ['var(--color-product-property-groups-light)', 'var(--color-product-property-groups-dark)'],
             href: urls.schemaManagement(),
+            searchKeywords: ['property schema'],
             flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
         },
         {
@@ -241,6 +269,7 @@ export const manifest: ProductManifest = {
             iconType: 'sql_variable',
             iconColor: ['var(--color-product-sql-variables-light)', 'var(--color-product-sql-variables-dark)'],
             href: urls.variables(),
+            searchKeywords: ['parameters', 'placeholders'],
             sceneKeys: ['SqlVariableEdit'],
         },
         {
@@ -249,6 +278,7 @@ export const manifest: ProductManifest = {
             iconType: 'annotation',
             iconColor: ['var(--color-product-annotations-light)', 'var(--color-product-annotations-dark)'],
             href: urls.annotations(),
+            searchKeywords: ['markers', 'releases'],
             sceneKey: 'Annotations',
             sceneKeys: ['Annotations'],
         },

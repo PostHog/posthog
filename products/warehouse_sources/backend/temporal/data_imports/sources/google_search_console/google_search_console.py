@@ -110,6 +110,17 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
     """
 
 
+class GoogleSearchConsoleServerError(Exception):
+    """Raised when listing sites/sitemaps hits a transient Google-side 5xx.
+
+    Unlike `_query_search_analytics`, `list_sites`/`list_sitemaps` have no inline retry
+    budget, so a 5xx otherwise reaches `get_non_retryable_errors`/error tracking as a bare
+    HTTPError. Its messages carry a `(retryable)` marker that `get_retryable_errors`
+    matches, so Temporal retries the activity and the self-recovering failure is logged as
+    a warning instead of tracked as noise.
+    """
+
+
 @dataclasses.dataclass
 class GoogleSearchConsoleResumeConfig:
     current_date: str  # ISO date currently being fetched
@@ -648,6 +659,13 @@ def _property_rows(
         if e.response is not None and _is_quota_error(e.response):
             raise GoogleSearchConsoleQuotaExceededError(
                 f"Search Console quota exhausted while listing {resource_name}; the next sync picks it up (retryable)"
+            ) from e
+        # A transient Google-side 5xx, same class `_query_search_analytics` retries inline — these
+        # two calls have no inline retry budget of their own, so mark it the same way rather than
+        # letting a bare HTTPError fall through and get logged as an exception.
+        if e.response is not None and _is_server_error(e.response):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
             ) from e
         raise
 

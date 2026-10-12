@@ -1,6 +1,7 @@
 import uuid
 import typing
 import asyncio
+import datetime as dt
 import dataclasses
 
 from django.conf import settings
@@ -13,6 +14,7 @@ import pyarrow.parquet as pq
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -192,6 +194,11 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
+
+# An upstream Delta table's log can be mid-rewrite, so the default backoff exhausts every attempt
+# before the rewrite lands.
+DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
+DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -1321,6 +1328,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         )
         published = True
         return result
+    except ClickHouseError as error:
+        if not published:
+            await cdp_sink.discard()
+        if DELTA_KERNEL_ERROR_MARKER in str(error):
+            raise ApplicationError(
+                str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
+            ) from error
+        raise
     except (Exception, asyncio.CancelledError):
         if not published:
             await cdp_sink.discard()

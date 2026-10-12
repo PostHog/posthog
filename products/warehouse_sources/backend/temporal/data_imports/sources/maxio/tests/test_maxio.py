@@ -53,7 +53,17 @@ class TestMaxioPaginator:
 
 class TestGetResource:
     @pytest.mark.parametrize(
-        "endpoint", ["products", "product_families", "coupons", "components", "payment_profiles", "credit_notes"]
+        "endpoint",
+        [
+            "products",
+            "product_families",
+            "coupons",
+            "components",
+            "payment_profiles",
+            "credit_notes",
+            "component_price_points",
+            "product_price_points",
+        ],
     )
     def test_full_refresh_only_endpoints_never_get_incremental_params(self, endpoint: str) -> None:
         # These endpoints advertise no incremental fields; even if the pipeline asked for
@@ -135,18 +145,36 @@ class TestMaxioSourceDrive:
 
         assert [p["page"] for p in sent_params] == [5]
 
-    def test_incremental_run_sends_formatted_watermark(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "body", "expected_row"),
+        [
+            (
+                "subscriptions",
+                [{"subscription": {"id": 1, "updated_at": "2024-05-02T00:00:00Z"}}],
+                {"id": 1, "updated_at": "2024-05-02T00:00:00Z"},
+            ),
+            (
+                "subscription_components",
+                {"subscriptions_components": [{"id": 7, "subscription_id": 1, "component_id": 7}]},
+                {"id": 7, "subscription_id": 1, "component_id": 7},
+            ),
+        ],
+    )
+    def test_incremental_run_sends_formatted_watermark(
+        self, endpoint: str, body: Any, expected_row: dict[str, Any]
+    ) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
-        sent_params, _ = self._drive(
-            "subscriptions",
+        sent_params, pages = self._drive(
+            endpoint,
             manager,
-            [_make_http_response([{"subscription": {"id": 1, "created_at": "2024-01-01T00:00:00Z"}}])],
+            [_make_http_response(body)],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 5, 1, 10, 30, 0, tzinfo=UTC),
         )
 
+        assert pages[0][0] == expected_row
         assert sent_params[0]["date_field"] == "updated_at"
         assert sent_params[0]["start_datetime"] == "2024-05-01 10:30:00"
         assert sent_params[0]["sort"] == "updated_at"
