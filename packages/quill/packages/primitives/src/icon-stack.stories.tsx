@@ -115,7 +115,6 @@ function ActiveOnHoverStory(): React.ReactElement {
     )
 }
 
-/** Hover a row to make its tile `active`, the way the Today briefing links its text to its chips. */
 export const ActiveOnHover: Story = {
     render: () => <ActiveOnHoverStory />,
 }
@@ -149,7 +148,6 @@ function WithTooltipsStory(): React.ReactElement {
     )
 }
 
-/** One tooltip shared through a handle, so it slides from tile to tile instead of closing and reopening. */
 export const WithTooltips: Story = {
     render: () => <WithTooltipsStory />,
 }
