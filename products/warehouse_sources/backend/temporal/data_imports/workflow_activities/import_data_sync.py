@@ -421,7 +421,12 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
-        model = await _get_external_data_job(inputs.run_id)
+        try:
+            model = await _get_external_data_job(inputs.run_id)
+        except ExternalDataJob.DoesNotExist as e:
+            # A source or schema deleted mid-run cascades to its job row. Every retry reads the same
+            # missing row, so a retry can never succeed.
+            raise NonRetryableException(f"Job {inputs.run_id} no longer exists") from e
 
         if model.pipeline_version != ExternalDataJob.PipelineVersion.V3:
             # Only a job created before every run moved to V3 can get here, and the V2 pipeline

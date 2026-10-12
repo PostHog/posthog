@@ -353,6 +353,23 @@ async def test_non_failover_internal_error_in_setup_is_not_hidden_as_a_platform_
 
 
 @pytest.mark.asyncio
+async def test_missing_job_row_is_not_retried():
+    error = ExternalDataJob.DoesNotExist("ExternalDataJob matching query does not exist.")
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(NonRetryableException) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    handle_mock.assert_not_awaited()
+    source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
