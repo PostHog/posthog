@@ -12,7 +12,7 @@ description: >
 
 This skill is switched off.
 PostHog Review (ReviewHog) reviews pull requests automatically in repositories that commit `.github/review-hog.yml`, for the authors and events that file allows.
-An eligible person can also add the `reviewhog` label to request a review.
+An eligible person can also add the `posthog-review` label to request a review.
 
 When this skill is invoked, or an instruction asks for a CodeRabbit CLI pass:
 

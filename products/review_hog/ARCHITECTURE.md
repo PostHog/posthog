@@ -2,10 +2,15 @@
 
 ## Terms
 
-The UI and the text ReviewHog posts use the user-facing names. Code, API values, and stored data use the internal names.
+**PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
+**Code review** is the name of the in-app page and its nav entry only.
+**ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
+The `posthog-review` label starts a review. The legacy `reviewhog` label still works as an alias.
+
+The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
 - **Standard** (internal name **Flash**, `flash`): the automatic review every push gets. A fixed set of reviewers on a lower-cost model. It never pushes to the branch.
-- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `reviewhog` label, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
+- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `posthog-review` label, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
 - **Resolve**: the stage after a Deep review that fixes review comments on the PR branch, only when the PR owner opted in (`resolve_comments`).
 - **Inbox review**: a Deep review of a PR the PostHog agent opened for an Inbox report. The report's assigned reviewer counts as the PR owner.
 - **Perspective**: one angle a Deep review reads the code from, such as logic and correctness. Each one is a review skill.
@@ -880,7 +885,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`reviewhog` **label** on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
+`posthog-review` **label** (or the legacy `reviewhog` label) on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving, resolve-only, and **Flash** variants; Flash pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
@@ -892,15 +897,15 @@ The automatic trigger consumes signed GitHub `pull_request` deliveries through `
 It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose head and base belong to the delivery's repository, including drafts.
 A draft is skipped (`draft_skipped`) when the PR owner turned `review_drafts` off. Its first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
 A PR with the `skip-agent-review` label gets no automatic review (`label_skipped`). The task checks the payload labels, and the turn checks the labels its fetch reads from GitHub again, because `gh pr create --label` adds labels after the `opened` delivery.
-The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; apply the `reviewhog` label for one.
+The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; apply the `posthog-review` label for one.
 The label, the `@posthog review` comment, and the UI button ignore both the switch and the skip label.
 The webhook handler reads only the cached ownership summary, so the task checks ownership again.
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
 The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
 **No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
-The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `reviewhog` label queues `process_label_event`.
-That task finds the owning project and accepts a person or `stamphog[bot]` (Stamphog's hand-off) as the labeler; another bot's label gets an explaining comment and is removed with the app token.
-The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; the workflow removes the label when the run ends, and a running resolution leaves the label for a later retry.
+The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `posthog-review` or legacy `reviewhog` label queues `process_label_event`.
+That task finds the owning project and accepts a person or `stamphog[bot]` (Stamphog's hand-off) as the labeler; another bot's label gets an explaining comment, and the app token removes the label that the event named.
+The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; the workflow removes both labels when the run ends, and a running resolution leaves the label for a later retry.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_label_review_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
