@@ -76,6 +76,11 @@ export interface OrganizationMemberBasic {
   user: UserBasic;
 }
 
+export type TaskClientProvenance =
+  | "posthog_desktop"
+  | "posthog_mobile"
+  | "posthog_web";
+
 export interface Task {
   id: string;
   task_number: number | null;
@@ -95,6 +100,7 @@ export interface Task {
   last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
+  client_provenance?: TaskClientProvenance | null;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
   repositories?: string[];
   github_integration?: number | null;
