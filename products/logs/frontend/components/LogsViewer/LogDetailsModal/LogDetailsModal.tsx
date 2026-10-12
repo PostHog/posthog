@@ -5,15 +5,14 @@ import { LemonButton, LemonCheckbox, LemonDrawer, LemonTabs } from '@posthog/lem
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CopyLogButton, copyLogRaw } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
+import { LogContextLinks } from 'products/logs/frontend/components/LogsViewer/LogContextLinks/LogContextLinks'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
-import { ViewTraceButton } from 'products/tracing/frontend/components/ViewTraceButton'
 
 import { logsViewerLogic } from '../logsViewerLogic'
 import { LogComments } from './LogComments'
@@ -60,7 +59,8 @@ interface LogDetailsModalProps {
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
     const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId, relatedErrorsInitialScope } =
         useValues(logDetailsModalLogic)
-    const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
+    const { closeLogDetails, setJsonParseAllFields, setActiveTab, setRelatedErrorsInitialScope } =
+        useActions(logDetailsModalLogic)
     const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
 
     const handleApplyFilter = (key: string, value: string, attributeType: 'log' | 'resource'): void => {
@@ -114,7 +114,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             />
                         </div>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center gap-6">
                             <div className="flex items-center gap-2">
                                 <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
@@ -136,25 +136,13 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                            <ViewTraceButton
-                                traceId={selectedLog.trace_id}
-                                spanId={selectedLog.span_id}
-                                timestamp={selectedLog.timestamp}
-                                size="xsmall"
-                                type="secondary"
-                                data-attr="logs-details-view-trace"
-                            />
-                            {sessionId && (
-                                <ViewRecordingButton
-                                    sessionId={sessionId}
-                                    timestamp={selectedLog.timestamp}
-                                    size="xsmall"
-                                    openPlayerIn={RecordingPlayerType.Modal}
-                                    checkRecordingExists
-                                />
-                            )}
-                        </div>
+                        <LogContextLinks
+                            log={selectedLog}
+                            onOpenRelatedErrors={(scope) => {
+                                setRelatedErrorsInitialScope(scope)
+                                setActiveTab('related-errors')
+                            }}
+                        />
                     </div>
                 </LemonDrawer.Header>
                 <LemonDrawer.Content>
