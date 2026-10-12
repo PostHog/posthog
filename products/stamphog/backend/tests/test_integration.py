@@ -283,7 +283,7 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert len(additions) == 1
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
 
-    # An APPROVED verdict never hands off to ReviewHog — the reviewhog label is a refusal-only signal.
+    # An APPROVED verdict never hands off to ReviewHog — the posthog-review label is a refusal-only signal.
     assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
 
 
@@ -1811,7 +1811,7 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
     label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
-    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["reviewhog"]}]
+    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["posthog-review"]}]
     assert label_adds == (expected if expect_handoff else [])
 
 
@@ -1873,7 +1873,7 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
     # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
     # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
     # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
-    # returns skipped_superseded and the reviewhog label is never added. The run carries inbox
+    # returns skipped_superseded and the posthog-review label is never added. The run carries inbox
     # provenance so the supersession is what blocks the handoff, not the self-driving-only condition.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-superseded"
