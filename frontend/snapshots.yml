@@ -2540,6 +2540,10 @@ snapshots:
         hash: v1.k794b7964.42b2167baffbb4da178379d6dbe27bbb7651426118c87f7d2b6706f0703bd120.gRTvJNnd-Lf8NsrLnLtIBM7HC8PjGtjmfbWs-Ddw7SA
     components-sharing--dashboard-sharing--light:
         hash: v1.k794b7964.5f6110ca74b9cbcd8533e6ef7a27d21e39dffb7fb47badd98eff9558696edaf1.v90RMIq4sZEsfHeUnh6tMkn9f5XfqrCH773D16M3HGY
+    components-sharing--dashboard-sharing-custom-branding--dark:
+        hash: v1.k794b7964.238992102f7c2c94423c06295863a6d191348c33508860e9b4b3f1ba019eb89f.dqv1RTnTD5DKAr-mQvDMy1ln11a_hpRGUL_y11fH2ec
+    components-sharing--dashboard-sharing-custom-branding--light:
+        hash: v1.k794b7964.88eace347780fca282f63d176aa33c8e8e46beb513280ea69652c2a0ae0bb9d8.sZxDQhiBUcGI9Psq0WfMlBl63JMdS7DdRLQkW-jOSVE
     components-sharing--dashboard-sharing-licensed--dark:
         hash: v1.k794b7964.9d3da1f1746d52609577029a3d7b1bf67f1b0b98391b3c8dfb2a20c07c47f488.wBaXiHe7YLaaxopy_GhVeH9o-Py90L85aD9JVlD_9ok
     components-sharing--dashboard-sharing-licensed--light:
@@ -8307,9 +8311,9 @@ snapshots:
     replay-sharing--private-link--light:
         hash: v1.k794b7964.e7f626d45c31884c47c75c166dedcd70fc857ebb972f02943426e2791790f26b.fR5sTtsvpwxEWF_MSNWpKGkxjsRmj7edgxu0tZX6Pbo
     replay-sharing--public-link--dark:
-        hash: v1.k794b7964.35bc5c57b5eb5e334a309cddd09c88050fee8cf24e7316ba334cd58c8e2327a7.1LUq387MHCKJqGF7JcxUBfBpaVe9NenU68aWt70JVTM
+        hash: v1.k794b7964.156f1a06e18289524a397c71c0a2a7bbde4b0097d869bb97510b04a61872125e.CTEkKGmQSCtum7V2oog1O82nLfwS7oznXYwywD8K2c0
     replay-sharing--public-link--light:
-        hash: v1.k794b7964.ddfd8254ca69a6fc3cb638c1bcec9cd839fda06322c538d5b077f979d563e246.rsWbpqFKkbOOKpotVfWuctA8mHs1X9zPI8bkJU0TVQg
+        hash: v1.k794b7964.1c2b3b8c74a4d32c53c0d4036b453b9d3adc58dbe155a25280da40a07a88e58d.eNvqCWE2ATjDjcjim7WOG_kh9R6YMdB7s85YKJYK6zA
     replay-tabs-collections--recordings-play-lists--dark:
         hash: v1.k794b7964.ac3814dd592bef17fb3127d9bef1940e89f5e9a0200a4bc0fe4d3263d86b6824.UZc2OicZl2dG1SUw1lETtFqg6EQqyEZF-fUkQnGx8eE
     replay-tabs-collections--recordings-play-lists--light:
