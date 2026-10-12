@@ -1,3 +1,4 @@
+from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
@@ -76,6 +77,7 @@ WORKFLOWS = [
     RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
+    ActivateDevStackImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -142,4 +144,5 @@ ACTIVITIES = [
     mark_image_build_failed,
     # bake_dev_stack_image activities
     bake_and_publish_dev_stack_image,
+    activate_dev_stack_image,
 ]
