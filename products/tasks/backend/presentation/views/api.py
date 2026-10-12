@@ -80,6 +80,7 @@ from products.tasks.backend.facade.access import (
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
+    TASK_CLIENT_PROVENANCE_HEADER,
     get_task_client_provenance,
     is_sandbox_oauth_request,
     is_sandbox_origin_request,
@@ -738,7 +739,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 str,
                 OpenApiParameter.HEADER,
                 description="Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.",
-            )
+            ),
+            OpenApiParameter(
+                TASK_CLIENT_PROVENANCE_HEADER,
+                str,
+                OpenApiParameter.HEADER,
+                enum=tasks_facade.TaskClientProvenance.values,
+                description="First-party client creating the task. Accepted only with an interactive PostHog OAuth grant.",
+            ),
         ],
         responses={
             201: TaskCreateResponseSerializer,

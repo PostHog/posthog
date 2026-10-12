@@ -53,7 +53,8 @@ from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     MAX_SCANNERS_PER_SWEEP,
     MAX_TEAMS_PER_SWEEP,
     PINNED_TEAM_IDS,
-    RATE_LIMIT_BACKOFF_AFTER,
+    RATE_LIMIT_GIVE_UP_AFTER,
+    RATE_LIMIT_PAUSE,
     SWEEP_ACTIVITY_HEARTBEAT_TIMEOUT,
     SWEEP_TIME_BUDGET,
     WATCH_RANK_WINDOW,
@@ -152,8 +153,8 @@ class _ScannerOutcome:
     consent_revoked: bool = False
     # The gateway rate-limited the scanner's requests.
     rate_limited: bool = False
-    # The run had already been rate-limited RATE_LIMIT_BACKOFF_AFTER times, so the scanner waits
-    # for the next run.
+    # The run had been rate-limited RATE_LIMIT_GIVE_UP_AFTER turns in a row, so the scanner waits for
+    # the next run.
     backed_off: bool = False
     observations_judged: int = 0
     observations_given_up: int = 0
@@ -286,16 +287,21 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     # teams loop only flag-checks and lists scanners, so it runs ahead and queues them.
     turns = asyncio.Semaphore(JUDGE_CONCURRENCY)
 
-    # Every product's Jev calls share the gateway's rate limit, so once the run keeps hitting it the
-    # remaining scanners wait for the next run instead of taking capacity from other features.
-    rate_limited_turns = 0
+    # Every product's Jev calls share the decision service's capacity. A rate-limited turn pauses new
+    # turns for RATE_LIMIT_PAUSE, so the run gives that capacity back instead of retrying into it. Only
+    # a run that stays rate-limited leaves its remaining scanners for the next run.
+    paused_until = 0.0
+    consecutive_rate_limited = 0
 
     async def take_turn(team_id: int, scanner_id: UUID, mode: str) -> _ScannerOutcome:
-        nonlocal rate_limited_turns
+        nonlocal paused_until, consecutive_rate_limited
         async with turns:
+            pause = min(paused_until, deadline) - monotonic()
+            if pause > 0:
+                await asyncio.sleep(pause)
             if monotonic() > deadline:
                 return _ScannerOutcome(out_of_time=True)
-            if rate_limited_turns >= RATE_LIMIT_BACKOFF_AFTER:
+            if consecutive_rate_limited >= RATE_LIMIT_GIVE_UP_AFTER:
                 return _ScannerOutcome(backed_off=True)
             # A turn can wait most of the run after its team was queued, so consent is read again
             # here: a revocation in between must stop the prose before it reaches the model.
@@ -303,7 +309,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                 return _ScannerOutcome(consent_revoked=True)
             outcome = await _sweep_scanner(team_id, scanner_id, mode, window_start)
             if outcome.rate_limited:
-                rate_limited_turns += 1
+                consecutive_rate_limited += 1
+                paused_until = monotonic() + RATE_LIMIT_PAUSE.total_seconds()
+            elif outcome.judged:
+                consecutive_rate_limited = 0
             return outcome
 
     teams_enrolled = 0
