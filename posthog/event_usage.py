@@ -106,6 +106,26 @@ def report_user_verified_email(current_user: User) -> None:
     )
 
 
+def report_email_verification_failed(current_user: User, reason: str, attempt: int) -> None:
+    """
+    Triggered when a signup or email change verification code check fails.
+    """
+    if not current_user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=current_user.distinct_id,
+        event="email verification failed",
+        properties={
+            "reason": reason,
+            "attempt": attempt,
+            "flow": "email_change"
+            if current_user.pending_email and current_user.is_email_verified is not False
+            else "signup",
+        },
+    )
+
+
 def alias_invite_id(user: User, invite_id: str) -> None:
     if not user.distinct_id:
         return
