@@ -382,6 +382,17 @@ AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_
 # Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
 # env var still registers the ranking sweep schedule on the queue that fleet polls.
 SELF_DRIVING_TASK_QUEUE = _set_temporal_task_queue(os.getenv("SELF_DRIVING_TASK_QUEUE", "self-driving-task-queue"))
+
+# Insight anomaly scoring runs on the self-driving fleet. An empty team list scores every team.
+INSIGHT_ANOMALY_SCORING_ENABLED: bool = get_from_env("INSIGHT_ANOMALY_SCORING_ENABLED", DEBUG, type_cast=str_to_bool)
+INSIGHT_ANOMALY_SCORING_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(os.getenv("INSIGHT_ANOMALY_SCORING_TEAM_IDS", ""))
+]
+INSIGHT_ANOMALY_SCORING_INTERVAL_MINUTES: int = get_from_env(
+    "INSIGHT_ANOMALY_SCORING_INTERVAL_MINUTES", 10, type_cast=int
+)
+INSIGHT_ANOMALY_SCORING_MAX_PER_TICK: int = get_from_env("INSIGHT_ANOMALY_SCORING_MAX_PER_TICK", 200, type_cast=int)
+INSIGHT_ANOMALY_SCORING_MAX_PER_TEAM: int = get_from_env("INSIGHT_ANOMALY_SCORING_MAX_PER_TEAM", 50, type_cast=int)
 # Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
 # share pods with the latency-sensitive alerting workers.
 LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(

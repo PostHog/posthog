@@ -27,8 +27,8 @@ class InsightAnomalyState(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     insight = models.OneToOneField("product_analytics.Insight", on_delete=models.CASCADE, related_name="anomaly_state")
 
-    # Hash of the insight query and effective config. A change means past scores came from a
-    # different series, so the job resets last_scored_bucket.
+    # Hash of the insight query and effective config. A change clears skip_reason and the failure
+    # count, so an edited insight gets a fresh try.
     query_hash = models.CharField(max_length=64, blank=True, default="")
     last_scored_bucket = models.DateTimeField(null=True, blank=True)
     next_due_at = models.DateTimeField(null=True, blank=True)
