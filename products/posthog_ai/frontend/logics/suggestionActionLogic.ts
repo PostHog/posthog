@@ -118,6 +118,7 @@ export interface suggestionActionLogicMeta {
         acceptDisabledReason: (
             suggestion: TurnSuggestion | null,
             currentProjectId: number | null,
+            currentTeamId: number | null,
             user: UserType | null,
             slackDestinationDisabledReason: string | null,
             notebookTitle: string,
@@ -283,6 +284,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
             (s) => [
                 s.suggestion,
                 s.currentProjectId,
+                s.currentTeamId,
                 s.user,
                 s.slackDestinationDisabledReason,
                 s.notebookTitle,
@@ -294,6 +296,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
             (
                 suggestion: TurnSuggestion | null,
                 currentProjectId: number | null,
+                currentTeamId: number | null,
                 user: UserType | null,
                 slackDestinationDisabledReason: string | null,
                 notebookTitle: string,
@@ -302,7 +305,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 workflowPrompt: string,
                 workflowBuilderAvailable: boolean
             ): string | null => {
-                if (currentProjectId === null || !user) {
+                if (currentProjectId === null || currentTeamId === null || !user) {
                     return 'Your project is still loading'
                 }
                 switch (suggestion?.kind) {

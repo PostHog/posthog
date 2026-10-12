@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { turnSuggestionsResolveCreate } from '../generated/api'
@@ -145,6 +147,26 @@ describe('turnSuggestionLogic', () => {
             turn_index: 1,
             resolution: 'accepted',
         })
+    })
+
+    it('keeps accept disabled until the environment team loads', async () => {
+        await mountStreamWithSuggestion({
+            ...SUGGESTION,
+            kind: 'notebook',
+            notebook: { title: 'Signups investigation', summary: '' },
+        })
+        const logic = suggestionActionLogic({
+            streamKey: STREAM_KEY,
+            turnIndex: 1,
+            sessionId: 'task',
+            revealDelayMs: 0,
+        })
+        logic.mount()
+        expect(logic.values.acceptDisabledReason).toBeNull()
+
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+
+        expect(logic.values.acceptDisabledReason).toBe('Your project is still loading')
     })
 
     it.each([true, false])(
