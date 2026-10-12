@@ -897,6 +897,7 @@ class TestGetRowsBatching:
             patch.object(ch_module, "_get_client", side_effect=fake_get_client),
             patch.object(ch_module, "_get_table", return_value=mock_table),
             patch.object(ch_module, "_get_primary_keys", return_value=["id"]),
+            patch.object(ch_module, "_order_by_sorting_key", return_value=["id"]),
             patch.object(ch_module, "_has_duplicate_primary_keys", return_value=False),
             patch.object(ch_module, "_get_partition_settings", return_value=None),
             patch.object(ch_module, "get_clickhouse_row_count", return_value={}),
@@ -1224,6 +1225,62 @@ class TestIncrementalResumeAgainstServer:
 
         assert rows.sort_by("id").column("id").to_pylist() == expected_ids
         assert response.rows_to_sync == len(expected_ids)
+
+
+class TestSortingKeyLayoutAgainstServer:
+    def test_full_refresh_partitions_by_leading_timestamp_and_sorts_by_sorting_key(self):
+        admin = clickhouse_connect.get_client(
+            host=settings.CLICKHOUSE_HOST,
+            port=8123,
+            username=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+        )
+        admin.command(f"CREATE DATABASE IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}")
+        name = f"sorting_key_layout_{uuid.uuid4().hex}"
+        qualified = f"{settings.CLICKHOUSE_DATABASE}.{name}"
+        # `created_on` comes first in table order but last in the sorting key, so the partition key must be `ts`.
+        admin.command(f"""
+            CREATE TABLE {qualified} (id UInt64, created_on Date, team UInt32, ts DateTime64(6, 'UTC'))
+            ENGINE = MergeTree ORDER BY (team, toStartOfDay(ts), created_on)
+        """)
+        try:
+            for part in range(3):
+                admin.command(f"""
+                    INSERT INTO {qualified}
+                    SELECT number, toDate('2026-01-01') + number % 7, (number * 7 + {part}) % 3,
+                        toDateTime64('2026-01-01 00:00:00', 6, 'UTC') + toIntervalHour((number * 13) % 50)
+                    FROM numbers({part * 10}, 10)
+                """)
+
+            @contextmanager
+            def tunnel():
+                yield (settings.CLICKHOUSE_HOST, 8123)
+
+            response = ch_module.clickhouse_source(
+                tunnel=tunnel,
+                user=settings.CLICKHOUSE_USER,
+                password=settings.CLICKHOUSE_PASSWORD,
+                database=settings.CLICKHOUSE_DATABASE,
+                secure=False,
+                verify=False,
+                table_names=[name],
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+                logger=MagicMock(),
+            )
+            items = response.items()
+            assert not isinstance(items, AsyncIterable)
+            rows = pa.concat_tables(list(items))
+        finally:
+            admin.command(f"DROP TABLE IF EXISTS {qualified}")
+            admin.close()
+
+        assert (response.partition_keys, response.partition_mode) == (["ts"], "datetime")
+        assert rows.num_rows == 30
+        sort_order = [("team", "ascending"), ("ts", "ascending"), ("created_on", "ascending")]
+        assert rows.select(["team", "ts", "created_on"]).equals(
+            rows.sort_by(sort_order).select(["team", "ts", "created_on"])
+        )
 
 
 class TestClickHouseReconcileSchemaMetadata(BaseTest):

@@ -986,6 +986,53 @@ def _get_primary_keys(client: ClickHouseClient, database: str, table_name: str) 
     return keys if keys else None
 
 
+def _order_by_sorting_key(
+    client: ClickHouseClient, database: str, table_name: str, key_columns: list[str]
+) -> list[str]:
+    """Return `key_columns` in the order they first appear in the table's sorting key expression.
+
+    `system.columns` lists sorting-key columns in table order, and `system.tables.sorting_key` is
+    an expression such as `team_id, toDate(timestamp), id`, so we match each name in that text.
+    """
+    result = client.query(
+        "SELECT sorting_key FROM system.tables WHERE database = %(database)s AND name = %(table)s",
+        parameters={"database": database, "table": table_name},
+    )
+    sorting_key = result.result_rows[0][0] if result.result_rows else ""
+
+    def first_position(name: str) -> int:
+        escaped = re.escape(name)
+        match = re.search(rf"`{escaped}`|(?<![\w`]){escaped}(?![\w`])", sorting_key)
+        return match.start() if match else len(sorting_key)
+
+    return sorted(key_columns, key=first_position)
+
+
+def _is_date_or_datetime(column: ClickHouseColumn) -> bool:
+    inner, _ = _strip_type_modifiers(column.data_type)
+    return inner in ("Date", "Date32") or bool(_DATETIME_RE.match(inner) or _DATETIME64_RE.match(inner))
+
+
+def _leading_datetime_column(columns: Sequence[ClickHouseColumn], sorting_key_columns: list[str]) -> str | None:
+    """The first sorting-key column with a Date or DateTime type, or None."""
+    columns_by_name = {column.name: column for column in columns}
+    for name in sorting_key_columns:
+        column = columns_by_name.get(name)
+        if column is not None and _is_date_or_datetime(column):
+            return name
+    return None
+
+
+def _sort_by_columns(table: pa.Table, sorting_key_columns: list[str]) -> pa.Table:
+    """Sort `table` by the sorting-key columns it contains, so each Parquet file gets narrow min/max stats."""
+    keys: list[tuple[str, Literal["ascending", "descending"]]] = [
+        (name, "ascending")
+        for name in sorting_key_columns
+        if name in table.column_names and not pa.types.is_nested(table.schema.field(name).type)
+    ]
+    return table.sort_by(keys) if keys else table
+
+
 def get_primary_keys_for_schemas(
     *,
     host: str,
@@ -1689,6 +1736,11 @@ def clickhouse_source(
             if primary_keys:
                 logger.debug(f"Found primary keys (sorting key): {primary_keys}")
 
+            sorting_key_columns = (
+                _order_by_sorting_key(client, database, table_name, primary_keys) if primary_keys else []
+            )
+            datetime_partition_key = _leading_datetime_column(list(table.columns), sorting_key_columns)
+
             # Project to the user-selected columns (always keeping PK + cursor).
             projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
             page_key = _page_key(list(table.columns), should_use_incremental_field, incremental_field, primary_keys)
@@ -1867,6 +1919,14 @@ def clickhouse_source(
                             return
                         lower = upper
 
+                def to_output_table(batches: list[pa.RecordBatch]) -> pa.Table:
+                    output = pa.Table.from_batches(batches)
+                    # An incremental read stays in cursor order: the pipeline can split a table and
+                    # save the largest cursor of each part, so a re-ordered table could skip rows on resume.
+                    if should_use_incremental_field:
+                        return output
+                    return _sort_by_columns(output, sorting_key_columns)
+
                 # The stream yields pa.RecordBatch chunks — one per
                 # ClickHouse block, capped by max_block_size. We accumulate
                 # these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS pa.Tables
@@ -1883,13 +1943,13 @@ def clickhouse_source(
                         pending_rows += chunk.num_rows
                         pending_bytes += chunk.nbytes
                         if pending_rows >= YIELD_TARGET_ROWS or pending_bytes >= YIELD_TARGET_BYTES:
-                            yield pa.Table.from_batches(pending)
+                            yield to_output_table(pending)
                             pending = []
                             pending_rows = 0
                             pending_bytes = 0
 
                 if pending:
-                    yield pa.Table.from_batches(pending)
+                    yield to_output_table(pending)
             finally:
                 stream_client.close()
 
@@ -1901,6 +1961,11 @@ def clickhouse_source(
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
+        # A time-range filter can skip files only when each file holds a narrow time range,
+        # so partition by the leading timestamp of the sorting key, not by an md5 of the whole key.
+        partition_keys=[datetime_partition_key] if datetime_partition_key else None,
+        partition_mode="datetime" if datetime_partition_key else None,
+        partition_format="month" if datetime_partition_key else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
     )
