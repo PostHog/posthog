@@ -750,6 +750,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         fn.refresh_from_db()
         assert fn.deleted
 
+        template_hog = HogFunctionTemplate.objects.get(template_id="template-posthog-email").code
+        HogFunction.objects.filter(id=fn.id).update(hog=template_hog)
+        allowed_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/", data={"deleted": False}
+        )
+        assert allowed_response.status_code == status.HTTP_200_OK, allowed_response.json()
+
     @parameterized.expand(
         [
             # Only the two messaging functions are refused. Async functions that stage an ordinary
