@@ -700,6 +700,7 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
+                            coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
