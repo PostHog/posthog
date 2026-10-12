@@ -189,6 +189,7 @@ def _table(
     applied: bool = True,
     last_applied_at: datetime | None = None,
     last_synced_at: datetime | None = None,
+    workflow_status: ManagedWarehouseSourceJobStatus = ManagedWarehouseSourceJobStatus.COMPLETED,
 ) -> SourceTableStatus:
     return {
         "schema_id": str(uuid4()),
@@ -199,7 +200,7 @@ def _table(
         "readiness_state": readiness_state,
         "detail": "",
         "workflow_type": ManagedWarehouseSourceJobWorkflow.COPY,
-        "workflow_status": ManagedWarehouseSourceJobStatus.COMPLETED,
+        "workflow_status": workflow_status,
         "workflow_started_at": datetime(2026, 8, 1, tzinfo=UTC),
         "applied": applied,
         "last_applied_at": last_applied_at,
@@ -309,14 +310,30 @@ class TestRollupSources(SimpleTestCase):
                 ["refunds", "orders", "Invoices", "charges", "payouts"],
                 "The latest workflow failed for charges, Invoices, orders and 2 more. Select the source for details.",
             ),
+            (
+                "attention_without_a_failed_workflow",
+                ["orders"],
+                "One or more schemas need attention.",
+                ManagedWarehouseSourceJobStatus.RUNNING,
+            ),
         ]
     )
     def test_needs_attention_detail_names_the_failing_tables(
-        self, _name: str, failing_tables: list[str], expected_detail: str
+        self,
+        _name: str,
+        failing_tables: list[str],
+        expected_detail: str,
+        workflow_status: ManagedWarehouseSourceJobStatus = ManagedWarehouseSourceJobStatus.FAILED,
     ) -> None:
         source_id = str(uuid4())
         tables = [
-            _table(source_id=source_id, source_name="Stripe", table_name=name, readiness_state="needs_attention")
+            _table(
+                source_id=source_id,
+                source_name="Stripe",
+                table_name=name,
+                readiness_state="needs_attention",
+                workflow_status=workflow_status,
+            )
             for name in failing_tables
         ]
         tables.append(

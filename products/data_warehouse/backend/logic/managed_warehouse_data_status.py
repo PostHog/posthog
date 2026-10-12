@@ -285,9 +285,13 @@ _MAX_NAMED_TABLES = 3
 
 
 def _source_summary_detail(readiness_state: ReadinessState, rows: list[SourceTableStatus]) -> str:
-    names = sorted((row["table_name"] for row in rows if row["readiness_state"] == "needs_attention"), key=str.lower)
-    if readiness_state != "needs_attention" or not names:
+    attention = [row for row in rows if row["readiness_state"] == "needs_attention"]
+    failed = [
+        row["table_name"] for row in attention if row["workflow_status"] == ManagedWarehouseSourceJobStatus.FAILED
+    ]
+    if readiness_state != "needs_attention" or not failed or len(failed) != len(attention):
         return _SOURCE_SUMMARY_DETAILS[readiness_state]
+    names = sorted(failed, key=lambda name: (name.lower(), name))
     hidden = len(names) - _MAX_NAMED_TABLES
     if hidden > 0:
         listed = f"{', '.join(names[:_MAX_NAMED_TABLES])} and {hidden} more"
@@ -295,8 +299,6 @@ def _source_summary_detail(readiness_state: ReadinessState, rows: list[SourceTab
         listed = f"{', '.join(names[:-1])} and {names[-1]}"
     else:
         listed = names[0]
-    # source_table_readiness sets needs_attention only when the latest workflow failed.
-    # Change this sentence if needs_attention gets another cause.
     return f"The latest workflow failed for {listed}. Select the source for details."
 
 
