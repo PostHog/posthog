@@ -1327,6 +1327,7 @@ def build_run_prompt(
     run_id: str,
     team_id: int,
     started_at: datetime,
+    project_timezone: str = "UTC",
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     write_scopes: Sequence[str] | None = None,
@@ -1477,6 +1478,7 @@ def build_run_prompt(
     run_identity = f"""# Your run identity
 
 - **team_id**: `{team_id}`, implicit on every MCP call.
+- **project_timezone**: `{project_timezone}`. HogQL resolves `now()` and bare datetime literals in this timezone, not UTC, so write every timestamp bound as `toDateTime('YYYY-MM-DD HH:MM:SS', 'UTC')` and confirm the bounds cover the intended UTC window before you treat an empty result as a quiet one.
 - **skill_name**: `{skill.name}`, your steering layer.
 - **skill_version**: `{skill.version}`, the version it is pinned to, written as a bare number and never `v`-prefixed. `skill_name` and `skill_version` are the two arguments the `skill-get` call in *First: read your skill* takes.{authors_line}
 - **run_id**: `{run_id}`, passed to every `scout-*` tool that takes it, including `{emit_tool}`{check_tools_suffix}.
