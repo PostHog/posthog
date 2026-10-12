@@ -592,14 +592,19 @@ describe('PushNotificationService', () => {
             expect(result.logs.map((log) => log.message)).toContain('Push notification integration not found')
         })
 
-        it('handles missing person properties gracefully', async () => {
+        it.each([
+            ['the person has no token', false, 'No active FCM device token found on the person who triggered this run'],
+            ['the run has no person', true, 'this run has no person'],
+        ])('skips with a specific warning when %s', async (_name, removePerson, expectedWarning) => {
             const invocation = createSendPushNotificationInvocation()
+            if (removePerson) {
+                invocation.state.globals.person = undefined
+            }
 
             const result = await service.executeSendPushNotification(invocation)
 
-            expect(result.logs.map((log) => log.message)).toContainEqual(
-                expect.stringContaining('No active FCM device token found')
-            )
+            expect(result.logs.map((log) => log.message)).toContainEqual(expect.stringContaining(expectedWarning))
+            expect(mockTrackedFetch).not.toHaveBeenCalled()
         })
     })
 

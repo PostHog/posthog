@@ -66,7 +66,8 @@ if (not res.success) {
             label: 'Distinct ID',
             secret: false,
             required: true,
-            description: 'Distinct ID of the person to send the notification to.',
+            description:
+                'The step sends to the devices registered on the person who triggered the workflow. This value labels the logs and identifies the person when a dead device token is removed.',
             default: '{event.distinct_id}',
         },
         {
