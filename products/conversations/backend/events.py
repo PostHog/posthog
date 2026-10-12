@@ -414,7 +414,7 @@ def _get_session_host(ticket: Ticket) -> str | None:
     current_url = (ticket.session_context or {}).get("current_url")
     if not isinstance(current_url, str) or not validate_url_domain(current_url, ticket.team):
         return None
-    return (urlparse(current_url).hostname or "").lower() or None
+    return urlparse(current_url).hostname
 
 
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
