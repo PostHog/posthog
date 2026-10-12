@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { codeInspectorPlugin } from 'code-inspector-plugin'
 import { dirname, resolve } from 'node:path'
 import { URL, fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -17,6 +18,14 @@ export default defineConfig(({ mode }) => {
 
     return {
         plugins: [
+            // Dev server only: hold Option+Shift (Alt+Shift) and click an element to open its source in your editor.
+            // The plugin must come before react(). CSPMiddleware admits port 5678 in DEBUG, so keep the two in sync.
+            codeInspectorPlugin({
+                bundler: 'vite',
+                port: 5678,
+                pathType: 'relative',
+                injectTo: resolve(__dirname, 'src/index.tsx'),
+            }),
             react(),
             tailwindcss(),
             // We delete and copy the HTML files for development
