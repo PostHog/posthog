@@ -129,7 +129,7 @@ export interface panelLayoutLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isLayoutNavCollapsed: (
             isLayoutNavCollapsedDesktop: boolean,
-            layoutNavCollapsedOverride: any,
+            layoutNavCollapsedOverride: boolean | null,
             mobileLayout: boolean
         ) => boolean
         activePanelIdentifierFromUrl: (location: {
