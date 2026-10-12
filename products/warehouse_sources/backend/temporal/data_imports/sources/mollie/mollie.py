@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.set
 MOLLIE_BASE_URL = "https://api.mollie.com/v2"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MollieResumeConfig:
     # Mollie paginates via the HAL `_links.next.href` URL, which is
     # self-contained (ID-anchored `from` cursor), so the URL is all we persist.

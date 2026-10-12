@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 PAGE_SIZE = 250
 
 
-@dataclass
+@dataclass(frozen=True)
 class MollieEndpointConfig:
     name: str
     path: str
