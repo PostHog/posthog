@@ -20,7 +20,7 @@ import piLogo from '../harness-logos/pi.svg'
 import replitLogo from '../harness-logos/replit.svg'
 import vscodeLogo from '../harness-logos/vscode.svg'
 import windsurfLogo from '../harness-logos/windsurf.svg'
-import { AI_LAB_COLORS } from './modelColors'
+import { MCP_ANALYTICS_COLORS } from './mcpAnalyticsColors'
 
 export interface HarnessLogo {
     src: string
@@ -28,13 +28,13 @@ export interface HarnessLogo {
 }
 
 const HARNESS_BRAND_COLORS = {
-    claude: AI_LAB_COLORS.Anthropic,
-    openai: AI_LAB_COLORS.OpenAI,
-    cursor: AI_LAB_COLORS.Cursor,
-    grok: AI_LAB_COLORS.xAI,
-    vscode: '#007acc',
-    coderabbit: '#ff570a',
-    kimchi: '#ff521d',
+    claude: MCP_ANALYTICS_COLORS.anthropic,
+    openai: MCP_ANALYTICS_COLORS.openai,
+    cursor: MCP_ANALYTICS_COLORS.cursor,
+    grok: MCP_ANALYTICS_COLORS.xai,
+    vscode: MCP_ANALYTICS_COLORS.vscode,
+    coderabbit: MCP_ANALYTICS_COLORS.coderabbit,
+    kimchi: MCP_ANALYTICS_COLORS.kimchi,
 } as const
 
 interface HarnessDescriptor {
