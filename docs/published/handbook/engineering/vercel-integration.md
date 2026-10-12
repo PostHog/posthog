@@ -166,6 +166,13 @@ graph LR
 | **SSO**                         | Via Vercel (`/login/vercel`)           | PostHog login            |
 | **Uninstall**                   | Resets to `billing_provider=posthog`   | N/A                      |
 
+The billing page also treats Vercel customers differently:
+
+- A banner says the organization is billed through Vercel. It links to the Vercel invoices page when `external_billing_provider_invoices_url` is set.
+- The "Downgrade to free plan" card is hidden.
+- With an active subscription, add-ons, platform plan switches, and billing limits work as usual.
+- Without an active subscription, `BillingUpgradeCTA` buttons are disabled, and `startPaymentEntryFlow` and `handleProductUpgrade` show a toast and stop before they call `api/billing/activate`. The message tells the customer to contact support.
+
 ### The `billing_provider` field
 
 On the Customer model (`billing/models/customer.py`):

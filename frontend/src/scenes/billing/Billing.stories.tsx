@@ -7,7 +7,7 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingType, StartupProgramLabel } from '~/types'
+import { BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -76,6 +76,23 @@ export const BillingManagedByPartner: Story = {
                     ...billingUnsubscribedJson,
                     customer_id: '',
                     billing_managed_by_partner: { partner_name: 'Example Partner' },
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingBilledThroughVercel: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                    billing_provider: BillingProvider.Vercel,
+                    external_billing_provider_invoices_url:
+                        'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices',
                 },
             },
         })

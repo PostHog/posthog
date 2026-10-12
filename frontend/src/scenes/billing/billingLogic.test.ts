@@ -33,6 +33,9 @@ const creditOverviewResponse = {
 const EXTERNAL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
 const HOSTED_INVOICE_URL = 'https://invoice.stripe.com/i/acct_example/test_example'
 const UNSUBSCRIBE_ERROR_DETAIL = 'Pay your open invoices first.'
+const VERCEL_NOTICE =
+    'This organization is billed through Vercel. Manage your payment method and invoices in Vercel. To cap your spend, set a billing limit on each product on this page.'
+const VERCEL_DISABLED_REASON = 'This organization is billed through Vercel. Contact support to change your plan.'
 
 const productWithUsage = (
     percentageUsage: number,
@@ -253,6 +256,51 @@ describe('billingLogic', () => {
                 showCreditCTAHero: false,
                 showBillingHero: false,
                 billingManagedByPartnerNotice: `Billing for this organization is managed by ${shownName}. Contact them to change your plan or payment details.`,
+            })
+        }
+    )
+
+    it.each<{
+        name: string
+        answer: [number, Partial<BillingType> | null]
+        expectedNotice: string | null
+        expectedDisabledReason: string | null
+    }>([
+        {
+            name: 'Vercel with an active subscription',
+            answer: [200, { ...billingJson, billing_provider: BillingProvider.Vercel, has_active_subscription: true }],
+            expectedNotice: VERCEL_NOTICE,
+            expectedDisabledReason: null,
+        },
+        {
+            name: 'Vercel with no active subscription',
+            answer: [200, { ...billingJson, billing_provider: BillingProvider.Vercel, has_active_subscription: false }],
+            expectedNotice: VERCEL_DISABLED_REASON,
+            expectedDisabledReason: VERCEL_DISABLED_REASON,
+        },
+        {
+            name: 'PostHog with no active subscription',
+            answer: [
+                200,
+                { ...billingJson, billing_provider: BillingProvider.PostHog, has_active_subscription: false },
+            ],
+            expectedNotice: null,
+            expectedDisabledReason: null,
+        },
+        { name: 'no billing loaded', answer: [200, null], expectedNotice: null, expectedDisabledReason: null },
+    ])(
+        'sets the Vercel billing notice and disabled reason for $name',
+        async ({ answer, expectedNotice, expectedDisabledReason }) => {
+            billingAnswer = answer
+            billingLogic.mount()
+
+            await expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+
+            expect(billingLogic.values).toMatchObject({
+                billingThroughVercelNotice: expectedNotice,
+                billingThroughVercelDisabledReason: expectedDisabledReason,
             })
         }
     )

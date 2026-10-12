@@ -12,7 +12,7 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BillingType } from '~/types'
+import { BillingProvider, BillingType } from '~/types'
 
 const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> => {
     useMocks({ get: { '/api/billing': () => [200, billing ?? {}] } })
@@ -120,12 +120,26 @@ describe('paymentEntryLogic', () => {
         })
     })
 
-    describe('startPaymentEntryFlow — billing managed by a partner', () => {
-        it('neither activates nor opens the payment modal', async () => {
-            await seedBilling({
-                subscription_level: 'free',
-                billing_managed_by_partner: { partner_name: 'Example Partner' },
-            })
+    describe('startPaymentEntryFlow — billing locked outside PostHog', () => {
+        it.each<{ name: string; billing: Partial<BillingType> }>([
+            {
+                name: 'a partner manages billing',
+                billing: {
+                    subscription_level: 'free',
+                    billing_managed_by_partner: { partner_name: 'Example Partner' },
+                },
+            },
+            {
+                name: 'Vercel bills an organization with no active subscription',
+                billing: {
+                    customer_id: 'cus_test',
+                    subscription_level: 'free',
+                    has_active_subscription: false,
+                    billing_provider: BillingProvider.Vercel,
+                },
+            },
+        ])('neither activates nor opens the payment modal when $name', async ({ billing }) => {
+            await seedBilling(billing)
             const activate = jest.fn(() => [200, { success: true }] as [number, Record<string, unknown>])
             useMocks({ post: { '/api/billing/activate': activate } })
             logic = paymentEntryLogic()

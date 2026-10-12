@@ -59,6 +59,7 @@ export function Billing(): JSX.Element {
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
         billingManagedByPartnerNotice,
+        billingThroughVercelNotice,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -168,6 +169,25 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {billingThroughVercelNotice && (
+                <LemonBanner
+                    type="info"
+                    className="max-w-300 mb-2"
+                    action={
+                        billing?.external_billing_provider_invoices_url
+                            ? {
+                                  to: billing.external_billing_provider_invoices_url,
+                                  children: 'Open Vercel billing',
+                                  targetBlank: true,
+                                  'data-attr': 'billing-page-open-vercel-billing',
+                              }
+                            : undefined
+                    }
+                >
+                    {billingThroughVercelNotice}
+                </LemonBanner>
+            )}
+
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
@@ -269,7 +289,7 @@ export function Billing(): JSX.Element {
                 ))}
 
             <div>
-                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct && !billingThroughVercelNotice ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

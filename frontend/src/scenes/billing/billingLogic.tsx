@@ -223,6 +223,8 @@ export interface billingLogicValues {
     billingManagedByPartnerNotice: string | null
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
+    billingThroughVercelDisabledReason: string | null
+    billingThroughVercelNotice: string | null
     canAccessBilling: boolean
     canOnlyViewUsageAndSpend: boolean
     canViewUsageAndSpend: boolean
@@ -653,6 +655,11 @@ export interface billingLogicMeta {
         isBillingManagedByPartner: (billing: BillingType | null) => boolean
         billingManagedByPartnerDisabledReason: (billing: BillingType | null) => string | null
         billingManagedByPartnerNotice: (billingManagedByPartnerDisabledReason: string | null) => string | null
+        billingThroughVercelDisabledReason: (billing: BillingType | null) => string | null
+        billingThroughVercelNotice: (
+            billing: BillingType | null,
+            billingThroughVercelDisabledReason: string | null
+        ) => string | null
         showCreditCTAHero: (
             creditOverview: {
                 cc_last_four: null
@@ -1259,6 +1266,25 @@ export const billingLogic = kea<billingLogicType>([
                 billingManagedByPartnerDisabledReason
                     ? `${billingManagedByPartnerDisabledReason} Contact them to change your plan or payment details.`
                     : null,
+        ],
+        billingThroughVercelDisabledReason: [
+            (s) => [s.billing],
+            (billing: BillingType | null): string | null =>
+                billing?.billing_provider === BillingProvider.Vercel && !billing.has_active_subscription
+                    ? 'This organization is billed through Vercel. Contact support to change your plan.'
+                    : null,
+        ],
+        billingThroughVercelNotice: [
+            (s) => [s.billing, s.billingThroughVercelDisabledReason],
+            (billing: BillingType | null, billingThroughVercelDisabledReason: string | null): string | null => {
+                if (billing?.billing_provider !== BillingProvider.Vercel) {
+                    return null
+                }
+                return (
+                    billingThroughVercelDisabledReason ??
+                    'This organization is billed through Vercel. Manage your payment method and invoices in Vercel. To cap your spend, set a billing limit on each product on this page.'
+                )
+            },
         ],
         showCreditCTAHero: [
             (s) => [s.creditOverview, s.isBillingManagedByPartner],
