@@ -109,6 +109,7 @@ export type DashboardFilterChangeType =
     | 'variable'
     | 'interval'
     | 'test_accounts'
+    | 'compare'
     | 'metric_labels'
 
 export enum InsightEventSource {
