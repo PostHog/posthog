@@ -18,6 +18,7 @@ import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
 import { matchesPaneQuery } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { TodayReleaseStageBadge } from './TodayReleaseStageBadge'
 import { todayToolsLogic } from './todayToolsLogic'
 
 /** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
@@ -55,6 +56,7 @@ export function TodayProductsSidebar(): JSX.Element {
                         value={optionValue(section.key, tool)}
                         label={toolLabel(tool)}
                         icon={iconForType((tool.iconType ?? tool.type) as FileSystemIconType, tool.iconColor)}
+                        badge={<TodayReleaseStageBadge product={tool} />}
                         to={href}
                         active={!!href && href === activeHref}
                         dataAttr={section.key === 'recent' ? 'today-tool-recent' : 'today-tool'}

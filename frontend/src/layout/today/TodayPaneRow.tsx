@@ -7,6 +7,8 @@ interface TodayPaneRowProps {
     label: string
     meta?: string
     icon?: JSX.Element | null
+    /** A small status mark after the label, such as a release stage. */
+    badge?: JSX.Element | null
     to: string
     active?: boolean
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link. */
@@ -19,6 +21,7 @@ export function TodayPaneRow({
     label,
     meta,
     icon,
+    badge,
     to,
     active = false,
     action,
@@ -40,6 +43,7 @@ export function TodayPaneRow({
                     </span>
                 )}
                 <span className="min-w-0 flex-1 truncate">{label}</span>
+                {badge}
                 {meta && (
                     <span
                         className={cn(
