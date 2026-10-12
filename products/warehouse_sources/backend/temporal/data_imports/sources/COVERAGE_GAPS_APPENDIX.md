@@ -5691,18 +5691,18 @@ Note: Spec is the vendor's single-file OpenAPI (mollie/openapi repo, ~1.9 MB). C
 
 ## Monday — gaps
 
-Today (4): `boards`, `items`, `users`, `workspaces`
+Today (8): `board_activity_logs`, `board_columns`, `board_groups`, `boards`, `folders`, `items`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/mondaycom/monday-graphql-api/main/packages/api-types/generated/api-types.d.ts>
 
-- [ ] `boards { columns { id title type settings_str } }` — lookup that resolves the column ids inside every item's column_values — today those columns are unlabeled (high)
-- [ ] `boards { activity_logs }` — board change history (status transitions, moves, assignments) — the only source of state-transition data (high)
-- [ ] `boards { groups { id title } }` — lookup for the group ids items belong to, including groups with no items (medium)
+- [x] `boards { columns { id title type settings_str } }` — lookup that resolves the column ids inside every item's column_values — today those columns are unlabeled (high)
+- [x] `boards { activity_logs }` — board change history (status transitions, moves, assignments) — the only source of state-transition data (high)
+- [x] `boards { groups { id title } }` — lookup for the group ids items belong to, including groups with no items (medium)
 - [ ] `updates` — comments/updates on items — the collaboration activity stream (medium)
 - [ ] `teams` — team objects plus their users — resolves team owners/subscribers on boards (medium)
 - [ ] `boards { subscribers owners team_owners }` — board membership join table; boards currently sync with no ownership data (medium)
 - [ ] `tags` — tag lookup resolving tag ids stored in item column values (medium)
-- [ ] `folders` — workspace folder hierarchy that boards hang off via board_folder_id (medium)
+- [x] `folders` — workspace folder hierarchy that boards hang off via board_folder_id (medium)
 - [ ] `items { subitems }` — subitems live on separate boards and are missed by the current board-items walk (medium)
 - [ ] `docs` — workspace docs objects for content coverage alongside boards (low)
 - [ ] `boards { views }` — board view inventory for usage analysis (low)
