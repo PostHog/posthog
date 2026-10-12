@@ -746,10 +746,13 @@ class UpdateFeatureFlagAction(BaseAction):
     def _gated_values(cls, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
         """Return the values of each gated field before and after the change.
 
-        `release_conditions` is present only when the release conditions of a standalone flag
-        changed. A create compares its rollout against an empty baseline, so a flag born with any
-        rollout trips an "any change / >0" policy, and its release conditions are not compared:
-        a new flag serves nobody until it is enabled, and `feature_flag.enable` gates that.
+        `release_conditions` is present only when the release conditions changed on a flag this
+        family governs. Comparing them for a flag another family governs would gate one change
+        under two policies, so each family reads only its own flags.
+
+        A create compares its rollout against an empty baseline, so a flag born with any rollout
+        trips an "any change / >0" policy, and its release conditions are not compared: a new flag
+        serves nobody until it is enabled, and `feature_flag.enable` gates that.
         """
         old_filters = (flag.filters or {}) if flag is not None else {}
         new_filters = change["filters"] if "filters" in change else old_filters
@@ -762,7 +765,7 @@ class UpdateFeatureFlagAction(BaseAction):
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
         new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
-        if cls._changed_paths(old_release, new_release, strict=True) and _cached_owner_kind(flag) is None:
+        if cls._changed_paths(old_release, new_release, strict=True) and _cached_owner_kind(flag) == cls.owner_scope:
             before["release_conditions"] = old_release
             after["release_conditions"] = new_release
 
