@@ -55,6 +55,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
+from products.review_hog.backend.reviewer.tools.coordinator_review import COORDINATOR_PROMPT_FILE
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DEDUP_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     VALIDATION_FOLLOWUP_TEMPLATE,
@@ -230,6 +231,7 @@ class TurnFingerprint:
         review_mode: str,
         flash_reasoning_effort: str,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        coordinator: bool = False,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -241,8 +243,14 @@ class TurnFingerprint:
             review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
         )
         if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            coordinator_inputs: dict[str, Any] = {}
+            if coordinator:
+                # Only coordinated turns carry it, so turns on separate sessions keep their cohort.
+                prompt = (SINGLE_AGENT_PROMPT_PATH / COORDINATOR_PROMPT_FILE.name).read_text()
+                coordinator_inputs["coordinator"] = {"prompt": _text_hash(prompt)}
             return cls(
                 {
+                    **coordinator_inputs,
                     "review_mode": review_mode,
                     "review_design": review_design,
                     "review_arm": _arm_payload(review_arm),
@@ -290,6 +298,7 @@ def record_turn_marker(
     review_mode: str,
     flash_reasoning_effort: str,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    coordinator: bool = False,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact."""
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
@@ -300,6 +309,7 @@ def record_turn_marker(
         review_mode=review_mode,
         flash_reasoning_effort=flash_reasoning_effort,
         review_design=review_design,
+        coordinator=coordinator,
     )
     marker = ReviewHogMarker(
         version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()

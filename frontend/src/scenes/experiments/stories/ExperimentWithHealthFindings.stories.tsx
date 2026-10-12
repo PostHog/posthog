@@ -12,6 +12,8 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
+
 const EXPERIMENT_WITH_HEALTH_FINDINGS = {
     ...EXPERIMENT_WITH_MEAN_METRIC,
     health: {
@@ -58,6 +60,11 @@ const EXPOSURES_WITH_BIAS_RISK = {
     ],
 }
 
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_HEALTH_FINDINGS,
+    resultsByMetricType(EXPERIMENT_WITH_HEALTH_FINDINGS, { mean: MEAN_METRIC_RESULT })
+)
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Experiments',
@@ -70,6 +77,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                ...RECALCULATION.get,
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]:
                     EXPERIMENT_WITH_HEALTH_FINDINGS,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
@@ -79,14 +87,13 @@ const meta: Meta = {
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
+                ...RECALCULATION.post,
+                // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURES_WITH_BIAS_RISK]
-                    }
-
-                    return [200, MEAN_METRIC_RESULT]
+                    return body.query.kind === NodeKind.ExperimentExposureQuery
+                        ? [200, EXPOSURES_WITH_BIAS_RISK]
+                        : [404]
                 },
             },
         }),

@@ -10,6 +10,7 @@ describe('modelCardState', () => {
         experiment_count: 2,
         best_holdout_score: 0.72,
         latest_agent_description: 'baseline',
+        latest_summary: null,
     }
     const noChampion = { champion_holdout_auc: null, champion_realized_auc: null, champion_is_preliminary: null }
     const awaiting = { champion_holdout_auc: 0.81, champion_realized_auc: null, champion_is_preliminary: null }

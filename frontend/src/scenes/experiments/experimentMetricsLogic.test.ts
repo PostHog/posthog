@@ -2,8 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -144,10 +143,6 @@ describe('experimentMetricsLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-            [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-        })
         // Wait for the bootstrap to populate currentProjectId — the loader guards on it.
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
     })
@@ -213,6 +208,10 @@ describe('experimentMetricsLogic', () => {
                     ],
                 },
             })
+            const markTaskAsCompleted = jest.fn()
+            const setupSpy = jest
+                .spyOn(globalSetupLogic, 'findMounted')
+                .mockReturnValue({ actions: { markTaskAsCompleted } } as any)
             mountLogic()
 
             // afterMount fires loadLatestRecalculation on its own — no manual dispatch needed.
@@ -230,6 +229,9 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             expect(logic.values.recalculationLoading).toBe(false)
+            // Results on screen for a launched experiment complete the review results setup task.
+            expect(markTaskAsCompleted).toHaveBeenCalledWith(SetupTaskId.ReviewExperimentResults)
+            setupSpy.mockRestore()
         })
 
         it('surfaces a discovery-step failure (metric_errors entry, no result row) loaded on mount', async () => {
@@ -1504,119 +1506,6 @@ describe('experimentMetricsLogic', () => {
             // Simulate tab focus — the handler must NOT reload, because a run is already loaded.
             document.dispatchEvent(new Event('visibilitychange'))
             await expectLogic(logic).toNotHaveDispatchedActions(['loadLatestRecalculation'])
-            expect(latestMock).toHaveBeenCalledTimes(1)
-        })
-    })
-
-    describe('feature flag disabled (legacy path)', () => {
-        it('is a no-op on mount: no API calls, no recalc state', async () => {
-            // Flip the flag off — the legacy flow owns metrics; this logic must do nothing.
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: false,
-            })
-            const latestMock = jest.fn(() => [200, completedRecalculation])
-            const createMock = jest.fn(() => [201, pendingRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
-                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
-            })
-            mountLogic()
-
-            // afterMount still dispatches loadLatestRecalculation, but the flag guard bails immediately.
-            await expectLogic(logic)
-                .toDispatchActions(['loadLatestRecalculation'])
-                .toNotHaveDispatchedActions(['setCurrentRecalculation', 'triggerRecalculation', 'pollRecalculation'])
-
-            // No recalculation endpoints were ever called, and state stays at its defaults.
-            expect(latestMock).not.toHaveBeenCalled()
-            expect(createMock).not.toHaveBeenCalled()
-            expect(logic.values.currentRecalculation).toBeNull()
-            expect(logic.values.recalculationLoading).toBe(false)
-            expect(logic.values.isRecalculating).toBe(false)
-        })
-
-        it('triggerRecalculation and loadLatestRecalculation no-op when the flag is off', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: false,
-            })
-            const createMock = jest.fn(() => [201, pendingRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}] },
-                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
-            })
-            mountLogic()
-
-            // Even an explicit trigger does nothing while the flag is off.
-            await expectLogic(logic, () => {
-                logic.actions.triggerRecalculation()
-            }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
-            expect(createMock).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('feature flag races on mount', () => {
-        it('defers the latest fetch until flags arrive, then replays it', async () => {
-            // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). Reading the flag as
-            // off here would clear loading and skip the fetch, hiding the recalculation results.
-            initKeaTests()
-            await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
-            const latestMock = jest.fn(() => [200, completedRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
-            })
-            mountLogic()
-
-            // afterMount fires loadLatestRecalculation, but it defers: no fetch while flags are unresolved.
-            await expectLogic(logic)
-                .toDispatchActions(['loadLatestRecalculation'])
-                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
-            expect(latestMock).not.toHaveBeenCalled()
-
-            // While deferred, loading must clear: the loadLatestRecalculation action set it true, and if flags
-            // never arrive it would otherwise freeze the reload control and wrongly queue config-change reruns.
-            expect(logic.values.recalculationLoading).toBe(false)
-            expect(logic.values.isRecalculating).toBe(false)
-
-            // Once flags arrive with the recalculation flag on, the deferred fetch replays.
-            await expectLogic(logic, () => {
-                featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
-            expect(latestMock).toHaveBeenCalledTimes(1)
-        })
-
-        it('re-runs the load when a later flag update contradicts the value the mount decision used', async () => {
-            // The first flag set of a page load can come from the server bootstrap, which omits
-            // org-targeted flags: flags count as received, but this flag reads off, so the mount load bails.
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            const latestMock = jest.fn(() => [200, completedRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
-            })
-            mountLogic()
-
-            await expectLogic(logic)
-                .toDispatchActions(['loadLatestRecalculation'])
-                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
-            expect(latestMock).not.toHaveBeenCalled()
-
-            // The real flag response lands with the flag on. The load must re-run, or the recalculation
-            // UI waits forever for results that nothing fetches.
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
-            expect(latestMock).toHaveBeenCalledTimes(1)
-
-            // A repeated update with the same value must not re-run the load.
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-            }).toNotHaveDispatchedActions(['loadLatestRecalculation'])
             expect(latestMock).toHaveBeenCalledTimes(1)
         })
     })

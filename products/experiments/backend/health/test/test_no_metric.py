@@ -12,7 +12,9 @@ from products.experiments.backend.health.context import HealthContext
 def _context(**changes: Any) -> HealthContext:
     values: dict[str, Any] = {
         "is_launched": True,
+        "is_running": True,
         "has_ended": False,
+        "is_paused": False,
         "archived": False,
         "flag": None,
         "primary_metric_count": 0,
@@ -26,8 +28,8 @@ class TestNoMetric(TestCase):
     @parameterized.expand(
         [
             ("running_without_metrics", _context(), True),
-            ("ended_without_metrics", _context(has_ended=True), True),
-            ("draft_without_metrics", _context(is_launched=False), False),
+            ("ended_without_metrics", _context(is_running=False, has_ended=True), True),
+            ("draft_without_metrics", _context(is_launched=False, is_running=False), False),
             ("secondary_metric_only", _context(secondary_metric_count=1), False),
             ("primary_metric_only", _context(primary_metric_count=1), False),
         ]

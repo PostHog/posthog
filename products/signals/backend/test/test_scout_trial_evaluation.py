@@ -369,7 +369,7 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         assert snapshot.judge_prompt_version == JUDGE_PROMPT_VERSION
-        assert snapshot.judge_model == "gpt-6-astra"
+        assert snapshot.judge_model == "gpt-6.1-sol"
         saved = json.loads(
             self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"]
         )

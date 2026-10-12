@@ -913,6 +913,7 @@ async def test_runner_fails_a_batch_that_validates_down_to_nothing(asuggestion_t
     # The TaskRun must not read as completed when nothing was stored: triage reads its status.
     session.end.assert_awaited_once()
     assert session.end.await_args.kwargs["status"] == "failed"
+    assert session.end.await_args.kwargs["error_type"] == "output_parse_failed"
 
 
 @pytest.mark.asyncio

@@ -741,7 +741,12 @@ async def prepare_s3_files_for_querying(
                                 continue
 
                             await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
+                            # Throttling that outlasted the retry budget is no longer a blip that
+                            # clears on its own, so it is reported even though the classifier
+                            # treats a single throttled response as transient.
+                            if _is_s3_throttling_error(e) or not (
+                                _is_transient_s3_connection_error(e) or is_transient_object_store_error(e)
+                            ):
                                 capture_exception(S3OperationError("delete an old query folder for this table", e))
                             # Cleanup stays best effort: the folder is timestamped, so the age-based
                             # GC above picks it up on a later sync. Failing the sync over it would
