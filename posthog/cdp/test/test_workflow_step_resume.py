@@ -9,7 +9,7 @@ from django.test import override_settings
 import jwt
 import requests
 
-from posthog.cdp.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP, emit_workflow_step_resume
+from posthog.cdp.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP, cap_value, emit_workflow_step_resume
 
 _PRODUCE = "posthog.cdp.workflow_step_resume.produce_internal_event"
 _POST = "posthog.plugins.plugin_server_api.internal_requests.post"
@@ -120,3 +120,11 @@ def test_delivery_activities_can_retry_a_failed_emit() -> None:
         pytest.raises(RuntimeError, match="kafka down"),
     ):
         emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="failed", raise_on_error=True)
+
+
+def test_cap_value_handles_deeply_nested_results() -> None:
+    nested: object = "x"
+    for _ in range(498):
+        nested = {"a": nested}
+
+    assert cap_value(nested, RESULT_BYTE_CAP) is not None
