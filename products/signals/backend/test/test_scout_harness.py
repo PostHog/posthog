@@ -2265,6 +2265,63 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "allowed_mcp_tools,flag_on,expected",
+    [
+        pytest.param(["dashboard-get"], True, ["dashboard-get"], id="flag_on_stamps_the_list"),
+        pytest.param([], True, [], id="empty_list_still_narrows"),
+        # The flag gates writing the list, so a list saved while it was on must stop applying when it goes off.
+        pytest.param(["dashboard-get"], False, None, id="flag_off_leaves_scopes_alone"),
+        pytest.param(None, True, None, id="no_list_leaves_scopes_alone"),
+    ],
+)
+async def test_run_stamps_the_scouts_tool_list_on_the_task_and_the_run(
+    ateam, aerrors_skill, allowed_mcp_tools, flag_on, expected
+):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id, skill_name="signals-scout-errors", allowed_mcp_tools=allowed_mcp_tools
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
+        captured.update(kwargs)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.scout_tool_access_enabled",
+            return_value=flag_on,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["mcp_tool_allowlist"] == expected
+    assert ("# Your tools" in captured["prompt"]) is (expected is not None)
+    metadata = await database_sync_to_async(
+        lambda: SignalScoutRun.objects.unscoped().filter(team_id=ateam.id).latest("created_at").metadata or {},
+        thread_sensitive=False,
+    )()
+    assert metadata.get("allowed_mcp_tools") == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "names,expect_nudge",
     [
         pytest.param(["scout_run_fail_pct"], True, id="approved_metrics_nudge"),

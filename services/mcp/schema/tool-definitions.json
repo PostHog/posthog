@@ -123,6 +123,7 @@
         "summary": "Deprecated alias for skill-archive.",
         "title": "Archive skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/archive/"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -137,6 +138,7 @@
         "summary": "Deprecated alias for skill-create.",
         "title": "Create skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -151,6 +153,7 @@
         "summary": "Deprecated alias for skill-duplicate.",
         "title": "Duplicate skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/duplicate/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -165,6 +168,7 @@
         "summary": "Deprecated alias for skill-file-create.",
         "title": "Create skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/files/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -179,6 +183,7 @@
         "summary": "Deprecated alias for skill-file-delete.",
         "title": "Delete skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["DELETE /api/projects/{project_id}/llm_skills/name/{skill_name}/files/{file_path}/"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -193,6 +198,7 @@
         "summary": "Deprecated alias for skill-file-get.",
         "title": "Get skill file (deprecated)",
         "required_scopes": ["llm_skill:read"],
+        "api_operations": ["GET /api/projects/{project_id}/llm_skills/name/{skill_name}/files/{file_path}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -207,6 +213,7 @@
         "summary": "Deprecated alias for skill-file-rename.",
         "title": "Rename skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["POST /api/projects/{project_id}/llm_skills/name/{skill_name}/files-rename/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -221,6 +228,7 @@
         "summary": "Deprecated alias for skill-get.",
         "title": "Get skill (deprecated)",
         "required_scopes": ["llm_skill:read"],
+        "api_operations": ["GET /api/projects/{project_id}/llm_skills/name/{skill_name}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -235,6 +243,7 @@
         "summary": "Deprecated alias for skill-list.",
         "title": "List skills (deprecated)",
         "required_scopes": ["llm_skill:read"],
+        "api_operations": ["GET /api/projects/{project_id}/llm_skills/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -249,6 +258,7 @@
         "summary": "Deprecated alias for skill-update.",
         "title": "Update skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/llm_skills/name/{skill_name}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -277,6 +287,10 @@
         "summary": "Edit part of a notebook's content.",
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/save/"
+        ],
         "feature_flag": "notebooks-collaboration",
         "hidden_when_flag_on": "revamped-py-notebooks",
         "superseded_by": ["notebooks-update-cell", "notebooks-add-cell"],
@@ -295,6 +309,7 @@
         "summary": "Create a markdown notebook for deep-dive analysis with SQL and Python cells.",
         "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -310,6 +325,11 @@
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
         "title": "Add notebook cell",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -325,6 +345,11 @@
         "summary": "Update a cell's code and re-run it.",
         "title": "Update notebook cell",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/",
+            "POST /api/projects/{project_id}/notebooks/{short_id}/sql_v2/run/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -340,6 +365,7 @@
         "summary": "Delete a notebook cell.",
         "title": "Delete notebook cell",
         "required_scopes": ["notebook:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/collab/markdown_save/"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": true,
@@ -355,6 +381,11 @@
         "summary": "Run every SQL and Python cell of a notebook in document order.",
         "title": "Run notebook",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "POST /api/projects/{project_id}/notebooks/{short_id}/runs/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -385,6 +416,10 @@
         "summary": "Continue waiting on a notebook run and write its results into the document.",
         "title": "Notebook run status",
         "required_scopes": ["notebook:write", "query:read"],
+        "api_operations": [
+            "GET /api/projects/{project_id}/notebooks/{short_id}/runs/{run_id}/",
+            "GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"
+        ],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
@@ -400,6 +435,7 @@
         "summary": "Set a notebook's variables; cells read them as {name} in SQL or globals in Python.",
         "title": "Set notebook variables",
         "required_scopes": ["notebook:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/notebooks/{short_id}/"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,

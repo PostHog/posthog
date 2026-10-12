@@ -2177,6 +2177,9 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            // The endpoint the handler calls. The Django API reads it to refuse a write that a
+            // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
+            const apiOperations = [`${resolved.method.toUpperCase()} ${resolved.path}`]
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -2221,6 +2224,7 @@ function generateDefinitionsJson(
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2245,6 +2249,7 @@ function generateDefinitionsJson(
                     summary: baseSummary,
                     title: baseTitle,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
