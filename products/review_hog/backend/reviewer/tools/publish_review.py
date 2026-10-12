@@ -29,6 +29,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
+    is_transient_github_error,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -335,8 +336,9 @@ def _review_already_posted(
 ) -> bool:
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
-    Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    Best-effort idempotency backstop: a transient readback failure raises, because an earlier attempt
+    may have posted already and the activity retries. Any other readback failure proceeds to post rather
+    than silently drop the review — the `published_head_sha` watermark still guards the common retry path. Only
     our own app-bot's reviews count (`is_app_bot_author`, shared with the status comment's marker
     scan): on a public repo anyone can paste the marker, and a spoofed match would silently
     suppress the publish.
@@ -361,6 +363,8 @@ def _review_already_posted(
             )
         )
     except (GitHubAPIError, GitHubRateLimitError) as e:
+        if is_transient_github_error(e):
+            raise
         logger.warning(f"Could not read existing reviews to check publish idempotency: {e}. Proceeding to post.")
         return False
 

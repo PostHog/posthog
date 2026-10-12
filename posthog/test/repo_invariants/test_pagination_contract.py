@@ -191,6 +191,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.mcp_store.backend.presentation.gateway_views.MCPGatewayMemberViewSet",
     "products.mcp_store.backend.presentation.views.MCPOAuthRedirectViewSet",
     "products.mcp_store.backend.presentation.views.MCPServerViewSet",
+    # Lists at most 20 imports from the last 7 days, so it has no pages.
+    "products.metrics.backend.presentation.dashboard_import_api.MetricsDashboardImportViewSet",
     "products.notebooks.backend.presentation.views.notebook.NotebookViewSet",
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",

@@ -360,6 +360,16 @@ class TemplateGlobalsValidator(TraversingVisitor):
         elif maximum is not None and count > maximum:
             self.invalid_calls.append(f"{node.name} takes at most {maximum} argument(s), got {count}")
 
+    def visit_expr_call(self, node: ast.ExprCall) -> None:
+        super().visit_expr_call(node)
+        # `person.properties.email.isNotNull()` compiles to a call on the value at that path. Globals
+        # hold event data, never a function, so the VM refuses the call on every event.
+        if isinstance(node.expr, ast.Field) and node.expr.chain and str(node.expr.chain[0]) not in self._declared:
+            path = ".".join(str(part) for part in node.expr.chain)
+            self.invalid_calls.append(
+                f"{path} is a value, not a function. Write the function name first, as in isNotNull(person.properties.email)"
+            )
+
 
 class DeclaredNamesCollector(TraversingVisitor):
     """Collect every identifier a hog program declares (variables, functions, params,
