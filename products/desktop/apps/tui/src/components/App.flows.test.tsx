@@ -4,8 +4,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import type { Task } from "@posthog/shared";
+import type { CloudRegion, Task } from "@posthog/shared";
 import { Box } from "ink";
+import { type ReactElement, useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
 import { CLAUDE_TOKEN_PATH } from "../claudeToken";
@@ -37,6 +38,7 @@ const { openUrl } = await import("../openUrl");
 const CONFIG = join(homedir(), ".config", "posthog-tui");
 // A layout of its own, apart from the other App tests' accounts.
 const ACCOUNT = "flow-user";
+const WELCOME_ACCOUNT = "welcome-user";
 const TOKEN = `sk-ant-oat01-${"x".repeat(40)}`;
 
 const cloudTask = (overrides: Partial<Task> = {}): Task =>
@@ -150,6 +152,8 @@ describe("App flows", () => {
   afterEach(() => {
     for (const path of [
       layoutPath(ACCOUNT),
+      layoutPath(WELCOME_ACCOUNT),
+      layoutPath(),
       join(CONFIG, "prefs.json"),
       join(CONFIG, "local", "flow-l1.jsonl"),
       join(CONFIG, "local", "flow-l2.jsonl"),
@@ -465,6 +469,69 @@ describe("App flows", () => {
       );
     } finally {
       app.close();
+    }
+  });
+
+  it("welcomes a first run: sign in, pick who pays, and paste the Claude token that plan needs", async () => {
+    saveLayout(initialLayout());
+    const mouse: MouseEvents = new EventEmitter();
+    const login = vi.fn(async (_region: CloudRegion) => {});
+    // Signs in the way Root does: the session arrives once the login resolves.
+    function Host(): ReactElement {
+      const [session, setSession] = useState<Session | null>(null);
+      return (
+        <App
+          session={session}
+          login={async (region) => {
+            await login(region);
+            setSession({
+              account: WELCOME_ACCOUNT,
+              work: {
+                listRecent: async () => ({ tasks: [], hasMore: false }),
+              } as unknown as WorkList,
+              runs: { prefetch: async () => {} } as unknown as CloudRuns,
+              chats: {} as PiChats,
+              control: () => ({}) as PiControl,
+              startLocal: () => Promise.reject(new Error("no local")),
+            });
+          }}
+          logout={() => {}}
+          mouse={mouse}
+        />
+      );
+    }
+    const { instance, output } = renderInTerminal(
+      <Box height={30} flexDirection="column">
+        <Host />
+      </Box>,
+    );
+    const plain = (): string => stripTerminalSequences(output());
+    try {
+      await vi.waitFor(() => expect(plain()).toContain("Sign in to PostHog"));
+      expect(loadPrefs().welcomed).toBe(true);
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() => expect(login).toHaveBeenCalledWith("us"));
+      await vi.waitFor(() =>
+        expect(plain()).toContain("What new chats run on"),
+      );
+      mouse.emit("keys", "3");
+      await vi.waitFor(() => expect(plain()).toContain("claude setup-token"));
+      mouse.emit("keys", "not-a-token");
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() => expect(plain()).toContain("Paste the full token"));
+      expect(loadPrefs().billing).toBe("posthog");
+      for (const _ of "not-a-token") mouse.emit("keys", "\u007f");
+      mouse.emit("keys", TOKEN);
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() =>
+        expect(readFileSync(CLAUDE_TOKEN_PATH, "utf8").trim()).toBe(TOKEN),
+      );
+      expect(loadPrefs().billing).toBe("anthropic");
+      await vi.waitFor(() =>
+        expect(plain().slice(-1200)).toContain("• Anthropic subscription"),
+      );
+    } finally {
+      instance.unmount();
     }
   });
 

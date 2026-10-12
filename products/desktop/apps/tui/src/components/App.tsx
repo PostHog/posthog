@@ -266,7 +266,7 @@ export function App({
     flashNotice,
   });
 
-  const { onSubmit, pending, reopening, undelivered } = useSend({
+  const { onSubmit, pending, reopening, undelivered, welcome } = useSend({
     layout,
     setLayout,
     setFresh,
@@ -412,6 +412,16 @@ export function App({
   });
   useTerminalInput(mouse, { ...pointer, onKey });
   latestSubmit.current = onSubmit;
+
+  // A first run signed out opens the sign-in sheet itself, once; the sheet marks the run welcomed.
+  const latestWelcome = useRef(welcome);
+  latestWelcome.current = welcome;
+  const signedOut = session === null;
+  const focusedPaneId = workspace.focusedPaneId;
+  useEffect(() => {
+    if (signedOut && !loadPrefs().welcomed)
+      latestWelcome.current(focusedPaneId);
+  }, [signedOut, focusedPaneId]);
 
   onBackground.current = (reply) => {
     const background = backgroundFromReply(reply);

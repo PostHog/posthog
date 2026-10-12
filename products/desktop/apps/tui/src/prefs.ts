@@ -21,6 +21,8 @@ export interface Prefs {
   lastModel?: ModelChoice;
   // The context donut on the composer's rule, from settings.
   showContext: boolean;
+  // The first run's sign-in sheet has been shown.
+  welcomed: boolean;
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -41,6 +43,7 @@ const DEFAULT_PREFS: Prefs = {
   billing: "posthog",
   claudeMode: "auto",
   showContext: false,
+  welcomed: false,
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -67,6 +70,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
         typeof saved.claudeMode === "string" ? saved.claudeMode : "auto",
       ...(modelOf(saved.lastModel) && { lastModel: modelOf(saved.lastModel) }),
       showContext: saved.showContext === true,
+      welcomed: saved.welcomed === true,
     };
   } catch {
     return DEFAULT_PREFS;
