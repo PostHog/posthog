@@ -300,7 +300,9 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
             "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
-            "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
+            "`has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, "
+            "`has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` "
+            "scratchpad entry and produced no report, finding, or structured output). Use "
             "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
             "Note the flags describe the reports the run authored as they stand now, so charts "
             "attached to someone else's report via an edit are not counted. A missing `derived` "
@@ -4253,6 +4255,15 @@ class SignalScoutPrecheckTestSerializer(serializers.Serializer):
         help_text=(
             "Why the query failed, when it failed. A syntax or schema error is given as written; other "
             "failures read as a general message. Null when the query ran."
+        ),
+    )
+    acting_user = UserBasicSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "The member scheduled runs check the query as, when that is not you. The test runs with your "
+            "access, so a table you can read can still fail on a scheduled run, and the run then starts "
+            "as if there were no pre-check. Null when scheduled runs check it as you."
         ),
     )
 

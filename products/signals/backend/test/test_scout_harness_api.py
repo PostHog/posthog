@@ -78,6 +78,8 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.scout_harness.trial_state import initial_trial_state
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -2404,6 +2406,31 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(named.id)
+
+    @parameterized.expand(
+        [
+            ("not_in_use_key", "not-in-use:feature-flags", None, 1),
+            ("not_in_use_key_body_names_a_sibling_run", "not-in-use:feature-flags", "sibling", 1),
+            ("pattern_key", "pattern:feature-flags:baseline", None, None),
+        ]
+    )
+    def test_remember_counts_not_in_use_writes_against_the_sandbox_run(
+        self, _name: str, key: str, body_run: str | None, expected: int | None
+    ) -> None:
+        sandbox_run = _make_run(self.team)
+        sibling_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+        body: dict = {"key": key, "content": "Product is off for this project."}
+        if body_run == "sibling":
+            body["run_id"] = str(sibling_run.id)
+
+        response = self.client.post(self._list_url(), data=body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sandbox_run.refresh_from_db()
+        sibling_run.refresh_from_db()
+        assert (sandbox_run.metadata or {}).get(NOT_IN_USE_WRITES_KEY) == expected
+        assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
 
 
 class TestScoutHarnessNotesAPI(APIBaseTest):
@@ -5352,6 +5379,7 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             "has_chart",
             "has_self_validation",
             "has_structured_output",
+            "has_not_in_use_closeout",
         }
 
     @parameterized.expand(
@@ -5376,6 +5404,37 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         assert flags["has_chart"] is expected
         assert flags["has_emit_report"] is authored
         assert flags["has_edit_report"] is not authored
+
+    @parameterized.expand(
+        [
+            ("closed_out_empty", {NOT_IN_USE_WRITES_KEY: 1}, {}, True),
+            (
+                "closed_out_but_emitted_a_report",
+                {NOT_IN_USE_WRITES_KEY: 1},
+                {"emitted_report_ids": [str(uuid4())]},
+                False,
+            ),
+            (
+                "closed_out_but_edited_a_report",
+                {NOT_IN_USE_WRITES_KEY: 1},
+                {"edited_report_ids": [str(uuid4())]},
+                False,
+            ),
+            ("closed_out_but_emitted_a_finding", {NOT_IN_USE_WRITES_KEY: 1}, {"emitted_count": 1}, False),
+            (
+                "closed_out_but_recorded_structured_output",
+                {NOT_IN_USE_WRITES_KEY: 1, STRUCTURED_OUTPUT_COUNT_KEY: 3},
+                {},
+                False,
+            ),
+            ("no_not_in_use_write", {}, {}, False),
+        ]
+    )
+    def test_not_in_use_closeout_needs_the_write_and_no_output(
+        self, _name: str, metadata: dict, output: dict, expected: bool
+    ) -> None:
+        run = _make_run(self.team, metadata=metadata, **output)
+        assert self._stamp(run)["has_not_in_use_closeout"] is expected
 
     @parameterized.expand(
         [

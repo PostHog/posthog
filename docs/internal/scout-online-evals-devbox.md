@@ -75,6 +75,8 @@ Variants and retries share a saved copy of the project's scout memory, notes and
 
 Each trial scout stores its own memory changes and reports in a separate `trial_state` field on its Signals scout-run record. The small trial marker stays in metadata so ordinary history queries can exclude trials without reading their documents. Tasks run state contains execution settings and token bindings, not trial documents. Signals verifies the sandbox token belongs to that exact run before serving private context. Tasks grants the restricted scout credential only the necessary log, summary and lifecycle writes for its own run; it cannot change another task or steer a trial. Ordinary scout responses omit the private state.
 
+If a trial's scout worker fails or is cancelled, Signals asks Tasks to stop that exact run. Failed runs remain excluded while cleanup proceeds. A failure in the overall comparison does not cancel otherwise healthy scouts.
+
 Trial scouts can use `created_after`, `priority`, `actionability`, and `already_addressed` on `inbox-reports-list`. Report edits, including priority and actionability changes, stay private to the individual run and appear in its subsequent reads; they never modify shared reports or another trial run. Ordering by ranking scores is refused explicitly because private report edits have not been ranked.
 
 Each completed scout run gets its own judge sandbox. The judge reads the saved rubric and searches attached copies of the complete rubric reference, run log, reports, summary, candidate instructions and starting context. These files live in private object storage; Temporal receives only their identifiers. Evidence larger than 128 MiB is refused explicitly instead of being silently shortened.
