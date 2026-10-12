@@ -39,6 +39,11 @@ export const ToolDefinitionSchema = z
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
         /**
+         * The Django endpoints the handler calls, as `METHOD /path` with OpenAPI path templates.
+         * The API refuses a write from a scout run when no tool the run holds lists the endpoint.
+         */
+        api_operations: z.array(z.string()).optional(),
+        /**
          * AvailableFeature the org's plan must include for this tool to be
          * advertised (e.g. `'audit_logs'`), matching the backend's
          * `premium_feature_on_cloud`. Best-effort — the backend

@@ -15,6 +15,11 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   The read-only endpoint is `GET /api/projects/:id/signals/scout/configs/tool_catalogue/` in `views.py`.
   It omits superseded tools and reports scope requirements and feature conditions.
   Callers must evaluate feature flags for the project.
+  `scout_held_mcp_tools` is the one answer to what a narrowed run holds: the picked list, `SCOUT_RUN_CONTEXT_TOOLS`, and the always-available tools.
+- `tool_policy.py`
+  Refuses API writes a narrowed run did not pick a tool for. The runner stamps `allowed_mcp_tools` on `Task.state` (`mcp_tool_allowlist`) while `scouts-tool-access` is on, and `APIScopePermission` calls `scout_tool_denial` through `facade/tool_policy.py` for every write from a task-bound token.
+  A request passes when its path and view match an `api_operations` entry of a held tool (`posthog/mcp_tool_operations.py`) or of `SANDBOX_HARNESS_OPERATIONS`. Reads are not checked.
+  A new write endpoint the agent server or harness calls with the run's token belongs in `SANDBOX_HARNESS_OPERATIONS`, and a hand-written MCP write tool lists its endpoints in `services/mcp/schema/tool-definitions.json`.
 
 - `runner.py`
   Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session, pumps the agent loop until budget exhaustion or natural completion, finalizes the run, and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py` delegates straight to this.
