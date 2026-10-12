@@ -5,6 +5,7 @@ from typing import Any, Protocol
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -26,7 +27,15 @@ class ComparableSeries:
     is_current_interval: bool = False  # anchor is the ongoing (incomplete) interval — affects breach wording
 
 
-@dataclass
+@frozen
+class EvaluatedInterval:
+    start: str
+    end: str
+    timezone: str
+    delay: int
+
+
+@dataclass(frozen=False)
 class ExtractionResult:
     """Everything the comparator needs from an extractor, so the dispatcher stays kind-agnostic.
 
@@ -58,6 +67,7 @@ class ExtractionResult:
     # decimals, duration, %). None → the comparator falls back to raw ``f"{value}{unit}"``. Only the
     # trends extractor sets it today; the PERCENTAGE-threshold path ignores it (relative % ratios).
     value_formatter: Callable[[float], str] | None = None
+    evaluated_interval: EvaluatedInterval | None = None
 
 
 def zero_sentinel_series() -> ComparableSeries:
@@ -76,6 +86,10 @@ class AlertExtractionError(Exception):
     Routed to the errored-alert notification path — distinct from "evaluated fine,
     no data this interval", which is represented as SeriesPoint(value=None).
     """
+
+
+class AlertDataUnavailableError(AlertExtractionError):
+    """This check lacks usable data; keep the alert enabled for future checks."""
 
 
 def lookback_intervals_for(condition: AlertCondition) -> int:
@@ -101,7 +115,7 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
-@dataclass
+@dataclass(frozen=False)
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
     kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
@@ -113,6 +127,7 @@ class SimulationContext:
     series_index: int = 0
     date_from: str | None = None
     config: dict[str, Any] | None = None
+    evaluation_delay_intervals: int = 0
 
 
 class Extractor(Protocol):

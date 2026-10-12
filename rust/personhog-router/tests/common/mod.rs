@@ -36,6 +36,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
@@ -60,7 +61,7 @@ use personhog_proto::personhog::types::v1::{
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
 };
-use personhog_router::config::RetryConfig;
+use personhog_router::config::{Http2Windows, RetryConfig};
 use personhog_router::proxy::{IdentityProxyService, LifecycleProxyService, RawProxyService};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -537,6 +538,13 @@ impl PersonHogReplica for TestReplicaService {
             updated: false,
         }))
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _request: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(EnsurePersonVersionFloorsResponse::default()))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -948,6 +956,7 @@ fn make_channel_backend(role: &'static str, addr: SocketAddr) -> Arc<ChannelBack
             retry_config,
             keepalive_interval: None,
             keepalive_timeout: None,
+            http2_windows: Http2Windows::default(),
             num_channels: 1,
         },
     ))
@@ -968,6 +977,8 @@ fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<Lead
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
+            num_channels: 1,
+            http2_windows: Http2Windows::default(),
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))
@@ -1000,6 +1011,8 @@ fn make_dying_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Ar
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_millis(200),
+            num_channels: 1,
+            http2_windows: Http2Windows::default(),
         },
         StashTable::with_bounds(usize::MAX, usize::MAX),
     ))

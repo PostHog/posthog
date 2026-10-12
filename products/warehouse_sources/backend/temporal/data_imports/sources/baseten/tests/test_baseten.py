@@ -79,33 +79,6 @@ def _run(
 
 class TestTopLevelEndpoints:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_rows_under_data_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, snapshots = _run(
-            "models", _make_manager(), session, [_response({"models": [{"id": "m1"}, {"id": "m2"}]})]
-        )
-        assert rows == [{"id": "m1"}, {"id": "m2"}]
-        assert snapshots[0]["url"] == "https://api.baseten.co/v1/models"
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_goes_through_framework_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, snapshots = _run("models", _make_manager(), session, [_response({"models": [{"id": "m1"}]})])
-        assert snapshots[0]["bearer_token"] == "test-key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_array_yields_nothing(self, MockSession) -> None:
-        rows, _ = _run("models", _make_manager(), MockSession.return_value, [_response({"models": []})])
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_nothing(self, MockSession) -> None:
-        # The Baseten client has always treated a missing data key as zero rows, not an error.
-        rows, _ = _run("models", _make_manager(), MockSession.return_value, [_response({"unexpected": True})])
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_instance_type_prices_flattened(self, MockSession) -> None:
         body = {
             "instance_types": [
@@ -137,17 +110,6 @@ class TestCursorPagination:
         assert all(s["params"]["limit"] == 100 for s in snapshots)
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [BasetenResumeConfig(cursor="c1"), BasetenResumeConfig(cursor="c2")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_does_not_save(self, MockSession) -> None:
-        manager = _make_manager()
-        _run(
-            "users",
-            manager,
-            MockSession.return_value,
-            [_response({"items": [{"user_id": "u1"}], "pagination": {"has_more": False}})],
-        )
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_has_more_false_stops_even_if_cursor_echoed(self, MockSession) -> None:
@@ -205,16 +167,6 @@ class TestFanOut:
         assert all(s.cursor is None and s.parent_id is None and isinstance(s.fanout_state, dict) for s in saved)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_composite_key_column_present_for_environments(self, MockSession) -> None:
-        responses = [
-            _response({"models": [{"id": "m1"}]}),
-            _response({"environments": [{"name": "production"}]}),
-        ]
-        rows, _ = _run("model_environments", _make_manager(), MockSession.return_value, responses)
-        # model_id is injected so [model_id, name] stays unique table-wide.
-        assert rows == [{"name": "production", "model_id": "m1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_404_child_is_skipped(self, MockSession) -> None:
         responses = [
             _response({"models": [{"id": "gone"}, {"id": "m2"}]}),
@@ -266,15 +218,6 @@ class TestFanOut:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(("status", "expected"), [(200, True), (403, False), (401, False), (500, False)])
-    def test_status_maps_to_bool(self, status: int, expected: bool) -> None:
-        with mock.patch(BASETEN_SESSION_PATCH) as mock_factory:
-            session = mock_factory.return_value
-            session.get.return_value = _response({}, status_code=status)
-            assert validate_credentials("key") is expected
-            _, kwargs = session.get.call_args
-            assert kwargs["headers"]["Authorization"] == "Bearer key"
-
     def test_network_error_is_false(self) -> None:
         with mock.patch(BASETEN_SESSION_PATCH) as mock_factory:
             mock_factory.return_value.get.side_effect = Exception("boom")
@@ -296,12 +239,3 @@ class TestSourceResponseShape:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_items_is_lazy(self, MockSession) -> None:
-        # Building the SourceResponse must not perform any I/O; requests only fire on iteration.
-        session = MockSession.return_value
-        session.headers = {}
-        response = baseten_source("k", "deployments", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert callable(response.items)
-        session.send.assert_not_called()

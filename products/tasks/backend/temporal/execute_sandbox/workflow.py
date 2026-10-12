@@ -229,6 +229,7 @@ class SandboxEvent(StrEnum):
 
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
 _PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
+_PATCH_ID_REOPEN_PARENT_DELIVERY = "tasks-execute-sandbox-reopen-parent-delivery"
 _PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY = "tasks-execute-sandbox-bounded-final-outbound-delivery"
 _PARENT_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
@@ -711,6 +712,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if self._is_duplicate_signal(PARENT_ATTACHED_SIGNAL, ack_id):
             return
         self._parent_workflow_id = parent_workflow_id
+        if not workflow.in_workflow() or workflow.patched(_PATCH_ID_REOPEN_PARENT_DELIVERY):
+            self._parent_signal_delivery_closed = False
         self._enqueue_ack(signal_name=PARENT_ATTACHED_SIGNAL, ack_id=ack_id)
 
     @workflow.signal(name=COMPLETE_TASK_SIGNAL)
@@ -1373,6 +1376,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 status=status,
                 error_message=error_message,
                 error_type=error_type,
+                sandbox_backend=self._context.sandbox_backend if self._context else None,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),

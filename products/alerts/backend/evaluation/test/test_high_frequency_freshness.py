@@ -46,6 +46,7 @@ def _day_query() -> TrendsQuery:
 
 def _trends_alert(*, high_frequency: bool) -> MagicMock:
     alert = MagicMock(spec=AlertConfiguration)
+    alert.evaluation_delay_intervals = 0
     alert.team = MagicMock()
     alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
     alert.condition = AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE).model_dump()
@@ -155,7 +156,7 @@ EXTRACTOR_FORWARDING_CASES = [
     ),
     pytest.param(
         "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
-        MagicMock(result=[[5.0], [6.0]], columns=["value"]),
+        MagicMock(result=[[5.0], [6.0]], columns=["value"], has_more=False),
         _hogql_forward,
         id="hogql",
     ),

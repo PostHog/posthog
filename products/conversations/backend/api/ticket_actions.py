@@ -1,15 +1,17 @@
 """Shared implementation of the ticket API called by CDP workflow actions.
 
-Two routes wrap these handlers with different authentication: the public external route
-(legacy Team.secret_api_token bearer, api/external.py) and the internal service route
-(scoped service JWT, api/internal.py). The worker selects between them per environment
-by config presence (#82564), so the two must behave identically.
+Two routes wrap the get and patch handlers with different authentication: the public
+external route (legacy Team.secret_api_token bearer, api/external.py) and the internal
+service route (scoped service JWT, api/internal.py). The worker selects between them per
+environment by config presence (#82564), so those two handlers must behave identically.
+Sending a message is JWT-only. The legacy route does not expose it.
 """
 
 import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.db import connection, transaction
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -21,12 +23,26 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Tag, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
+from posthog.models.comment import Comment
 from posthog.models.tag import tagify
 
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.models.constants import (
+    WORKFLOW_AUTHOR_NAME,
+    WORKFLOW_AUTHOR_TYPE,
+    WORKFLOW_DISPATCH_KEY,
+    Channel,
+    Priority,
+    Status,
+)
+from products.conversations.backend.reply_dedupe import (
+    REPLY_IN_PROGRESS_DETAIL,
+    CreateOutcome,
+    ReplyFingerprint,
+    create_deduplicated,
+)
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
@@ -83,6 +99,36 @@ class TicketActionUpdateSerializer(serializers.Serializer):
                 {"sla_amount": "Cannot set both sla_due_at and sla_amount in the same request"}
             )
         return attrs
+
+
+class TicketActionMessageSerializer(serializers.Serializer):
+    message = serializers.CharField(
+        max_length=5000,
+        help_text="Reply text in markdown. The same limit as a reply posted from the ticket.",
+    )
+    is_private = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, store an internal note. The customer does not see it and it is not delivered.",
+    )
+    idempotency_key = serializers.CharField(
+        max_length=500,
+        help_text="Stable identity of this workflow step execution.",
+    )
+
+    def validate_message(self, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError("Message content is required.")
+        return stripped
+
+
+class TicketActionMessageResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the created or replayed ticket message.")
+    is_private = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the message is an internal note hidden from the customer.",
+    )
 
 
 def validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
@@ -536,3 +582,70 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
             return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response({"ok": True})
+
+
+def handle_ticket_message(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:
+    """Post a workflow reply or private note on an already-authenticated ticket.
+
+    author_type is workflow, with no created_by. Delivery only sends a public reply when the
+    author is AI or workflow, so a support author here would be stored and never emailed.
+    """
+    if error := validate_ticket_id(ticket_id):
+        return error
+
+    serializer = TicketActionMessageSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        ticket = Ticket.objects.get(id=ticket_id, team_id=team.id)
+    except Ticket.DoesNotExist:
+        return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    is_private = serializer.validated_data["is_private"]
+    content = serializer.validated_data["message"]
+    idempotency_key = serializer.validated_data["idempotency_key"]
+    item_context = {
+        "author_type": WORKFLOW_AUTHOR_TYPE,
+        "author_name": WORKFLOW_AUTHOR_NAME,
+        "is_private": is_private,
+        WORKFLOW_DISPATCH_KEY: idempotency_key,
+    }
+
+    def create_comment() -> Comment:
+        # ATOMIC_REQUESTS is off. The email outbox row is written in the comment post_save signal,
+        # so it has to share this transaction with the comment.
+        with transaction.atomic():
+            return Comment.objects.create(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                item_context=item_context,
+            )
+
+    # The worker retries a dropped response. Without this, that retry delivers the message again.
+    fingerprint = ReplyFingerprint.for_workflow(
+        team_id=team.id,
+        item_id=str(ticket.id),
+        content=content,
+        item_context=item_context,
+        idempotency_key=idempotency_key,
+    )
+    # Redis fails open, so serialize the persisted-match check and insert in Postgres too.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"conversations-workflow-message:{team.id}:{idempotency_key}"],
+            )
+        guarded = create_deduplicated(fingerprint, create_comment)
+    comment = guarded.comment
+    if guarded.outcome is CreateOutcome.CONFLICT or comment is None:
+        return Response({"error": REPLY_IN_PROGRESS_DETAIL}, status=status.HTTP_409_CONFLICT)
+
+    created = guarded.outcome is CreateOutcome.CREATED
+    return Response(
+        TicketActionMessageResponseSerializer({"id": comment.id, "is_private": is_private}).data,
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )

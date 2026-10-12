@@ -5,6 +5,7 @@ import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
+  DESKTOP_SOURCE,
   hasActiveChannelItemFilters,
 } from "@posthog/core/canvas/channelItems";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
@@ -19,12 +20,14 @@ import { ChannelFilterMenu } from "./ChannelFilterMenu";
  */
 function Harness({
   initialFilters,
+  defaultFilters,
   initialSort,
   sources,
   showCreatedBy,
   showRunFilters,
 }: {
   initialFilters: ChannelItemFilters;
+  defaultFilters: ChannelItemFilters;
   initialSort: ChannelItemSort;
   sources: string[];
   showCreatedBy: boolean;
@@ -43,7 +46,8 @@ function Harness({
         onFilterChange={(key, value) =>
           setFilters((current) => ({ ...current, [key]: value }))
         }
-        onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+        onClearFilters={() => setFilters(defaultFilters)}
+        defaultFilters={defaultFilters}
         sort={sort}
         onSortChange={setSort}
         grouping={grouping}
@@ -52,7 +56,7 @@ function Harness({
         sources={sources}
         showCreatedBy={showCreatedBy}
         showRunFilters={showRunFilters}
-        active={hasActiveChannelItemFilters(filters)}
+        active={hasActiveChannelItemFilters(filters, defaultFilters)}
       />
       {/* The list owns the dialog and the menu only asks for it — so the
           harness renders it too, the way the sidebar does. */}
@@ -70,8 +74,9 @@ const meta: Meta<typeof Harness> = {
   component: Harness,
   args: {
     initialFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+    defaultFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
     initialSort: DEFAULT_CHANNEL_ITEM_SORT,
-    sources: ["slack", "error_tracking", "support_queue"],
+    sources: ["posthog_ai", "slack", "error_tracking", "support_queue"],
     showCreatedBy: true,
     showRunFilters: true,
   },
@@ -88,6 +93,32 @@ export default meta;
 type Story = StoryObj<typeof Harness>;
 
 export const Default: Story = {};
+
+export const DesktopDefault: Story = {
+  args: {
+    initialFilters: {
+      ...DEFAULT_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE],
+    },
+    defaultFilters: {
+      ...DEFAULT_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE],
+    },
+  },
+};
+
+export const SeveralSources: Story = {
+  args: {
+    initialFilters: {
+      ...DEFAULT_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE, "slack"],
+    },
+    defaultFilters: {
+      ...DEFAULT_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE],
+    },
+  },
+};
 
 /** A filter is on, so the button is lit and the menu offers a way out. */
 export const Filtered: Story = {

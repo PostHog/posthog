@@ -88,8 +88,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting personhog-leader service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!(
-        "Cache capacity: {} bytes per partition",
-        config.cache_memory_capacity_bytes
+        "Cache capacity: {} bytes per partition, properties compression: {}",
+        config.cache_memory_capacity_bytes,
+        config.cache_properties_compression_enabled
     );
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
@@ -281,7 +282,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Initialize partitioned cache and Kafka producer
-    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
+    let cache = Arc::new(
+        PartitionedCache::new(config.cache_memory_capacity_bytes)
+            .with_properties_compression(config.cache_properties_compression_enabled),
+    );
 
     let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
@@ -659,6 +663,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let http2_windows = config.grpc_http2_windows();
     let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
@@ -700,9 +705,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        let mut server = Server::builder()
-            .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout);
+        let mut server = http2_windows.apply_to_server(
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout),
+        );
         if let Some(age) = max_connection_age {
             server = server.max_connection_age(age);
         }

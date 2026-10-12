@@ -13,7 +13,7 @@ import type { ActionReferenceApi } from '../generated/api.schemas'
 export async function deleteActionWithWarning(action: ActionType, callback: (undo: boolean) => void): Promise<void> {
     let references: ActionReferenceApi[] = []
     try {
-        // nosemgrep: prefer-codegen-api
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use actionsReferencesList() from 'products/actions/frontend/generated/api' instead.
         references = await api.get(`api/projects/@current/actions/${action.id}/references`)
     } catch {
         // If we can't fetch references, proceed with delete anyway

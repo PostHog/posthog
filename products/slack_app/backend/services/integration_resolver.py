@@ -1,18 +1,19 @@
 from collections.abc import Iterable
 from dataclasses import field
-from typing import Literal
+from typing import Literal, TypedDict
 
 from django.db.models import Q
 
 import structlog
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.facade import api as signals_facade
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_fork_context import get_pending_fork
@@ -32,7 +33,11 @@ UserResolutionFailure = Literal["user_not_found", "no_team_access"]
 
 
 def user_resolution_failure_reply(
-    failure_reason: UserResolutionFailure | None, *, slack_email: str | None
+    failure_reason: UserResolutionFailure | None,
+    *,
+    slack_email: str | None,
+    linking_available: bool = False,
+    home_tab_url: str | None = None,
 ) -> str | None:
     """Map a ``UserAndIntegrationsResolution.failure_reason`` to the user-facing
     text, mentioning ``slack_email`` when known so the user sees which address
@@ -41,17 +46,40 @@ def user_resolution_failure_reply(
 
     Wording mirrors the per-integration ``resolve_slack_user`` precedent in
     ``api.py`` — same "Sorry, …" register, same actionable next step.
+
+    ``linking_available`` says whether the install can link a Slack identity to a
+    PostHog user. When it can, the reply points to linking first: an invite only
+    works for the exact email it was sent to, so it can't help a user whose
+    existing PostHog account uses a different email.
+
+    ``home_tab_url`` deep-links to the app's Home tab, which carries the same link
+    button. The reader is already in Slack, so the hint names the tab first.
     """
     if failure_reason == "user_not_found":
-        if slack_email:
-            return (
-                f"Sorry, I couldn't find {slack_email} in any PostHog organization connected to this "
-                "Slack workspace. Ask an admin to invite you, then mention me again."
+        if home_tab_url:
+            link_hint = (
+                "If you already have a PostHog account with a different email, link it to Slack from "
+                f"<{home_tab_url}|my Home tab>, or in PostHog under Settings > Personal integrations."
             )
-        return (
+        else:
+            link_hint = (
+                "If you already have a PostHog account with a different email, link it to Slack in PostHog "
+                "under Settings > Personal integrations."
+            )
+        if slack_email:
+            prefix = (
+                f"Sorry, I couldn't find {slack_email} in any PostHog organization connected to this Slack workspace."
+            )
+            if linking_available:
+                return f"{prefix} {link_hint} If you don't have an account, ask an admin to invite {slack_email}. Then mention me again."
+            return f"{prefix} Ask an admin to invite you, then mention me again."
+        prefix = (
             "Sorry, I couldn't find your email address in Slack. "
             "Please make sure your email is visible in your Slack profile."
         )
+        if linking_available:
+            return f"{prefix} {link_hint}"
+        return prefix
     if failure_reason == "no_team_access":
         # The membership lookup succeeded by email, so it's always known here.
         subject = slack_email or "your account"
@@ -349,6 +377,34 @@ class UserAndIntegrationsResolution:
     def resolved_or_first(self) -> Integration | None:
         """The integration this resolution picked, falling back to the oldest one the user can reach."""
         return _resolved_or_oldest(self.integration, self.candidates)
+
+
+def _active_account_exists(email: str | None) -> bool | None:
+    if not email:
+        return None
+    try:
+        return User.objects.filter(email__iexact=email, is_active=True).exists()
+    except Exception:
+        # A database error must not fail the Slack webhook, because Slack replays a failed event.
+        logger.warning("slack_app_account_lookup_failed", exc_info=True)
+        return None
+
+
+class UnresolvedUserProperties(TypedDict):
+    slack_email_available: bool
+    posthog_account_exists: bool | None
+    account_linking_available: bool
+
+
+def unresolved_user_properties(
+    resolution: UserAndIntegrationsResolution, probe: Integration
+) -> UnresolvedUserProperties:
+    """Analytics properties that tell apart the reasons a Slack user was not identified."""
+    return {
+        "slack_email_available": bool(resolution.slack_email),
+        "posthog_account_exists": _active_account_exists(resolution.slack_email),
+        "account_linking_available": is_slack_app_oauth_enabled(probe),
+    }
 
 
 def resolve_user_for_workspace(

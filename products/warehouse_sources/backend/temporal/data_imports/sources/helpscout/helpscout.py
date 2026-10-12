@@ -22,6 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
     HELP_SCOUT_API_BASE,
+    HELP_SCOUT_API_BASE_V3,
+    HELP_SCOUT_API_VERSION_V2,
+    HELP_SCOUT_API_VERSION_V3,
     HELP_SCOUT_ENDPOINTS,
     HelpScoutEndpointConfig,
 )
@@ -45,9 +48,19 @@ class HelpScoutResumeConfig:
     fanout_state: Optional[dict[str, Any]] = None
 
 
-def _client_config(access_token: str) -> ClientConfig:
+def _uses_v3_route(config: HelpScoutEndpointConfig, api_version: str) -> bool:
+    if api_version not in (HELP_SCOUT_API_VERSION_V2, HELP_SCOUT_API_VERSION_V3):
+        raise ValueError(f"Unsupported Help Scout API version: {api_version}")
+    return api_version == HELP_SCOUT_API_VERSION_V3 and config.has_v3_route
+
+
+def _api_base(config: HelpScoutEndpointConfig, api_version: str) -> str:
+    return HELP_SCOUT_API_BASE_V3 if _uses_v3_route(config, api_version) else HELP_SCOUT_API_BASE
+
+
+def _client_config(access_token: str, base_url: str) -> ClientConfig:
     return {
-        "base_url": HELP_SCOUT_API_BASE,
+        "base_url": base_url,
         "auth": BearerTokenAuth(token=access_token),
         "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
         # Pagination follows absolute `_links.next.href` URLs straight out of the response body,
@@ -75,10 +88,17 @@ def _format_since(value: Any) -> str:
 
 def _list_params(
     config: HelpScoutEndpointConfig,
+    use_v3_route: bool,
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
+    if use_v3_route:
+        # v3 always returns newest-first and rejects `sortField`/`sortOrder` with a 400.
+        if should_use_incremental_field and config.updated_since_param and db_incremental_field_last_value is not None:
+            return {config.updated_since_param: _format_since(db_incremental_field_last_value)}
+        return {}
+
     if not config.supports_sort:
         return {}
 
@@ -98,6 +118,7 @@ def _list_params(
 def _top_level_resource(
     client_config: ClientConfig,
     config: HelpScoutEndpointConfig,
+    use_v3_route: bool,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[HelpScoutResumeConfig],
@@ -113,7 +134,11 @@ def _top_level_resource(
                 "endpoint": {
                     "path": config.path,
                     "params": _list_params(
-                        config, should_use_incremental_field, incremental_field, db_incremental_field_last_value
+                        config,
+                        use_v3_route,
+                        should_use_incremental_field,
+                        incremental_field,
+                        db_incremental_field_last_value,
                     ),
                     "data_selector": f"_embedded.{config.embedded_key}",
                 },
@@ -195,12 +220,14 @@ def helpscout_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[HelpScoutResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     incremental_field: Optional[str] = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = HELP_SCOUT_ENDPOINTS[endpoint]
-    client_config = _client_config(access_token)
+    use_v3_route = _uses_v3_route(config, api_version)
+    client_config = _client_config(access_token, _api_base(config, api_version))
 
     if config.fanout:
         resource: Resource = _threads_resource(client_config, team_id, job_id, resumable_source_manager)
@@ -208,6 +235,7 @@ def helpscout_source(
         resource = _top_level_resource(
             client_config,
             config,
+            use_v3_route,
             team_id,
             job_id,
             resumable_source_manager,
@@ -225,12 +253,15 @@ def helpscout_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # v3 lists come back newest-first by createdAt, not ordered by the modifiedAt watermark,
+        # so the pipeline must only persist the watermark once a sync completes.
+        sort_mode="desc" if use_v3_route and config.updated_since_param else "asc",
     )
 
 
 def validate_credentials(
     access_token: str,
+    api_version: str,
     schema_name: Optional[str] = None,
 ) -> tuple[bool, str | None]:
     auth = BearerTokenAuth(token=access_token)
@@ -253,13 +284,13 @@ def validate_credentials(
         return False, f"Unknown Help Scout table '{schema_name}'"
     # threads has no bare list endpoint (it's always scoped to a conversation); probe
     # conversations instead, since that's the parent it fans out from.
-    probe_path = HELP_SCOUT_ENDPOINTS["conversations"].path if config.fanout else config.path
+    probe_config = HELP_SCOUT_ENDPOINTS["conversations"] if config.fanout else config
 
     # capture=False: same free-text-content rationale as `_client_config` above — the probed
     # endpoint can be `conversations`, whose responses carry customer-authored subjects.
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(access_token,), capture=False),
-        f"{HELP_SCOUT_API_BASE}{probe_path}",
+        f"{_api_base(probe_config, api_version)}{probe_config.path}",
         auth=auth,
     )
     if ok:

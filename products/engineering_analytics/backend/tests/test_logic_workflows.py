@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import json
+from datetime import UTC, datetime, timedelta
 from itertools import count
 from types import SimpleNamespace
 from typing import Any
@@ -9,12 +10,22 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import DeliveryStage
+from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
+    CITimingContext,
+    CITimingKind,
+    CITimingSample,
+    DeliveryStage,
+)
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series, query_pr_cost
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
+from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_job
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
@@ -24,6 +35,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _depot_attempt_row,
     _issue_event_row,
     _pr_row,
     _run_row,
@@ -52,6 +64,37 @@ class TestWorkflowEndpointMapping(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         connect_github_source_without_data(self.team)
+
+    @parameterized.expand(
+        [
+            # Depot CI lists a job that a later attempt did not re-run under that attempt too, with the same id.
+            ("depot_job_listed_under_two_attempts", [(1, 0, "depot_ci"), (2, 1, "depot_ci")], "attempt-1"),
+            ("one_id_in_two_engines", [(1, 0, "depot_ci"), (1, 0, "github_actions")], None),
+        ]
+    )
+    def test_workflow_job_lookup_is_ambiguous_only_across_engines(
+        self, _name: str, listings: list[tuple[int, int, str]], native_attempt_id: str | None
+    ) -> None:
+        started = _dt("2026-01-05T10:00:00")
+        rows = [
+            # Mirrors the SELECT column order of the jobs query.
+            (
+                *(91000, 9100, attempt, "build", "completed", "success", "[]", "", started, started, 0, None, is_copy),
+                *(engine, "run", "workflow", "job", f"attempt-{attempt}", "[]"),
+            )
+            for attempt, is_copy, engine in listings
+        ]
+        curated = CuratedGitHubSource(
+            team=self.team, tables=GitHubTables(pull_requests="prs", workflow_runs="runs", workflow_jobs="jobs")
+        )
+
+        with mock.patch(_RUN_QUERY, return_value=_resp(rows)):
+            if native_attempt_id is None:
+                with pytest.raises(ValueError, match="Ambiguous job_id"):
+                    query_workflow_job(curated=curated, run_id=9100, job_id=91000)
+            else:
+                job = query_workflow_job(curated=curated, run_id=9100, job_id=91000)
+                assert job is not None and job.native_attempt_id == native_attempt_id
 
     def test_current_branch_health_counts_every_workflow(self) -> None:
         workflow_rows = [(f"Workflow {index}", 1, 0) for index in range(100)]
@@ -109,7 +152,10 @@ class TestWorkflowEndpointMapping(BaseTest):
         bucket_rows = [("PostHog", "posthog", "CI", _seed_now() - timedelta(days=1), 10, 8, 7, 1)]
         # Third response: the previous-window success rate (the Δ baseline); Deploy had no prior runs.
         prev_rows = [("PostHog", "posthog", "CI", 0.95)]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows), _resp(prev_rows)]):
+        with mock.patch(
+            _RUN_QUERY,
+            side_effect=[_resp([(*row, "github_actions") for row in rows]), _resp(bucket_rows), _resp(prev_rows)],
+        ):
             items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
@@ -142,6 +188,22 @@ class TestCostPerMergeSeries(BaseTest):
     Python fold — the bucket join, the trailing-window ratio, the empty-bucket handling — without a
     warehouse. Cost is aggregated in SQL over the shared cost source, so only the per-bucket dollar
     figure crosses the mock boundary."""
+
+    def test_pr_cost_keeps_colliding_engine_run_ids_separate(self) -> None:
+        curated = mock.Mock()
+        curated.job_cost_source.return_value = "(cost_source)"
+        curated.run.return_value = _resp(
+            [
+                ("CI", 42, 1, "github_actions", 120.0, 0.016, 1, 0, 0),
+                ("CI", 42, 1, "depot_ci", 60.0, 0.008, 1, 0, 0),
+            ]
+        )
+        cost = query_pr_cost(curated=curated, pr_number=5, repo_owner="o", repo_name="r")
+        assert {(run.ci_engine, run.run_id, run.run_attempt): run.billable_minutes for run in cost.by_run} == {
+            (CIEngine.GITHUB_ACTIONS, 42, 1): 2.0,
+            (CIEngine.DEPOT_CI, 42, 1): 1.0,
+        }
+        assert sum(run.billable_minutes for run in cost.by_run) == cost.billable_minutes == 3.0
 
     @staticmethod
     def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
@@ -272,7 +334,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             ],
         )
 
-        overview = api.get_repo_overview(team=self.team, include_series=False)
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as build_catalog:
+            overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert build_catalog.call_count == 1  # one catalog for every query of the request
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
@@ -881,7 +945,20 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The raw conclusion lets the UI retain the specific failure label while sharing the verdict.
         assert ci.latest_run_conclusion == conclusion
 
-    def test_workflow_run_detail_by_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("table_with_identity_columns", WORKFLOW_RUNS_COLUMNS, 4242, "pull_request"),
+            (
+                "table_synced_before_them",
+                {key: value for key, value in WORKFLOW_RUNS_COLUMNS.items() if key not in ("workflow_id", "event")},
+                None,
+                None,
+            ),
+        ]
+    )
+    def test_workflow_run_detail_by_id(
+        self, _name: str, run_columns: dict[str, dict[str, str]], workflow_id: int | None, event: str | None
+    ) -> None:
         # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.
         self._create_table(
             "github_pull_requests",
@@ -890,10 +967,20 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         self._create_table(
             "github_workflow_runs",
-            WORKFLOW_RUNS_COLUMNS,
+            run_columns,
             [
                 _run_row(
-                    7777, "CI", "sha42", "completed", "failure", _ago(2), _ago(2), head_branch="master", pr_number=42
+                    7777,
+                    "CI",
+                    "sha42",
+                    "completed",
+                    "failure",
+                    _ago(2),
+                    _ago(2),
+                    head_branch="master",
+                    pr_number=42,
+                    workflow_id=4242,
+                    event="pull_request",
                 ),
                 _run_row(
                     7777,
@@ -906,11 +993,14 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                     head_branch="master",
                     pr_number=42,
                     run_attempt=2,
+                    workflow_id=4242,
+                    event="pull_request",
                 ),
             ],
         )
         run = api.get_workflow_run(team=self.team, run_id=7777)
         assert run is not None
+        assert (run.workflow_id, run.event) == (workflow_id, event)
         assert run.id == 7777
         assert run.workflow_name == "CI"
         assert run.run_attempt == 2  # latest attempt wins
@@ -1144,6 +1234,111 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         main_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow, branch="main")
         assert {p.run_id for p in main_activity.points} == {8501, 8502}
 
+    @parameterized.expand(
+        [
+            ("job_not_rerun_in_the_latest_attempt", 1000, None, 1, 120.0, [201]),
+            ("job_rerun_in_the_latest_attempt", 1001, None, 1, 40.0, [201]),
+            ("job_no_default_branch_run_ran", 1002, None, 0, None, []),
+            ("job_skipped_in_the_selected_run", 1003, "not_executed", 0, None, []),
+        ]
+    )
+    def test_ci_timing_context_samples_only_default_branch_runs_of_the_workflow(
+        self,
+        _name: str,
+        job_id: int,
+        unavailable_reason: str | None,
+        sample_count: int,
+        average_seconds: float | None,
+        recent_run_ids: list[int],
+    ) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70", default_branch="master")],
+        )
+
+        def run(
+            run_id: int,
+            *,
+            head_branch: str = "master",
+            workflow_id: int = 11,
+            event: str = "push",
+            run_attempt: int = 1,
+        ) -> dict:
+            return _run_row(
+                run_id,
+                "CI",
+                f"sha{run_id}",
+                "completed",
+                "success",
+                _ago(1),
+                _ago(1),
+                head_branch=head_branch,
+                workflow_id=workflow_id,
+                event=event,
+                run_attempt=run_attempt,
+            )
+
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                run(100, head_branch="feature", event="pull_request"),
+                run(201, run_attempt=2),
+                # A fork pull request whose branch is named like the default branch.
+                run(202, event="pull_request_target"),
+                # Another workflow that has the same display name.
+                run(203, workflow_id=22),
+            ],
+        )
+
+        def job(
+            job_id: int, run_id: int, name: str, seconds: int, *, conclusion: str = "success", run_attempt: int = 1
+        ) -> dict:
+            started, completed = _ago_with_duration(1, seconds)
+            return _job_row(
+                job_id, run_id, name, conclusion, started=started, completed=completed, run_attempt=run_attempt
+            )
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                job(1000, 100, "build", 300),
+                job(1001, 100, "lint", 30),
+                job(1002, 100, "docs", 30),
+                job(1003, 100, "deploy", 0, conclusion="skipped"),
+                job(2010, 201, "build", 120),
+                job(2011, 201, "lint", 50, conclusion="failure"),
+                # The second attempt re-ran lint only, and GitHub lists build under it again.
+                job(2012, 201, "build", 120, run_attempt=2),
+                job(2013, 201, "lint", 40, run_attempt=2),
+                job(2020, 202, "build", 600),
+                job(2030, 203, "build", 900),
+            ],
+        )
+
+        def read() -> CITimingContext:
+            return api.get_ci_timing_context(
+                team=self.team,
+                repo="PostHog/posthog",
+                ci_engine=CIEngine.GITHUB_ACTIONS,
+                run_id=100,
+                run_attempt=1,
+                kind=CITimingKind.JOB,
+                job_ids=[job_id],
+            )
+
+        context = read()
+
+        assert (context.identity, context.unavailable_reason) == ("workflow_id", unavailable_reason)
+        assert (context.sample_count, context.average_seconds) == (sample_count, average_seconds)
+        assert [sample.run_id for sample in context.recent] == recent_run_ids
+        if unavailable_reason is None:
+            assert (context.default_branch, context.runs_scanned, context.sampled) == ("master", 1, False)
+        assert read() == context
+        assert all(isinstance(sample, CITimingSample) for sample in read().recent)
+
     def test_workflow_jobs_optional_and_costed(self) -> None:
         # Jobs are an optional source: absent → graceful empty; present → costed per runner tier.
         self._create_table(
@@ -1159,12 +1354,35 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # No jobs table synced yet → empty, not an error (the graceful path).
         assert api.list_workflow_jobs(team=self.team, run_id=9100) == []
 
+        unfinished_step = {
+            "number": 2,
+            "name": "Run tests",
+            "status": "in_progress",
+            "conclusion": None,
+            "started_at": "2026-01-05T10:00:30Z",
+            "completed_at": None,
+        }
+        finished_step = {
+            "number": 1,
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-01-05T10:00:00Z",
+            "completed_at": "2026-01-05T10:00:30Z",
+        }
         self._create_table(
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
             [
-                _job_row(91000, 9100, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
-                _job_row(91001, 9100, "e2e", "failure", labels='["ubuntu-latest"]'),
+                _job_row(
+                    91000,
+                    9100,
+                    "build",
+                    "success",
+                    labels='["depot-ubuntu-22.04-16"]',
+                    steps=json.dumps([unfinished_step, "not a step", finished_step]),
+                ),
+                _job_row(91001, 9100, "e2e", "failure", labels='["ubuntu-latest"]', steps="not json"),
             ],
         )
         jobs = api.list_workflow_jobs(team=self.team, run_id=9100)
@@ -1172,9 +1390,135 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         build = next(j for j in jobs if j.name == "build")
         assert build.runner_provider == "self_hosted" and build.runner_label == "16-core"
         assert build.estimated_cost_usd is not None
+        set_up, run_tests = build.steps
+        assert (set_up.number, set_up.name, set_up.conclusion) == (1, "Set up job", "success")
+        assert set_up.started_at == datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+        assert set_up.duration_seconds == 30
+        assert (run_tests.status, run_tests.conclusion) == ("in_progress", None)
+        assert (run_tests.completed_at, run_tests.duration_seconds) == (None, None)
         # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
         e2e = next(j for j in jobs if j.name == "e2e")
         assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+        assert e2e.steps == []
+
+    def test_job_aggregates_branch_filter_matches_depot_jobs_through_their_run(self) -> None:
+        started, completed = _ago_with_duration(1, 120)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    run_id="0000000020",
+                    ref="refs/pull/65/merge",
+                    head_sha="sha65",
+                    workflow_name="CI",
+                    workflow_status="finished",
+                    workflow_created_at=started,
+                    workflow_started_at=started,
+                    workflow_finished_at=completed,
+                    job_key="ci.yml:lint",
+                    attempt_status="finished",
+                    attempt_started_at=started,
+                    attempt_finished_at=completed,
+                )
+            ]
+        )
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(65, "alice", "open", 0, _ago(1), head_sha="sha65", head_ref="feature/depot")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(60, "CI", "sha-main", "completed", "success", _ago(1), _ago(1), head_branch="main")],
+        )
+        self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(98000, 60, "build", "success")])
+
+        aggregates = api.list_job_aggregates(team=self.team, workflow_name="CI", branch="feature/depot")
+
+        assert [aggregate.job_name for aggregate in aggregates] == ["ci.yml:lint"]
+
+    @parameterized.expand(
+        [("recovery", "finished", 1, 1), ("failure", "failed", 1, 2), ("duplicate_rows", "failed", 3, None)]
+    )
+    def test_colliding_engine_ids_do_not_pair_recovery_or_reduce_run_counts(
+        self, _name: str, depot_status: str, copies: int, master_failure_runs: int | None
+    ) -> None:
+        started, completed = _ago_with_duration(1, 120)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    run_id="0000000020",
+                    ref="refs/heads/master",
+                    head_sha="same-sha",
+                    workflow_name="CI",
+                    workflow_status=depot_status,
+                    workflow_created_at=started,
+                    workflow_started_at=started,
+                    workflow_finished_at=completed,
+                    job_key="ci.yml:build",
+                    job_display_name="build",
+                    attempt=2,
+                    attempt_status=depot_status,
+                    attempt_started_at=started,
+                    attempt_finished_at=completed,
+                )
+            ]
+        )
+        self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, [_pr_row(65, "alice", "open", 0, _ago(1))])
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    60,
+                    "CI",
+                    "same-sha",
+                    "completed",
+                    "failure",
+                    started,
+                    completed,
+                    head_branch="master",
+                    run_attempt=3,
+                )
+                for _ in range(copies)
+            ],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(
+                    600,
+                    60,
+                    "build",
+                    "failure",
+                    started=started,
+                    completed=completed,
+                    head_branch="master",
+                    head_sha="same-sha",
+                    run_attempt=3,
+                )
+            ],
+        )
+
+        if master_failure_runs is not None:
+            assert (
+                query_workflow_flakiness(curated=CuratedGitHubSource.for_team(self.team), date_from=_dt(_ago(2))) == []
+            )
+            [build] = api.list_job_aggregates(team=self.team, workflow_name="CI")
+            assert (build.job_count, build.runs_in, build.run_share) == (2, 2, 1.0)
+            [failure] = api.list_master_failures(team=self.team, branch="master", date_from="-2d")
+            assert failure.run_count == master_failure_runs
+        for read in (api.get_workflow_run, api.list_workflow_jobs, api.get_run_failure_logs):
+            with pytest.raises(ValueError, match="Ambiguous run_id"):
+                read(team=self.team, run_id=60)
+        for engine in CIEngine:
+            run = api.get_workflow_run(team=self.team, run_id=60, ci_engine=engine)
+            assert run is not None and run.ci_engine == engine
+            jobs = api.list_workflow_jobs(team=self.team, run_id=60, ci_engine=engine)
+            assert jobs and {job.ci_engine for job in jobs} == {engine}
+            assert all(job.native_attempt_id and job.native_workflow_run_id for job in jobs)
+            assert all(job.steps == [] for job in jobs)
 
     def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:
         self._create_table(

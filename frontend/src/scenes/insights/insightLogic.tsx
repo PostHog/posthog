@@ -27,7 +27,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
@@ -41,6 +41,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -72,6 +73,10 @@ import {
 } from '~/types'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import {
+    titleMentionsMCP,
+    tryShowMCPAnalyticsNudge,
+} from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -88,6 +93,21 @@ import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
+
+function reportInsightSaved(
+    insight: Partial<InsightModel> | null,
+    query: Node | null,
+    isNewInsight: boolean,
+    saveType: 'save' | 'save_as'
+): void {
+    // "insight saved" is a proxy for the new insight's results being valuable to the user
+    posthog.capture('insight saved', {
+        ...sanitizeQuery(query),
+        insight: sanitizeInsight(insight),
+        is_new_insight: isNewInsight,
+        save_type: saveType,
+    })
+}
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -572,7 +592,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['activeSceneId'],
         ],
         actions: [tagsModel, ['refreshTags'], teamLogic, ['addProductIntent']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [dashboardsModel],
     })),
 
     actions({
@@ -1163,12 +1183,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
-            eventUsageLogic.actions.reportInsightSaved(
-                savedInsight,
-                values.query,
-                insightNumericId === undefined,
-                'save'
-            )
+            reportInsightSaved(savedInsight, values.query, insightNumericId === undefined, 'save')
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
@@ -1176,9 +1191,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
             })
             const insightName = savedInsight.name || savedInsight.derived_name
-            tryShowMCPHint('insights.create', {
-                derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
-            })
+            // An MCP-titled insight suggests a hand-rolled MCP server tracker, so offer MCP analytics
+            // instead of the PostHog MCP hint. Two MCP toasts about different products would confuse.
+            if (insightNumericId === undefined && titleMentionsMCP(insightName)) {
+                tryShowMCPAnalyticsNudge('insight')
+            } else {
+                tryShowMCPHint('insights.create', {
+                    derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
+                })
+            }
 
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 
@@ -1267,7 +1288,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             if (persist) {
-                eventUsageLogic.actions.reportInsightSaved(insight, values.query, true, 'save_as')
+                reportInsightSaved(insight, values.query, true, 'save_as')
             }
             actions.reloadSavedInsights() // Load insights afresh
 
@@ -1332,7 +1353,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     logic.actions.addInsight(newInsight)
                 }
                 lemonToast.success('Insight duplicated')
-                redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+                if (redirectToInsight) {
+                    const sidePanel = sidePanelStateLogic.findMounted()
+                    if (sidePanel?.values.modalMode) {
+                        sidePanel.actions.closeSidePanel()
+                    }
+                    router.actions.push(urls.insightEdit(newInsight.short_id))
+                }
             } catch (e: any) {
                 // Nothing downstream reports this: the copy is created by a plain listener rather than
                 // a loader, so without a toast here a failure is indistinguishable from a dead button.

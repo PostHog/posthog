@@ -13,11 +13,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -72,6 +72,11 @@ def test_summary_excerpt_truncates_first_line_at_600_chars() -> None:
     assert _summary_excerpt(long_line).endswith("...")
 
 
+def test_summary_excerpt_keeps_links_out_of_the_cut() -> None:
+    sql_link = "[the query](https://us.posthog.com/project/2/sql?open_query=" + "SELECT%201%20" * 60 + ")"
+    assert _summary_excerpt(f"Errors rose, see {sql_link} for details.") == "Errors rose, see the query for details."
+
+
 def _plain_text_block_texts(blocks: list[dict]) -> list[str]:
     """Every plain_text string in the message — mentions here would render as raw `<@…>`."""
     texts: list[str] = []
@@ -115,7 +120,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
     assert text == "Report (P1): Checkout errors spiked"
 
 
@@ -235,8 +240,7 @@ def org_and_team():
 
 
 def _set_team_channel(team: Team, channel: str) -> None:
-    # SignalTeamConfig is auto-created per team via register_team_extension_signal.
-    SignalTeamConfig.objects.filter(team=team).update(default_slack_notification_channel=channel)
+    set_default_slack_notification_channel(team.id, channel)
 
 
 def _make_reviewer_user(org: Organization, email: str, login: str) -> User:
@@ -352,7 +356,9 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
     else:
         assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == (
+        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
+    )
 
 
 @pytest.mark.django_db

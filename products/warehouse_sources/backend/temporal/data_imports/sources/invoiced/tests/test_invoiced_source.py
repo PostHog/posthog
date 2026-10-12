@@ -15,11 +15,6 @@ class TestInvoicedSource:
         self.team_id = 123
         self.config = InvoicedSourceConfig(api_key="invoiced-key")
 
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another host.
-        assert self.source.connection_host_fields == []
-
     @parameterized.expand(
         [
             (

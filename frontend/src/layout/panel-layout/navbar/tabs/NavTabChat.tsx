@@ -253,7 +253,7 @@ const TaskRow = memo(function TaskRow({
                 />
                 <TaskListItem.Trigger />
             </TaskListItem.Group>
-            <TaskListItem.Actions taskId={item.task.id} />
+            <TaskListItem.Actions task={item.task} />
         </TaskListItem.Root>
     )
 })

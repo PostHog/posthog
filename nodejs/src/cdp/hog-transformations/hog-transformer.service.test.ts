@@ -1007,6 +1007,90 @@ describe('HogTransformer', () => {
             expect(result.event?.properties?.success).toBe(true)
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
         })
+
+        describe('capture-owned $ai_gateway properties', () => {
+            const insertTransformation = async (hog: string) => {
+                const fn = createHogFunction({
+                    type: 'transformation',
+                    name: 'gateway writer',
+                    team_id: teamId,
+                    enabled: true,
+                    bytecode: await compileHog(hog),
+                })
+                await insertHogFunction(hub.postgres, teamId, fn)
+                hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
+            }
+
+            it('discards gateway markers a transformation adds', async () => {
+                await insertTransformation(`
+                    let returnEvent := event
+                    returnEvent.properties['$ai_gateway_verified'] := true
+                    returnEvent.properties['$ai_gateway_request_id'] := 'forged'
+                    returnEvent.properties['$ai_gateway_relay'] := false
+                    returnEvent.properties.touched := true
+                    return returnEvent
+                `)
+
+                const event = createPluginEvent(
+                    { event: '$ai_generation', properties: { $ai_model: 'claude' } },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({ $ai_model: 'claude', touched: true })
+            })
+
+            it('restores gateway markers a transformation changes or removes', async () => {
+                await insertTransformation(`
+                    let returnEvent := event
+                    returnEvent.properties['$ai_gateway_request_id'] := 'forged'
+                    returnEvent.properties['$ai_gateway_verified'] := null
+                    return returnEvent
+                `)
+
+                const event = createPluginEvent(
+                    {
+                        event: '$ai_generation',
+                        properties: {
+                            $ai_model: 'claude',
+                            $ai_gateway_verified: true,
+                            $ai_gateway_request_id: 'req-1',
+                        },
+                    },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({
+                    $ai_model: 'claude',
+                    $ai_gateway_verified: true,
+                    $ai_gateway_request_id: 'req-1',
+                })
+            })
+
+            it('leaves untouched gateway markers alone', async () => {
+                await insertTransformation(`
+                    let returnEvent := event
+                    returnEvent.properties.touched := true
+                    return returnEvent
+                `)
+
+                const event = createPluginEvent(
+                    {
+                        event: '$ai_generation',
+                        properties: { $ai_gateway_verified: true, $ai_gateway_request_id: 'req-1' },
+                    },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({
+                    $ai_gateway_verified: true,
+                    $ai_gateway_request_id: 'req-1',
+                    touched: true,
+                })
+            })
+        })
     })
 
     describe('legacy plugins', () => {

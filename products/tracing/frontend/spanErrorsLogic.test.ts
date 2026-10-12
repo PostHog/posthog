@@ -274,6 +274,7 @@ describe('spanErrorsLogic', () => {
         tracingCorrelationConfigLogic.actions.loadTracingConfigSuccess({
             tracing_distinct_id_attribute_keys: ['posthogDistinctId'],
             tracing_session_id_attribute_keys: ['customSession'],
+            retention_last_updated: null,
         })
         await expectLogic(logic).toFinishAllListeners()
 

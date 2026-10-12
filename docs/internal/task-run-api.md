@@ -8,6 +8,7 @@ This restriction also applies to warm creation, warm activation, warm resumes, a
 Requests through a PostHog connection keep the sandbox origin and the same run restrictions.
 The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
+PostHog Code's per-user gateway caps are disabled by default and apply only to configured users when enabled.
 Repository-backed report discussions also require Desktop access.
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
@@ -42,16 +43,35 @@ Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
+Run responses omit internal cost accounting, including gateway request IDs.
+
+## Model selection
+
+Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
+The bundled Codex 0.159.2 runtime supports this model with ChatGPT subscription billing.
+The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
+The gateway must list the model for the task's product before the picker offers it.
+Adding the model does not change the default model or the capability slider.
+
 ## Event delivery
 
 Cloud runs send live events through event ingest. Clients can replay only events mirrored into the backend stream.
 Presence-gated runs do not mirror events while no reader is attached.
 Reload the run's session logs to recover agent output.
 Refetch the run for its current state because run-state and progress frames are not in those logs.
+When available, sandbox provisioning records the installed agent package version in run state for terminal analytics events.
+Failures before sandbox creation have no agent version.
 When event ingest is enabled, the agent server does not also retain events for a disconnected SSE client.
 An attached SSE client still receives live events.
 Runs without event ingest buffer events until an SSE client attaches.
 The Claude adapter forwards partial tool inputs without retaining each intermediate snapshot in session history.
+Budget-steer notifications remain in the event stream.
+The standalone agent-proxy asks the authenticated Django callback to queue each steer for analytics and retries a failed dispatch.
+Direct Django ingest queues the same work without a callback, so analytics delivery does not delay later stream events.
+A Celery task captures the event and retries upload failures up to five times with backoff.
+Both paths preserve the event timestamp and derive the analytics event ID from the run and event sequence.
+If an older payload has no timestamp, Django stores its first received time for retries and replays.
+Successful captures are recorded for the event ingest token's lifetime so completed work is skipped on replay.
 
 ## Run summaries
 

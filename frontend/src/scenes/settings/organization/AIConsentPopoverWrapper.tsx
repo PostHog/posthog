@@ -16,7 +16,7 @@ export function AIConsentPopoverContent({
     approvalDisabledReason,
     hideTrainingDisclaimer,
 }: {
-    onApprove: () => void
+    onApprove: () => void | Promise<void>
     onDismiss: () => void
     approvalDisabledReason: string | null
     /** Omit the "won't be used for training third-party models" line where it doesn't apply. */
@@ -116,7 +116,7 @@ export function AIConsentPopoverWrapper({
                     <AIConsentPopoverContent
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}
-                        onApprove={() => {
+                        onApprove={async () => {
                             if (pendingRedirectUrl && currentOrganization) {
                                 // Cleared by the acceptDataProcessing listener on success or failure.
                                 setPendingApprovalRedirect({
@@ -125,9 +125,8 @@ export function AIConsentPopoverWrapper({
                                     setAt: Date.now(),
                                 })
                             }
-                            void acceptDataProcessing()
-                                .then(() => onApprove?.())
-                                .catch(console.error)
+                            await acceptDataProcessing()
+                            onApprove?.()
                         }}
                         onDismiss={handleDismiss}
                     />

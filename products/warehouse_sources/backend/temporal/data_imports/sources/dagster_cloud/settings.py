@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Literal
+from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
@@ -10,12 +10,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cl
     ASSET_OBSERVATIONS_QUERY,
     ASSETS_QUERY,
     BACKFILLS_QUERY,
+    CUSTOM_ROLES_QUERY,
+    DEPLOYMENTS_QUERY,
     INSTIGATION_STATES_QUERY,
     INSTIGATION_TICKS_QUERY,
+    METRIC_TYPES_FOR_ASSET_QUERY,
+    METRIC_TYPES_FOR_DEPLOYMENT_QUERY,
+    METRIC_TYPES_FOR_JOB_QUERY,
+    REPORTING_METRICS_BY_ASSET_QUERY,
+    REPORTING_METRICS_BY_DEPLOYMENT_QUERY,
+    REPORTING_METRICS_BY_JOB_QUERY,
     REPOSITORIES_QUERY,
+    RUN_LOGS_QUERY,
     RUNS_QUERY,
     SCHEDULES_QUERY,
     SENSORS_QUERY,
+    TEAM_PERMISSIONS_QUERY,
+    USERS_QUERY,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -23,12 +34,26 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # runs/backfills/assets list resolvers.
 DAGSTER_CLOUD_PAGE_SIZE = 100
 
+# `branchDeployments` and the Insights metrics resolvers bound their result set with a required
+# argument and expose no cursor, so the only defence against silent truncation is to ask for far
+# more than any deployment realistically has and warn when a response comes back at the cap.
+DAGSTER_CLOUD_BRANCH_DEPLOYMENT_LIMIT = 500
+DAGSTER_CLOUD_INSIGHTS_ENTITY_LIMIT = 1000
+
+# Insights buckets the deployment's metrics; DAILY is the grain the vendor's own reporting uses
+# and keeps a first sync to a few hundred rows per metric.
+DAGSTER_CLOUD_INSIGHTS_GRANULARITY = "DAILY"
+
+# How far back a first Insights sync reaches. Matches `ReportingTimeRange.Last120Days`, the widest
+# window Dagster+ offers in its own UI.
+DAGSTER_CLOUD_INSIGHTS_LOOKBACK_DAYS = 120
+
 # "row" -> next cursor is a field read off the last result row (runId / backfill id).
 # "connection" -> next cursor is the connection object's own `cursor` field (assetsOrError).
 CursorMode = Literal["row", "connection"]
 
 # Which collection a fan-out child iterates one request at a time.
-ParentKind = Literal["repositories", "assets", "instigation_states"]
+ParentKind = Literal["repositories", "assets", "instigation_states", "runs"]
 
 # Wire type of a windowed child's timestamp bounds: assetMaterializations/assetObservations take
 # epoch milliseconds as a string, InstigationState.ticks takes epoch seconds as a float.
@@ -65,6 +90,33 @@ class DagsterCloudFanOutConfig:
     after_variable: str | None = None
     window_row_field: str | None = None
     window_unit: WindowUnit | None = None
+    # Forward-cursor children page with an opaque cursor plus a `hasMore` flag instead of a
+    # timestamp window. Such a walk is never checkpointed mid-parent, for the reason
+    # `row_index_field` gives below.
+    cursor_variable: str | None = None
+    has_more_key: str | None = None
+    # Child rows with no identifier of their own get their 0-based position in the parent's
+    # stream written here, so (parent id, index) keys the table. Only sound for an append-only
+    # collection always read from its start, which is why a forward-cursor walk resumes a parent
+    # from the beginning rather than mid-stream.
+    row_index_field: str | None = None
+
+
+@frozen
+class DagsterCloudExtraListField:
+    response_field: str
+    results_key: str | None = None
+    # Row count at which the resolver's required limit truncated the list. The resolver exposes
+    # no cursor to page past it, so reaching the cap is only ever reported, never worked around.
+    truncation_cap: int | None = None
+
+
+@frozen
+class DagsterCloudInsightsConfig:
+    # `reportingMetricsBy*` takes one required metric name per request, so a sync first reads the
+    # deployment's metric catalog for this entity kind and then walks it metric by metric.
+    metric_types_query: str
+    metric_types_field: str
 
 
 @frozen
@@ -92,6 +144,12 @@ class DagsterCloudEndpointConfig:
     # For cursor_mode="row": which row field to use as the next-page cursor.
     cursor_row_field: str | None = None
     fan_out: DagsterCloudFanOutConfig | None = None
+    insights: DagsterCloudInsightsConfig | None = None
+    # Extra root query fields concatenated onto this endpoint's page. Used where one table is
+    # the union of sibling root fields that return the same type.
+    extra_list_fields: tuple[DagsterCloudExtraListField, ...] = ()
+    # Constant GraphQL variables the endpoint's query requires.
+    static_variables: dict[str, Any] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     supports_incremental: bool = False
     # Stable creation-time field to partition by (never an updated-at style field).
@@ -302,6 +360,149 @@ DAGSTER_CLOUD_ENDPOINTS: dict[str, DagsterCloudEndpointConfig] = {
             after_variable="afterTimestampMillis",
             window_row_field="timestamp",
             window_unit="millis_string",
+        ),
+    ),
+    "deployments": DagsterCloudEndpointConfig(
+        name="deployments",
+        query=DEPLOYMENTS_QUERY,
+        # `fullDeployments` returns the list directly; `branchDeployments` adds the branch ones
+        # through its connection, and both carry the same DagsterCloudDeployment shape.
+        response_field="fullDeployments",
+        extra_list_fields=(
+            DagsterCloudExtraListField(
+                response_field="branchDeployments",
+                results_key="nodes",
+                truncation_cap=DAGSTER_CLOUD_BRANCH_DEPLOYMENT_LIMIT,
+            ),
+        ),
+        static_variables={"branchDeploymentLimit": DAGSTER_CLOUD_BRANCH_DEPLOYMENT_LIMIT},
+        primary_keys=["deploymentId"],
+        # A deployment row changes in place (status, latest commit), so full refresh keeps it
+        # current; the list is a handful of rows either way.
+    ),
+    "run_logs": DagsterCloudEndpointConfig(
+        name="run_logs",
+        query=RUN_LOGS_QUERY,
+        response_field="logsForRun",
+        success_typename="EventConnection",
+        results_key="events",
+        skip_typenames=("RunNotFoundError",),
+        # A run event carries no identifier of its own. The event log is append-only and every
+        # sync reads a run from its start, so the event's position in the run is stable.
+        primary_keys=["runId", "eventIndex"],
+        millis_timestamp_fields=["timestamp"],
+        # logsForRun has no timestamp filter, so incremental works by narrowing the parent walk.
+        # The cursor is the parent run's updateTime rather than the event's own timestamp: the
+        # two advance independently, and checkpointing the event time would move the next window
+        # past runs whose logs were never read.
+        incremental_fields=[_incremental_datetime_field("runUpdateTime")],
+        supports_incremental=True,
+        partition_key="timestamp",
+        # Events ascend inside a run, but runs arrive newest-first, so the stream as a whole is
+        # not ordered, so "desc" holds the watermark until the fan-out finishes.
+        sort_mode="desc",
+        # One row per log line of every run is the largest table this source can produce, and a
+        # first sync walks the deployment's whole run history.
+        should_sync_default=False,
+        fan_out=DagsterCloudFanOutConfig(
+            parent_kind="runs",
+            parent_variables={"runId": "runId"},
+            include_from_parent=["runId", "runUpdateTime"],
+            cursor_variable="afterCursor",
+            has_more_key="hasMore",
+            row_index_field="eventIndex",
+        ),
+    ),
+    "users": DagsterCloudEndpointConfig(
+        name="users",
+        query=USERS_QUERY,
+        response_field="usersOrError",
+        success_typename="DagsterCloudUsersWithScopedPermissionGrants",
+        results_key="users",
+        primary_keys=["id"],
+        # Reading the organization's members needs organization-level permissions a
+        # deployment-scoped token often lacks, so the table is opt-in.
+        should_sync_default=False,
+    ),
+    "teams": DagsterCloudEndpointConfig(
+        name="teams",
+        query=TEAM_PERMISSIONS_QUERY,
+        # teamPermissions returns [DagsterCloudTeamPermissions!]! directly.
+        response_field="teamPermissions",
+        primary_keys=["id"],
+        should_sync_default=False,
+    ),
+    "custom_roles": DagsterCloudEndpointConfig(
+        name="custom_roles",
+        query=CUSTOM_ROLES_QUERY,
+        response_field="customRoles",
+        primary_keys=["id"],
+        should_sync_default=False,
+    ),
+    "insights_job_metrics": DagsterCloudEndpointConfig(
+        name="insights_job_metrics",
+        query=REPORTING_METRICS_BY_JOB_QUERY,
+        response_field="reportingMetricsByJob",
+        success_typename="ReportingMetrics",
+        results_key="metrics",
+        primary_keys=["metricName", "entityId", "timestamp"],
+        # The selector's after/before are genuine epoch-second bounds on the reporting window.
+        incremental_fields=[_incremental_datetime_field("timestamp")],
+        supports_incremental=True,
+        partition_key="timestamp",
+        # One request returns every bucket of one metric at once, so the rows it produces are
+        # not in time order, so "desc" holds the watermark until the whole walk finishes.
+        sort_mode="desc",
+        # Insights is a Dagster+ feature the token may not be entitled to, and a metric catalog
+        # is deployment-specific, so leave the choice to the user.
+        should_sync_default=False,
+        insights=DagsterCloudInsightsConfig(
+            metric_types_query=METRIC_TYPES_FOR_JOB_QUERY,
+            metric_types_field="metricTypesForJob",
+        ),
+    ),
+    "insights_asset_metrics": DagsterCloudEndpointConfig(
+        name="insights_asset_metrics",
+        query=REPORTING_METRICS_BY_ASSET_QUERY,
+        response_field="reportingMetricsByAsset",
+        success_typename="ReportingMetrics",
+        results_key="metrics",
+        primary_keys=["metricName", "entityId", "timestamp"],
+        # The selector's after/before are genuine epoch-second bounds on the reporting window.
+        incremental_fields=[_incremental_datetime_field("timestamp")],
+        supports_incremental=True,
+        partition_key="timestamp",
+        # One request returns every bucket of one metric at once, so the rows it produces are
+        # not in time order, so "desc" holds the watermark until the whole walk finishes.
+        sort_mode="desc",
+        # Insights is a Dagster+ feature the token may not be entitled to, and a metric catalog
+        # is deployment-specific, so leave the choice to the user.
+        should_sync_default=False,
+        insights=DagsterCloudInsightsConfig(
+            metric_types_query=METRIC_TYPES_FOR_ASSET_QUERY,
+            metric_types_field="metricTypesForAsset",
+        ),
+    ),
+    "insights_deployment_metrics": DagsterCloudEndpointConfig(
+        name="insights_deployment_metrics",
+        query=REPORTING_METRICS_BY_DEPLOYMENT_QUERY,
+        response_field="reportingMetricsByDeployment",
+        success_typename="ReportingMetrics",
+        results_key="metrics",
+        primary_keys=["metricName", "entityId", "timestamp"],
+        # The selector's after/before are genuine epoch-second bounds on the reporting window.
+        incremental_fields=[_incremental_datetime_field("timestamp")],
+        supports_incremental=True,
+        partition_key="timestamp",
+        # One request returns every bucket of one metric at once, so the rows it produces are
+        # not in time order, so "desc" holds the watermark until the whole walk finishes.
+        sort_mode="desc",
+        # Insights is a Dagster+ feature the token may not be entitled to, and a metric catalog
+        # is deployment-specific, so leave the choice to the user.
+        should_sync_default=False,
+        insights=DagsterCloudInsightsConfig(
+            metric_types_query=METRIC_TYPES_FOR_DEPLOYMENT_QUERY,
+            metric_types_field="metricTypesForDeployment",
         ),
     ),
 }

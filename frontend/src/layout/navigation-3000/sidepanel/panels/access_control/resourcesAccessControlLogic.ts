@@ -29,10 +29,10 @@ const RESOURCE_FEATURE_REQUIREMENTS: Partial<Record<AccessControlResourceType, A
 // until the user has that product rolled out or has opted in, matching the product's own nav gating.
 export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlResourceType, string>> = {
     [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
-    [AccessControlResourceType.McpAnalytics]: FEATURE_FLAGS.MCP_ANALYTICS,
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
+    [AccessControlResourceType.BusinessKnowledge]: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
 }
 
 export function isResourceRolledOut(
@@ -134,6 +134,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             {
                 updateResourceAccessControls: async ({ accessControls, saveType }) => {
                     for (const control of accessControls) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.put<AccessControlTypeRole>(
                             `api/projects/${values.currentProjectId}/resource_access_controls`,
                             {
@@ -169,6 +170,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                 const allResources = [
                     AccessControlResourceType.Action,
                     AccessControlResourceType.ActivityLog,
+                    AccessControlResourceType.BusinessKnowledge,
                     AccessControlResourceType.CustomerAnalytics,
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.EarlyAccessFeature,

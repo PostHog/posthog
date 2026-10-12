@@ -12,7 +12,14 @@ type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'
 
 export { BLOCK_REQUEST_PREFIX }
 
-export class BlockProxy {
+export interface BlockSource {
+    readonly blockCount: number
+    readonly totalCompressedBytes: number
+    fetchBlocks(input: RasterizeRecordingInput): Promise<number>
+    handleRequest(request: HTTPRequest, path: string): Promise<void>
+}
+
+export class BlockProxy implements BlockSource {
     private blocks: RecordingBlock[] = []
     private teamId = 0
     private sessionId = ''

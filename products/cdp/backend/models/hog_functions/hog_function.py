@@ -96,7 +96,7 @@ TYPES_THAT_CAN_RERUN = (
 DRAFT_ONLY_UPDATE_FIELDS = frozenset({"draft", "draft_updated_at", "draft_encrypted_inputs"})
 
 
-DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error"}
+DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract"}
 
 
 def _is_draft_only_save(update_fields: Optional[Iterable[str]]) -> bool:
@@ -263,23 +263,24 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
         return self.status
 
-    def move_secret_inputs(self):
+    def move_secret_inputs(self) -> None:
         # Moves any secret inputs to the encrypted_inputs var
         raw_inputs = self.inputs or {}
         raw_encrypted_inputs = self.encrypted_inputs or {}
 
         final_inputs = {}
         final_encrypted_inputs = {}
+        secret_keys = {schema["key"] for schema in self.inputs_schema or [] if schema.get("secret")}
 
         for schema in self.inputs_schema or []:
             value = raw_inputs.get(schema["key"])
             encrypted_value = raw_encrypted_inputs.get(schema["key"])
 
-            if not schema.get("secret"):
-                final_inputs[schema["key"]] = value
-            else:
+            if schema["key"] in secret_keys:
                 # We either store the incoming value if given or the encrypted value
                 final_encrypted_inputs[schema["key"]] = value or encrypted_value
+            elif schema["key"] not in raw_encrypted_inputs:
+                final_inputs[schema["key"]] = value
 
         self.inputs = final_inputs
         self.encrypted_inputs = final_encrypted_inputs
@@ -313,6 +314,11 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         # filters no longer describe.
         if previous_bytecode is not None and _raw_filters(compiled) == _raw_filters(previous):
             compiled["bytecode"] = previous_bytecode
+            # The stamp belongs to the bytecode it was compiled with, so it travels with it.
+            if "bytecode_contract" in previous:
+                compiled["bytecode_contract"] = previous["bytecode_contract"]
+            else:
+                compiled.pop("bytecode_contract", None)
             logger.warning(
                 "hog_function_filters_kept_previous_bytecode",
                 hog_function_id=str(self.pk),

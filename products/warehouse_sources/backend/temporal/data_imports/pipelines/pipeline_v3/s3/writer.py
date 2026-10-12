@@ -6,6 +6,7 @@ from typing import Literal
 import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
+import botocore.exceptions
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
@@ -14,6 +15,11 @@ from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     unify_schemas_with_text_fallback,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,
@@ -63,6 +69,19 @@ def _is_transient_s3_write_error(exc: BaseException) -> bool:
     # FileNotFoundError, and TimeoutError are also OSError subclasses but signal
     # non-transient causes (bad credentials, deleted bucket) that retrying won't fix,
     # so only the exact base type is treated as retryable here.
+    #
+    # A read/connect timeout or a dropped connection to the object store never gets that OSError
+    # translation: s3fs's own internal retries only convert a *response* it got back into an
+    # OSError, and a timed-out or refused connection never got one. It reaches here as the raw
+    # botocore exception once those internal retries are exhausted, so it needs a type check of
+    # its own (these are exactly the classes s3fs itself treats as retryable, see its
+    # S3_RETRYABLE_ERRORS/ClientError handling in s3fs.core._error_wrapper). SSLError is a
+    # ConnectionError subclass but usually means a persistent certificate problem, not a blip,
+    # so it's excluded rather than spending the whole retry budget before failing anyway.
+    if isinstance(exc, botocore.exceptions.SSLError):
+        return False
+    if isinstance(exc, botocore.exceptions.HTTPClientError | botocore.exceptions.ConnectionError):
+        return True
     return type(exc) is OSError
 
 
@@ -74,9 +93,16 @@ def _is_transient_s3_write_error(exc: BaseException) -> bool:
 )
 def _write_parquet_to_s3(
     s3: s3fs.S3FileSystem, s3_path: str, pa_table: pa.Table, compression: ParquetCompression
-) -> None:
+) -> int:
+    """Write the table and return the size of the object in bytes.
+
+    The file position after the last write is the object size: the parquet writer only appends, and
+    s3fs uploads each byte it accepted, in one PUT or in parts. Reading the size back from S3 would
+    cost one HEAD for each batch.
+    """
     with s3.open(s3_path, "wb") as f:
         pq.write_table(pa_table, f, compression=compression)
+        return int(f.tell())
 
 
 class S3BatchWriter:
@@ -129,18 +155,21 @@ class S3BatchWriter:
         write_start = time.perf_counter()
         try:
             s3_path_without_protocol = strip_s3_protocol(s3_path)
-            _write_parquet_to_s3(self._s3, s3_path_without_protocol, pa_table, self._compression)
+            byte_size = _write_parquet_to_s3(self._s3, s3_path_without_protocol, pa_table, self._compression)
         except Exception as e:
             if activity.in_activity():
                 get_s3_write_errors_metric(type(e).__name__).add(1)
+            # The data warehouse bucket is PostHog's own, so a refusal here is never the
+            # customer's source or credentials. Raise the typed error so the run's error text
+            # doesn't read like a problem with their data, and error tracking groups every
+            # occurrence on one title instead of the raw per-key s3fs message.
+            if is_object_store_permission_denied(e):
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
             raise
 
         write_duration = time.perf_counter() - write_start
         if activity.in_activity():
             get_s3_write_duration_metric().record(write_duration)
-
-        file_info = self._s3.info(s3_path_without_protocol)
-        byte_size = file_info.get("Size", 0) if isinstance(file_info, dict) else 0
 
         if self._schema is None:
             self._schema = pa_table.schema
@@ -178,8 +207,13 @@ class S3BatchWriter:
 
         self._logger.debug(f"Writing schema to {schema_path}")
 
-        with self._s3.open(s3_path_without_protocol, "w") as f:
-            json.dump(schema_dict, f, indent=2)
+        try:
+            with self._s3.open(s3_path_without_protocol, "w") as f:
+                json.dump(schema_dict, f, indent=2)
+        except Exception as e:
+            if is_object_store_permission_denied(e):
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            raise
 
         self._logger.debug(f"Schema written successfully", s3_path=schema_path)
 

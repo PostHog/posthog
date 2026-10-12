@@ -75,9 +75,11 @@ def invoiced_source(
     config = INVOICED_ENDPOINTS[endpoint]
 
     # An explicit ascending updated_at sort keeps page traversal deterministic and lets the
-    # pipeline checkpoint the incremental watermark per batch (sort_mode="asc"). `sort` is
-    # documented on every list endpoint we sync ("Column to sort by, i.e. name asc").
-    params: dict[str, Any] = {"per_page": PAGE_SIZE, "sort": "updated_at asc"}
+    # pipeline checkpoint the incremental watermark per batch (sort_mode="asc"). Only endpoints
+    # that document `sort` ("Column to sort by, i.e. name asc") get one.
+    params: dict[str, Any] = {"per_page": PAGE_SIZE}
+    if config.sort:
+        params["sort"] = config.sort
 
     endpoint_config: Endpoint = {
         "path": config.path,
@@ -89,10 +91,12 @@ def invoiced_source(
         "paginator": HeaderLinkPaginator(),
     }
 
-    use_incremental = should_use_incremental_field and db_incremental_field_last_value is not None
+    use_incremental = (
+        config.supports_updated_after and should_use_incremental_field and db_incremental_field_last_value is not None
+    )
     if use_incremental:
-        # Every list endpoint documents a server-side `updated_after` UNIX-timestamp filter; inject
-        # the last synced value as that filter so the sync only pulls rows touched since.
+        # Inject the last synced value as the server-side `updated_after` UNIX-timestamp filter so
+        # the sync only pulls rows touched since.
         endpoint_config["incremental"] = {
             "start_param": "updated_after",
             "cursor_path": "updated_at",
@@ -152,7 +156,7 @@ def invoiced_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
-        # Rows are requested with an explicit `sort=updated_at asc`.
+        # Incremental endpoints request rows with an explicit `sort=updated_at asc`.
         sort_mode="asc",
     )
 

@@ -11,6 +11,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
+
 import { ProductEmptyState } from './ProductEmptyState'
 import type { ProductEmptyStateConfig } from './types'
 
@@ -163,6 +165,56 @@ describe('ProductEmptyState', () => {
         expect(!!screen.queryByText('Override hint')).toBe(applied)
         expect(!!screen.queryByText('Base hint')).toBe(!applied)
         expect(screen.getByText('Headline')).toBeTruthy()
+    })
+
+    it.each([
+        [false, true, false],
+        [true, true, true],
+        [true, false, false],
+    ])(
+        'in error tracking waiting mode with new wizard flag on=%s and cloud=%s renders the command: %s',
+        async (flagOn, cloud, expected) => {
+            useMocks({ get: { '/_preflight/': { cloud } } })
+            preflightLogic.actions.loadPreflight()
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                [],
+                flagOn ? { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true } : {}
+            )
+
+            render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="waiting-for-data" />)
+
+            if (expected) {
+                expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
+                expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
+                expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
+            } else {
+                expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+                if (flagOn) {
+                    expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
+                    expect(screen.getByText(/Check that your app is configured to capture exceptions/)).toBeTruthy()
+                    expect(screen.queryByText(/Run Wizard/)).toBeNull()
+                } else {
+                    expect(screen.getByText("You're set up. Waiting for the first exception")).toBeTruthy()
+                }
+            }
+        }
+    )
+
+    it('offers manual setup without Wizard guidance on self-hosted instances', async () => {
+        useMocks({ get: { '/_preflight/': { cloud: false } } })
+        preflightLogic.actions.loadPreflight()
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true })
+
+        render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="needs-setup" />)
+
+        expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+        expect(screen.queryByText(/Run Wizard/)).toBeNull()
+        expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
+        expect(screen.getByText('Set up Error tracking')).toBeTruthy()
     })
 
     // `beside` renders a pair and a container query hides one of them at any width. A lazy

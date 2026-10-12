@@ -1,6 +1,7 @@
 import '@xterm/xterm/css/xterm.css'
 
 import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -42,6 +43,18 @@ export class TerminalSession {
     private readonly fit = new FitAddon()
     private readonly observer = new ResizeObserver(() => this.resize())
 
+    private loadWebglRenderer(): void {
+        let renderer: WebglAddon | undefined
+        try {
+            renderer = new WebglAddon()
+            renderer.onContextLoss(() => renderer?.dispose())
+            this.view.loadAddon(renderer)
+        } catch {
+            // Unsupported or exhausted GPU contexts must leave the DOM renderer usable.
+            renderer?.dispose()
+        }
+    }
+
     constructor(
         write: (data: string) => void,
         resize: (columns: number, rows: number) => void,
@@ -54,6 +67,7 @@ export class TerminalSession {
         this.element.dataset.shortcutsAllowKeys = '` ~'
         this.view.loadAddon(this.fit)
         this.view.open(this.element)
+        this.loadWebglRenderer()
         this.view.onData(write)
         this.view.onResize(({ cols, rows }) => resize(cols, rows))
         this.view.onSelectionChange(() => {

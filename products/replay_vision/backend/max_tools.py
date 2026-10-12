@@ -22,10 +22,10 @@ from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
+from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
     PREVIEW_ESTIMATE_BUDGET,
@@ -63,10 +63,6 @@ from ee.hogai.utils.untrusted import as_untrusted_data, neutralize_markup
 
 logger = structlog.get_logger(__name__)
 
-# Most recent summaries to feed Max — caps the context size for scanners with large histories.
-MAX_SUMMARIES = 100
-
-
 DRAFT_PROMPT_TOOL_DESCRIPTION = """
 Use this tool to write or improve the instruction prompt for the Replay Vision scanner the user is
 currently configuring, then fill it into their configuration form.
@@ -92,20 +88,6 @@ observe in a recording (e.g. revenue, account tier).
 # After drafting
 Call this tool with the finished prompt — it fills the prompt field in the form the user is editing.
 Then briefly explain the choices you made so the user can refine them.
-"""
-
-
-SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION = """
-Use this tool to reason across the per-session summaries produced by a Replay Vision *summarizer* scanner.
-
-# When to use
-- The user asks for common themes, patterns, or a digest across a summarizer scanner's sessions
-- The user asks what users are doing, where they struggle, or what stands out across the summarized recordings
-- The user wants a "summary of the summaries"
-
-# What it returns
-The scanner's most recent per-session summaries. Synthesize them to answer the user's question —
-surface recurring themes, notable outliers, and concrete takeaways rather than restating each summary.
 """
 
 
@@ -255,90 +237,6 @@ class DraftReplayVisionScannerPromptTool(ReplayVisionGatesMixin, MaxTool):
             "prompt": cleaned,
             "scanner_type": resolved_type if resolved_type in VALID_SCANNER_TYPES else None,
         }
-
-
-class SummarizeSummariesArgs(BaseModel):
-    scanner_id: str | None = Field(
-        default=None,
-        description="The summarizer scanner to digest. Only required when not already available from context.",
-    )
-
-
-class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
-    # Reads and form-fills only; nothing here starts a scan.
-    needs_confirmation: ClassVar[bool] = False
-    name: str = "summarize_replay_vision_summaries"
-    description: str = SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION
-    args_schema: type[BaseModel] = SummarizeSummariesArgs
-
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        # Summaries expose recording content, so reading them requires session_recording access.
-        return [("session_recording", "viewer")]
-
-    async def _arun_impl(self, scanner_id: str | None = None) -> tuple[str, dict[str, Any]]:
-        resolved_id = self.context.get("scanner_id") or scanner_id
-        if not resolved_id:
-            return "No scanner specified. Please provide a scanner_id.", {"error": "invalid_context"}
-
-        try:
-            return await self._fetch_and_format(str(resolved_id))
-        except Exception as e:
-            capture_exception(
-                e,
-                properties={"team_id": self._team.id, "user_id": self._user.id, "scanner_id": str(resolved_id)},
-            )
-            # Generic content and artifact — the raw exception goes to error tracking above, not the conversation.
-            return "Something went wrong loading the summaries. Please try again.", {"error": "fetch_failed"}
-
-    @database_sync_to_async
-    def _fetch_and_format(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
-        scanner = scanner_for_reading_observations(self._team.id, scanner_id)
-        if scanner is None:
-            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
-        # Summaries inherit the scanner's RBAC — a team member without viewer access to this scanner
-        # must not read its recording-derived output. Treat as not-found so we don't leak existence.
-        # An experiment scanner also needs access to its targeted experiment.
-        if not self.user_access_control.check_access_level_for_object(
-            scanner, "viewer"
-        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
-            return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
-        if scanner.scanner_type != ScannerType.SUMMARIZER:
-            # Never interpolate the user-editable scanner name into tool output — it's outside the data fence.
-            return (
-                f"That scanner is a {scanner.scanner_type} scanner, not a summarizer.",
-                {"error": "wrong_scanner_type"},
-            )
-
-        observations = (
-            ReplayObservation.objects.filter(
-                team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
-            )
-            .order_by("-created_at")
-            .values_list("scanner_result", "created_at")[:MAX_SUMMARIES]
-        )
-
-        lines: list[str] = []
-        for scanner_result, created_at in observations:
-            output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
-            if not isinstance(output, dict):
-                continue
-            summary = output.get("summary")
-            if not isinstance(summary, str) or not summary.strip():
-                continue
-            title = output.get("title") if isinstance(output.get("title"), str) else None
-            clean = EVENT_ID_CITATION_RE.sub("", summary).strip()
-            prefix = f"{created_at:%Y-%m-%d}"
-            lines.append(f"- ({prefix}) {f'{title}: ' if title else ''}{clean}")
-
-        if not lines:
-            return (
-                "This scanner has no completed summaries yet.",
-                {"scanner_id": scanner_id, "summary_count": 0},
-            )
-
-        header = f"Recent session summaries from this scanner ({len(lines)} of the latest)."
-        content = header + "\n\n" + as_untrusted_data("summaries", lines)
-        return content, {"scanner_id": scanner_id, "summary_count": len(lines)}
 
 
 class SearchObservationsArgs(BaseModel):
@@ -501,7 +399,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
 
         response = search_observations(
-            self._team, self.user_access_control, scanner_ids, query_vector, capped_limit, filters
+            self._team, self.user_access_control, scanner_ids, lambda: query_vector, capped_limit, filters
         )
 
         lines: list[str] = []
@@ -923,7 +821,7 @@ def _scanner_config_for(
         config["tags"] = tags
     if scanner_type == ScannerType.SCORER and (scale_min is not None or scale_max is not None):
         config["scale"] = {"min": scale_min, "max": scale_max}
-    if scanner_type == ScannerType.SUMMARIZER and length is not None:
+    if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT) and length is not None:
         config["length"] = length
     return config
 
@@ -1084,6 +982,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             context={
                 "get_team": lambda: self._team,
                 "user": self._user,
+                "user_access_control": self.user_access_control,
                 "event_source": EventSource.POSTHOG_AI,
             },
         )
@@ -1244,7 +1143,14 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             scanner,
             data=data,
             partial=True,
-            context={"get_team": lambda: self._team, "user": self._user},
+            # No HTTP request here, so the serializer can't derive the access control from one; without
+            # it the experiment-scope write guard would treat the caller as unrestricted.
+            context={
+                "get_team": lambda: self._team,
+                "user": self._user,
+                "user_access_control": self.user_access_control,
+                "event_source": EventSource.POSTHOG_AI,
+            },
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}

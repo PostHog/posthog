@@ -85,6 +85,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
+        environment: crates-posthog-replay-anonymizer
         permissions:
             contents: read
             id-token: write

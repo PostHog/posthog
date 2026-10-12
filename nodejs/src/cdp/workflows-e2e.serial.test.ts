@@ -80,6 +80,7 @@ import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
+import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
@@ -466,6 +467,86 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(namesFor('hog_flow', workflowId)).toContain('succeeded')
                 expect(namesFor('hog_flow_version', `${workflowId}/1`)).toEqual(namesFor('hog_flow', workflowId))
             }, 10000)
+        })
+    })
+
+    describe('workflow with a secret function input: trigger → function → exit', () => {
+        const secretApiKey = 'workflows-e2e-secret-api-key-0000'
+        let workflowId: string
+
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-secret-fetch',
+                name: 'Workflows E2E Secret Fetch',
+                code: `
+                let res := fetch(inputs.url, {'method': 'POST', 'headers': {'Authorization': f'Bearer {inputs.api_key}'}});
+                print('Fetch result:', res.status);
+                `,
+                inputs_schema: [
+                    { key: 'url', type: 'string', required: true },
+                    { key: 'api_key', type: 'string', required: true, secret: true },
+                ],
+            })
+
+            workflowId = await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    send_with_secret: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-secret-fetch',
+                            inputs: { url: { value: 'https://example.com/secret-webhook' } },
+                        },
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'send_with_secret', type: 'continue' },
+                    { from: 'send_with_secret', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            // Mirrors what the hog flow API stores on save: the secret input is stripped out of the
+            // plaintext `actions` and kept Fernet-encrypted in `encrypted_inputs`, keyed by action id.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    workflowId,
+                    hub.encryptedFields.encrypt(
+                        JSON.stringify({ send_with_secret: { api_key: { value: secretApiKey } } })
+                    ),
+                ],
+                'setWorkflowEncryptedInputs'
+            )
+            globals = createGlobals()
+        })
+
+        it('sends the decrypted secret and keeps it out of logs and stored jobs', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/secret-webhook',
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({ Authorization: `Bearer ${secretApiKey}` }),
+                })
+            )
+
+            await waitForExpect(() => {
+                const logs = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .filter((m: any) => m.value.log_source_id === workflowId)
+                expect(logs.map((m: any) => m.value.message)).toContainEqual(
+                    expect.stringContaining('Fetch result:, 200')
+                )
+                expect(JSON.stringify(logs)).not.toContain(secretApiKey)
+            }, 5000)
+
+            expect(JSON.stringify(await queryCyclotronJobs())).not.toContain(secretApiKey)
         })
     })
 
@@ -1345,7 +1426,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_only_at_end',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -1383,7 +1463,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_on_conversion',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -1857,7 +1936,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_only_at_end',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -2964,6 +3042,120 @@ describe('Workflows E2E (email queue)', () => {
             expect(jobs.filter((j: any) => j.status === 'completed').length).toBeGreaterThanOrEqual(1)
             expect(jobs.filter((j: any) => j.status === 'failed').length).toBe(0)
         }, 10000)
+    })
+
+    it('sends up to the frequency cap per person, then skips and completes the run', async () => {
+        // The email step runs on the hogflow worker and again on the email worker. Each pass checks the cap,
+        // so with a cap of one the first run only sends if the second pass reuses its slot.
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO workflows_teamworkflowsconfig
+                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                 email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier,
+                 marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days)
+             VALUES ($1, false, 'off', '', '', 0, 1, 1)`,
+            [team.id],
+            'set-team-frequency-cap'
+        )
+        const frequencyCapValkey = createFrequencyCapValkeyPool(hub)!
+        await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
+
+        // The cap is per person, and these workers resolve the person from the event's distinct_id.
+        const person: InternalPersonWithDistinctId = {
+            id: '1',
+            uuid: '5b0c4a6e-2f0c-4a43-9c1e-7f6a1d0b9e21',
+            team_id: team.id,
+            properties: { email: 'recipient@example.com' },
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 1,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+            distinct_id: 'capped-distinct-id',
+        }
+        const personDeps = {
+            ...deps,
+            personRepository: {
+                fetchPerson: jest.fn().mockResolvedValue(person),
+                fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([person]),
+                fetchPersonsByPersonIds: jest.fn().mockResolvedValue([person]),
+                fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
+            },
+        }
+        await Promise.all([hogflowWorker.stop(), emailWorker.stop()])
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(
+            hub,
+            personDeps,
+            new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        )
+        emailWorker = new CdpCyclotronWorkerEmail(
+            hub,
+            personDeps,
+            new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        )
+        await Promise.all([hogflowWorker.start(), emailWorker.start()])
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Frequency cap',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([
+            createGlobals({ uuid: new UUIDT().toString(), distinct_id: 'capped-distinct-id' } as any),
+            createGlobals({ uuid: new UUIDT().toString(), distinct_id: 'capped-distinct-id' } as any),
+        ])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(2)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'message_frequency_capped')).toBe(1)
+        }, 15000)
+
+        const jobs = await queryCyclotronJobs()
+        expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(2)
+        expect(jobs.filter((j: any) => j.status === 'failed')).toHaveLength(0)
     })
 
     it('does not emit duplicate Resuming / Executing / pause logs for the email-queue routing reschedule', async () => {

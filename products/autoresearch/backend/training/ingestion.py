@@ -86,7 +86,7 @@ def handle_task_run_completed(task_run: FinishedTaskRun) -> None:
         )
         return
 
-    # The state marker is client-writable; task_run_id is stamped server-side at dispatch.
+    # The state marker names a run; task_run_id, stamped server-side at dispatch, proves the binding.
     if training_run.task_run_id != task_run.id:
         logger.warning(
             "autoresearch_training_run_task_run_mismatch",

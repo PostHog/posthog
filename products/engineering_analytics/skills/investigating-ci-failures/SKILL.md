@@ -107,6 +107,8 @@ threshold aren't recorded, so there is no honest denominator.
   failure logs but are not in `ci_failures`. For those, fall back to the raw failure logs via the
   `engineering-analytics-ci-failure-logs` (PR-scoped) / `engineering-analytics-run-failure-logs`
   (run-scoped) MCP tools.
+  Carry `ci_engine` with `run_id`, or `latest_ci_engine` with `latest_run_id`, when fetching a run.
+  A null engine means unknown historical provenance; do not join it to a known engine by integer ID.
 - **A job that failed before its tests ran is invisible to every test-level surface.** No `FAILED`
   line means no fingerprint, no span, nothing for the flaky-tests tool to read — the failure is real
   but the test-level answer is silence, not "fine". Setup, docker, and runner failures are only

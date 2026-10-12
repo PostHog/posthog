@@ -42,9 +42,10 @@ export function IntegrationChoice({
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
-    // Creating an integration needs project admin, a stricter bar than the access a product needs
-    // to reach this picker. Without the gate a member is sent through the provider's whole OAuth
-    // flow and only finds out when the callback fails to save the connection.
+    // A project member can create an integration, but only a project admin can overwrite one. An
+    // OAuth connect upserts on the provider account id, so a member who picks an account that is
+    // already connected goes through the provider's whole flow and then gets a 403 at the callback.
+    // Setup-modal kinds report the same error inside the modal, so they stay open to members.
     const integrationManagementRestriction = useIntegrationManagementRestriction()
     const kind = integration
 
@@ -110,14 +111,7 @@ export function IntegrationChoice({
     // 400s with "Kind not configured". Send users to the settings page instead.
     const oauthUnavailable = kind === 'slack' && !slackAvailable
     const setupMenuItem = setupDef
-        ? {
-              ...setupDef.menuItem({
-                  kind,
-                  openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId),
-                  uploadKey,
-              }),
-              disabledReason: integrationManagementRestriction ?? undefined,
-          }
+        ? setupDef.menuItem({ kind, openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId), uploadKey })
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),

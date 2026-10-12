@@ -846,6 +846,35 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface NotebookKernelCompleteRequestApi {
+    /**
+     * The full source of the cell being edited.
+     * @maxLength 100000
+     */
+    code: string
+    /**
+     * Character offset of the cursor in `code`, counting from 0.
+     * @minimum 0
+     */
+    cursor_pos: number
+}
+
+export interface NotebookKernelCompletionApi {
+    /** The text that replaces `code[cursor_start:cursor_end]`. */
+    text: string
+    /** What the match names, as the kernel reports it: 'function', 'module', 'instance', … or blank. */
+    type: string
+}
+
+export interface NotebookKernelCompleteResponseApi {
+    /** Completions from the live kernel's namespace. Empty when no kernel is running. */
+    matches: NotebookKernelCompletionApi[]
+    /** Start offset of the text the completions replace. */
+    cursor_start: number
+    /** End offset of the text the completions replace. */
+    cursor_end: number
+}
+
 export interface NotebookKernelConfigApi {
     /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
     cpu_cores?: number
@@ -882,6 +911,32 @@ export interface NotebookKernelConfigResponseApi {
      * @nullable
      */
     preset_key?: string | null
+}
+
+export interface NotebookKernelInspectRequestApi {
+    /**
+     * The full source of the cell being edited.
+     * @maxLength 100000
+     */
+    code: string
+    /**
+     * Character offset of the cursor in `code`, counting from 0.
+     * @minimum 0
+     */
+    cursor_pos: number
+    /**
+     * 0 for the signature and docstring, 1 to add the source when the kernel can find it.
+     * @minimum 0
+     * @maximum 1
+     */
+    detail_level?: number
+}
+
+export interface NotebookKernelInspectResponseApi {
+    /** Whether the kernel found an object at the cursor. */
+    found: boolean
+    /** The object's signature and docstring as plain text. Blank when not found. */
+    text: string
 }
 
 export interface NotebookSQLV2FrameApi {
@@ -964,6 +1019,8 @@ export interface NotebookKernelStatusResponseApi {
 }
 
 export interface NotebookRunStartRequestApi {
+    /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+    include_prepared_insights?: boolean
     /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
     variables?: NotebookVariableApi[]
 }
@@ -1152,6 +1209,8 @@ export interface NotebookSQLV2EnvelopeApi {
     stderr?: string
     /** Rich outputs from a Python node run, e.g. matplotlib figures as PNGs. */
     media?: NotebookSQLV2MediaApi[]
+    /** The plain-text form of a Python node's last expression, as Jupyter shows it under Out[n]. Absent when the cell ends in a statement, a None value, a semicolon, or a dataframe. */
+    result_text?: string
     /** Result column names. */
     columns?: string[]
     /** ClickHouse type per column, as [name, type] pairs; used by the visualization tab. */
@@ -1290,6 +1349,88 @@ export interface NotebookSQLV2StateResponseApi {
     variables: NotebookVariableApi[]
     /** Every cell in document order, with its dependency edges and derived run state. */
     cells: NotebookCellStateApi[]
+}
+
+export interface WidgetSnapshotRequestApi {
+    /**
+     * Notebook widget node to add to a dashboard.
+     * @maxLength 128
+     */
+    node_id: string
+    /** Immutable widget version to keep on the dashboard. */
+    version_id: string
+    /** Completed whole-notebook run supplying every input after refresh. */
+    notebook_run_id?: string
+    /** Snapshot being refreshed; its version and input mappings must match. */
+    previous_snapshot_id?: string
+}
+
+/**
+ * Frozen input mappings and Hog transforms.
+ */
+export type WidgetSnapshotApiInputBindings = {
+    [key: string]: {
+        source: string
+        hog?: string
+    }
+}
+
+export interface WidgetSnapshotApi {
+    /** Immutable snapshot containing the widget's saved dataframe results. */
+    id: string
+    /** Source widget node in the notebook. */
+    node_id: string
+    /** Pinned generated widget version. */
+    version_id: string
+    /** When all dataframe results were saved. */
+    created_at: string
+    /** Allowed dataframe slots. */
+    frame_names: string[]
+    /** Frozen input mappings and Hog transforms. */
+    input_bindings: WidgetSnapshotApiInputBindings
+    /** Pinned widget input schemas. */
+    input_contract: WidgetInputContractItemApi[]
+    /**
+     * Short-lived URL for the pinned widget build.
+     * @nullable
+     */
+    artifact_url: string | null
+    /**
+     * Exact build hash used for execution consent.
+     * @nullable
+     */
+    build_hash: string | null
+    /** Review of the pinned widget source. */
+    security_review: WidgetSecurityReviewApi | null
+}
+
+export interface WidgetSnapshotPublishApi {
+    /**
+     * Notebook widget node to add to a dashboard.
+     * @maxLength 128
+     */
+    node_id: string
+    /** Immutable widget version to keep on the dashboard. */
+    version_id: string
+    /** Completed whole-notebook run supplying every input after refresh. */
+    notebook_run_id?: string
+    /** Snapshot being refreshed; its version and input mappings must match. */
+    previous_snapshot_id?: string
+    /**
+     * Dashboard to add the widget to.
+     * @minimum 1
+     */
+    dashboard_id?: number
+    /**
+     * Existing dashboard tile to refresh.
+     * @minimum 1
+     */
+    tile_id?: number
+    /**
+     * Title for a new dashboard widget.
+     * @maxLength 400
+     */
+    name?: string
 }
 
 /**
@@ -1540,6 +1681,28 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksWidgetSnapshotFrameParams = {
+    /**
+     * Maximum rows in this page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Completed run selected by the first page request.
+     */
+    run_id?: string
+    /**
+     * Version requesting the data.
+     */
+    version_id?: string
 }
 
 export type NotebooksWidgetFrameParams = {

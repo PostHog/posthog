@@ -189,13 +189,11 @@ impl PersonEmissionPolicy {
     }
 }
 
+/// Proven coverable: [`PinnedPersonRun::validate`] refuses a run with an uncovered participation.
 #[derive(Debug)]
 pub struct ValidatedPinnedPersonRun {
     pub run: PinnedPersonRun,
     pub warnings: Vec<PinnedWarning>,
-    /// Active participations left with no surviving condition, ascending — they withhold the
-    /// planning proof exactly as behavioral uncovered cohorts do.
-    pub uncovered_cohorts: Vec<CohortId>,
 }
 
 /// A person run's validation outcome. `Retired` mirrors the behavioral zero-condition retirement:
@@ -264,11 +262,9 @@ impl PinnedPersonRun {
                 }
             }
         }
-        let uncovered_cohorts = participation.uncovered_from(&covered);
-        if surviving.is_empty() && uncovered_cohorts.is_empty() {
-            // No active participation expects coverage (all superseded or none exist): retire.
-            // Zero survivors with an active participation stays terminal below — that cohort's
-            // pinned conditions dropped from the catalog, which is a genuine data problem.
+        participation.prove_covered(&covered, &warnings)?;
+        if surviving.is_empty() {
+            // Coverage is proven, so no active participation is waiting on a survivor.
             return Ok(PersonRunValidation::Retired { warnings });
         }
         let conditions = EvaluatedConditions::new(surviving)?;
@@ -286,7 +282,6 @@ impl PinnedPersonRun {
                 relevance,
             },
             warnings,
-            uncovered_cohorts,
         }))
     }
 
@@ -388,10 +383,12 @@ pub struct EvaluatedConditions(Vec<(ConditionHash, ConditionProgram)>);
 // Non-empty by construction, so an `is_empty` would be a method whose contract is "never call me".
 #[allow(clippy::len_without_is_empty)]
 impl EvaluatedConditions {
+    /// The caller proves coverage and retires an empty survivor set first, so only the cap refuses.
     fn new(surviving: BTreeMap<ConditionHash, ConditionProgram>) -> Result<Self, PinnedError> {
-        if surviving.is_empty() {
-            return Err(PinnedError::NoSurvivingPersonConditions);
-        }
+        debug_assert!(
+            !surviving.is_empty(),
+            "the caller retires an empty survivor set"
+        );
         if surviving.len() > MAX_PERSON_SEED_HASHES {
             return Err(PinnedError::PersonConditionsOverCap(surviving.len()));
         }
@@ -609,6 +606,7 @@ mod tests {
     use super::super::backoff::AttemptCount;
     use super::super::chunk::BandSpec;
     use super::super::ids::{ChunkId, SChunkMs};
+    use super::super::pinned::{UncoveredCohort, UncoveredParticipations, UncoveredReason};
     use super::*;
 
     fn hash(value: &str) -> ConditionHash {
@@ -843,8 +841,8 @@ mod tests {
             Err(PinnedError::MissingPersonScanSince)
         ));
 
-        // A hash absent from the frozen catalog warns, drops, and leaves the cohort uncovered.
-        let validated = seedable(PinnedPersonRun::validate(snapshot(
+        // Uncovered, even though the sibling cohort's hash survives, so the whole run fails.
+        let partial = PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (2, HASH_B)]),
             vec![
                 participation(1, active.clone(), false),
@@ -854,25 +852,21 @@ mod tests {
                     false,
                 ),
             ],
-        )));
+        ))
+        .unwrap_err();
+        let PinnedError::UncoveredParticipations(UncoveredParticipations(uncovered)) = partial
+        else {
+            panic!("expected an uncovered-participation failure, got {partial}");
+        };
         assert_eq!(
-            validated
-                .run
-                .conditions
-                .iter()
-                .map(|(hash, _)| *hash)
-                .collect::<Vec<_>>(),
-            vec![hash(HASH_A)]
-        );
-        assert_eq!(validated.uncovered_cohorts, vec![CohortId(2)]);
-        assert!(validated
-            .warnings
-            .contains(&PinnedWarning::ConditionDropped {
+            uncovered,
+            vec![UncoveredCohort {
                 cohort_id: CohortId(2),
-                hash: hash(HASH_B),
-                reason: PinnedDropReason::AbsentFromFrozenCatalog,
-            }));
-        assert_eq!(validated.run.horizon_days, 30);
+                reason: UncoveredReason::NoSurvivingCondition,
+                catalog_class: Some("excluded_empty_group"),
+                dropped: vec![(hash(HASH_B), PinnedDropReason::AbsentFromFrozenCatalog)],
+            }]
+        );
 
         // A superseded cohort's hash warns distinctly and expects no coverage.
         let validated = seedable(PinnedPersonRun::validate(snapshot(
@@ -883,7 +877,7 @@ mod tests {
             ],
         )));
         assert_eq!(validated.run.conditions.len(), 1);
-        assert!(validated.uncovered_cohorts.is_empty());
+        assert_eq!(validated.run.horizon_days, 30);
         assert!(validated
             .warnings
             .contains(&PinnedWarning::ConditionSuperseded {
@@ -913,7 +907,6 @@ mod tests {
             ],
         )));
         assert_eq!(validated.run.conditions.len(), 1);
-        assert!(validated.uncovered_cohorts.is_empty());
 
         // Zero surviving hashes with an active participation is terminal — that cohort's pinned
         // conditions dropped from the catalog, a genuine data problem.
@@ -922,7 +915,7 @@ mod tests {
                 pinned(&[(1, HASH_B)]),
                 vec![participation(1, active.clone(), false)],
             )),
-            Err(PinnedError::NoSurvivingPersonConditions)
+            Err(PinnedError::UncoveredParticipations(_))
         ));
 
         // Every participation superseded: nothing expects coverage, so the run retires as
@@ -1423,30 +1416,47 @@ mod tests {
         }
     }
 
+    /// The person kind shares the behavioral coverage proof, so it shares the refusal. A
+    /// root-negated cohort is excluded the same way in both services, so seeding it would scan the
+    /// team for a reconcile the processor discards without a completion marker.
+    #[test]
+    fn a_root_negated_participation_fails_the_person_run_closed() {
+        let error = PinnedPersonRun::validate(snapshot(
+            pinned(&[(1, HASH_A)]),
+            vec![participation(1, negated_root_filter(HASH_A), false)],
+        ))
+        .unwrap_err();
+
+        let PinnedError::UncoveredParticipations(UncoveredParticipations(uncovered)) = error else {
+            panic!("expected an uncovered-participation failure, got {error}");
+        };
+        assert_eq!(
+            uncovered,
+            vec![UncoveredCohort {
+                cohort_id: CohortId(1),
+                reason: UncoveredReason::NotComposable,
+                catalog_class: Some("excluded_top_level_negation"),
+                dropped: Vec::new(),
+            }]
+        );
+    }
+
     /// The cascade-off asymmetry, driven through `RelevanceOracle::build` rather than a hand-built
     /// tree: the seeder calls a ref-bearing cohort `Excluded(HasCohortRef)` because it freezes with
     /// cascade off, while the consumer composes it. Counting it as never-composed would prune its
-    /// real members. A root-negated cohort is excluded the same way in both services and is skipped.
+    /// real members, and refusing the run over it would refuse a cohort the consumer serves.
     #[test]
-    fn build_counts_a_ref_bearing_cohort_and_skips_a_root_negated_one() {
+    fn build_counts_a_ref_bearing_cohort_rather_than_pruning_it() {
         let person = Uuid::from_u128(7).to_string();
         let ctx = context();
-        const HASH_C: &str = "cccccccccccccccc";
         let run = Arc::new(
             seedable(PinnedPersonRun::validate(snapshot(
-                pinned(&[(1, HASH_A), (1, HASH_B), (2, HASH_C)]),
-                vec![
-                    participation(1, and_with_a_cohort_reference(), false),
-                    participation(2, negated_root_filter(HASH_C), false),
-                ],
+                pinned(&[(1, HASH_A), (1, HASH_B)]),
+                vec![participation(1, and_with_a_cohort_reference(), false)],
             )))
             .run,
         );
-        assert_eq!(
-            run.composable_cohorts(),
-            Some(1),
-            "the ref-bearing cohort composes; the root-negated one does not"
-        );
+        assert_eq!(run.composable_cohorts(), Some(1));
 
         let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
         // Both pinned leaves true turns the AND's unknown reference into the deciding leaf, so the

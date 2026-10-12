@@ -215,6 +215,17 @@ def catalog_model_choices() -> tuple[ModelChoice, ...]:
     )
 
 
+@lru_cache(maxsize=1)
+def offered_model_choices() -> tuple[ModelChoice, ...]:
+    """The models a picker may offer: every catalog model except the retired ones.
+
+    A caller that recognises a model a person named, rather than asking them to choose one,
+    wants ``catalog_model_choices`` instead. A retired model still runs and still reads its
+    name and cost from the catalog.
+    """
+    return tuple(choice for choice in catalog_model_choices() if model_catalog.is_offered_model(choice.model))
+
+
 def runtime_adapter_for(model: str | None) -> str | None:
     """Which runtime drives this model, per the static run-config map.
 
@@ -282,6 +293,7 @@ __all__ = [
     "RuntimeGroup",
     "available_model_choices",
     "catalog_model_choices",
+    "offered_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
     "group_by_runtime",

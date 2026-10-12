@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -11,9 +14,17 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
-import { messagingNavTabs } from '../messagingTabs'
+import { MessagingSetup } from '../MessagingSetup'
+import { MessagingTabActions } from '../MessagingTabActions'
+import {
+    MESSAGING_NAV_TAB_KEYS,
+    MESSAGING_TAB_CONTENT,
+    MessagingNavTabKey,
+    isMessagingSetupTab,
+} from '../messagingTabs'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
+import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
 export const scene: SceneExport = {
     component: BroadcastsScene,
@@ -21,6 +32,26 @@ export const scene: SceneExport = {
 }
 
 export function BroadcastsScene(): JSX.Element {
+    const { location } = useValues(router)
+    const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
+    // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
+    const lastSegment = location.pathname.split('/').pop() as MessagingNavTabKey
+    const currentTab: MessagingNavTabKey | 'broadcasts' = MESSAGING_NAV_TAB_KEYS.includes(lastSegment)
+        ? lastSegment
+        : 'broadcasts'
+
+    const broadcastsTab = {
+        label: 'Broadcasts',
+        key: 'broadcasts' as const,
+        link: urls.broadcasts(),
+        content: (
+            <>
+                <BroadcastsFeaturePreview />
+                <BroadcastsTable />
+            </>
+        ),
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -28,24 +59,50 @@ export function BroadcastsScene(): JSX.Element {
                 description="Send a one-time or scheduled email to a group of people"
                 resourceType={{ type: 'broadcasts' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Workflow}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton data-attr="new-broadcast" to={urls.broadcastNew()} type="primary" size="small">
-                            New broadcast
-                        </LemonButton>
-                    </AccessControlAction>
+                    currentTab === 'broadcasts' ? (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Workflow}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                data-attr="new-broadcast"
+                                onClick={startNewBroadcast}
+                                type="primary"
+                                size="small"
+                            >
+                                New broadcast
+                            </LemonButton>
+                        </AccessControlAction>
+                    ) : (
+                        <MessagingTabActions tab={currentTab} channelsUrl={urls.broadcasts('channels')} />
+                    )
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs
-                activeKey="broadcasts"
-                tabs={[{ label: 'Broadcasts', key: 'broadcasts', link: urls.broadcasts() }, ...messagingNavTabs()]}
+            <LemonTabs<'broadcasts' | 'library' | 'messaging-setup'>
+                activeKey={currentTab === 'broadcasts' || currentTab === 'library' ? currentTab : 'messaging-setup'}
+                tabs={[
+                    broadcastsTab,
+                    {
+                        label: 'Templates',
+                        key: 'library',
+                        link: urls.broadcasts('library'),
+                        content: MESSAGING_TAB_CONTENT.library,
+                    },
+                    {
+                        label: 'Messaging',
+                        key: 'messaging-setup',
+                        link: urls.broadcasts('channels'),
+                        content: (
+                            <MessagingSetup
+                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
+                                linkFor={(tab) => urls.broadcasts(tab)}
+                            />
+                        ),
+                    },
+                ]}
                 sceneInset
             />
-            <BroadcastsFeaturePreview />
-            <BroadcastsTable />
         </SceneContent>
     )
 }

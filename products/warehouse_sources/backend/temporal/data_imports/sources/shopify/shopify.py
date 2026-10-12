@@ -2,6 +2,7 @@ import re
 import json
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -11,11 +12,17 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    CREATED_AT,
+    ID,
+    resolve_schema_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
     ShopifyGraphQLObject,
@@ -162,6 +169,20 @@ SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
     "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
     "longer valid, likely because the app was uninstalled or access was revoked. Please "
     "reconnect your Shopify integration."
+)
+
+# The wizard shows these when the token check in `validate_credentials` fails. A supplied Admin API
+# access token skips the token endpoint, so this check is the first place a bad token or store id
+# surfaces, and the raw `requests` error names the store URL and the HTTP status.
+SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR = (
+    "Shopify rejected your access token for this store. Copy the Admin API access token again "
+    "from the app installed on your store, then reconnect."
+)
+SHOPIFY_STORE_FROZEN_ERROR = (
+    "Your Shopify store is frozen because of an unpaid bill. Settle your balance in Shopify, then reconnect."
+)
+SHOPIFY_CREDENTIALS_CHECK_ERROR = (
+    "PostHog couldn't verify your Shopify credentials. Check your store id and credentials, then try again."
 )
 
 
@@ -539,6 +560,37 @@ def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | Non
     return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
 
 
+# The comparisons Shopify's search syntax has for a date field.
+CREATED_AT_FILTER_OPERATORS = (">", ">=", "<", "<=")
+
+
+def row_filter_search_terms(schema_name: str, row_filters: list[ValidatedRowFilter] | None) -> list[str]:
+    """Shopify search terms for the row filters of one resource.
+
+    Raises on a filter that has no search term. A filter that is dropped here would sync every
+    row while the schema still shows the filter.
+    """
+    if not row_filters:
+        return []
+    endpoint_config = ENDPOINT_CONFIGS.get(schema_name)
+    search_field = endpoint_config.created_at_search_field if endpoint_config else None
+    terms: list[str] = []
+    for row_filter in row_filters:
+        if (
+            search_field is None
+            or row_filter.column != CREATED_AT
+            or row_filter.operator not in CREATED_AT_FILTER_OPERATORS
+            or not isinstance(row_filter.value, datetime)
+        ):
+            raise ValueError(
+                f"Shopify cannot apply the row filter on {row_filter.column!r} to {schema_name}. "
+                "Remove the row filter in the schema's configuration to resume syncing."
+            )
+        value = row_filter.value if row_filter.value.tzinfo else row_filter.value.replace(tzinfo=UTC)
+        terms.append(f"{search_field}:{row_filter.operator}'{value.isoformat()}'")
+    return terms
+
+
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str | None,
@@ -551,11 +603,13 @@ def shopify_source(
     api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
     shopify_access_token: str | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _resolve_access_token(store_id, shopify_client_id, shopify_client_secret, shopify_access_token)
     schema_name = resolve_schema_name(graphql_object_name)
+    filter_terms = row_filter_search_terms(schema_name, row_filters)
 
     def get_rows():
         sess = make_tracked_session(
@@ -600,6 +654,7 @@ def shopify_source(
                 sess,
                 graphql_object,
                 logger,
+                query=" AND ".join(filter_terms) or None,
                 phase=PHASE_ALL,
                 initial_cursor=initial_cursor,
                 resumable_source_manager=resumable_source_manager,
@@ -618,7 +673,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating earliest objects from source: {query_filter} < {db_incremental_field_earliest_value}"
             )
-            query = f"{query_filter}:<'{db_incremental_field_earliest_value}'"
+            query = " AND ".join([f"{query_filter}:<'{db_incremental_field_earliest_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_EARLIEST else None
             )
@@ -638,7 +693,7 @@ def shopify_source(
             logger.debug(
                 f"Shopify: iterating latest objects from source: {query_filter} > {db_incremental_field_last_value}"
             )
-            query = f"{query_filter}:>'{db_incremental_field_last_value}'"
+            query = " AND ".join([f"{query_filter}:>'{db_incremental_field_last_value}'", *filter_terms])
             initial_cursor = (
                 resume_config.cursor if resume_config is not None and resume_config.phase == PHASE_LATEST else None
             )
@@ -738,12 +793,25 @@ def validate_credentials(
     # A valid token can always read the shop resource.
     try:
         res = sess.post(api_url, json={"query": SHOPIFY_ACCESS_TOKEN_CHECK})
+    except requests.RequestException as e:
+        capture_exception(e)
+        raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
+    if res.status_code == 401:
+        raise Exception(
+            SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR if shopify_access_token else SHOPIFY_CREDENTIALS_CHECK_ERROR
+        )
+    if res.status_code == 402:
+        raise Exception(SHOPIFY_STORE_FROZEN_ERROR)
+    if res.status_code == 404:
+        raise Exception(SHOPIFY_STORE_NOT_FOUND_ERROR)
+    try:
         res.raise_for_status()
         data = res.json()
         if "errors" in data:
-            raise Exception(f"Failed to verify your Shopify credentials: {data['errors']}")
+            raise Exception(f"Shopify credential check returned errors: {_format_graphql_errors(data['errors'])}")
     except Exception as e:
-        raise Exception(f"Failed to verify your Shopify credentials: {e}")
+        capture_exception(e)
+        raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
 
     if resources is None:
         return True

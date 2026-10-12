@@ -74,14 +74,15 @@ def revalidate_marketing_analytics_precompute(team_id: int, query: dict) -> None
     started = time.monotonic()
     try:
         # Tag BEFORE building the runner: tags live in a contextvar that the runner's construction-time
-        # I/O inherits. The trigger and the CACHE_WARMUP feature both classify this re-run as a
-        # refresher, so its ensures get no serve-stale grace (it must not serve stale to itself, or the
-        # data would never refresh) and keep the framework's full wait budget. Celery resets query tags
-        # on task_postrun, so this never leaks across tasks.
+        # I/O inherits. The trigger classifies this re-run as a refresher, so its ensures get no
+        # serve-stale grace (it must not serve stale to itself, or the data would never refresh) and keep
+        # the framework's full wait budget. Not CACHE_WARMUP: in Celery that feature routes queries to the
+        # read-only cache_warmup ClickHouse user, which refuses every precompute INSERT. Celery resets
+        # query tags on task_postrun, so this never leaks across tasks.
         tag_queries(
             team_id=team_id,
             trigger=REVALIDATION_TRIGGER,
-            feature=Feature.CACHE_WARMUP,
+            feature=Feature.PREAGGREGATION,
             product=Product.MARKETING_ANALYTICS,
         )
         runner = get_query_runner(query=query, team=team, limit_context=LimitContext.QUERY_ASYNC)

@@ -155,6 +155,7 @@ export class KafkaConsumer {
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
+    private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
     constructor(
         private config: KafkaConsumerConfig,
@@ -467,6 +468,11 @@ export class KafkaConsumer {
         } finally {
             this.resetRebalanceCoordination()
         }
+        Promise.resolve()
+            .then(() => this.onPartitionsRevoked?.(assignments))
+            .catch((error) => {
+                logger.error('🔁', 'partition_revoked_handler_failed', { error: String(error) })
+            })
     }
 
     private updateMetricsAfterRevocation(assignments: Assignment[]): void {
@@ -599,9 +605,11 @@ export class KafkaConsumer {
     }
 
     public async connect(
-        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>
+        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>,
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
     ): Promise<void> {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
+        this.onPartitionsRevoked = onPartitionsRevoked
 
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))

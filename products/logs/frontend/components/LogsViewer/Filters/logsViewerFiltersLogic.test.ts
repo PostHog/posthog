@@ -160,6 +160,37 @@ describe('logsViewerFiltersLogic', () => {
         })
     })
 
+    // The pinning rules are covered in columnFilters.test.ts; this pins that both ways a group enters
+    // the viewer apply them, so a `service_name` chip from the Log attributes tab queries the column.
+    describe('column filter keys', () => {
+        const attributeTabGroup: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'service_name',
+                            value: ['api'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogAttribute,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        it.each([
+            ['setFilterGroup', (): void => logic.actions.setFilterGroup(attributeTabGroup)],
+            ['setFilters', (): void => logic.actions.setFilters({ filterGroup: attributeTabGroup })],
+        ])('%s retypes an attribute-tab service_name filter to the column', async (_label, apply) => {
+            apply()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(selectedServices()).toEqual(['api'])
+        })
+    })
+
     describe('setFilterGroup fallback', () => {
         it('falls back to default when given invalid filterGroup', async () => {
             logic.actions.setFilterGroup(null as any)

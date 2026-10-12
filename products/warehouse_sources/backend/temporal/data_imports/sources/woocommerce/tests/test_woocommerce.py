@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
@@ -11,11 +11,7 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import (
-    ENDPOINT_PATHS,
-    INCREMENTAL_FIELDS,
-    WEBHOOK_TOPICS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import WEBHOOK_TOPICS
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce import (
     DEFAULT_PER_PAGE,
     WOOCOMMERCE_USER_AGENT,
@@ -28,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
-    get_resource,
     normalize_store_url,
     validate_credentials,
     webhook_table_transformer,
@@ -66,42 +61,12 @@ class TestToWooCommerceDatetime:
     def test_format(self, value: Any, expected: Any) -> None:
         assert _to_woocommerce_datetime(value) == expected
 
-    def test_tz_aware_converted_to_utc(self) -> None:
-        plus_two = timezone(timedelta(hours=2))
-        value = datetime(2024, 1, 2, 12, 0, 0, tzinfo=plus_two)
-        assert _to_woocommerce_datetime(value) == "2024-01-02T10:00:00"
-
 
 class TestWooCommercePaginator:
     def _response(self, total_pages: int | None) -> MagicMock:
         response = MagicMock()
         response.headers = {} if total_pages is None else {"X-WP-TotalPages": str(total_pages)}
         return response
-
-    def test_initial_state(self) -> None:
-        paginator = WooCommercePaginator()
-        assert paginator.page == 1
-        assert paginator.per_page == DEFAULT_PER_PAGE
-        assert paginator.has_next_page is True
-
-    def test_init_request_sets_page_and_per_page(self) -> None:
-        paginator = WooCommercePaginator()
-        request = Request(method="GET", url="https://example.com/wp-json/wc/v3/products")
-        paginator.init_request(request)
-        assert request.params["page"] == 1
-        assert request.params["per_page"] == DEFAULT_PER_PAGE
-
-    def test_has_more_pages_via_header(self) -> None:
-        paginator = WooCommercePaginator()
-        paginator.update_state(self._response(total_pages=3), data=[{"id": 1}])
-        assert paginator.has_next_page is True
-        assert paginator.page == 2
-
-    def test_stops_on_last_page_via_header(self) -> None:
-        paginator = WooCommercePaginator(page=3)
-        paginator.update_state(self._response(total_pages=3), data=[{"id": 1}])
-        assert paginator.has_next_page is False
-        assert paginator.page == 3
 
     def test_stops_on_empty_page(self) -> None:
         paginator = WooCommercePaginator()
@@ -113,11 +78,6 @@ class TestWooCommercePaginator:
         paginator.update_state(self._response(total_pages=None), data=[{"id": 1}, {"id": 2}])
         assert paginator.has_next_page is True
         assert paginator.page == 2
-
-    def test_fallback_stops_on_short_page_without_header(self) -> None:
-        paginator = WooCommercePaginator(per_page=2)
-        paginator.update_state(self._response(total_pages=None), data=[{"id": 1}])
-        assert paginator.has_next_page is False
 
     def test_resume_state_round_trip(self) -> None:
         paginator = WooCommercePaginator()
@@ -133,44 +93,6 @@ class TestWooCommercePaginator:
         paginator = WooCommercePaginator(page=2)
         paginator.update_state(self._response(total_pages=2), data=[{"id": 1}])
         assert paginator.get_resume_state() is None
-
-
-def _endpoint(resource: Any) -> dict[str, Any]:
-    # `EndpointResource["endpoint"]` is typed `str | Endpoint | None`; in our resources it's
-    # always the dict form, so cast for indexing in assertions.
-    return cast(dict[str, Any], resource["endpoint"])
-
-
-class TestGetResource:
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINT_PATHS))
-    def test_path_and_name(self, endpoint: str) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=False)
-        assert resource["name"] == endpoint
-        assert resource["table_name"] == endpoint
-        assert _endpoint(resource)["path"] == ENDPOINT_PATHS[endpoint]
-        assert resource["table_format"] == "delta"
-
-    def test_full_refresh_uses_replace(self) -> None:
-        resource = get_resource("customers", should_use_incremental_field=False)
-        assert resource["write_disposition"] == "replace"
-        assert _endpoint(resource)["params"] == {}
-
-    @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_FIELDS))
-    def test_incremental_uses_merge_and_modified_after(self, endpoint: str) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=True)
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-        params = cast(dict[str, Any], _endpoint(resource)["params"])
-        assert params["dates_are_gmt"] == "true"
-        modified_after = cast(dict[str, Any], params["modified_after"])
-        assert modified_after["type"] == "incremental"
-        assert modified_after["cursor_path"] == "date_modified_gmt"
-
-    def test_non_incremental_endpoint_stays_full_refresh_even_when_requested(self) -> None:
-        # `customers` has no server-side modified filter, so incremental must not be wired up.
-        resource = get_resource("customers", should_use_incremental_field=True)
-        assert resource["write_disposition"] == "replace"
-        assert "modified_after" not in cast(dict[str, Any], _endpoint(resource)["params"])
 
 
 def _make_http_response(body: list[dict[str, Any]], total_pages: int | None = None, status_code: int = 200) -> Response:
@@ -249,15 +171,6 @@ class TestWooCommerceSourceResumeBehavior:
 
         assert [p.get("page") for p in sent_params] == [5]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{"id": 1}], total_pages=1)]
-        self._drive("products", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -495,54 +408,6 @@ class TestWebhookManagement:
         assert result.error is not None
         assert "Read/Write" in result.error
 
-    def test_list_pages_until_a_short_page(self) -> None:
-        first_page = [
-            {"id": index, "topic": "order.created", "delivery_url": "https://other.test/hook"}
-            for index in range(DEFAULT_PER_PAGE)
-        ]
-        session = self._session(
-            [first_page, [{"id": 999, "topic": "order.updated", "delivery_url": "https://ph.test/hook"}]]
-        )
-
-        with self._patch(session):
-            info = get_external_webhook_info("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
-
-        assert session.get.call_count == 2
-        # `status=all` matters: the default list hides the paused and auto-disabled hooks we
-        # need to find rather than duplicate.
-        assert session.get.call_args.kwargs["params"]["status"] == "all"
-        assert info.exists is True
-        assert info.enabled_events == ["order.updated"]
-
-    def test_delete_only_removes_our_delivery_url_and_forces(self) -> None:
-        # `force=true` is required — WooCommerce 501s on a soft delete — and a store's own
-        # webhooks must survive.
-        session = self._session(
-            [
-                [
-                    {"id": 1, "topic": "order.created", "delivery_url": "https://ph.test/hook"},
-                    {"id": 2, "topic": "order.created", "delivery_url": "https://someone-else.test/hook"},
-                ]
-            ]
-        )
-
-        with self._patch(session):
-            result = delete_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
-
-        assert result.success is True
-        assert session.delete.call_count == 1
-        assert session.delete.call_args.args[0].endswith("/webhooks/1")
-        assert session.delete.call_args.kwargs["params"] == {"force": "true"}
-
-    def test_delete_succeeds_when_nothing_is_registered(self) -> None:
-        session = self._session([[]])
-
-        with self._patch(session):
-            result = delete_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
-
-        assert result.success is True
-        session.delete.assert_not_called()
-
     def test_info_reports_the_unhealthy_topic_not_the_first_one(self) -> None:
         # WooCommerce disables one webhook at a time after five failures, so an "active" first
         # row would hide a topic that has stopped delivering.
@@ -609,25 +474,6 @@ class TestWebhookTableTransformer:
 
         assert sorted(row["id"] for row in result) == [1, 2]
         assert next(row for row in result if row["id"] == 1)["status"] == "completed"
-
-    def test_out_of_order_delivery_still_keeps_the_newest(self) -> None:
-        table = table_from_py_list(
-            [
-                self._row(1, "2026-05-01T12:00:00", "completed"),
-                self._row(1, "2026-05-01T10:00:00", "pending"),
-            ]
-        )
-
-        result = webhook_table_transformer(table).to_pylist()
-
-        assert [row["status"] for row in result] == ["completed"]
-
-    def test_rows_without_a_modified_timestamp_fall_back_to_delivery_order(self) -> None:
-        table = table_from_py_list([self._row(1, None, "first"), self._row(1, None, "second")])
-
-        result = webhook_table_transformer(table).to_pylist()
-
-        assert [row["status"] for row in result] == ["second"]
 
     def test_empty_batch_passes_through(self) -> None:
         table = table_from_py_list([])

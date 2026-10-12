@@ -58,18 +58,7 @@ export function ScoutsRosterFilters(): JSX.Element {
                 data-attr="inbox-scout-filter-enabled"
             />
             {scoutTagOptions.length > 0 && (
-                <ScoutTagsFilter
-                    options={scoutTagOptions}
-                    selected={activeScoutTags}
-                    onToggle={(tag) =>
-                        setScoutTagFilter(
-                            activeScoutTags.includes(tag)
-                                ? activeScoutTags.filter((candidate) => candidate !== tag)
-                                : [...activeScoutTags, tag]
-                        )
-                    }
-                    onClear={() => setScoutTagFilter([])}
-                />
+                <ScoutTagsFilter options={scoutTagOptions} selected={activeScoutTags} onChange={setScoutTagFilter} />
             )}
             {scoutOwnerOptions.length > 0 && (
                 <ScoutOwnerFilter

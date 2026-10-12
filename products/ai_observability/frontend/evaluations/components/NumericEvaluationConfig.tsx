@@ -10,13 +10,15 @@ import type { EvaluationOutputConfig } from '../types'
 export function NumericEvaluationConfig({
     config,
     onChange,
+    requiresBounds = false,
 }: {
     config: EvaluationOutputConfig
     onChange: (patch: EvaluationOutputConfig) => void
+    requiresBounds?: boolean
 }): JSX.Element {
     const id = useId()
-    const rule = config.passing_rule
-    const error = numericOutputConfigError(config)
+    const rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
+    const error = numericOutputConfigError(config, requiresBounds)
     return (
         <div className="space-y-4">
             {error && <LemonBanner type="error">{error}</LemonBanner>}
@@ -25,7 +27,18 @@ export function NumericEvaluationConfig({
                     <LemonField.Pure
                         key={field}
                         htmlFor={`${id}-${field}`}
-                        label={{ min: 'Minimum (optional)', max: 'Maximum (optional)', step: 'Step (optional)' }[field]}
+                        info={
+                            field === 'step'
+                                ? 'Suggests a score increment to LLM judges, including decision models. Scores are not rounded or restricted to this increment. Hog evaluations use the score returned by your code.'
+                                : undefined
+                        }
+                        label={
+                            {
+                                min: requiresBounds ? 'Minimum' : 'Minimum (optional)',
+                                max: requiresBounds ? 'Maximum' : 'Maximum (optional)',
+                                step: 'Step (optional)',
+                            }[field]
+                        }
                     >
                         <LemonInput
                             id={`${id}-${field}`}
@@ -38,7 +51,7 @@ export function NumericEvaluationConfig({
                     </LemonField.Pure>
                 ))}
             </div>
-            <p className="text-muted text-sm">Bounds are inclusive. Step guides scoring without rounding results.</p>
+            <p className="text-muted text-sm">Bounds are inclusive.</p>
             <LemonSwitch
                 label="Allow N/A responses"
                 checked={config.allows_na ?? false}

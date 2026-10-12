@@ -154,16 +154,17 @@ def create_custom_property_definition(
 
 
 def create_saved_query(
-    *, team_id: int, name: str = "enriched_users", is_materialized: bool = True, **kwargs: Any
+    *, team_id: int, name: str = "enriched_users", is_materialized: bool = True, sql: str = "select 1", **kwargs: Any
 ) -> DataWarehouseSavedQuery:
     """Create a data-warehouse view for tests. Materialized by default, which is what a view-backed
     property source binds to."""
     return DataWarehouseSavedQuery.objects.create(
-        team_id=team_id, name=name, query={"query": "select 1"}, is_materialized=is_materialized, **kwargs
+        team_id=team_id, name=name, query={"query": sql}, is_materialized=is_materialized, **kwargs
     )
 
 
 def saved_query_columns(names: Iterable[str]) -> dict[str, dict[str, str]]:
     """Columns in the shape data_modeling stores after a run. Its facade drops a column with no
-    ``clickhouse`` type, so a bare ``{}`` entry would read back as missing."""
-    return {name: {"clickhouse": "String"} for name in names}
+    ``clickhouse`` type, so a bare ``{}`` entry would read back as missing. Resolving a view's SQL
+    builds a HogQL database, which needs the ``hogql`` type of every column."""
+    return {name: {"clickhouse": "String", "hogql": "StringDatabaseField"} for name in names}

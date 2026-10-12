@@ -61,6 +61,7 @@ const defaultMocks = (config: Partial<UserCustomerAnalyticsConfigApi> = {}): Par
         [CONFIG_URL]: {
             pinned_properties: [],
             task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+            account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
             ...config,
         },
         [CUSTOM_PROPERTIES_URL]: { count: 1, results: [buildCustomProperty()] },

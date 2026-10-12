@@ -16,6 +16,8 @@ const EVENT_OPTIONS: {
   { value: "run_completed", label: "Run completed" },
   { value: "run_failed", label: "Run failed" },
   { value: "pr_created", label: "PR created" },
+  { value: "pr_merged", label: "PR merged" },
+  { value: "pr_closed", label: "PR closed" },
   { value: "needs_attention", label: "Needs attention" },
 ];
 

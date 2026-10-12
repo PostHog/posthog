@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import {
   ROOT_LOGGER,
@@ -5,6 +6,7 @@ import {
   type ScopedLogger,
 } from "@posthog/di/logger";
 import { inject, injectable, preDestroy } from "inversify";
+import { hopByHop } from "../proxy-stream/hop-by-hop";
 import { streamBodyToResponse } from "../proxy-stream/proxy-stream";
 import { MCP_PROXY_AUTH } from "./identifiers";
 import type { McpProxyAuth } from "./ports";
@@ -26,9 +28,8 @@ function truncateRequestBody(body: RequestInit["body"]): string | undefined {
  * this proxy we would either need to tear the transport down on every token
  * rotation (expensive, racy) or leave it serving stale tokens.
  *
- * The proxy only listens on 127.0.0.1 and strips inbound Authorization headers
- * before forwarding, but any local process can still use it to issue requests
- * on the user's behalf — acceptable for a single-user desktop app.
+ * The proxy listens on 127.0.0.1 and serves a path only under a per-start
+ * secret, so another local process cannot reach a target without the URL.
  */
 /**
  * Whose credential an auth failure from a target is about.
@@ -49,6 +50,7 @@ interface McpProxyTarget {
 export class McpProxyService {
   private server: http.Server | null = null;
   private port: number | null = null;
+  private secret: Buffer | null = null;
   private startPromise: Promise<void> | null = null;
   private targets = new Map<string, McpProxyTarget>();
 
@@ -78,6 +80,7 @@ export class McpProxyService {
       this.handleRequest(req, res);
     });
     this.server = server;
+    this.secret = Buffer.from(randomBytes(32).toString("base64url"));
 
     await new Promise<void>((resolve, reject) => {
       server.listen(0, "127.0.0.1", () => {
@@ -115,7 +118,7 @@ export class McpProxyService {
       url: targetUrl,
       credentialOwner: options.credentialOwner ?? "posthog",
     });
-    return `http://127.0.0.1:${this.port}/${encodeURIComponent(id)}`;
+    return `http://127.0.0.1:${this.port}/${this.secret}/${encodeURIComponent(id)}`;
   }
 
   @preDestroy()
@@ -130,6 +133,7 @@ export class McpProxyService {
     });
     this.server = null;
     this.port = null;
+    this.secret = null;
     this.startPromise = null;
     this.targets.clear();
   }
@@ -140,17 +144,18 @@ export class McpProxyService {
   ): void {
     const incoming = new URL(req.url ?? "/", "http://placeholder");
     const segments = incoming.pathname.split("/").filter(Boolean);
-    const [rawId, ...rest] = segments;
+    const [rawSecret, rawId, ...rest] = segments;
     const id = rawId ? decodeURIComponent(rawId) : "";
-    const target = this.targets.get(id);
+    const target = this.hasSecret(rawSecret) ? this.targets.get(id) : undefined;
 
     if (!target) {
-      // MCP clients probe RFC 8414 OAuth discovery at the proxy root before
-      // falling back to direct auth; a quiet 404 is the expected answer.
-      if (id === ".well-known") {
-        this.log.debug("MCP proxy OAuth discovery probe", { url: req.url });
+      // MCP clients probe RFC 8414 OAuth discovery at the origin root, outside
+      // the secret, so a quiet 404 is the expected answer. The URL is not
+      // logged because it can carry the secret.
+      if (rawSecret === ".well-known") {
+        this.log.debug("MCP proxy OAuth discovery probe");
       } else {
-        this.log.warn("Unknown MCP proxy target", { id, url: req.url });
+        this.log.warn("Unknown MCP proxy target");
       }
       res.writeHead(404);
       res.end("Unknown target");
@@ -163,18 +168,15 @@ export class McpProxyService {
       (suffix ? `${targetBase}/${suffix}` : targetBase) + incoming.search;
 
     const strippedHeaders = new Set([
+      "host",
       "authorization",
       "proxy-authorization",
       "content-length",
-      "transfer-encoding",
+      ...hopByHop(req.headers.connection),
     ]);
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) {
-      if (
-        key === "host" ||
-        key === "connection" ||
-        strippedHeaders.has(key.toLowerCase())
-      ) {
+      if (strippedHeaders.has(key.toLowerCase())) {
         continue;
       }
       if (typeof value === "string") {
@@ -323,6 +325,14 @@ export class McpProxyService {
     }
   }
 
+  private hasSecret(candidate: string | undefined): boolean {
+    if (!this.secret || !candidate) return false;
+    const given = Buffer.from(candidate);
+    return (
+      given.length === this.secret.length && timingSafeEqual(given, this.secret)
+    );
+  }
+
   private isAuthErrorBody(bodyText: string, status: number): boolean {
     // Only a rejected token carries `authentication_failed`. A permission denial
     // shares `type: "authentication_error"` but carries `code: "permission_denied"`,
@@ -343,9 +353,9 @@ export class McpProxyService {
 
   private buildResponseHeaders(response: Response): Record<string, string> {
     const stripHeaders = new Set([
-      "transfer-encoding",
       "content-encoding",
       "content-length",
+      ...hopByHop(response.headers.get("connection")),
     ]);
     const headers: Record<string, string> = {};
     response.headers.forEach((value: string, key: string) => {

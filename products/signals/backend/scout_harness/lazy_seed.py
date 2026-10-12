@@ -67,6 +67,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # (or vice versa). The agentskills.io spec also defines `assets/`; if we ever want to
 # support binary attachments, add to both consumers in the same change.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+_BYTECODE_CACHE_DIR = "__pycache__"
 # Mirror the per-skill contract limits enforced by the REST API at
 # `products/skills/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
 # bypasses the service layer (no "create from scratch with files" helper exists), so
@@ -120,6 +121,10 @@ class CanonicalSkill:
     `display_name` is the optional `scout-display-name` frontmatter value, the label the fleet
     ships the scout under. `deprecation` is the optional retirement marker from `scout-status` /
     `scout-deprecation`, set only on a scout PostHog is retiring.
+    `structured_output_schema` is the record contract a measurement scout ships, read from the
+    bundled file `scout-structured-output-schema` names. `precheck_query` is the optional
+    `scout-precheck-query` frontmatter value, the pre-check a scheduled run uses when the team set
+    none of its own.
     """
 
     name: str
@@ -132,6 +137,8 @@ class CanonicalSkill:
     role: ScoutRole = SCOUT_ROLE_SPECIALIST
     display_name: str = ""
     deprecation: ScoutDeprecation | None = None
+    structured_output_schema: dict | None = None
+    precheck_query: str | None = None
 
 
 @dataclass(frozen=True)
@@ -278,6 +285,113 @@ def _parse_display_name(frontmatter: dict, skill_file: Path, *, is_scout: bool) 
     return display_name
 
 
+def _parse_precheck_query(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> str | None:
+    """Read the optional `scout-precheck-query` frontmatter value — the scout's default pre-check.
+
+    A scheduled run uses it when the team set no `precheck_query` of its own and did not turn the
+    pre-check off, and only for a team inside the skill's rollout (`precheck.resolve_effective_precheck`).
+    It is read from disk at evaluation time, not stamped on the config, so an edit reaches every
+    team on the next deploy. Validated here with the same parser the config API uses, so a broken
+    default fails the fleet sync once rather than erroring on every tick of every team.
+
+    Only scouts have a pre-check, so the key is rejected on a companion skill.
+    """
+    if "scout-precheck-query" not in frontmatter:
+        return None
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-precheck-query': {skill_file}")
+    raw = frontmatter["scout-precheck-query"]
+    if not isinstance(raw, str) or not (query := raw.strip()):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-precheck-query' must be a non-empty string: {skill_file}"
+        )
+    # Deferred: `precheck` reads the canonical default from this module.
+    from products.signals.backend.scout_harness.precheck import (  # noqa: PLC0415 — breaks a circular import
+        PRECHECK_MAX_QUERY_LENGTH,
+        parse_precheck_query,
+    )
+
+    if len(query) > PRECHECK_MAX_QUERY_LENGTH:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-precheck-query' exceeds the {PRECHECK_MAX_QUERY_LENGTH} "
+            f"character limit: {skill_file}"
+        )
+    try:
+        parse_precheck_query(query)
+    except Exception as error:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-precheck-query' is not a valid HogQL SELECT: {skill_file}: {error}"
+        ) from error
+    return query
+
+
+def _parse_structured_output_schema(
+    frontmatter: dict, files: list[CanonicalSkillFile], skill_file: Path, *, is_scout: bool
+) -> dict | None:
+    """Read the optional `scout-structured-output-schema` frontmatter value — the record contract
+    a measurement scout ships, seeded onto its config so the structured-output channel is on from
+    the first run.
+
+    The value names a bundled file rather than carrying the schema itself: a JSON Schema is a
+    document, not a frontmatter scalar. It is resolved against the already-read bundle, so the
+    schema file is read once, is covered by the same size and path caps as every other bundled
+    file, and cannot name anything outside `_ALLOWED_BUNDLE_SUBDIRS` — "not in the bundle" is the
+    one error, and there is no second path to keep in step with the first.
+
+    Being a bundled file also puts the schema in the content hash, so editing one bumps the skill
+    version and reaches each team's skill row like a body edit. That is the file, not the contract
+    the record endpoint enforces: that is the config column, seeded once and never overwritten (see
+    `config_registry.reconcile_canonical_structured_output_schemas`). A team already running the
+    scout keeps the schema it was seeded, so changing a shipped schema for existing teams needs a
+    migration rather than a frontmatter edit.
+
+    Validated here with the same `validate_structured_output_schema` the config API uses, so a
+    broken canonical schema fails the harness sync once rather than failing every run of the
+    scout on every team.
+
+    Only scouts have a config for the schema to land on, so the key is rejected on a companion
+    skill.
+    """
+    if "scout-structured-output-schema" not in frontmatter:
+        return None
+    if not is_scout:
+        raise CanonicalSkillParseError(
+            f"Only a signals-scout-* skill may declare 'scout-structured-output-schema': {skill_file}"
+        )
+    raw = frontmatter["scout-structured-output-schema"]
+    if not isinstance(raw, str) or not (rel_path := raw.strip()):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-structured-output-schema' must be a non-empty string: {skill_file}"
+        )
+    bundled = next((f for f in files if f.path == rel_path), None)
+    if bundled is None:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-structured-output-schema' must name a bundled file under "
+            f"{', '.join(f'{subdir}/' for subdir in _ALLOWED_BUNDLE_SUBDIRS)} so the schema rides in "
+            f"the skill bundle and its content hash: got {rel_path!r} in {skill_file}"
+        )
+    try:
+        schema = json.loads(bundled.content)
+    except json.JSONDecodeError as error:
+        raise CanonicalSkillParseError(
+            f"Structured-output schema '{rel_path}' is not valid JSON: {skill_file}: {error}"
+        ) from error
+    # Deferred: importing this reaches `tools/__init__`, whose report-check imports run through
+    # billing and `posthog.tasks`, which imports this module back through the signals billing
+    # helpers.
+    from products.signals.backend.scout_harness.tools.structured_output import (  # noqa: PLC0415 — breaks a circular import
+        StructuredOutputSchemaError,
+        validate_structured_output_schema,
+    )
+
+    try:
+        return validate_structured_output_schema(schema)
+    except StructuredOutputSchemaError as error:
+        raise CanonicalSkillParseError(
+            f"Structured-output schema '{rel_path}' is invalid: {skill_file}: {error}"
+        ) from error
+
+
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
     skill_file = skill_dir / "SKILL.md"
     raw = skill_file.read_text(encoding="utf-8")
@@ -341,6 +455,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
     display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
+    precheck_query = _parse_precheck_query(frontmatter, skill_file, is_scout=is_scout)
     # A malformed marker is raised as a parse error like every other frontmatter fault, so the
     # callers that degrade to an empty fleet keep one failure mode rather than two.
     try:
@@ -362,7 +477,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         if not subdir.is_dir():
             continue
         for file_path in sorted(subdir.rglob("*")):
-            if not file_path.is_file():
+            if not file_path.is_file() or _BYTECODE_CACHE_DIR in file_path.relative_to(subdir).parts:
                 continue
             rel_path = file_path.relative_to(skill_dir).as_posix()
             if len(rel_path) > _MAX_SKILL_FILE_PATH_LENGTH:
@@ -384,6 +499,9 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             f"Canonical skill has {len(files)} bundled files, exceeding the {_MAX_SKILL_FILE_COUNT} limit: {skill_dir}"
         )
 
+    # After the bundle, because the schema is resolved out of it rather than read again.
+    structured_output_schema = _parse_structured_output_schema(frontmatter, files, skill_file, is_scout=is_scout)
+
     return CanonicalSkill(
         name=name,
         description=description.strip(),
@@ -395,6 +513,8 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         role=role,
         display_name=display_name,
         deprecation=deprecation,
+        structured_output_schema=structured_output_schema,
+        precheck_query=precheck_query,
     )
 
 
@@ -518,6 +638,60 @@ def canonical_display_name_for(skill_name: str) -> str:
 
 
 @lru_cache(maxsize=1)
+def _canonical_structured_output_schemas() -> dict[str, dict]:
+    """The record contract per canonical scout name, for the scouts that ship one.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical rather than failing config
+    registration, which leaves the channel off rather than half-configured.
+    """
+    try:
+        return {
+            skill.name: skill.structured_output_schema
+            for skill in discover_canonical_skills()
+            if skill.structured_output_schema
+        }
+    except CanonicalSkillParseError:
+        logger.warning("canonical_structured_output_schemas: malformed canonical skill on disk; seeding no schemas")
+        return {}
+
+
+def canonical_structured_output_schema_for(skill_name: str) -> dict | None:
+    """The record contract the canonical scout of this name ships, to stamp on its config.
+
+    None for a custom scout, and for a canonical scout that records nothing. Callers must confirm
+    the name is canonical first — a team's own `signals-scout-*` skill can share a canonical name,
+    and it inherits nothing from disk.
+    """
+    return _canonical_structured_output_schemas().get(skill_name)
+
+
+@lru_cache(maxsize=1)
+def _canonical_precheck_queries() -> dict[str, str]:
+    """The default pre-check per canonical scout name, for the scouts that ship one.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical, which leaves every scout running on
+    every due tick as before.
+    """
+    try:
+        return {skill.name: skill.precheck_query for skill in discover_canonical_skills() if skill.precheck_query}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_precheck_queries: malformed canonical skill on disk; reading no pre-check defaults")
+        return {}
+
+
+def canonical_precheck_query_for(skill_name: str) -> str | None:
+    """The default pre-check the canonical scout of this name ships, if any.
+
+    None for a custom scout, and for a canonical scout with no default. Callers must confirm the
+    name is canonical first — a team's own `signals-scout-*` skill can share a canonical name, and
+    it inherits nothing from disk.
+    """
+    return _canonical_precheck_queries().get(skill_name)
+
+
+@lru_cache(maxsize=1)
 def _canonical_deprecations() -> dict[str, ScoutDeprecation]:
     """The retirement marker per canonical scout name, for the scouts PostHog is retiring.
 
@@ -557,6 +731,11 @@ def _canonical_operational_scouts() -> frozenset[str]:
         return frozenset()
 
 
+def canonical_operational_scout_names() -> frozenset[str]:
+    """Names of every canonical scout that declares `scout-role: operational`."""
+    return _canonical_operational_scouts()
+
+
 def is_operational_scout(skill_name: str) -> bool:
     """Whether the canonical scout of this name watches the self-driving system itself.
 
@@ -581,6 +760,8 @@ def reset_canonical_caches() -> None:
         _canonical_display_names,
         _canonical_operational_scouts,
         _canonical_deprecations,
+        _canonical_structured_output_schemas,
+        _canonical_precheck_queries,
     ):
         cache.cache_clear()
 
@@ -621,7 +802,9 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     Deliberately excludes `config_tags`, `role`, and `display_name`: the hash is compared against
     `_compute_row_hash` over the team's `LLMSkill` row, which stores none of them (all three shape
     the config instead), so folding them in here would make every seeded row read as diverged
-    forever.
+    forever. The structured-output schema is covered anyway, because it is a bundled file — which
+    is what keeps each team's copy of the file current, though not the config column the record
+    endpoint reads from (see `_parse_structured_output_schema`).
     """
     payload = {
         "description": canonical.description,

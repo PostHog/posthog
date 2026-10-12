@@ -8,7 +8,9 @@ Tests cover:
 - Error handling and edge cases
 """
 
+import json
 import time
+import pickle
 from functools import partial
 
 from posthog.test.base import BaseTest
@@ -18,10 +20,15 @@ from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase, override_settings
 
+import zstd
+import redis.exceptions
 from celery.exceptions import SoftTimeLimitExceeded
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
+from posthog.caching.zstd_compressor import ZstdCompressor
 from posthog.models.team.team import Team
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import (
     MAX_FIXED_TEAM_IDS_TO_LOG,
@@ -31,8 +38,10 @@ from posthog.storage.hypercache_verifier import (
     _fetch_team_batch,
     _fix_and_record,
     _verify_and_fix_batch,
+    classify_failure,
     verify_and_fix_all_teams,
 )
+from posthog.storage.object_storage import ObjectStorageError
 
 
 class TestVerificationResult(TestCase):
@@ -256,24 +265,42 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_mismatch_fixed == 1
         assert result.fix_failed == 0
 
-    def test_exception_in_update_fn_increments_fix_failed(self):
-        """Test that exception in update_fn increments fix_failed."""
+    @parameterized.expand(
+        [
+            ("write_refused_without_raising", {"return_value": False}, "update_fn_returned_false"),
+            (
+                "write_raised_a_parse_error",
+                {"side_effect": json.JSONDecodeError("bad payload", "bad", 0)},
+                "data_error",
+            ),
+            (
+                "write_raised_a_dependency_error",
+                {"side_effect": HyperCacheDependencyUnavailable("flags down")},
+                "dependency_unavailable",
+            ),
+            ("write_raised_anything_else", {"side_effect": RuntimeError("boom")}, "unknown"),
+        ]
+    )
+    def test_fix_failure_metric_carries_reason(self, _name, update_fn_behaviour, expected_reason):
         mock_config = MagicMock()
-        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.should_skip_write = None
         mock_config.get_primary_writer_fn = None
-        mock_config.update_fn.side_effect = Exception("Update failed")
+        mock_config.update_fn.configure_mock(**update_fn_behaviour)
 
         result = VerificationResult()
 
-        _fix_and_record(
-            team=self.team,
-            config=mock_config,
-            issue_type="cache_miss",
-            cache_type="test_cache",
-            result=result,
-            verification={"status": "miss"},
-        )
+        with patch("posthog.storage.hypercache_verifier.HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER") as mock_counter:
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_miss",
+                cache_type="flags",
+                result=result,
+                verification={"status": "miss"},
+            )
 
+        mock_counter.labels.assert_called_once_with(cache_type="flags", issue_type="cache_miss", reason=expected_reason)
+        mock_counter.labels.return_value.inc.assert_called_once_with()
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
 
@@ -569,7 +596,10 @@ class TestVerifyAndFixBatch(BaseTest):
         def verify_fn(team, db_batch_data, cache_batch_data):
             raise Exception("Verification failed")
 
-        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+        with (
+            patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
+            patch("posthog.storage.hypercache_verifier.HYPERCACHE_VERIFY_ERROR_COUNTER") as mock_error_counter,
+        ):
             _verify_and_fix_batch(
                 teams=[self.team],
                 config=mock_config,
@@ -581,6 +611,8 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.total == 1
         assert result.errors == 1
         assert result.total_fixed == 0
+        mock_error_counter.labels.assert_called_once_with(cache_type="test_cache", reason="unknown")
+        mock_error_counter.labels.return_value.inc.assert_called_once_with()
 
     def test_soft_time_limit_exceeded_propagates_and_stops_batch(self):
         """SoftTimeLimitExceeded from verify_team_fn must propagate so the run winds
@@ -1334,3 +1366,33 @@ class TestFetchTeamBatch(SimpleTestCase):
                 cache_type="test_cache",
                 chunk_size=10,
             )
+
+
+class TestClassifyFailure(SimpleTestCase):
+    def test_an_unreadable_cache_entry_is_a_data_error(self):
+        frame = zstd.compress(json.dumps({"flags": []}).encode() * 100, 0, 1)
+        # django-redis suppresses only CompressorError, and the compressor returns the stored
+        # bytes rather than raising, so an unreadable frame reaches pickle.loads whole.
+        unreadable = ZstdCompressor({}).decompress(frame[:16])
+        with self.assertRaises(Exception) as caught:
+            pickle.loads(unreadable)
+
+        assert classify_failure(caught.exception) == "data_error"
+
+    @parameterized.expand(
+        [
+            ("an_empty_stored_value", EOFError("Ran out of input"), "data_error"),
+            ("an_invalid_storage_endpoint", ValueError("Invalid endpoint"), "unknown"),
+            ("a_bug_in_the_sweep", AttributeError("'NoneType' object has no attribute 'get'"), "unknown"),
+            ("a_redis_write_during_an_outage", ConnectionInterrupted(connection=None), "dependency_unavailable"),
+            (
+                "a_raw_redis_timeout",
+                redis.exceptions.TimeoutError("Timeout reading from socket"),
+                "dependency_unavailable",
+            ),
+            ("an_s3_write_during_an_outage", ObjectStorageError("write failed"), "dependency_unavailable"),
+            ("a_dropped_db_connection", OperationalError("server closed the connection"), "dependency_unavailable"),
+        ]
+    )
+    def test_reason_separates_a_bad_entry_from_a_bug(self, _name, error, expected_reason):
+        assert classify_failure(error) == expected_reason

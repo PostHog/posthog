@@ -73,8 +73,6 @@ See [API write ownership](api-writes.md) for the call path and transaction bound
 | `POST` | `.../feature_flags/{pk}/create_static_cohort_for_flag/` | Create a static cohort from matched users                                       |
 | `GET`  | `.../feature_flags/{pk}/status/`                        | Flag status (ACTIVE, STALE, DELETED, UNKNOWN)                                   |
 | `GET`  | `.../feature_flags/{pk}/dependent_flags/`               | Flags that depend on this flag                                                  |
-| `POST` | `.../feature_flags/{pk}/dashboard/`                     | Deprecated: create a usage dashboard (sunsets September 25, 2026)               |
-| `POST` | `.../feature_flags/{pk}/enrich_usage_dashboard/`        | Deprecated: enrich an existing legacy usage dashboard (no removal date set)     |
 | `POST` | `.../feature_flags/{pk}/enable/`                        | Set `active: true` only                                                         |
 | `POST` | `.../feature_flags/{pk}/disable/`                       | Set `active: false` only                                                        |
 | `POST` | `.../feature_flags/{pk}/archive/`                       | Set `archived: true`, disabling the flag in the same write when needed          |
@@ -114,7 +112,7 @@ A flag already in the requested state is returned unchanged with no write at all
 
 `archive` matches the UI contract by disabling an enabled flag in the same write, because an archived flag must be disabled.
 `unarchive` leaves the flag disabled; enabling it is a separate call.
-It is the one action that cannot return a 409: every gated action declines a change that sets neither `active` nor `filters`, so an `archived`-only write never opens a change request.
+It is the one action that cannot return a 409: every gated action declines a change that sets none of `active`, `filters` and `bucketing_identifier`, so an `archived`-only write never opens a change request.
 
 ### `create_static_cohort_for_flag`
 
@@ -146,13 +144,14 @@ Key things to know:
 
 ### Supporting modules
 
-| File                                               | Purpose                                                                    |
-| -------------------------------------------------- | -------------------------------------------------------------------------- |
-| `posthog/models/feature_flag/flag_matching.py`     | **Legacy** Python evaluation engine (only used for static cohort creation) |
-| `posthog/models/feature_flag/flags_cache.py`       | HyperCache for the Rust flags service with signal-based invalidation       |
-| `posthog/models/feature_flag/local_evaluation.py`  | Prepares flag data for SDK local evaluation with HyperCache                |
-| `posthog/models/feature_flag/user_blast_radius.py` | Estimates user/group match counts for conditions                           |
-| `posthog/api/services/flags_service.py`            | HTTP proxy to the Rust flags service                                       |
+| File                                                       | Purpose                                                                           |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `posthog/models/feature_flag/flag_matching.py`             | **Legacy** Python evaluation engine (only used for static cohort creation)        |
+| `products/feature_flags/backend/flags_cache.py`            | HyperCache for the Rust flags service with signal-based invalidation              |
+| `products/feature_flags/backend/local_evaluation.py`       | Prepares flag data for SDK local evaluation with HyperCache                       |
+| `products/feature_flags/backend/user_blast_radius.py`      | Estimates user/group match counts for conditions                                  |
+| `products/feature_flags/backend/blast_radius_flag_deps.py` | Sizes flag-dependency filters for that estimate as per-person match probabilities |
+| `posthog/api/services/flags_service.py`                    | HTTP proxy to the Rust flags service                                              |
 
 ## Remote config endpoints
 

@@ -28,10 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# This first cut covers Freshdesk's top-level v2 endpoints only. Fan-out resources
-# (ticket conversations, solution articles/folders/categories) and webhook-driven
-# deltas are deliberately left out: Freshdesk has no documented public REST API for
-# programmatic webhook management (webhooks are configured through admin automation
+# Webhook-driven deltas are deliberately left out: Freshdesk has no documented public REST
+# API for programmatic webhook management (webhooks are configured through admin automation
 # rules), so they can't be wired up reliably without live verification.
 
 _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
@@ -117,10 +115,11 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
         schemas = [
             SourceSchema(
                 name=name,
-                # Only the endpoints with a genuine server-side `updated_since` filter
-                # support incremental sync; everything else is full refresh.
-                supports_incremental=endpoint.updated_since_param is not None,
-                supports_append=endpoint.updated_since_param is not None,
+                # An endpoint declares incremental fields only when a sync can genuinely be
+                # narrowed server-side -- through the endpoint's own `updated_since` filter, or
+                # through the one on the parent it fans out from. Everything else is full refresh.
+                supports_incremental=bool(endpoint.incremental_fields),
+                supports_append=bool(endpoint.incremental_fields),
                 incremental_fields=endpoint.incremental_fields,
             )
             for name, endpoint in FRESHDESK_ENDPOINTS.items()
@@ -182,4 +181,5 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field=inputs.incremental_field,
         )

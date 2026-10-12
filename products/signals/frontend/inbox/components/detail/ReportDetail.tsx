@@ -49,11 +49,14 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
+import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -78,7 +81,7 @@ export function ReportDetailBadges({
         <>
             <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
             {!isStatusRedundantWithActionability(report.status, report.actionability) && (
-                <SignalReportStatusBadge status={report.status} />
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
             )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
@@ -227,11 +230,18 @@ export function InboxDetailFrame({
         evidenceExpanded,
         priorityExplanation,
         chartPlacements,
+        chartsById,
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        reportChecks,
+        reportChecksError,
+        prioritySaving,
+        report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+        inboxReportDetailLogic(logicProps)
+    )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -322,43 +332,55 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+    const hasMeasurements = reportChecks?.some(
+        (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
+    )
+    const expectedImpact =
+        expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
+        ) : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
 
-            <div>
-                {report.summary ? (
-                    <ReportSummaryBody
-                        summary={report.summary}
-                        chartPlacements={chartPlacements}
-                        implementButton={implementButton}
-                        pullRequestNote={pullRequestNote}
-                        impactMetrics={impactMetrics}
-                    />
-                ) : (
-                    <div className="flex flex-col gap-6">
-                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                            No summary yet. An agent is still investigating.
-                        </p>
-                        {pullRequestNote}
-                        {impactMetrics}
-                    </div>
-                )}
-                {trailingCharts.length > 0 && (
-                    <div className="flex flex-col gap-4 mt-5">
-                        {trailingCharts.map((chart) => (
-                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                        ))}
-                    </div>
-                )}
-            </div>
+            <ReportChartsContext.Provider value={chartsById}>
+                <div>
+                    {report.summary ? (
+                        <ReportSummaryBody
+                            summary={report.summary}
+                            chartPlacements={chartPlacements}
+                            implementButton={implementButton}
+                            pullRequestNote={pullRequestNote}
+                            impactMetrics={impactMetrics}
+                            expectedImpact={expectedImpact}
+                        />
+                    ) : (
+                        <div className="flex flex-col gap-6">
+                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                No summary yet. An agent is still investigating.
+                            </p>
+                            {pullRequestNote}
+                            {impactMetrics}
+                            {expectedImpact}
+                        </div>
+                    )}
+                    {trailingCharts.length > 0 && (
+                        <div className="flex flex-col gap-4 mt-5">
+                            {trailingCharts.map((chart) => (
+                                <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </ReportChartsContext.Provider>
             {/* The rating closes out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 <ReportFeedbackFooter report={report} align="end" />
@@ -409,7 +431,12 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={currentReport ?? report}
+                            rightSlot={hideRailButton}
+                            onPriorityChange={updatePriority}
+                            prioritySaving={prioritySaving}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -445,6 +472,12 @@ export function InboxDetailFrame({
                                             >
                                                 {evidenceExpanded ? 'Show less' : 'Show more'}
                                             </LemonButton>
+                                        )}
+                                        {report.source_suggestion && (
+                                            <ReportSourceSuggestion
+                                                report={report}
+                                                suggestion={report.source_suggestion}
+                                            />
                                         )}
                                     </div>
                                 )}

@@ -5,7 +5,10 @@ import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
+import type { StoredLogEntry } from '../types/wireTypes'
+import type { TurnTrailer } from '../utils/turnTrailers'
 import { ThreadView } from './ThreadView'
+import { TurnFeedbackActions } from './TurnFeedbackActions'
 
 interface ThreadFixtureProps {
     streamKey: string
@@ -154,5 +157,62 @@ export const ExecuteSqlWithVariables: Story = {
                 },
             },
         },
+    },
+}
+
+function timedNotification(timestamp: string, method: string, params: Record<string, unknown>): StoredLogEntry {
+    return { type: 'notification', timestamp, notification: { method, params } }
+}
+
+const MESSAGE_FOOTER_ENTRIES: StoredLogEntry[] = [
+    timedNotification('2024-03-11T14:02:10Z', '_posthog/user_message', {
+        content: 'How many users signed up last week?',
+    }),
+    timedNotification('2024-03-11T14:02:18Z', 'session/update', {
+        update: {
+            sessionUpdate: 'agent_message_chunk',
+            messageId: 'synthetic-answer',
+            content: { type: 'text', text: 'Signups grew week over week. See the trend below.' },
+        },
+    }),
+    timedNotification('2024-03-11T14:02:20Z', '_posthog/turn_complete', {}),
+]
+
+function renderSyntheticTurnTrailer(trailer: TurnTrailer): JSX.Element {
+    return (
+        <TurnFeedbackActions
+            sessionId="synthetic-task"
+            turnIndex={trailer.turnIndex}
+            run={{ taskId: 'synthetic-task' }}
+            turnText={trailer.turnText}
+            timestamp={trailer.timestamp}
+        />
+    )
+}
+
+export const MessageFooters: Story = {
+    args: { streamKey: 'synthetic-message-footers' },
+    parameters: {
+        mockDate: '2024-03-11T14:05:00Z',
+    },
+    render: ({ streamKey }) => {
+        useEffect(() => {
+            const logic = runStreamLogic({ streamKey })
+            const unmount = logic.mount()
+            // Human messages do not dedupe, and strict mode reruns this effect.
+            if (logic.values.threadItems.length === 0) {
+                for (const entry of MESSAGE_FOOTER_ENTRIES) {
+                    logic.actions.ingestAcpFrame(entry, 'replay')
+                }
+            }
+            return unmount
+        }, [streamKey])
+        return (
+            <div className="w-180 max-w-full h-160 border rounded">
+                <BindLogic logic={runStreamLogic} props={{ streamKey }}>
+                    <ThreadView renderTurnTrailer={renderSyntheticTurnTrailer} />
+                </BindLogic>
+            </div>
+        )
     },
 }

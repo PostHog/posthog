@@ -11,7 +11,7 @@ const answered = mswDecorator({
         'api/projects/:team_id/ml_inference/decisions/decide/': [
             200,
             {
-                model: 'kev-4b',
+                model: 'jevk5-fp8-0.2',
                 answers: {
                     acceptable: {
                         type: 'noul',

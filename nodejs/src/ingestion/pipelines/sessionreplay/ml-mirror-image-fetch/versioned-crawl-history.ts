@@ -6,20 +6,20 @@ const SCOPED_URL_REF = /^imageurl:v[23]:/
 export class VersionedCrawlHistory implements CrawlHistoryStore {
     constructor(
         private readonly legacy: CrawlHistoryStore,
-        private readonly v2: CrawlHistoryStore
+        private readonly v3: CrawlHistoryStore
     ) {}
 
     public async read(keys: string[]): Promise<Map<string, CrawlHistoryItem>> {
         const scoped = keys.filter((key) => SCOPED_URL_REF.test(key))
         const legacy = keys.filter((key) => !SCOPED_URL_REF.test(key))
-        const results = await Promise.all([this.legacy.read(legacy), this.v2.read(scoped)])
+        const results = await Promise.all([this.legacy.read(legacy), this.v3.read(scoped)])
         return new Map(results.flatMap((result) => [...result]))
     }
 
     public async write(items: CrawlHistoryItem[]): Promise<void> {
         await Promise.all([
             this.legacy.write(items.filter((item) => !SCOPED_URL_REF.test(item.key))),
-            this.v2.write(items.filter((item) => SCOPED_URL_REF.test(item.key))),
+            this.v3.write(items.filter((item) => SCOPED_URL_REF.test(item.key))),
         ])
     }
 }

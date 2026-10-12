@@ -3,7 +3,8 @@ Contract types for batch_exports.
 
 Stable, framework-free dataclasses defining what this product hands to the rest of the
 codebase. No Django or DRF imports, and enums are flattened to their ``str`` value, so a
-consumer never needs a model class to read a batch export.
+consumer never needs a model class to read a batch export. A consumer that writes one of
+those values imports the enum from ``facade/enums.py``.
 
 The fields are the ones consumers read today and nothing more. An encrypted model field
 never crosses whole, because reading one decrypts it; ``BatchExportDetail`` documents the
@@ -26,6 +27,14 @@ from pydantic.dataclasses import dataclass
 
 # The Django model label of BatchExport, for consumers that report on models by name.
 BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
+
+
+class InvalidBatchExportFilters(ValueError):
+    """Raised when event filters are not a list of filters a batch export can apply."""
+
+
+class UnsupportedDestinationTestError(ValueError):
+    """Raised when a destination type has no connection test."""
 
 
 @dataclass(frozen=True)
@@ -110,6 +119,33 @@ class TeamTotal:
 
     team_id: int
     total: int
+
+
+@dataclass(frozen=True)
+class DestinationTestStepResult:
+    """The outcome of one destination test step. ``message`` explains a failure."""
+
+    status: str
+    message: str | None
+
+
+@dataclass(frozen=True)
+class DestinationTestStep:
+    """One check in a destination's connection test. ``result`` is None until the step runs."""
+
+    name: str
+    description: str
+    result: DestinationTestStepResult | None
+
+
+@dataclass(frozen=True)
+class DestinationTest:
+    """The ordered checks that test a connection to a destination.
+
+    Each step depends on the steps before it, so a client runs them in order.
+    """
+
+    steps: tuple[DestinationTestStep, ...]
 
 
 @stdlib_dataclass(frozen=True)

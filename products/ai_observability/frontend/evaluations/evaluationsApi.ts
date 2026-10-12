@@ -65,7 +65,9 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig |
 
     if (
         evaluation.evaluation_type === 'llm_judge' &&
-        (evaluation.output_type === 'boolean' || evaluation.output_type === 'numeric') &&
+        (evaluation.output_type === 'boolean' ||
+            evaluation.output_type === 'numeric' ||
+            evaluation.output_type === 'categorical') &&
         evaluation.evaluation_config &&
         'prompt' in evaluation.evaluation_config
     ) {
@@ -79,7 +81,9 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig |
 
     if (
         evaluation.evaluation_type === 'hog' &&
-        (evaluation.output_type === 'boolean' || evaluation.output_type === 'numeric') &&
+        (evaluation.output_type === 'boolean' ||
+            evaluation.output_type === 'numeric' ||
+            evaluation.output_type === 'categorical') &&
         evaluation.evaluation_config &&
         'source' in evaluation.evaluation_config &&
         typeof evaluation.evaluation_config.source === 'string'

@@ -1,8 +1,13 @@
+import json
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -10,18 +15,26 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
-from products.review_hog.backend.api.reviews import IN_PROGRESS_STALE_AFTER
+from products.review_hog.backend.api.reviews import ReviewDropDisposition
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
+    DroppedFindingArtefact,
     FindingOutcomeArtefact,
     ResolutionRunArtefact,
     ReviewIssueFinding,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DropDisposition,
+    Issue,
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+)
 from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
     PerspectiveSelection,
@@ -33,7 +46,13 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_perspective_selection,
     persist_pr_snapshot,
 )
-from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.progress import (
+    IN_PROGRESS_STALE_AFTER,
+    RESOLUTION_RUN_NOTE_AUTHOR,
+    record_run_outcome,
+)
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
 
@@ -74,9 +93,14 @@ def _issues_review(count: int) -> IssuesReview:
     )
 
 
+def test_drop_disposition_choices_cover_every_pipeline_disposition() -> None:
+    assert set(ReviewDropDisposition.values) == set(get_args(DropDisposition))
+
+
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
     def _report(
@@ -115,6 +139,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         adjusted: IssuePriority | None = None,
         judged: bool = True,
         perspective: str | None = None,
+        review_mode: str | None = None,
     ) -> None:
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
@@ -129,6 +154,7 @@ class TestRecentReviewsAPI(APIBaseTest):
                 suggestion="s",
                 priority=priority,
                 source_perspective=perspective,
+                validation_context=json.dumps({"review_mode": review_mode}) if review_mode else None,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -140,6 +166,101 @@ class TestRecentReviewsAPI(APIBaseTest):
             content=ValidationVerdict(issue_key=key, is_valid=is_valid, argumentation="a", adjusted_priority=adjusted),
             attribution=ArtefactAttribution.system(),
         )
+
+    def _turn_marker(self, report: ReviewReport, *, run_index: int, review_mode: str, head_sha: str) -> None:
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TurnMarkerArtefact(
+                head_sha=head_sha,
+                run_index=run_index,
+                review_mode=review_mode,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    @parameterized.expand([("flash", REVIEW_MODE_FLASH), ("full", REVIEW_MODE_FULL), ("no_marker", None)])
+    def test_review_mode_comes_from_the_completed_turns_marker(self, _name: str, review_mode: str | None) -> None:
+        # A clean, unpublished Standard turn has no findings to carry its mode, which the findings-based
+        # fallback reads as Deep. The marker is the only source that tells the two apart. The older
+        # turn's marker and the in-flight turn's marker must not leak onto the completed turn.
+        report = self._report(pr_number=1, acting_user=self.user, run_count=2, head_sha="c3")
+        self._turn_marker(report, run_index=1, review_mode=REVIEW_MODE_FULL, head_sha="c1")
+        if review_mode is not None:
+            self._turn_marker(report, run_index=2, review_mode=review_mode, head_sha="c2")
+        self._turn_marker(report, run_index=3, review_mode=REVIEW_MODE_FULL, head_sha="c3")
+
+        row = self.client.get(self.url).json()["results"][0]
+        detail = self.client.get(f"{self.url}{report.id}/").json()
+
+        assert row["review_mode"] == review_mode
+        assert detail["review_mode"] == review_mode
+
+    @parameterized.expand(
+        [
+            (
+                "latest_turn_published",
+                {"1": "a", "2": "b"},
+                99,
+                True,
+                "https://github.com/PostHog/posthog/pull/1#issuecomment-99",
+            ),
+            ("only_an_older_turn_published", {"1": "a"}, None, False, None),
+            ("never_published", None, None, False, None),
+        ]
+    )
+    def test_turn_published_and_status_comment_url(
+        self,
+        _name: str,
+        published_head_shas: dict[str, str] | None,
+        status_comment_id: int | None,
+        turn_published: bool,
+        status_comment_url: str | None,
+    ) -> None:
+        # `published` means "ever", so an agent reading a clean re-review would think the new turn posted.
+        self._report(
+            pr_number=1,
+            acting_user=self.user,
+            run_count=2,
+            published_head_sha="a" if published_head_shas else None,
+            published_head_shas=published_head_shas,
+            status_comment_id=status_comment_id,
+        )
+
+        row = self.client.get(self.url).json()["results"][0]
+
+        assert row["published"] is bool(published_head_shas)
+        assert row["turn_published"] is turn_published
+        assert row["status_comment_url"] == status_comment_url
+
+    def test_run_index_reads_an_older_completed_turn(self) -> None:
+        # The body is stored for the latest turn only, so an older turn must not return it as its own.
+        report = self._report(
+            pr_number=1,
+            acting_user=self.user,
+            run_count=2,
+            report_markdown="## Turn 2",
+            published_head_shas={"1": "c1"},
+            published_urgency_thresholds={"1": "consider"},
+            run_urgency_threshold="must_fix",
+        )
+        self._turn_marker(report, run_index=1, review_mode=REVIEW_MODE_FLASH, head_sha="c1")
+        self._finding(report, "1-old", priority=IssuePriority.MUST_FIX, run_index=1)
+        self._finding(report, "2-new", priority=IssuePriority.CONSIDER, run_index=2)
+
+        latest = self.client.get(f"{self.url}{report.id}/").json()
+        older = self.client.get(f"{self.url}{report.id}/", {"run_index": 1}).json()
+
+        assert (latest["run_index"], latest["report_markdown"], latest["turn_published"]) == (2, "## Turn 2", False)
+        assert [f["title"] for f in latest["findings"]] == ["title 2-new"]
+        assert (older["run_index"], older["report_markdown"], older["turn_published"]) == (1, None, True)
+        assert (older["head_sha"], older["review_mode"], older["run_urgency_threshold"]) == ("c1", "flash", "consider")
+        assert [f["title"] for f in older["findings"]] == ["title 1-old"]
+        assert older["must_fix_count"] == 1
+        for out_of_range in (0, 3):
+            assert self.client.get(f"{self.url}{report.id}/", {"run_index": out_of_range}).status_code == 404
 
     def test_lists_only_my_completed_reviews(self) -> None:
         # The default (mine) scope is "your recent reviews": a teammate's report and an abandoned
@@ -160,6 +281,15 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
+
+    def test_full_review_published_reads_only_the_full_marker(self) -> None:
+        self._report(pr_number=1, acting_user=self.user, published_head_sha="a", published_heads_by_mode={"flash": "a"})
+        self._report(pr_number=2, acting_user=self.user, published_head_sha="b", published_heads_by_mode={"full": "b"})
+
+        rows = {row["pr_number"]: row for row in self.client.get(self.url).json()["results"]}
+
+        assert rows[1]["full_review_published"] is False
+        assert rows[2]["full_review_published"] is True
 
     def test_mine_scope_includes_reviews_of_prs_i_authored(self) -> None:
         # The incident this guards: a review a teammate triggers on your PR lands under THEIR
@@ -272,6 +402,7 @@ class TestRecentReviewsAPI(APIBaseTest):
                 PRFile(filename="a.py", status="modified", additions=1, deletions=0),
                 PRFile(filename="b.py", status="modified", additions=1, deletions=0),
             ],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
         # A newer snapshot for a head that was never reviewed must not displace the reviewed one.
         persist_pr_snapshot(
@@ -346,10 +477,13 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert (row["perspective_count"], row["perspective_issue_count"], row["blind_spot_issue_count"]) == (2, 3, 1)
         assert (row["candidate_count"], row["dismissed_count"]) == (3, 1)
         assert "perspective_selection" not in row
+        # The old-sha snapshot ran the pipeline; only the reviewed head's design may reach the row.
+        assert row["review_design"] == REVIEW_DESIGN_SINGLE_AGENT
 
         # The detail exposes the head-matched selection per chunk (stale-head one filtered out),
         # joined with the chunk set's files, with skipped lenses computed against the roster.
         detail = self.client.get(f"{self.url}{report.id}/").json()
+        assert detail["review_design"] == REVIEW_DESIGN_SINGLE_AGENT
         assert detail["perspective_selection"] == {
             "roster": ["s-logic", "s-sec", "s-perf"],
             "chunks": [
@@ -398,6 +532,100 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert high["validator_note"] == "a"
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
         assert detail["perspective_selection"] is None  # no selection artefact → the drawer tab shows its empty state
+
+    def _dropped(
+        self,
+        report: ReviewReport,
+        title: str,
+        *,
+        run_index: int,
+        disposition: DropDisposition,
+        duplicate_of: str | None = None,
+        rank: int | None = None,
+        head_sha: str = "c",
+    ) -> None:
+        ReviewReportArtefact.append_dropped_finding(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=DroppedFindingArtefact(
+                head_sha=head_sha,
+                finding=ReviewIssueFinding(
+                    issue_key=f"{run_index}-{title}",
+                    run_index=run_index,
+                    title=title,
+                    file="f.py",
+                    lines=[LineRange(start=3, end=4)],
+                    body="b",
+                    suggestion="",
+                    priority=IssuePriority.CONSIDER,
+                    source_perspective="main",
+                ),
+                pass_number=2000,
+                chunk_id=1,
+                disposition=disposition,
+                duplicate_of=duplicate_of,
+                rank=rank,
+                cap=5,
+                lens_part_count=1,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    @parameterized.expand(
+        [
+            ("old_code", None, None, None),
+            ("dedup_prior", "1-f.py-10-main-1", None, None),
+            ("dedup_comment", "comment:42", None, "https://github.com/PostHog/posthog/pull/7#discussion_r42"),
+            ("dedup_anchor", "2-f.py-3-main-1", None, None),
+            ("dedup_sibling", "2-f.py-3-lens-1", None, None),
+            ("cap", None, 6, None),
+        ]
+    )
+    def test_retrieve_returns_the_turns_dropped_findings(
+        self,
+        disposition: DropDisposition,
+        duplicate_of: str | None,
+        rank: int | None,
+        comment_url: str | None,
+    ) -> None:
+        # Each turn shows only its own drops, and every recorded disposition must map to a served choice.
+        report = self._report(
+            pr_number=7,
+            acting_user=self.user,
+            run_count=2,
+            completed_head_sha="head-2",
+            published_head_shas={"1": "head-1", "2": "head-2"},
+        )
+        self._dropped(report, "older drop", run_index=1, disposition="cap", rank=9, head_sha="head-1")
+        self._dropped(
+            report,
+            "latest drop",
+            run_index=2,
+            disposition=disposition,
+            duplicate_of=duplicate_of,
+            rank=rank,
+            head_sha="head-2",
+        )
+
+        latest = self.client.get(f"{self.url}{report.id}/").json()
+        older = self.client.get(f"{self.url}{report.id}/", {"run_index": 1}).json()
+
+        assert latest["dropped_findings"] == [
+            {
+                "title": "latest drop",
+                "file": "f.py",
+                "lines": [{"start": 3, "end": 4}],
+                "body": "b",
+                "suggestion": "",
+                "priority": "consider",
+                "source_perspective": "main",
+                "disposition": disposition,
+                "duplicate_of": duplicate_of,
+                "comment_url": comment_url,
+                "rank": rank,
+            }
+        ]
+        assert [(f["title"], f["rank"]) for f in older["dropped_findings"]] == [("older drop", 9)]
 
     def test_in_progress_review_surfaces_with_stage_progress(self) -> None:
         # A visibly running first-turn review must appear first with a stage inferred from the
@@ -502,6 +730,96 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": 2,
         }
 
+    def test_single_agent_turn_reports_its_own_stages(self) -> None:
+        running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        running_id = str(running.id)
+
+        def stage() -> dict:
+            return self.client.get(self.url).json()["results"][0]["progress"]
+
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1", "in flight"),
+            pr_comments=[],
+            pr_files=[],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+        assert stage() == {"review_stage": "single_agent_preparing", "done": None, "total": None}
+
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=running_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=1,
+                review_mode=REVIEW_MODE_FLASH,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        assert stage() == {"review_stage": "single_agent_reviewing", "done": None, "total": None}
+
+        self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
+        assert stage() == {"review_stage": "single_agent_finalizing", "done": None, "total": None}
+
+    @parameterized.expand(
+        [
+            ("active", "sha1", False, True),
+            ("idle", "sha1", False, False),
+            ("active", "another-head", False, False),
+            ("active", "sha1", True, False),
+        ]
+    )
+    def test_activity_heartbeat_keeps_only_its_active_review_visible(
+        self, status: str, heartbeat_head: str, another_team: bool, visible: bool
+    ) -> None:
+        now = timezone.now()
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            running = self._report(
+                pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1", status=status
+            )
+        heartbeat_team_id = self.team.id
+        if another_team:
+            heartbeat_team_id = Team.objects.create(organization=self.organization, name="another project").id
+        heartbeat = ReviewActivityHeartbeater(
+            team_id=heartbeat_team_id, report_id=str(running.id), head_sha=heartbeat_head
+        )
+
+        with time_machine.travel(now, tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+            before_pulse = running.updated_at
+            heartbeat.touch_report()
+            running.refresh_from_db()
+            assert running.updated_at == (now if visible else before_pulse)
+            rows = self.client.get(self.url).json()["results"]
+            assert bool(rows) is visible
+            if visible:
+                assert rows[0]["pr_number"] == 2
+                assert rows[0]["in_progress"] is True
+                assert rows[0]["run_count"] == 0
+
+        with time_machine.travel(now + IN_PROGRESS_STALE_AFTER + timedelta(seconds=1), tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+
+    def test_heartbeating_first_turn_outranks_newer_stale_first_turns(self) -> None:
+        # Crashed first turns stay ACTIVE. More of them than the probe slice, all newer than a live
+        # run, must not push that live run out of the list.
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
+            live = self._report(pr_number=1, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            for pr_number in range(2, 5):
+                self._report(pr_number=pr_number, acting_user=self.user, completed=False, run_count=0)
+
+        with time_machine.travel(now, tick=False):
+            ReviewActivityHeartbeater(team_id=self.team.id, report_id=str(live.id), head_sha="sha1").touch_report()
+            rows = self.client.get(self.url, {"limit": 1}).json()["results"]
+
+        assert [(row["pr_number"], row["in_progress"]) for row in rows] == [(1, True)]
+
     def _resolution_run(self, report: ReviewReport, thread_ids: list[str], *, skipped: int = 0) -> None:
         ReviewReportArtefact.append_resolution_run(
             team_id=self.team.id,
@@ -510,12 +828,29 @@ class TestRecentReviewsAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-    def _thread_verdict(self, report: ReviewReport, thread_id: str, outcome: str, *, delivered: bool = True) -> None:
+    def _thread_verdict(
+        self,
+        report: ReviewReport,
+        thread_id: str,
+        outcome: str,
+        *,
+        delivered: bool = True,
+        commit_sha: str | None = None,
+        commit_verified: bool | None = None,
+        commit_restricted: bool | None = None,
+    ) -> None:
         ReviewReportArtefact.append_thread_verdict(
             team_id=self.team.id,
             report_id=str(report.id),
             content=ThreadVerdictArtefact(
-                thread_id=thread_id, outcome=outcome, reasoning="r", reply="reply", reply_posted=delivered
+                thread_id=thread_id,
+                outcome=outcome,
+                reasoning="r",
+                reply="reply",
+                reply_posted=delivered,
+                commit_sha=commit_sha,
+                commit_verified=commit_verified,
+                commit_restricted=commit_restricted,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -562,11 +897,11 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("completed_run_via_closing_note",),
-            ("superseded_by_newer_review_turn",),
+            ("completed_run_via_closing_note", "completed"),
+            ("superseded_by_newer_review_turn", "stopped"),
         ]
     )
-    def test_finished_or_superseded_resolution_carries_no_state(self, scenario: str) -> None:
+    def test_finished_or_superseded_resolution_carries_no_state(self, scenario: str, latest_status: str) -> None:
         # A completed run must not render as crashed once it ages past the staleness window (the
         # closing note is the completion marker), and a crashed run must yield the row to a newer
         # review turn's own progress instead of pinning a stale "didn't finish" on it.
@@ -589,24 +924,65 @@ class TestRecentReviewsAPI(APIBaseTest):
         row = self.client.get(self.url).json()["results"][0]
 
         assert row["resolution"] is None
+        # The agent-facing summary keeps the finished run, so a caller can still read what it did.
+        assert (row["latest_resolution"]["status"], row["latest_resolution"]["fixed"]) == (latest_status, 1)
+        assert (row["latest_resolution"]["completed_at"] is not None) is (latest_status == "completed")
 
-    def test_dead_resolution_run_shows_where_it_stopped(self) -> None:
+    def test_completed_resolution_lists_only_commits_the_replies_link(self) -> None:
+        # A fix commit that failed branch verification or touches protected files gets no public link
+        # on GitHub, so the API must not hand its SHA to an agent as a trusted fix either.
+        report = self._report(pr_number=5, acting_user=self.user)
+        self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3", "PRRT_4", "PRRT_5"])
+        self._thread_verdict(report, "PRRT_1", "fixed", commit_sha="good", commit_verified=True)
+        self._thread_verdict(report, "PRRT_2", "fixed", commit_sha="unverified", commit_verified=False)
+        self._thread_verdict(
+            report, "PRRT_3", "fixed", commit_sha="restricted", commit_verified=True, commit_restricted=True
+        )
+        self._thread_verdict(report, "PRRT_4", "fixed", commit_sha="unchecked")
+        self._thread_verdict(report, "PRRT_5", "escalate")
+        self._closing_run_note(report)
+
+        detail = self.client.get(f"{self.url}{report.id}/").json()
+
+        assert detail["resolution"] is None
+        latest = detail["latest_resolution"]
+        assert (latest["status"], latest["total"], latest["fixed"], latest["needs_attention"]) == ("completed", 5, 4, 1)
+        assert latest["commits"] == ["good"]
+
+    @parameterized.expand(
+        [
+            ("no_later_activity", None, "stopped", 1),
+            ("later_run_outcome_note", "outcome_note", "stopped", 1),
+            ("later_thread_verdict", "thread_verdict", "resolving", 2),
+        ]
+    )
+    def test_dead_resolution_run_shows_where_it_stopped(
+        self, _name: str, later_write: str | None, expected_status: str, expected_done: int
+    ) -> None:
         # The silent-death mode: a resolution that dies partway used to leave no trace anywhere.
         # With the run anchor present, no closing note, and activity past the staleness window, the
-        # row must say where it stopped instead of nothing.
+        # row must say where it stopped instead of nothing. A later run outcome note records that a
+        # run ended, so it must not count as activity that revives the dead run. A fresh verdict is
+        # real activity, so that run is still resolving.
         with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.IDLE)
             self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
             self._thread_verdict(report, "PRRT_1", "fixed")
+        if later_write == "outcome_note":
+            record_run_outcome(
+                self.team.id, str(report.id), stage="resolution", outcome="skipped", reason="no_unresolved_threads"
+            )
+        elif later_write == "thread_verdict":
+            self._thread_verdict(report, "PRRT_2", "fixed")
 
         row = self.client.get(self.url).json()["results"][0]
 
-        assert row["in_progress"] is False
+        assert row["in_progress"] is (expected_status == "resolving")
         assert row["resolution"] == {
-            "resolution_status": "stopped",
-            "done": 1,
+            "resolution_status": expected_status,
+            "done": expected_done,
             "total": 3,
-            "fixed": 1,
+            "fixed": expected_done,
             "needs_attention": 0,
         }
 
@@ -683,6 +1059,9 @@ class TestRecentReviewsAPI(APIBaseTest):
         detail = self.client.get(f"{self.url}{report_id}/").json()
         assert detail["head_sha"] == "abc"
         assert detail["pr_title"] == "completed title"
+        # The detail must report the running re-review like the row does, not read as idle.
+        assert detail["in_progress"] is True
+        assert detail["progress"] == row["progress"]
 
     def test_in_progress_re_review_of_a_dormant_report_still_lists(self) -> None:
         # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
@@ -703,34 +1082,39 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["in_progress"] is True
         assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
 
-    def test_outcome_artefact_does_not_revive_the_in_progress_spinner(self) -> None:
+    @parameterized.expand([("finding_outcome", False), ("turn_artefact", True)])
+    def test_only_turn_artefacts_keep_the_in_progress_spinner(self, later_write: str, expected: bool) -> None:
         # `finding_outcome` is the one artefact written outside a turn: the sweep appends it after the
         # PR merges, which can be long after the run ended. Status only leaves ACTIVE on a successful
         # finalize, so a run that crashed before finalize stays ACTIVE forever and the staleness
         # window is the only thing that retires its spinner. Counting the sweep's write as liveness
-        # would restart that window and show a live row for a report with nothing running.
+        # would restart that window and show a live row for a report with nothing running. A fresh
+        # turn-written artefact is real progress and must still keep the row live.
         # ACTIVE with a completed turn behind it (the dormant re-review shape): a first-turn ACTIVE
         # report is listed only while it is in progress, so it could not show the difference.
         report = self._report(pr_number=7, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
         ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(
             updated_at=timezone.now() - IN_PROGRESS_STALE_AFTER - timedelta(minutes=5)
         )
-        ReviewReportArtefact.add_finding_outcome(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            content=FindingOutcomeArtefact(
-                issue_key="r1:f.py:10:logic",
-                run_index=1,
-                outcome="ignored",
-                method="no_signal",
-                reviewed_head="base_sha",
-                final_head="head_sha",
-            ),
-            attribution=ArtefactAttribution.system(),
-        )
+        if later_write == "finding_outcome":
+            ReviewReportArtefact.add_finding_outcome(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=FindingOutcomeArtefact(
+                    issue_key="r1:f.py:10:logic",
+                    run_index=1,
+                    outcome="ignored",
+                    method="no_signal",
+                    reviewed_head="base_sha",
+                    final_head="head_sha",
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+        else:
+            self._thread_verdict(report, "PRRT_1", "fixed")
 
         row = next(r for r in self.client.get(self.url).json()["results"] if r["pr_number"] == 7)
-        assert row["in_progress"] is False
+        assert row["in_progress"] is expected
 
     def test_perspective_stats_aggregate_latest_turns_per_scope(self) -> None:
         # Effectiveness must aggregate each report's LATEST turn only and, on the default scope,
@@ -771,6 +1155,33 @@ class TestRecentReviewsAPI(APIBaseTest):
         ]
         assert self.client.get(f"{self.url}perspective_stats/?scope=everything").status_code == 400
 
+        # The settings read own_deep: a Standard turn reads none of the user's skills, and a teammate's
+        # Deep review uses the teammate's skills, so neither may count.
+        standard = self._report(pr_number=4, acting_user=self.user)
+        self._finding(standard, "1-s", priority=IssuePriority.MUST_FIX, perspective=logic, review_mode="flash")
+        ReviewReport.objects.for_team(self.team.id).filter(id=standard.id).update(
+            last_run_at=datetime(2026, 6, 1, tzinfo=UTC)
+        )
+        # A clean Standard turn has no findings to carry its mode, so only the publish watermark tells.
+        # It is the newest report, and it must not take a slot from the Deep reviews under the report limit.
+        clean_standard = self._report(
+            pr_number=5, acting_user=self.user, head_sha="c1ea2", published_heads_by_mode={"flash": "c1ea2"}
+        )
+        ReviewReport.objects.for_team(self.team.id).filter(id=clean_standard.id).update(
+            last_run_at=datetime(2026, 8, 1, tzinfo=UTC)
+        )
+
+        with patch("products.review_hog.backend.api.reviews.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
+            res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["report_count"] == 2
+        assert data["perspectives"] == [
+            {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
+            {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
+        ]
+
     def test_retrieve_is_project_wide_but_never_cross_team(self) -> None:
         # Opening a teammate's review from the everyone-scope list must work, but another team's
         # report id must still 404 (tenant isolation), and garbage ids must not 500.
@@ -782,3 +1193,108 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert self.client.get(f"{self.url}{theirs.id}/").status_code == 200
         assert self.client.get(f"{self.url}{foreign.id}/").status_code == 404
         assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404
+
+    def test_table_pages_by_last_activity_with_counts(self) -> None:
+        # The table orders by activity, not by completion, so a review that starts moves to the top.
+        # A crashed first turn must stay out, a run kept alive only by fresh artefacts must count as
+        # running, and `count` must cover every page while `offset` walks them.
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(hours=4), tick=False):
+            artefact_alive = self._report(pr_number=3, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
+        with time_machine.travel(now - timedelta(hours=3), tick=False):
+            self._report(pr_number=1, acting_user=self.user)
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
+            self._report(pr_number=2, acting_user=self.user)
+            self._report(pr_number=5, acting_user=self.user, completed=False, run_count=0)
+        with time_machine.travel(now - timedelta(minutes=5), tick=False):
+            self._report(pr_number=4, acting_user=self.user, completed=False, run_count=0)
+        other = User.objects.create_and_join(self.organization, "other-table@posthog.com", None)
+        with time_machine.travel(now - timedelta(hours=1), tick=False):
+            self._report(pr_number=6, acting_user=other)
+        with time_machine.travel(now, tick=False):
+            ReviewReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(artefact_alive.id),
+                content=NoteArtefact(note="Chunk 2 reviewed", author="review_hog"),
+                attribution=ArtefactAttribution.system(),
+            )
+
+            mine = self.client.get(f"{self.url}table/").json()
+            second_page = self.client.get(f"{self.url}table/", {"limit": 2, "offset": 1}).json()
+            everyone = self.client.get(f"{self.url}table/", {"scope": "everyone"}).json()
+
+        assert [row["pr_number"] for row in mine["results"]] == [4, 2, 1, 3]
+        assert (mine["count"], mine["running_count"]) == (4, 2)
+        assert [row["pr_number"] for row in second_page["results"]] == [2, 1]
+        assert second_page["count"] == 4
+        assert [row["pr_number"] for row in everyone["results"]] == [4, 6, 2, 1, 3]
+        assert self.client.get(f"{self.url}table/", {"limit": 101}).status_code == 400
+
+    @parameterized.expand(
+        [
+            ("no_filter", {}, {1, 2, 3, 4}, 2),
+            ("repository_ignores_case", {"repository": "posthog/OTHER"}, {3, 4}, 1),
+            ("standard_mode", {"review_mode": "flash"}, {1}, 0),
+            ("deep_mode_ignores_the_in_flight_marker", {"review_mode": "full"}, {2}, 1),
+            ("running", {"status": "running"}, {2, 3}, 2),
+            ("completed", {"status": "completed"}, {1, 4}, 2),
+            ("published_turn", {"published": "true"}, {1}, 0),
+            ("unpublished_turn", {"published": "false"}, {2, 3, 4}, 2),
+        ]
+    )
+    def test_table_filters(
+        self, _name: str, params: dict[str, str], expected: set[int], expected_running_count: int
+    ) -> None:
+        standard = self._report(pr_number=1, acting_user=self.user, published_head_shas={"1": "a"})
+        self._turn_marker(standard, run_index=1, review_mode=REVIEW_MODE_FLASH, head_sha="a")
+        # An older turn was published and a new turn is running: neither may stand in for the completed turn.
+        re_review = self._report(
+            pr_number=2,
+            acting_user=self.user,
+            run_count=2,
+            status=ReviewReport.Status.ACTIVE,
+            published_head_shas={"1": "x"},
+        )
+        self._turn_marker(re_review, run_index=2, review_mode=REVIEW_MODE_FULL, head_sha="y")
+        self._turn_marker(re_review, run_index=3, review_mode=REVIEW_MODE_FLASH, head_sha="z")
+        for pr_number, completed in ((3, False), (4, True)):
+            ReviewReport.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                repository="PostHog/other",
+                pr_number=pr_number,
+                head_branch="b",
+                base_branch="main",
+                acting_user=self.user,
+                run_count=1 if completed else 0,
+                last_run_at=timezone.now() if completed else None,
+                status=ReviewReport.Status.IDLE if completed else ReviewReport.Status.ACTIVE,
+            )
+
+        res = self.client.get(f"{self.url}table/", params)
+
+        assert res.status_code == 200, res.json()
+        assert {row["pr_number"] for row in res.json()["results"]} == expected
+        assert res.json()["count"] == len(expected)
+        assert res.json()["running_count"] == expected_running_count
+        assert self.client.get(f"{self.url}table/", {"status": "failed"}).status_code == 400
+
+    def test_table_query_count_does_not_grow_with_the_page(self) -> None:
+        for pr_number in range(1, 6):
+            report = self._report(pr_number=pr_number, acting_user=self.user, head_sha=f"h{pr_number}")
+            self._finding(report, f"1-{pr_number}", priority=IssuePriority.MUST_FIX)
+            self._turn_marker(report, run_index=1, review_mode=REVIEW_MODE_FULL, head_sha=f"h{pr_number}")
+        running = self._report(pr_number=9, acting_user=self.user, completed=False, run_count=0)
+        ReviewReport.objects.for_team(self.team.id).filter(id=running.id).update(
+            updated_at=timezone.now() + timedelta(minutes=1)
+        )
+
+        self.client.get(f"{self.url}table/")  # warm the per-request auth and team caches
+        query_counts = []
+        for limit in (2, 6):
+            with CaptureQueriesContext(connection) as queries:
+                res = self.client.get(f"{self.url}table/", {"limit": limit})
+            assert len(res.json()["results"]) == limit
+            assert res.json()["results"][0]["in_progress"] is True
+            query_counts.append(len(queries))
+
+        assert query_counts[0] == query_counts[1], query_counts

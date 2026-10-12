@@ -22,7 +22,7 @@ Examples of use cases include:
 
 # Input shape
 
-Send the query fields as the call arguments, at the top level. Do not wrap them in a `query`, `source`, or `events` object: this tool takes no such parameter, and a wrapped payload is rejected for a missing `series`.
+Send the query fields as the call arguments, at the top level. Do not wrap them in a `query`, `source`, or `events` object: this tool takes no such parameter.
 
 `series` is the only required field. Every other field is optional.
 

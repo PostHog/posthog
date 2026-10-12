@@ -133,10 +133,17 @@ class TestClaySourceBehavior:
     [
         (200, 200, True, None),
         (401, None, False, "rejected the API key"),
-        (500, None, False, "unexpected status (500)"),
+        (403, None, False, "while checking your API key"),
+        # 429 and 5xx clear on their own, so waiting is a real next step. Every other 4xx fails
+        # the same way on every attempt, so the copy names what the customer can change instead.
+        (429, None, False, "Try again in a few minutes"),
+        (500, None, False, "Try again in a few minutes"),
         (200, 403, False, "Enterprise plan"),
         (200, 404, False, "could not find table"),
-        (200, 422, False, "unexpected status (422)"),
+        (200, 400, False, "Enable for API"),
+        (200, 422, False, "Enable for API"),
+        (200, 429, False, "Try again in a few minutes"),
+        (200, 503, False, "Try again in a few minutes"),
     ],
 )
 def test_validate_credentials(

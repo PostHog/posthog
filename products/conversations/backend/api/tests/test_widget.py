@@ -1,6 +1,7 @@
 import time
 import uuid
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -277,6 +278,42 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.anonymous_traits["name"], "John")
         self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
 
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_deleted_ticket_is_hidden_from_the_widget(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        ticket.deleted_at = timezone.now()
+        ticket.save(update_fields=["deleted_at"])
+
+        messages = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(messages.status_code, status.HTTP_404_NOT_FOUND)
+
+        reply = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Are you there?",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(reply.status_code, status.HTTP_404_NOT_FOUND)
+
+        listing = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual(listing.json()["results"], [])
+
     def test_get_messages(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -306,6 +343,39 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["messages"]), 2)
         self.assertEqual(response.json()["messages"][0]["content"], "First message")
+
+    def test_get_messages_shows_a_workflow_reply_as_staff(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="We are on it.",
+            item_context={"author_type": "workflow", "author_name": "Workflow", "is_private": False},
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Internal only",
+            item_context={"author_type": "workflow", "is_private": True},
+        )
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        messages = response.json()["messages"]
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["content"], "We are on it.")
+        self.assertEqual(messages[0]["author_type"], "support")
+        self.assertEqual(messages[0]["author_name"], "Support")
 
     def test_get_messages_excludes_private(self):
         ticket = Ticket.objects.create_with_number(

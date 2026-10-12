@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from unittest.mock import patch
 
@@ -8,10 +10,63 @@ from products.wizard.backend.facade.contracts import (
     CreateWizardRunInput,
     GitRepositoryWorkspace,
     LocalFolderWorkspace,
+    UpdateWizardRunTaskInput,
     WizardRunDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunErrorCode, WizardRunStatus
+from products.wizard.backend.facade.enums import (
+    WizardRunEnvironment,
+    WizardRunErrorCode,
+    WizardRunStatus,
+    WizardTaskStatus,
+)
 from products.wizard.backend.facade.errors import IllegalStatusTransitionError, WizardRunNotFoundError
+from products.wizard.backend.logic.runs.lifecycle import _compute_task_list_derived_fields
+
+
+@pytest.mark.parametrize("status", tuple(WizardTaskStatus))
+def test_task_snapshot_preserves_first_observed_timestamps(status: WizardTaskStatus) -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    tasks = (UpdateWizardRunTaskInput(title="Install SDK", status=status),)
+    initial = _compute_task_list_derived_fields(tasks, (), now)
+    repeated = _compute_task_list_derived_fields(tasks, initial, now + timedelta(minutes=1))
+    assert repeated == initial
+    assert initial[0].created_at == now
+    assert initial[0].started_at == (now if status == WizardTaskStatus.RUNNING else None)
+    assert initial[0].completed_at == (now if status == WizardTaskStatus.COMPLETED else None)
+    assert initial[0].failed_at == (now if status == WizardTaskStatus.FAILED else None)
+
+
+@pytest.mark.django_db
+def test_task_snapshots_round_trip_and_replace_in_order(team, user) -> None:
+    run = _create_local_run(team.id, user.id)
+    initial = wizard_facade.update_run_task_list(
+        team.id,
+        run.id,
+        (
+            UpdateWizardRunTaskInput(title="Install SDK", status=WizardTaskStatus.RUNNING),
+            UpdateWizardRunTaskInput(title="Configure events", status=WizardTaskStatus.CREATED),
+            UpdateWizardRunTaskInput(title="Remove me", status=WizardTaskStatus.CREATED),
+        ),
+    )
+    updated = wizard_facade.update_run_task_list(
+        team.id,
+        run.id,
+        (
+            UpdateWizardRunTaskInput(title="Configure events", status=WizardTaskStatus.RUNNING),
+            UpdateWizardRunTaskInput(title="Install SDK", status=WizardTaskStatus.COMPLETED),
+            UpdateWizardRunTaskInput(title="Verify capture", status=WizardTaskStatus.FAILED),
+        ),
+    )
+    assert wizard_facade.get_run(team.id, run.id).tasks == updated
+    assert [task.title for task in updated] == ["Configure events", "Install SDK", "Verify capture"]
+    assert updated[0].created_at == initial[1].created_at
+    assert updated[0].started_at is not None
+    assert updated[1].started_at == initial[0].started_at
+    assert updated[1].completed_at is not None
+    assert updated[2].failed_at is not None
+    assert updated[2].started_at is None
+    wizard_facade.update_run_task_list(team.id, run.id, ())
+    assert wizard_facade.get_run(team.id, run.id).tasks == ()
 
 
 def _create_local_run(team_id: int, user_id: int) -> WizardRunDTO:

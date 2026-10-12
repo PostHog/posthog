@@ -41,10 +41,12 @@ function chipFromAttrs(attrs: Record<string, unknown>): MentionChip {
     skillPath: attrs.skillPath as string | undefined,
     skillSource: attrs.skillSource as MentionChip["skillSource"],
     skillName: attrs.skillName as string | undefined,
+    ...(attrs.imagePath ? { imagePath: attrs.imagePath as string } : {}),
   };
 }
 
 function chipToPlainText(chip: MentionChip): string {
+  if (chip.type === "comment_context") return chip.label;
   return chip.type === "command" ? `/${chip.label}` : `@${chip.label}`;
 }
 
@@ -198,6 +200,7 @@ function segmentsToLines(segments: Segment[]): Line[] {
           skillPath: segment.chip.skillPath,
           skillSource: segment.chip.skillSource,
           skillName: segment.chip.skillName,
+          imagePath: segment.chip.imagePath,
         },
       });
       continue;

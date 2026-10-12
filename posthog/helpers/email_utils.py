@@ -18,8 +18,8 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import F, Func, QuerySet, Value
-from django.db.models.functions import Lower
+from django.db.models import CharField, F, Func, Q, QuerySet, Value
+from django.db.models.functions import Lower, Replace
 
 import requests
 import structlog
@@ -283,6 +283,22 @@ def _stripped_email(expression: "str | Value") -> Func:
 # the query filters on the identical expression, so these must not drift apart.
 STRIPPED_EMAIL_EXPRESSION = _stripped_email("email")
 
+GMAIL_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
+
+
+def gmail_canonical_local_part(email: str) -> str | None:
+    local, _, domain = strip_email_alias(EmailNormalizer.normalize(email)).rpartition("@")
+    if domain not in GMAIL_DOMAINS:
+        return None
+    return local.replace(".", "")
+
+
+GMAIL_CANONICAL_LOCAL_EXPRESSION = Replace(
+    Func(STRIPPED_EMAIL_EXPRESSION, Value("@"), Value(1), function="split_part", output_field=CharField()),
+    Value("."),
+    Value(""),
+)
+
 
 def reject_plus_addressed_email(value: str) -> None:
     """Raise if the local part of `value` contains '+'."""
@@ -410,6 +426,25 @@ class EmailValidationHelper:
             User.objects.filter(is_active=True)
             .annotate(stripped_email=STRIPPED_EMAIL_EXPRESSION)
             .filter(stripped_email=_stripped_email(Value(email)))
+        )
+        if exclude_user_id is not None:
+            candidates = candidates.exclude(pk=exclude_user_id)
+        return candidates.exists()
+
+    @staticmethod
+    def user_exists_with_gmail_canonical(email: str, exclude_user_id: Optional[int] = None) -> bool:
+        from posthog.models.user import User
+
+        canonical_local = gmail_canonical_local_part(email)
+        if canonical_local is None:
+            return False
+        gmail_domains = Q()
+        for domain in GMAIL_DOMAINS:
+            gmail_domains |= Q(email__iendswith=f"@{domain}")
+        candidates = (
+            User.objects.filter(gmail_domains, is_active=True)
+            .annotate(gmail_canonical_local=GMAIL_CANONICAL_LOCAL_EXPRESSION)
+            .filter(gmail_canonical_local=canonical_local)
         )
         if exclude_user_id is not None:
             candidates = candidates.exclude(pk=exclude_user_id)

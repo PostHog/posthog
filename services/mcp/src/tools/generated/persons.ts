@@ -68,7 +68,7 @@ const personsCohortsRetrieve = (): ToolBase<
 
 const PersonsListSchema = () => {
     const PersonsListQueryParams = orvalSchemas.PersonsListQueryParams()
-    return PersonsListQueryParams.omit({ format: true, properties: true }).extend({
+    return PersonsListQueryParams.omit({ format: true, include_matched_fields: true, properties: true }).extend({
         limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
     })
@@ -76,13 +76,13 @@ const PersonsListSchema = () => {
 
 const personsList = (): ToolBase<
     ReturnType<typeof PersonsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedPersonRecordList>
+    WithPostHogUrl<Schemas.PaginatedPersonListRecordList>
 > => ({
     name: 'persons-list',
     schema: PersonsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedPersonRecordList>({
+        const result = await context.api.request<Schemas.PaginatedPersonListRecordList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {

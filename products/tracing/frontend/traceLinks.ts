@@ -1,7 +1,7 @@
 // Canonical trace URLs (JON-33). The URL is the atomic, shareable form of a trace view:
-// `/tracing?trace=<hex>` opens the drawer, `&span=<hex>` anchors a span, `&ts=<iso>` carries the
-// root timestamp so a cold load can bound the ClickHouse lookup (the table is time-keyed and OTel
-// trace ids embed no timestamp — an unhinted id lookup would scan the whole retention window).
+// `/tracing?trace=<hex>` opens the drawer, `&span=<hex>` anchors a span, and the optional `&ts=<iso>`
+// carries the root timestamp so a cold load can bound the ClickHouse lookup to a narrow window. A link
+// without `ts` still opens the trace: the backend finds it by id through the trace_id projection.
 
 import { combineUrl } from 'kea-router'
 

@@ -22,8 +22,9 @@ PIPELINE_AUDIENCE_REPORT_RESEARCH = f"{PIPELINE_AUDIENCE_PREFIX}report-research"
 PIPELINE_AUDIENCE_IMPLEMENTATION = f"{PIPELINE_AUDIENCE_PREFIX}implementation"
 # Allowlisted, not free-form: an unrecognized `pipeline:*` target steers no one, which is the same
 # silent failure a typo'd scout name would cause. Add a stage here when it starts reading notes.
-# The implementation stage is deliberately absent: it takes its steering from the task
-# description `report_steering.load_report_steering` builds, so a note left for it would sit unread.
+# The implementation stage is deliberately absent. Its task description
+# (`report_steering.load_report_steering`) tells it to pull the notes it needs itself, so nobody has
+# to know to address a note to it.
 PIPELINE_AUDIENCES: frozenset[str] = frozenset({PIPELINE_AUDIENCE_REPORT_RESEARCH})
 
 # The same strings in their other role — what a pipeline stage stamps on a scratchpad entry it

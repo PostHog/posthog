@@ -1,0 +1,123 @@
+name: MCP agent API diff
+
+# Posts a short summary of what a PR changes for agents (tools added or removed, params, scopes,
+# annotations, input schema size) into the shared CI report comment. Reviewers of a product PR
+# that only regenerates MCP files see megabytes of diff and no hint of what agents will notice.
+# Informational only: nothing here can fail a PR, and nothing here is a required check.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - 'products/*/mcp/**'
+            - 'services/mcp/definitions/**'
+            - 'services/mcp/schema/**'
+            - 'services/mcp/tests/unit/__snapshots__/tool-schemas/**'
+            - 'services/mcp/scripts/agent-api-diff.ts'
+            - 'services/mcp/scripts/lib/agent-api-diff.ts'
+            - 'services/mcp/scripts/post-agent-api-diff-section.mjs'
+            - '.github/workflows/ci-mcp-agent-api-diff.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    # Runs PR-controlled code, so it holds no write token. Its only output is a markdown artifact,
+    # which the posting job treats as data.
+    compute:
+        name: Compute agent API changes
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # Same-repo PRs only: a fork's token cannot write the report comment. The merge queue's
+        # draft PRs are ephemeral and unread, and every section write spends shared token budget.
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        permissions:
+            contents: read
+        outputs:
+            compared: ${{ steps.diff.outcome == 'success' }}
+        steps:
+            # The checked-out ref is the PR merged into its base, so HEAD^1 is the base tip and
+            # the diff against it is exactly what the PR changes, even when the branch is behind.
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
+                  persist-credentials: false
+
+            - name: Install pnpm dependencies
+              # Match services/mcp/Dockerfile exactly. No App token here: this job runs PR code and
+              # the action's token only feeds setup-node's rate-limited manifest lookups.
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... install --frozen-lockfile
+
+            # Guarded for branches that predate the scripts, and for a checkout without a base parent.
+            # Exit 3 from the script means the comparison could not run. The post job is then
+            # skipped, so an earlier report stays and is never replaced by a false "no changes".
+            - name: Compute agent API diff
+              id: diff
+              continue-on-error: true
+              run: |
+                  if [ ! -f services/mcp/scripts/agent-api-diff.ts ]; then
+                      echo "::notice::Skipping agent API diff - script not present on this checkout"
+                      exit 1
+                  fi
+                  if ! git rev-parse --verify --quiet 'HEAD^1' > /dev/null; then
+                      echo "::notice::Skipping agent API diff - no base commit to compare against"
+                      exit 1
+                  fi
+                  mkdir -p agent-api-diff
+                  pnpm --filter=@posthog/mcp exec tsx scripts/agent-api-diff.ts --base-ref 'HEAD^1' > agent-api-diff/agent-api-diff.md
+
+            - name: Upload agent API diff
+              if: steps.diff.outcome == 'success'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: agent-api-diff
+                  path: agent-api-diff/agent-api-diff.md
+                  retention-days: 1
+                  if-no-files-found: error
+
+    # Holds the write token, so it never checks out PR code. The posting script comes from the
+    # PR's base commit; the artifact is data and the script sanitizes it again.
+    post:
+        name: Post agent API changes
+        needs: compute
+        if: needs.compute.outputs.compared == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - name: Checkout trusted scripts from base
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.sha }}
+                  sparse-checkout: |
+                      services/mcp/scripts/post-agent-api-diff-section.mjs
+                      frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
+            - name: Download agent API diff
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: agent-api-diff
+                  path: agent-api-diff
+
+            # Before this workflow lands on the base branch the script does not exist there.
+            - name: Post agent API diff to CI report comment
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f services/mcp/scripts/post-agent-api-diff-section.mjs ]; then
+                      node services/mcp/scripts/post-agent-api-diff-section.mjs agent-api-diff/agent-api-diff.md
+                  else
+                      echo "::notice::Skipping report section - posting script not present on the base branch"
+                  fi

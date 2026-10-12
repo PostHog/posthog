@@ -62,7 +62,8 @@ def _make_relation(
     schema: str,
     table: str,
     columns: list[tuple[str, int, int]],
-    replica_identity: int = 0,
+    replica_identity: int = ord("d"),
+    key_columns: set[str] | None = None,
 ) -> bytes:
     """Build a Relation (R) message.
 
@@ -76,7 +77,7 @@ def _make_relation(
     data += struct.pack("!H", len(columns))
 
     for col_name, type_oid, type_mod in columns:
-        flags = 1  # part of key by default
+        flags = 1 if key_columns is None or col_name in key_columns else 0
         data += struct.pack("!B", flags)
         data += _make_cstring(col_name)
         data += struct.pack("!I", type_oid)
@@ -209,14 +210,43 @@ class TestPgOutputDecoder:
         assert event.columns["id"] == 42
         assert event.columns["name"] == "Bob"
 
-    def test_update_with_old_key(self):
-        decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
+    @parameterized.expand(
+        [
+            ("key_changed", b"K", [("t", "41"), None], ["id"], {"id": 41}),
+            ("key_unchanged", b"K", [("t", "42"), None], ["id"], None),
+            ("full_identity_row_keeps_only_the_key", b"O", [("t", "41"), ("t", "Alice")], ["id"], {"id": 41}),
+            ("no_old_tuple", b"K", None, ["id"], None),
+            ("table_without_a_splittable_key", b"K", [("t", "41"), None], None, None),
+            ("key_column_outside_the_identity", b"K", [("t", "41"), None], ["id", "name"], None),
+            (
+                "full_identity_row_covers_a_wider_key",
+                b"O",
+                [("t", "41"), ("t", "Alice")],
+                ["id", "name"],
+                {"id": 41, "name": "Alice"},
+            ),
+        ]
+    )
+    def test_update_with_old_key(
+        self,
+        _name: str,
+        old_marker: bytes,
+        old_values: list[tuple[str, str] | None] | None,
+        key_change_columns: list[str] | None,
+        expected_previous: dict[str, object] | None,
+    ) -> None:
+        decoder = PgOutputDecoder()
+        if key_change_columns is not None:
+            decoder.set_key_change_columns({"public.users": key_change_columns})
+        columns = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)]
+        decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
 
         begin = _make_begin()
         update = _make_update(
             1,
             new_values=[("t", "42"), ("t", "Bob")],
-            old_values=[("t", "42"), ("t", "Alice")],
+            old_values=old_values,
+            old_marker=old_marker,
         )
         commit = _make_commit()
 
@@ -226,7 +256,8 @@ class TestPgOutputDecoder:
 
         assert len(events) == 1
         assert events[0].operation == "U"
-        assert events[0].columns["name"] == "Bob"
+        assert events[0].columns == {"id": 42, "name": "Bob"}
+        assert events[0].previous_values == expected_previous
 
     def test_delete_event(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
@@ -312,24 +343,39 @@ class TestPgOutputDecoder:
         assert "big_text" not in events[0].columns
         assert events[0].omitted_columns == frozenset({"big_text"})
 
-    def test_unchanged_toast_filled_from_replica_identity_full_old_tuple(self):
-        # With REPLICA IDENTITY FULL the old tuple carries the TOAST value; since the
-        # column is unchanged, the old value IS the current value — no marker needed.
-        decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)])
+    @parameterized.expand(
+        [
+            # With REPLICA IDENTITY FULL the old tuple carries the TOAST value; since the
+            # column is unchanged, the old value IS the current value — no marker needed.
+            ("full_identity_old_row", b"O", ("t", "big toasted value"), {"big_text": "big toasted value"}, set()),
+            ("old_key_tuple", b"K", None, {}, {"big_text"}),
+        ]
+    )
+    def test_unchanged_toast_filled_only_from_a_real_old_value(
+        self,
+        _name: str,
+        old_marker: bytes,
+        old_big_text: tuple[str, str] | None,
+        expected_filled: dict[str, str],
+        expected_omitted: set[str],
+    ) -> None:
+        decoder = PgOutputDecoder()
+        columns = [("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)]
+        decoder.decode_message(_make_relation(1, "public", "users", columns, key_columns={"id"}), "0/100")
 
         decoder.decode_message(_make_begin(), "0/100")
         update = _make_update(
             1,
-            new_values=[("t", "1"), ("u", "")],
-            old_values=[("t", "1"), ("t", "big toasted value")],
-            old_marker=b"O",
+            new_values=[("t", "2"), ("u", "")],
+            old_values=[("t", "1"), old_big_text],
+            old_marker=old_marker,
         )
         decoder.decode_message(update, "0/150")
         events = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert len(events) == 1
-        assert events[0].columns["big_text"] == "big toasted value"
-        assert events[0].omitted_columns == frozenset()
+        assert events[0].columns == {"id": 2, **expected_filled}
+        assert events[0].omitted_columns == frozenset(expected_omitted)
 
     def test_transaction_buffering(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1)])
@@ -411,7 +457,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(rel1, "0/50")
 
         decoder.decode_message(_make_begin(), "0/100")
-        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
         events1 = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events1[0].columns == {"id": 1, "name": "Alice"}
@@ -431,13 +477,20 @@ class TestPgOutputDecoder:
 
         assert events2[0].columns == {"id": 2, "name": "Bob", "email": "bob@example.com"}
 
-    def test_truncate_marks_table(self):
-        decoder = self._setup_decoder_with_relation(relation_id=1, table="users")
+    @parameterized.expand([("in_memory", 100), ("spilled", 1)])
+    def test_a_truncate_shows_only_once_its_transactions_changes_are_consumed(self, _name, chunk):
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
+            decoder = self._setup_decoder_with_relation(relation_id=1, table="users")
+            decoder.decode_message(_make_begin(), "0/100")
+            decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
+            decoder.decode_message(_make_insert(1, [("t", "2"), ("t", "Bob"), None]), "0/120")
+            decoder.decode_message(_make_truncate([1]), "0/130")
+            events = iter(decoder.decode_message(_make_commit(), "0/200"))
 
-        truncate = _make_truncate([1])
-        decoder.decode_message(truncate, "0/100")
-
-        assert decoder.truncated_tables == ["public.users"]
+            next(events)
+            assert decoder.truncated_tables == []
+            assert len(list(events)) == 1
+            assert decoder.truncated_tables == ["public.users"]
 
         decoder.clear_truncated_tables()
         assert decoder.truncated_tables == []
@@ -505,7 +558,7 @@ class TestPgOutputDecoder:
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
 
         decoder.decode_message(_make_begin(), "0/100")
-        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
         decoder.decode_message(_make_update(1, [("t", "1"), ("t", "Alice Updated")]), "0/120")
         decoder.decode_message(_make_delete(1, [("t", "2"), None]), "0/130")
         events = list(decoder.decode_message(_make_commit(), "0/200"))
@@ -536,7 +589,8 @@ class TestTransactionBufferGuard:
 
     def _decoder_with_relation(self) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
-        decoder.decode_message(_make_relation(1, "public", "users", self._COLUMNS), "0/1")
+        decoder.set_key_change_columns({"public.users": ["id"]})
+        decoder.decode_message(_make_relation(1, "public", "users", self._COLUMNS, key_columns={"id"}), "0/1")
         return decoder
 
     def _row(self, i: int) -> list[tuple[str, str] | None]:
@@ -552,8 +606,10 @@ class TestTransactionBufferGuard:
         retyped = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1), ("active", _OID_BOOL, -1), ("score", _OID_TEXT, -1)]
         return [
             *(_make_insert(1, self._row(i)) for i in range(4)),
-            _make_update(1, [("t", "2"), ("u", ""), ("t", "f"), ("t", "9.5")]),
-            _make_relation(1, "public", "users", retyped),
+            _make_update(
+                1, [("t", "2"), ("u", ""), ("t", "f"), ("t", "9.5")], old_values=[("t", "1"), None, None, None]
+            ),
+            _make_relation(1, "public", "users", retyped, key_columns={"id"}),
             *(_make_insert(1, self._row(i)) for i in range(4, 7)),
         ]
 
@@ -569,6 +625,7 @@ class TestTransactionBufferGuard:
         assert spilled == in_memory
         assert {e.position_serialized for e in spilled} == {"0/500"}
         assert spilled[4].omitted_columns == frozenset({"name"})
+        assert spilled[4].previous_values == {"id": 1}
         assert spilled[0].column_types != spilled[-1].column_types
         assert [e.columns["id"] for e in follow_up] == [100]
 
@@ -667,13 +724,13 @@ class TestTransactionBufferGuard:
 
 
 class TestReplicaIdentityKeyColumns:
-    def _decoder_with(self, replica_identity: int = 0, key_flags: tuple[int, ...] = (1, 0, 0)) -> PgOutputDecoder:
+    def _decoder_with(self, key_flags: tuple[int, ...] = (1, 0, 0)) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
         decoder._relations[1] = Relation(
             relation_id=1,
             schema_name="cdc_test",
             table_name="orders",
-            replica_identity=replica_identity,
+            replica_identity=ord("d"),
             columns=[
                 RelationColumn(flags=flags, name=name, type_oid=_OID_INT8, type_modifier=-1)
                 for flags, name in zip(key_flags, ["id", "tenant_id", "total"])
@@ -694,11 +751,13 @@ class TestReplicaIdentityKeyColumns:
     def test_full_replica_identity_yields_no_key(self):
         # FULL flags every column, so adopting it as the key would make the merge key the whole row
         # and every update would insert instead of replace.
-        decoder = self._decoder_with(replica_identity=2, key_flags=(1, 1, 1))
+        decoder = PgOutputDecoder()
+        columns = [("id", _OID_INT8, -1), ("tenant_id", _OID_INT8, -1), ("total", _OID_INT8, -1)]
+        decoder.decode_message(_make_relation(1, "cdc_test", "orders", columns, replica_identity=ord("f")), "0/1")
 
         assert decoder.get_key_columns("cdc_test.orders") == []
 
     def test_declared_key_covering_every_column_survives(self):
-        decoder = self._decoder_with(replica_identity=0, key_flags=(1, 1, 1))
+        decoder = self._decoder_with(key_flags=(1, 1, 1))
 
         assert decoder.get_key_columns("cdc_test.orders") == ["id", "tenant_id", "total"]

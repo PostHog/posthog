@@ -213,6 +213,7 @@ Read the comment at the top of `.github/workflows/ci-backend.yml` for the curren
 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
+Jest selection includes imported JSON files, such as terminal package manifests, because changes to data can break their consumers without changing TypeScript.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
@@ -521,6 +522,21 @@ The agent that opens the PR already knows this person. Thus the instruction move
 
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
 
+## CI failure triage
+
+### Use a small classifier model to route a failed CI job to the next investigation
+
+**Verdict: rejected** · Oct 2026 · measured, not built
+
+Jev 1.13 (TypeSafe) read a log excerpt of a failed job and picked the next investigation from five routes.
+A list of regular expressions over the same excerpt did at least as well.
+On 24 held-out jobs the rules routed 20 and got 18 right. The model routed 18 and got 14 right. The labels came from agents, and the gap is inside the noise.
+
+The failed step name and the lines above the last `##[error]` carry most of the signal, and a rule reads both.
+Intermittent test failures were wrong for both. The rerun result separates them, and the log does not.
+
+_Also asked as:_ classify CI failures with an LLM, AI triage for red CI, Jev, TypeSafe, System One model, flaky or real failure from the log, route CI failures automatically
+
 ## Dev environment
 
 ### Share the dev environment and the Docker containers across worktrees
@@ -566,7 +582,7 @@ _Also asked as:_ auto-sync deps, keep the venv current automatically, uv sync in
 Python 3.12.12 needs uv 0.9.2 or later. Flox pinned uv 0.8.23, and that version can get Python 3.12.10 at the maximum.
 Thus a person without Python 3.12.12 on the local machine could not build the environment.
 
-Remember the constraint, not the versions. The repository now uses Python 3.13.13, and this pin is obsolete.
+Remember the constraint, not the versions. The repository now uses Python 3.14.7, and this pin is obsolete.
 Before you increase the Python version, examine which versions the pinned flox uv can get.
 
 _Also asked as:_ bump Python, upgrade the interpreter, why is Python pinned to an exact version

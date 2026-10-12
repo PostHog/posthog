@@ -1,23 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { useArgs } from 'storybook/preview-api'
-
 import { CardsPreview } from './CardsPreview'
 
 const meta: Meta<typeof CardsPreview> = {
     title: 'Marketing Analytics/Dashboard/Metric cards',
     component: CardsPreview,
     args: { loading: false, setupSelected: false, missingSpec: false },
-    render: function Render(args) {
-        const [, updateArgs] = useArgs()
-        return (
-            <CardsPreview
-                {...args}
-                onLoadingChange={(loading) => updateArgs({ loading })}
-                onSetupSelected={() => updateArgs({ setupSelected: true })}
-            />
-        )
-    },
+    // CardsPreview reads these args into state on mount only, so the key remounts it when a Storybook control changes one.
+    render: (args) => <CardsPreview key={`${args.loading}-${args.setupSelected}`} {...args} />,
 }
 export default meta
 type Story = StoryObj<typeof meta>

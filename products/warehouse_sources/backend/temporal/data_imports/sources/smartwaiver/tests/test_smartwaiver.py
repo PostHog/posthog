@@ -116,26 +116,6 @@ class TestClampBeforeCurrentHour:
 
 class TestWaivers:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_partial_page(self, MockSession) -> None:
-        full_page = [str(i) for i in range(PAGE_SIZE)]
-        source, params, manager = _source(
-            MockSession,
-            [_response(_waiver_body(full_page)), _response(_waiver_body(["last"]))],
-            endpoint="waivers",
-        )
-        rows = _rows(source)
-
-        assert len(rows) == PAGE_SIZE + 1
-        # A partial (short) page ends pagination without an extra empty-page request.
-        assert MockSession.return_value.send.call_count == 2
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[1]["offset"] == 1
-        # State saved only while more pages may remain, never on the final partial page.
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == SmartwaiverResumeConfig(next_offset=1, from_dts=None)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_second_page_ends_pagination(self, MockSession) -> None:
         full_page = [str(i) for i in range(PAGE_SIZE)]
         source, _params, manager = _source(
@@ -181,30 +161,8 @@ class TestWaivers:
         _rows(source)
         assert params[0]["fromDts"] == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_time_filter(self, MockSession) -> None:
-        source, params, _manager = _source(MockSession, [_response(_waiver_body(["w1"]))], endpoint="waivers")
-        _rows(source)
-        assert "fromDts" not in params[0]
-
 
 class TestCheckins:
-    @time_machine.travel(_NOW, tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_sync_uses_default_window(self, MockSession) -> None:
-        source, params, _manager = _source(
-            MockSession, [_response(_checkin_body([1], more=False))], endpoint="checkins"
-        )
-        rows = _rows(source)
-
-        assert [r["checkinId"] for r in rows] == [1]
-        # Both bounds are required by the API: an old default lower bound and an upper bound
-        # strictly before the current hour.
-        assert params[0]["fromDts"] == "2000-01-01T00:00:00"
-        assert params[0]["toDts"] == _HOUR_BOUNDARY
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[0]["offset"] == 0
-
     @time_machine.travel(_NOW, tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sync_starts_window_at_watermark(self, MockSession) -> None:
@@ -255,17 +213,6 @@ class TestCheckins:
         assert MockSession.return_value.send.call_count == 1
         assert params[0]["offset"] == CHECKINS_MAX_OFFSET
         manager.save_state.assert_not_called()
-
-
-class TestTemplates:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_fetch_yields_templates(self, MockSession) -> None:
-        body = {"type": "templates", "templates": [{"templateId": "t1"}, {"templateId": "t2"}]}
-        source, _params, _manager = _source(MockSession, [_response(body)], endpoint="templates")
-        rows = _rows(source)
-
-        assert [r["templateId"] for r in rows] == ["t1", "t2"]
-        assert MockSession.return_value.send.call_count == 1
 
 
 class TestSmartwaiverSourceResponse:

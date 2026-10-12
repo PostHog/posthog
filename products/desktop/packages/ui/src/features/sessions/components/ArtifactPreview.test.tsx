@@ -489,6 +489,34 @@ describe("ArtifactPreview", () => {
     expect(frame).toHaveAttribute("sandbox", "");
   });
 
+  it("plays video artifacts in a video player instead of an iframe", () => {
+    useQuery.mockReturnValue({
+      data: new Blob(["video"], { type: "video/mp4" }),
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="demo.mp4"
+      />,
+    );
+
+    const video = screen.getByLabelText("demo.mp4");
+    expect(video.tagName).toBe("VIDEO");
+    expect(video).toHaveAttribute("src", "blob:preview");
+    expect(video).toHaveAttribute("controls");
+    expect(screen.queryByTitle("Preview of demo.mp4")).toBeNull();
+
+    fireEvent.error(video);
+    expect(
+      screen.getByText("This artifact can’t be previewed."),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     ["image.png", "image/png"],
     ["image.jpg", "image/jpeg"],
@@ -498,9 +526,12 @@ describe("ArtifactPreview", () => {
     ["image.ico", "image/x-icon"],
     ["image.tiff", "image/tiff"],
     ["image.avif", "image/avif"],
+    ["demo.mp4", "video/mp4"],
+    ["demo.mov", "video/quicktime"],
+    ["demo.webm", "video/webm"],
   ])("normalizes %s served as octet-stream", async (name, mimeType) => {
     const blob = await artifactPreviewBlob(
-      new Blob(["image"], { type: "application/octet-stream" }),
+      new Blob(["media"], { type: "application/octet-stream" }),
       name,
     );
 

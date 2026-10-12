@@ -18,6 +18,7 @@ import { CoreEventsSettings } from 'scenes/settings/environment/CoreEventsSettin
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
@@ -25,6 +26,7 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import { DefinitionsSceneTabs } from './DefinitionsSceneTabs'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsV2View } from './ingestion-warnings-v2/IngestionWarningsV2View'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
@@ -143,7 +145,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
                 Core events
             </TitleWithIcon>
         ),
-        content: <CoreEventsSettings />,
+        content: (
+            <SceneContent>
+                <DefinitionsSceneTabs activeKey="core-events" />
+                <CoreEventsSettings />
+            </SceneContent>
+        ),
         flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
     },
     [DataManagementTab.IngestionWarnings]: {

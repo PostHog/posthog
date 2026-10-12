@@ -4,6 +4,8 @@ import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, ActivityLogItem, PersonMerge, Trigger } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
@@ -57,6 +59,8 @@ async function testSetup(
         },
     })
     initKeaTests()
+    cohortsModel.mount()
+    propertyDefinitionsModel.mount()
     const logic = activityLogLogic({ scope, id: 7 })
     logic.mount()
 

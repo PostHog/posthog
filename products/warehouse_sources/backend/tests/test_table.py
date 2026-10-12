@@ -666,3 +666,37 @@ class TestUrlPatternChangeGuard(BaseTest):
 
         table.refresh_from_db()
         assert table.deleted is True
+
+
+class TestRowCountColumnWidth(BaseTest):
+    def test_row_count_beyond_32_bit_range_can_be_saved(self) -> None:
+        # Postgres's `integer` column tops out at 2,147,483,647, so a synced table with more
+        # rows than that must still be able to save through table.save().
+        table = DataWarehouseTable(
+            name="t", format="Delta", team=self.team, url_pattern="s3://bucket/team_1/t", row_count=2_147_483_648
+        )
+        table.save()
+
+        table.refresh_from_db()
+        assert table.row_count == 2_147_483_648
+
+
+class TestModelsNamespaceGuard(BaseTest):
+    def test_legacy_table_with_reserved_name_can_be_soft_deleted(self) -> None:
+        [table] = DataWarehouseTable.objects.bulk_create(
+            [DataWarehouseTable(name="models.revenue", format="Parquet", team=self.team, url_pattern="s3://x/*")]
+        )
+
+        table.soft_delete()
+
+        table.refresh_from_db()
+        assert table.deleted is True
+
+    def test_existing_table_cannot_be_renamed_into_reserved_namespace(self) -> None:
+        table = DataWarehouseTable.objects.create(
+            name="revenue", format="Parquet", team=self.team, url_pattern="s3://x/*"
+        )
+
+        table.name = "models.revenue"
+        with pytest.raises(ValidationError, match="models namespace"):
+            table.save()

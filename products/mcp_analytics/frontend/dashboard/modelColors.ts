@@ -36,10 +36,13 @@ export function modelColor(theme: ChartTheme, model: string): string | undefined
     const name = match ? normalized.slice(match.index + match[0].length - match[1].length) : normalized
     const hash = hashCodeForString(name)
     const index = match ? FAMILY_COLOR_INDEX[match[1]] : hash
-    const base = theme.colors[index % theme.colors.length]
+    return shadeColor(theme.colors[index % theme.colors.length], (hash % 5) * 8) ?? theme.axisColor
+}
+
+export function shadeColor(base: string | undefined, pct: number): string | undefined {
     if (!base) {
-        return theme.axisColor
+        return undefined
     }
     const hex = toOpaqueHex(base)
-    return /^#[\da-f]{3}([\da-f]{3})?$/i.test(hex) ? lightenDarkenColor(hex, (hash % 5) * 8) : base
+    return /^#[\da-f]{3}([\da-f]{3})?$/i.test(hex) ? lightenDarkenColor(hex, pct) : base
 }

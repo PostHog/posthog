@@ -23,7 +23,10 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
 )
-from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -73,6 +76,34 @@ def create_trunk_source(
         source_type=ExternalDataSourceType.TRUNKIO,
         prefix=prefix,
         job_inputs={},
+    )
+
+
+def _depot_attempt_row(**overrides: Any) -> dict[str, Any]:
+    return (
+        dict.fromkeys(DEPOT_JOB_ATTEMPTS_COLUMNS)
+        | {
+            "run_id": "427q556wmn",
+            "run_workflow_count": 1,
+            "repo": "PostHog/posthog",
+            "workflow_id": "6n4tghls33",
+            "job_id": "p4kd9tq2xs",
+            "attempt_id": "zf6sbbn2wh",
+            "attempt": 1,
+        }
+        | overrides
+    )
+
+
+def create_depot_source(team: Team, *, prefix: str = "depot_", repository: str = "") -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id="depot-source",
+        connection_id="depot-source",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.DEPOT,
+        prefix=prefix,
+        job_inputs={"repository": repository} if repository else {},
     )
 
 
@@ -265,10 +296,14 @@ def _run_row(
     head_branch: str = "main",
     commit_message: str | None = None,
     actor: str = "alice",
+    workflow_id: int | None = None,
+    event: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
+        "workflow_id": workflow_id,
+        "event": event,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "status": status,

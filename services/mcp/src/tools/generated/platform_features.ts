@@ -627,6 +627,7 @@ const OrganizationEnforce2faSchema = () => {
             members_can_see_org_members: true,
             allow_publicly_shared_resources: true,
             read_only_mcp_access: true,
+            member_notice: true,
             is_ai_data_processing_approved: true,
             is_ai_training_opted_in: true,
             default_anonymize_ips: true,
@@ -637,7 +638,7 @@ const OrganizationEnforce2faSchema = () => {
             .describe('Organization ID. If omitted, targets the active organization.')
             .optional(),
         enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
-            .unwrap()
+            .nonoptional()
             .describe(
                 'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
             ),

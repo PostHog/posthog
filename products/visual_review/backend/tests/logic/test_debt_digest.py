@@ -12,13 +12,7 @@ from owners_yaml.schema import TeamEntry
 
 from posthog.models.team.team import Team
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
-from posthog.team_notifications.slack import (
-    MAX_BLOCKS,
-    MAX_SECTION_CHARS,
-    MAX_TEXT_CHARS,
-    SlackChannel,
-    SlackPostRefused,
-)
+from posthog.slack.channels import MAX_BLOCKS, MAX_SECTION_CHARS, MAX_TEXT_CHARS, SlackChannel, SlackPostRefused
 
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,
@@ -27,7 +21,15 @@ from products.visual_review.backend.facade.contracts import (
     SnapshotManifestItem,
 )
 from products.visual_review.backend.facade.enums import RunType
-from products.visual_review.backend.logic import artifact_store, debt_digest, quarantine, repos, runs, story_index
+from products.visual_review.backend.logic import (
+    artifact_store,
+    debt_digest,
+    quarantine,
+    repos,
+    runs,
+    story_index,
+    team_channels,
+)
 from products.visual_review.backend.models import Run, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -340,7 +342,7 @@ class TestRendering:
         repo = _repo()
 
         line = debt_digest._quarantine_line(repo, entry, {}, _MONDAY)
-        facts = debt_digest._quarantine_facts(entry, {}, _MONDAY)
+        facts = debt_digest.quarantine_facts(entry, {}, _MONDAY)
         item = _item(_PLACED, identifier="Button<!channel>", line=line, facts=facts)
         digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=[item], variant_pileups=[])
         rendered = str(debt_digest.thread_messages(repo, digest, _MONDAY)[0])
@@ -362,7 +364,7 @@ class TestRendering:
         # A weekday name seven days out names the day the reader is reading on, so that one dates itself.
         entry = MagicMock(reason="flaky", expires_at=_MONDAY + expires_in, created_by_id=None)
 
-        assert debt_digest._quarantine_facts(entry, {}, _MONDAY).startswith(f"Expires *{expected}*")
+        assert debt_digest.quarantine_facts(entry, {}, _MONDAY).startswith(f"Expires *{expected}*")
 
     def test_links_to_the_snapshot_page_with_encoded_segments(self) -> None:
         line = debt_digest._pileup_line(_repo(), "storybook", "scenes/Button--dark", 4)
@@ -391,7 +393,7 @@ class TestRendering:
             created_by_id=None,
         )
         line = debt_digest._quarantine_line(repo, entry, {}, _MONDAY)
-        item = _item(_PLACED, identifier=identifier, line=line, facts=debt_digest._quarantine_facts(entry, {}, _MONDAY))
+        item = _item(_PLACED, identifier=identifier, line=line, facts=debt_digest.quarantine_facts(entry, {}, _MONDAY))
         digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=[item] * 2, variant_pileups=[])
 
         messages = debt_digest.thread_messages(repo, digest, _MONDAY)
@@ -447,17 +449,17 @@ class TestRouting:
     def test_a_team_that_opted_out_is_skipped(self) -> None:
         registry = {"team-devex": TeamEntry(notifications={"visual_review": False})}
 
-        assert debt_digest.resolve_channel("team-devex", registry, self._CHANNELS) is None
+        assert team_channels.resolve_channel("team-devex", registry, self._CHANNELS) is None
 
     def test_a_shared_channel_is_refused(self) -> None:
         # A name match onto a shared channel would send an internal reminder out of the workspace.
-        assert debt_digest.resolve_channel("team-shared", {}, self._CHANNELS) is None
+        assert team_channels.resolve_channel("team-shared", {}, self._CHANNELS) is None
 
     @pytest.mark.parametrize("mode", ["preveiw", "shadow", ""])
     def test_an_unknown_mode_evaluates_nothing_and_posts_nothing(self, mode: str) -> None:
         with (
             patch("products.visual_review.backend.logic.debt_digest.collect_debt") as collect,
-            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+            patch("products.visual_review.backend.logic.team_channels.post_with_join") as post,
         ):
             assert debt_digest.send_debt_digest(MagicMock(), mode=mode) == []
 
@@ -666,8 +668,8 @@ class TestCollectAndSend:
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
                 return_value=_ownership({_SOURCE_PATH: "team-devex", _PRODUCT_PATH: "team-devex"}),
             ),
-            patch("products.visual_review.backend.logic.debt_digest.fetch_channel_map") as channel_map,
-            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+            patch("products.visual_review.backend.logic.team_channels.fetch_channel_map") as channel_map,
+            patch("products.visual_review.backend.logic.team_channels.post_with_join") as post,
         ):
             rendered = debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_PREVIEW)
 
@@ -690,7 +692,7 @@ class TestCollectAndSend:
         with (
             _with_index(_INDEX),
             patch("products.visual_review.backend.logic.debt_digest.resolve_path_owners", return_value=blind),
-            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+            patch("products.visual_review.backend.logic.team_channels.post_with_join") as post,
         ):
             assert debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE) == []
 
@@ -707,22 +709,23 @@ class TestCollectAndSend:
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
                 return_value=_ownership({_SOURCE_PATH: "team-one", _OTHER_PATH: "team-two", _PRODUCT_PATH: "team-two"}),
             ),
-            patch("products.visual_review.backend.logic.debt_digest.Integration") as integration,
-            patch("products.visual_review.backend.logic.debt_digest.SlackIntegration"),
+            patch("products.visual_review.backend.logic.team_channels.Integration") as integration,
+            patch("products.visual_review.backend.logic.team_channels.SlackIntegration") as slack,
             patch(
-                "products.visual_review.backend.logic.debt_digest.fetch_channel_map",
+                "products.visual_review.backend.logic.team_channels.fetch_channel_map",
                 return_value={
                     "team-one": SlackChannel(channel_id="C1", shared=False),
                     "team-two": SlackChannel(channel_id="C2", shared=False),
                 },
             ),
             patch(
-                "products.visual_review.backend.logic.debt_digest.post_with_join",
+                "products.visual_review.backend.logic.team_channels.post_with_join",
                 side_effect=[SlackPostRefused("no"), "1700000000.1"],
             ) as post,
-            patch("products.visual_review.backend.logic.debt_digest.post_message") as thread_post,
+            patch("products.visual_review.backend.logic.team_channels.post_message") as thread_post,
         ):
             integration.objects.filter.return_value.first.return_value = MagicMock()
+            slack.return_value.client.conversations_info.return_value = {"channel": {"id": "C1"}}
             debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
 
         assert post.call_count == 2

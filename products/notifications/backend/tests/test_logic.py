@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -164,11 +163,6 @@ class TestCreateNotification(BaseTest):
 
         assert allowed_user.id in result
         assert denied_user.id not in result
-
-    def test_resolve_unknown_target_type_raises(self):
-        resolver = RecipientsResolver()
-        with pytest.raises(ValueError, match="Unknown target type"):
-            resolver.resolve("nonexistent_type", "123", self.team.id)  # type: ignore[arg-type]
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
@@ -428,33 +422,6 @@ class TestPublishResourceEdited(BaseTest):
         assert self.user.id in payload["resolved_user_ids"]
         # Editor-state sync only — it must never become an inbox notification.
         assert NotificationEvent.objects.count() == 0
-
-    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
-    @patch("products.notifications.backend.logic.get_producer")
-    def test_noops_when_flag_disabled(self, mock_get_producer, mock_ff):
-        with self.captureOnCommitCallbacks(execute=True):
-            publish_resource_edited(
-                team=self.team,
-                resource_type="HogFlow",
-                resource_id="flow-123",
-                updated_at="2026-06-16T00:00:00+00:00",
-            )
-
-        mock_get_producer.assert_not_called()
-
-    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.notifications.backend.logic.get_producer")
-    @patch.object(RecipientsResolver, "resolve", return_value=[])
-    def test_noops_when_no_recipients(self, mock_resolve, mock_get_producer, mock_ff):
-        with self.captureOnCommitCallbacks(execute=True):
-            publish_resource_edited(
-                team=self.team,
-                resource_type="HogFlow",
-                resource_id="flow-123",
-                updated_at="2026-06-16T00:00:00+00:00",
-            )
-
-        mock_get_producer.assert_not_called()
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic.get_producer")

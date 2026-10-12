@@ -7,8 +7,10 @@ import {
   type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
+  hasActiveChannelItemFilters,
   sortChannelItems,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
@@ -219,14 +221,14 @@ describe("buildChannelItems", () => {
     expect(item.repository).toBeNull();
   });
 
-  it("reads a filed session's source, and none for one started here", () => {
+  it("reads the source for filed and Desktop sessions", () => {
     const items = build({
       feedTasks: [
         task({ id: "filed", origin_product: "slack" }),
         task({ id: "own", origin_product: "user_created" }),
       ],
     });
-    expect(items.map((i) => i.source)).toEqual(["slack", null]);
+    expect(items.map((i) => i.source)).toEqual(["slack", DESKTOP_SOURCE]);
   });
 
   it("marks the sessions asking for input and the ones you haven't read", () => {
@@ -325,7 +327,7 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     pinned: false,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: ME,
@@ -397,6 +399,7 @@ describe("filterChannelItems", () => {
     model({ id: "local", environment: "local" }),
     model({ id: "cloud", environment: "cloud" }),
     model({ id: "from-slack", source: "slack" }),
+    model({ id: "from-tracker", source: "error_tracking" }),
     model({ id: "quiet" }),
   ];
 
@@ -406,7 +409,11 @@ describe("filterChannelItems", () => {
     { filter: { pinned: "pinned" }, kept: ["pinned"] },
     { filter: { environment: "local" }, kept: ["local"] },
     { filter: { environment: "cloud" }, kept: ["cloud"] },
-    { filter: { source: "slack" }, kept: ["from-slack"] },
+    { filter: { sources: ["slack"] }, kept: ["from-slack"] },
+    {
+      filter: { sources: ["slack", "error_tracking"] },
+      kept: ["from-slack", "from-tracker"],
+    },
   ] as const)("keeps only $kept for $filter", ({ filter, kept }) => {
     const result = filterChannelItems(CANDIDATES, {
       query: "",
@@ -435,15 +442,36 @@ describe("filterChannelItems", () => {
   });
 });
 
+describe("hasActiveChannelItemFilters", () => {
+  it.each([
+    { sources: [DESKTOP_SOURCE, "slack"], active: false },
+    { sources: ["slack", DESKTOP_SOURCE], active: false },
+    { sources: ["slack"], active: true },
+    { sources: [], active: true },
+  ])("is $active for sources $sources", ({ sources, active }) => {
+    expect(
+      hasActiveChannelItemFilters(filters({ sources }), {
+        ...DEFAULT_CHANNEL_ITEM_FILTERS,
+        sources: [DESKTOP_SOURCE, "slack"],
+      }),
+    ).toBe(active);
+  });
+});
+
 describe("channelItemSources", () => {
-  it("offers each source once, and nothing for sessions started here", () => {
+  it("offers each source once", () => {
     const items = [
       model({ id: "a", source: "slack" }),
       model({ id: "b", source: "slack" }),
       model({ id: "c", source: "error_tracking" }),
+      model({ id: "desktop", source: DESKTOP_SOURCE }),
       model({ id: "d", source: null }),
     ];
-    expect(channelItemSources(items)).toEqual(["error_tracking", "slack"]);
+    expect(channelItemSources(items)).toEqual([
+      "error_tracking",
+      "slack",
+      DESKTOP_SOURCE,
+    ]);
   });
 });
 

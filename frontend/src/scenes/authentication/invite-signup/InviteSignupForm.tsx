@@ -226,7 +226,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                     />
                                 )}
                             </LemonField>
-                            <SignupRoleSelect />
+                            <SignupRoleSelect showOptional />
                         </>
                     )}
 

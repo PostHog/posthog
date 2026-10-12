@@ -57,6 +57,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                                 </LemonBanner>
                                 <div>
                                     <LemonButton
+                                        data-attr="ai-regex-copy"
                                         type="secondary"
                                         onClick={handleCopyToClipboard}
                                         tooltip="Copy to clipboard"
@@ -68,12 +69,13 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                     )}
 
                     <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" onClick={onClose} tooltip="Close">
+                        <LemonButton data-attr="ai-regex-close" type="secondary" onClick={onClose} tooltip="Close">
                             Close
                         </LemonButton>
 
                         <AIConsentPopoverWrapper>
                             <LemonButton
+                                data-attr="ai-regex-generate"
                                 type={generatedRegex ? 'secondary' : 'primary'}
                                 onClick={handleGenerateRegex}
                                 disabledReason={disabledReason}
@@ -85,6 +87,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
 
                         {generatedRegex && (
                             <LemonButton
+                                data-attr="ai-regex-apply"
                                 type="primary"
                                 onClick={() => {
                                     posthog.capture('path_cleaning_regex_ai_applied', {
@@ -114,6 +117,7 @@ export function AiRegexHelperButton(): JSX.Element {
 
     return (
         <LemonButton
+            data-attr="ai-regex-open"
             type="tertiary"
             size="small"
             icon={<IconAI />}

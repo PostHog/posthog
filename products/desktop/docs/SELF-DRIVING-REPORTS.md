@@ -11,11 +11,12 @@ Reports with a PR show Open in GitHub as the first header button, followed by Ch
 Copy-link options are in the More report actions menu. Report actions do not offer canvas creation.
 
 A draft pull request shows the approval and merge controls, a draft note, and a secondary Ready for review button.
+Use Run skill on an open pull request to search team skills. Skills you choose often appear first, including before the store loads. If your team has no skills, the menu links to the skills store. The new cloud task opens with the skill, pull request URL, and repository set; review the prompt before you send it.
 Marking a draft ready does not approve or merge it. Existing merge checks still apply.
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
-The suggested reviewer views show each reviewer source and reason. Reviewers with the same reason appear in one compact group.
+The suggested reviewer views show each reviewer source and reason. Each reason appears above its indented reviewer or reviewers, without a separate box. The remove control stays visible, and Add Reviewer appears as a button at the bottom of the section.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
 Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.

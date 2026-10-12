@@ -19,10 +19,11 @@ from django.utils import timezone
 
 import structlog
 
+from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
-from ..models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from ..models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
 from . import contracts
 from .enums import (
     TERMINAL_STATUSES,
@@ -373,6 +374,114 @@ def create_repo_config(
     except IntegrityError:
         raise contracts.RepoAlreadyClaimedError(repository)
     return _repo_config_to_dto(obj)
+
+
+def list_available_repositories(team_id: int, *, search: str = "", limit: int) -> contracts.AvailableRepositoriesDTO:
+    """Repositories in the team's installation snapshots that the team has not added yet.
+
+    A repository another team holds under the same installation is left out too, because the
+    cross-team unique constraint would refuse it. ``search`` is a case-insensitive substring.
+    """
+    # A record without a connecting user cannot mint review credentials, so add_repository refuses it.
+    snapshots = list(
+        StamphogInstallation.objects.for_team(team_id)
+        .filter(provider="github", connected_by_user_id__isnull=False)
+        .values_list("installation_id", "repositories")
+    )
+    if not snapshots:
+        return contracts.AvailableRepositoriesDTO(repositories=[], total_count=0, has_installation=False)
+
+    added = set(StamphogRepoConfig.objects.for_team(team_id).values_list("repository", flat=True))
+    candidates = {
+        (installation_id, repository)
+        for installation_id, repositories in snapshots
+        for repository in repositories
+        if repository not in added
+    }
+    # The one cross-team read here: which of these repositories another team already owns. It
+    # returns only names this team's own snapshots hold, so nothing about the other team leaks.
+    claimed = set(
+        StamphogRepoConfig.objects.unscoped()
+        .filter(
+            provider="github",
+            installation_id__in={installation_id for installation_id, _ in candidates},
+            repository__in={repository for _, repository in candidates},
+        )
+        .exclude(team_id=team_id)
+        .values_list("installation_id", "repository")
+    )
+    addable = {repository for _, repository in candidates - claimed}
+    needle = search.strip().lower()
+    available = sorted((repository for repository in addable if needle in repository.lower()), key=str.lower)
+    return contracts.AvailableRepositoriesDTO(
+        repositories=available[:limit], total_count=len(available), has_installation=True
+    )
+
+
+def add_repository(team_id: int, repository: str) -> contracts.AddRepositoryResultDTO:
+    """Turn reviews on for a repository from the team's installation snapshot.
+
+    The installation and the connecting user come from the snapshot record, never from the caller:
+    the record is what a member's GitHub token proved. A row the team already has for the
+    repository is turned on and bound to that installation rather than refused, so a paused or
+    removed repository can be added again.
+    """
+    write_db = router.db_for_write(StamphogRepoConfig)
+    try:
+        with transaction.atomic(using=write_db):
+            # Writer pin: this read decides which installation the row binds to. The lock is the one a
+            # removal or uninstall webhook takes first. Without it, a webhook can drop the repository
+            # and tombstone the team's rows between this read and the create below, and the new row
+            # then stays enabled for a repository that left the installation. A record without a
+            # connecting user cannot mint review credentials, so a member has to sync it first.
+            installation = (
+                StamphogInstallation.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(provider="github", repositories__contains=[repository], connected_by_user_id__isnull=False)
+                .order_by("-updated_at")
+                .first()
+            )
+            if installation is None:
+                raise contracts.RepositoryNotInstalledError(repository)
+            existing = (
+                StamphogRepoConfig.objects.for_team(team_id)
+                .using(write_db)
+                .select_for_update()
+                .filter(repository=repository)
+                .first()
+            )
+            if existing is None:
+                config = (
+                    StamphogRepoConfig.objects.for_team(team_id)
+                    .using(write_db)
+                    .create(
+                        # for_team() scopes a read but not row creation, so team_id is explicit here.
+                        team_id=team_id,
+                        provider="github",
+                        repository=repository,
+                        installation_id=installation.installation_id,
+                        enabled=True,
+                        connected_by_user_id=installation.connected_by_user_id,
+                    )
+                )
+                return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(config), created=True)
+
+            update_fields = ["enabled", "updated_at"]
+            if existing.installation_id != installation.installation_id:
+                # A reinstall row keeps its settings, because a verified binding configured them.
+                if not existing.installation_id:
+                    update_fields += reset_unverified_review_policy(existing)
+                existing.installation_id = installation.installation_id
+                update_fields.append("installation_id")
+            existing.connected_by_user_id = installation.connected_by_user_id
+            update_fields.append("connected_by_user_id")
+            existing.enabled = True
+            existing.save(update_fields=update_fields)
+            return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(existing), created=False)
+    except IntegrityError:
+        # unique_stamphog_installation_repo: another team holds this repository under the installation.
+        raise contracts.RepoAlreadyClaimedError(repository)
 
 
 def update_repo_config(team_id: int, config_id: str, **fields: object) -> contracts.RepoConfigDTO:

@@ -1,11 +1,13 @@
 import logging
+from collections.abc import Iterator
 
 import pytest
 from unittest import mock
 
 from django.conf import settings
+from django.db import connections
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import SyncToAsync, async_to_sync
 from temporalio.client import (
     Client as TemporalClient,
     ScheduleDescription,
@@ -13,12 +15,18 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError
 
+from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
 from products.batch_exports.backend.models.batch_export import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
-from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
+from products.batch_exports.backend.tests.api.fixtures import (
+    create_destination,
+    create_organization,
+    create_team,
+    create_user,
+)
 from products.batch_exports.backend.tests.api.operations import start_test_worker
 
 
@@ -75,6 +83,9 @@ def temporal_worker(temporal):
 
 @pytest.fixture
 def cleanup(temporal):
+    # Activities that outlive an earlier test can exit an atomic block while pytest-django blocks the database,
+    # which leaves the activity thread's connection in a transaction that hides every later activity write.
+    SyncToAsync.single_thread_executor.submit(connections.close_all).result()
     yield
     cleanup_temporal_schedules(temporal)
 
@@ -92,6 +103,26 @@ def team(organization):
 @pytest.fixture
 def user(organization):
     return create_user("test@user.com", "Test User", organization)
+
+
+@pytest.fixture
+def grandfathered_batch_export(team: Team, request: pytest.FixtureRequest) -> Iterator[BatchExport]:
+    export_team = team if getattr(request, "param", True) else create_team(team.organization)
+    destination = create_destination()
+    batch_export = BatchExport.objects.create(
+        team=export_team,
+        name="Legacy custom schema export",
+        destination=destination,
+        interval="hour",
+        schema={
+            "fields": [{"expression": "events.uuid", "alias": "uuid"}],
+            "values": {},
+            "hogql_query": "SELECT uuid FROM events",
+        },
+    )
+    yield batch_export
+    batch_export.delete()
+    destination.delete()
 
 
 @pytest.fixture
@@ -137,7 +168,7 @@ def s3_compatible_integration(team, user):
 def hogql_batch_exports_enabled():
     """Enable the hogql-batch-exports feature flag for the duration of a test."""
     with mock.patch(
-        "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled", return_value=True
+        "products.batch_exports.backend.presentation.views.utils.posthoganalytics.feature_enabled", return_value=True
     ) as feature_enabled:
         yield feature_enabled
 

@@ -1,4 +1,6 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
+
+import time_machine
 
 from django.test import SimpleTestCase
 
@@ -71,6 +73,58 @@ class TestReportMetric(SimpleTestCase):
         metric = ReportMetric.model_validate(content)
 
         assert metric.value == 0
+
+    def test_proposed_goal_is_informational_and_round_trips(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(goal_value=0, goal_direction="at_most", decision_window_days=7, minimum_data_points=30)
+
+        metric = ReportMetric.model_validate(content)
+
+        assert metric.goal_value == 0
+        assert ReportMetric.model_validate_json(metric.model_dump_json()) == metric
+
+    def test_proposed_goal_requires_direction_and_decision_rule(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(goal_value=10, goal_direction="at_most")
+
+        with self.assertRaisesRegex(ValidationError, "suggested decision window"):
+            ReportMetric.model_validate(content)
+
+        content["decision_window_days"] = 7
+        content["goal_direction"] = None
+        with self.assertRaisesRegex(ValidationError, "goal_value and goal_direction"):
+            ReportMetric.model_validate(content)
+
+    def test_proposed_goal_rejects_boolean_values(self) -> None:
+        for field_name in ("goal_value", "decision_window_days", "minimum_data_points"):
+            for boolean in (True, False):
+                content = _affected_users_metric().model_dump(mode="json")
+                content.update(goal_value=10, goal_direction="at_most", decision_window_days=7)
+                content[field_name] = boolean
+                with self.subTest(field_name=field_name, value=boolean):
+                    with self.assertRaisesRegex(ValidationError, "must be a number, not a boolean"):
+                        ReportMetric.model_validate(content)
+
+    def test_proposed_duration_goal_rejects_negative_values(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(
+            kind="duration",
+            value_format="duration",
+            unit="ms",
+            goal_value=-1,
+            goal_direction="at_most",
+            decision_window_days=7,
+        )
+
+        with self.assertRaisesRegex(ValidationError, "duration goal must be non-negative"):
+            ReportMetric.model_validate(content)
+
+    def test_rejects_fractional_count_goal(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(goal_value=1.5, goal_direction="at_most", decision_window_days=3)
+
+        with self.assertRaisesRegex(ValidationError, "count goal"):
+            ReportMetric.model_validate(content)
 
     def test_rejects_fractional_or_negative_count_snapshots(self) -> None:
         for value in (-1, 1.5):
@@ -334,6 +388,25 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, f"at most {MAX_LIVE_METRIC_QUERY_SERIES} series"):
             ReportMetric.model_validate(content)
 
+    def test_live_query_validates_custom_hogql_aggregation_syntax(self) -> None:
+        for series in ({"kind": "EventsNode", "event": "$pageview"}, {"kind": "ActionsNode", "id": 1}):
+            for math_kind, expression, valid in (
+                ("hogql", "sum(", False),
+                ("hogql", "", False),
+                ("hogql", "count()", True),
+                ("hogql", "sum(properties.amount)", True),
+                ("total", "sum(", True),
+            ):
+                with self.subTest(series=series, math=math_kind, expression=expression):
+                    content = _affected_users_metric().model_dump(mode="json")
+                    content["kind"] = "custom"
+                    content["query"]["source"]["series"] = [{**series, "math": math_kind, "math_hogql": expression}]
+                    if valid:
+                        assert ReportMetric.model_validate(content).query == content["query"]
+                    else:
+                        with self.assertRaisesRegex(ValidationError, "math_hogql.*valid HogQL expression"):
+                            ReportMetric.model_validate(content)
+
     def test_live_query_rejects_formulas_the_trends_runner_cannot_execute(self) -> None:
         for description, trends_formula in (
             ("empty formulas entry", {"formulas": [""]}),
@@ -443,14 +516,36 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, "must include a timezone"):
             ReportMetric.model_validate(content)
 
-    def test_rejects_a_future_snapshot_timestamp(self) -> None:
-        # An author-supplied future time would make every refresh look older than the snapshot and
-        # freeze the stale value, so a time past now plus the clock-skew allowance is rejected.
-        content = _affected_users_metric().model_dump(mode="json")
-        content["value_at"] = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+    @time_machine.travel("2026-09-17T18:50:00Z", tick=False)
+    def test_keeps_a_local_snapshot_timestamp_that_names_the_current_instant(self) -> None:
+        # An author writes the snapshot time in their own zone, where the date can already be
+        # tomorrow or still yesterday. Each of these is the frozen instant, not a future one.
+        for value_at in ("2026-09-18T00:20:00+05:30", "2026-09-17T11:50:00-07:00", "2026-09-17T18:50:00Z"):
+            with self.subTest(value_at=value_at):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["value_at"] = value_at
 
-        with self.assertRaisesRegex(ValidationError, "must not be in the future"):
-            ReportMetric.model_validate(content)
+                metric = ReportMetric.model_validate(content)
+
+                assert metric.value == 17
+                assert metric.value_at == datetime(2026, 9, 17, 18, 50, tzinfo=UTC)
+
+    @time_machine.travel("2026-09-17T18:50:00Z", tick=False)
+    def test_drops_a_snapshot_still_measured_in_the_future(self) -> None:
+        # A time past now plus the clock-skew allowance would make every refresh look older than
+        # the snapshot and freeze the stale value. The metric and its live query still stand, so
+        # the report publishes instead of failing on an optional fallback.
+        for value_at in ("2026-09-18T06:20:00+05:30", "2027-09-17T18:50:00Z"):
+            with self.subTest(value_at=value_at):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["value_at"] = value_at
+                content["series"] = [3, 0, 5]
+
+                metric = ReportMetric.model_validate(content)
+
+                assert metric.value is None
+                assert metric.value_at is None
+                assert metric.series is None
 
     def test_requires_a_live_query_for_every_metric(self) -> None:
         with self.assertRaisesRegex(ValidationError, "Field required"):

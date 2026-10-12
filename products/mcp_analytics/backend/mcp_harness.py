@@ -9,7 +9,7 @@ query-time computation:
      three properties — the ones the `@posthog/mcp` / `posthog.mcp` SDK schemas can
      emit: the x-anthropic-client vendor header (`$mcp_vendor_client`, with the
      legacy server-stamped `mcp_vendor_client` as a fallback for historical rows),
-     then Claude Code's User-Agent surface, then the Grok User-Agent surface, then
+     then Claude Code's User-Agent surface, then the Grok and Kimchi User-Agent surfaces, then
      the clientInfo.name (`$mcp_client_name`), then the generic User-Agent product
      token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql` when the result must
@@ -72,6 +72,10 @@ _RAW_TOKEN = f"""coalesce(
     -- Promote the grok UA above it. (grok-shell keeps its `grok-`-prefixed
     -- clientInfo.name and buckets to Grok without help.)
     if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
+    -- Kimchi (kimchi.dev) is built on pi and reports the generic pi-mcp
+    -- `pi-mcp-<server>` as its clientInfo.name; only its `kimchi/…` User-Agent
+    -- names it, so promote that above the name the same way.
+    if(startsWith(lower({_UA_PRODUCT}), 'kimchi'), {_UA_TOKEN}, NULL),
     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
     ''
@@ -175,6 +179,7 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
         startsWith({token_col}, 'linear'), 'Linear',
         position({token_col}, 'librechat') > 0, 'LibreChat',
         startsWith({token_col}, 'pi-client'), 'Pi',
+        startsWith({token_col}, 'kimchi'), 'Kimchi',
         startsWith({token_col}, 'antigravity'), 'Antigravity',
         {token_col} = 'poke', 'Poke',
         {token_col} = 'opencode', 'opencode',
@@ -219,6 +224,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Linear",
     "LibreChat",
     "Pi",
+    "Kimchi",
     "Antigravity",
     "Poke",
     "opencode",

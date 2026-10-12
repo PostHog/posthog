@@ -3,12 +3,11 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_QUESTIONS_PER_REQUEST
+from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_OPTIONS_PER_QUESTION, MAX_QUESTIONS_PER_REQUEST
 from ..facade.enums import DecisionQuestionType
 
 MAX_STATE_CHARS = 65_536
 MAX_INSTRUCTIONS_CHARS = 2_000
-MAX_OPTIONS_PER_QUESTION = 255
 MAX_OPTION_CHARS = 500
 
 
@@ -123,4 +122,4 @@ class DecideResponseSerializer(serializers.Serializer):
         help_text="One answer per question, under the ids the request used.",
     )
     input_tokens = serializers.IntegerField(help_text="Tokens the model read, which is what the request is billed on.")
-    latency_ms = serializers.IntegerField(allow_null=True, help_text="Time the model spent answering, if reported.")
+    latency_ms = serializers.FloatField(allow_null=True, help_text="Time the model spent answering, if reported.")

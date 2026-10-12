@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { TasksCreateBody, TasksRunCreateBody } from '@/generated/tasks/api'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import type { Context } from '@/tools/types'
 
@@ -68,4 +69,59 @@ describe('Generated task tools', () => {
             run_source: 'agent',
         })
     })
+
+    it.each(['tasks-create-and-run', 'tasks-run-create'])(
+        '%s sends scheduling options and returns the saved configuration',
+        async (name) => {
+            const id = '00000000-0000-4000-8000-000000000001'
+            const options = {
+                scheduled_at: '2026-09-19T12:00:00',
+                model: 'gpt-5.3-codex',
+                reasoning_effort: 'high',
+            }
+            const latestRun = { id, status: 'not_started', ...options, scheduled_at: '2026-09-19T12:00:00Z' }
+            const request = vi.fn().mockResolvedValue({ id, latest_run: latestRun })
+            const context = {
+                api: { request, getProjectBaseUrl: () => 'https://example.com/project/42' },
+                stateManager: { getProjectId: async () => '42' },
+            } as unknown as Context
+            const tool = GENERATED_TOOL_MAP[name]!()
+            const params = tool.schema.parse({ id, description: 'Check the result', ...options })
+
+            expect(await tool.handler(context, params)).toMatchObject({ latest_run: latestRun })
+            expect(request).toHaveBeenCalledWith(expect.objectContaining({ body: expect.objectContaining(options) }))
+        }
+    )
+
+    it.each(['tasks-create-and-run', 'tasks-run-create'])('%s rejects a run option the API rejects', (name) => {
+        const schema = GENERATED_TOOL_MAP[name]!().schema
+        const base = { id: '00000000-0000-4000-8000-000000000001', description: 'Check the result' }
+
+        expect(() => schema.parse({ ...base, model: 'gpt-5.3-codex', reasoning_effort: 'very-high' })).toThrow()
+        expect(() => schema.parse({ ...base, reasoning_effort: 'high' })).toThrow()
+        expect(schema.parse({ ...base, model: 'gpt-5.3-codex', reasoning_effort: 'high' })).toMatchObject({
+            model: 'gpt-5.3-codex',
+            reasoning_effort: 'high',
+        })
+    })
+
+    it.each(['2026-09-19T12:00:00Z', '2026-09-19T14:00:00+02:00', '2026-09-19T12:00:00'])(
+        'accepts scheduled time %s',
+        (scheduled_at) => {
+            const schema = GENERATED_TOOL_MAP['tasks-create-and-run']!().schema
+            expect(schema.parse({ description: 'Check the result', scheduled_at })).toMatchObject({ scheduled_at })
+            expect(TasksCreateBody().parse({ description: 'Check the result', scheduled_at })).toMatchObject({
+                scheduled_at,
+            })
+            expect(TasksRunCreateBody().parse({ scheduled_at })).toMatchObject({ scheduled_at })
+            const resume = {
+                scheduled_at,
+                resume_from_run_id: '00000000-0000-4000-8000-000000000001',
+                model: 'claude-sonnet-4-6',
+                reasoning_effort: 'medium',
+            }
+            expect(TasksRunCreateBody().parse(resume)).toMatchObject(resume)
+            expect(() => schema.parse({ description: 'Check the result', scheduled_at: 'tomorrow' })).toThrow()
+        }
+    )
 })

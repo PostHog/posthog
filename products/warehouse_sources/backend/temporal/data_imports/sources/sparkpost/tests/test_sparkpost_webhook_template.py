@@ -86,12 +86,15 @@ class TestSparkPostWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result["httpResponse"]["status"] == expected_status
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
-    def test_delivery_is_rejected_when_no_credentials_are_configured(self):
+    def test_delivery_is_dropped_when_no_credentials_are_configured(self):
         res = self.run_function(
             self._inputs(authorization_header=""), globals=self._request(self._batch(), header="Basic anything")
         )
 
-        assert res.result == {"httpResponse": {"status": 400, "body": "Authorization header value not configured"}}
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Authorization header value not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     def test_events_table_not_enabled_is_acknowledged_and_dropped(self):

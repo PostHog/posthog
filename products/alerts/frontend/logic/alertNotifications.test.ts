@@ -82,7 +82,7 @@ describe('alertUtils', () => {
                     webhookUrl: 'https://example.com/hook',
                 },
                 alertName: 'Spike detector',
-                expectedName: 'Spike detector: Webhook https://example.com/hook',
+                expectedName: 'Spike detector: Webhook example.com',
                 expectedTemplateId: 'template-webhook',
                 expectedInputKeys: ['url', 'body'],
             },

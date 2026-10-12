@@ -14,6 +14,7 @@ from .email_settings import (
     EmailDisconnectView,
     EmailSendTestView,
     EmailSetDefaultView,
+    EmailSetTrustedRelayView,
     EmailStatusView,
     EmailVerifyDomainView,
     EmailVerifyForwardingView,
@@ -79,6 +80,7 @@ urlpatterns = [
     ),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
     re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),
+    re_path(r"^v1/email/set-trusted-relay/?$", EmailSetTrustedRelayView.as_view(), name="email-set-trusted-relay"),
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
     re_path(r"^v1/email/send-test/?$", EmailSendTestView.as_view(), name="email-send-test"),
     # GitHub Issues channel

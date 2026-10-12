@@ -98,7 +98,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         leadingUnplayableMs,
         hasUnrenderableWindow,
         unrenderableWindowMs,
-        hasOversizedMutations,
         fullyLoaded,
     } = useValues(sessionRecordingPlayerLogic)
 
@@ -374,7 +373,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                     Learn more
                                                 </Link>
                                             </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                            <LemonButton
+                                                data-attr="player-error-retry-load"
+                                                type="secondary"
+                                                onClick={loadSnapshots}
+                                            >
                                                 Reload
                                             </LemonButton>
                                         </>
@@ -386,7 +389,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                 This recording hasn't been fully ingested yet. It should be ready to
                                                 watch in a few minutes.
                                             </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                            <LemonButton
+                                                data-attr="player-error-retry-load-still-working"
+                                                type="secondary"
+                                                onClick={loadSnapshots}
+                                            >
                                                 Reload
                                             </LemonButton>
                                         </>
@@ -424,19 +431,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                     window is on screen.{' '}
                                                 </>
                                             ) : null}
-                                            <Link to="https://posthog.com/docs/session-replay/troubleshooting">
-                                                Learn more
-                                            </Link>
-                                        </LemonBanner>
-                                    ) : null}
-                                    {hasOversizedMutations && !hidePlayerElements ? (
-                                        <LemonBanner
-                                            type="warning"
-                                            className="shrink-0"
-                                            dismissKey={`oversized-mutations-${sessionRecordingId}`}
-                                        >
-                                            Parts of this recording captured too much changing content to render.
-                                            Playback skips those sections to keep the player responsive.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

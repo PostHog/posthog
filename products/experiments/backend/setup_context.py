@@ -55,6 +55,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_flag_call_source_event,
 )
+from products.experiments.backend.metric_resolution import is_scheduled_metric
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     filter_metric_group_ids_by_event,
@@ -65,9 +66,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
+    metric_display_rank,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
 logger = logging.getLogger(__name__)
@@ -1062,9 +1063,9 @@ def _outcome_metric(experiment: Experiment) -> OutcomeMetric | None:
         ]
         if is_scheduled_metric(metric)
     ]
-    position = {uuid: index for index, uuid in enumerate(experiment.primary_metrics_ordered_uuids or [])}
+    rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
     # Stable, so a metric the experiment does not order keeps its declared place behind the ordered ones.
-    ordered = sorted(candidates, key=lambda candidate: position.get(candidate.uuid, len(position)))
+    ordered = sorted(candidates, key=lambda candidate: rank(candidate.uuid))
     for candidate in ordered:
         if candidate.metric_type in EXPOSURE_SHAPED_METRIC_TYPES:
             return candidate

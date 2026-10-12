@@ -179,7 +179,8 @@ async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: in
                     exc_info=True,
                 )
                 return None
-            return content.decode("utf-8", errors="replace").splitlines()
+            # Not `splitlines()`: it also splits on `\x1e` or `\u2028` inside compressed payload strings.
+            return content.decode("utf-8", errors="replace").split("\n")
 
         index = 0
         while index < len(blocks):

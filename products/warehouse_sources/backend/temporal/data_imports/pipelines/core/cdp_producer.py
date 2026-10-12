@@ -27,12 +27,18 @@ from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows import (
+    CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL,
+    EmittedRowStore,
+    emitted_rows_key,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    aretry_staged_read,
     aretry_staged_write,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.api import has_active_workflow_for_warehouse_table
 
 # Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
 # is silently dropped rows. The outcome label is what makes that visible to alerting.
@@ -175,8 +181,10 @@ class CDPProducer:
                     id=self.table.id, team_id=self.team_id
                 )
 
-            schema = ExternalDataSchema.objects.get(id=self.table.id, team_id=self.team_id)
-            raw_table_name = build_table_name(schema.source, schema.name)
+            schema = ExternalDataSchema.objects.select_related("source", "table").get(
+                id=self.table.id, team_id=self.team_id
+            )
+            raw_table_name = schema.table.name if schema.table else build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
         self._table_name_cache = await _resolve()
@@ -190,8 +198,9 @@ class CDPProducer:
 
         A source sync also mixes in the job id: the same row arriving in a later sync is a new
         delivery. A materialized view does not, because its incremental filter is inclusive of the
-        watermark — the rows on the boundary are recomputed and re-emitted on every run without
-        having changed. Keying those on content alone lets a destination recognize the repeat.
+        watermark — the rows on the boundary are recomputed and read again on every run without
+        having changed. Keying those on content alone is what lets EmittedRowStore recognize the
+        repeat and hold it back, and a destination recognize one that still gets through.
         """
         row_hash = hashlib.sha256(self._serialize_json(row, sort_keys=True)).hexdigest()
         scope = self.table.id if self.table.kind == "view" else self.job_id
@@ -248,12 +257,9 @@ class CDPProducer:
 
                 # Also gate on active workflows (HogFlows) triggered by this table - without this the
                 # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
-                return HogFlow.objects.filter(
-                    team_id=self.team_id,
-                    status=HogFlow.State.ACTIVE,
-                    trigger__type=trigger_source,
-                    trigger__table_name=dot_notated_table_name,
-                ).exists()
+                return has_active_workflow_for_warehouse_table(
+                    team_id=self.team_id, trigger_source=trigger_source, table_name=dot_notated_table_name
+                )
             except (DjangoOperationalError, OSError) as e:
                 # This queries PostHog's own database, not the source being synced. A transient
                 # failure reaching it (e.g. a DNS blip resolving our host) stringifies with the
@@ -305,6 +311,16 @@ class CDPProducer:
             logger=self.logger,
         )
 
+    def _build_emitted_row_store(self) -> EmittedRowStore:
+        """Repeat suppression only applies to a view.
+
+        A source sync mixes the job id into every event id, so the same row in a later sync is a
+        new delivery and never a repeat. Leaving the source path clear of Redis also keeps the
+        high-volume path as it was.
+        """
+        key = emitted_rows_key(self.team_id, self.table.id) if self.table.kind == "view" else None
+        return EmittedRowStore(key, self.logger)
+
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
 
@@ -318,31 +334,47 @@ class CDPProducer:
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
+        emitted_rows = self._build_emitted_row_store()
+        await emitted_rows.load()
+        suppressed_rows = 0
+
         async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:
             for file_path in files_to_produce:
                 await self.logger.adebug(f"Producing file {file_path} to Kafka")
 
                 row_index = 0
 
+                async def _open_staged_file(path: str = file_path) -> pa.NativeFile:
+                    return await asyncio.to_thread(fs.open_input_file, path)
+
                 try:
-                    with fs.open_input_file(file_path) as f:
+                    input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
+                    with input_file as f:
                         pf = pq.ParquetFile(f)
 
                         for batch in pf.iter_batches(batch_size=10_000):
                             for row in batch.to_pylist():
+                                event_id = self._build_event_id(row)
+                                if emitted_rows.is_repeat(event_id):
+                                    suppressed_rows += 1
+                                    continue
+
                                 row_as_props = {
                                     "team_id": self.team_id,
                                     "table_name": dot_notated_table_name,
                                     "table_type": self.table.kind,
-                                    "event_id": self._build_event_id(row),
+                                    "event_id": event_id,
                                     "properties": row,
                                 }
-                                await kafka_producer.produce(
+                                delivery = await kafka_producer.produce(
                                     topic=KAFKA_DWH_CDP_RAW_TABLE,
                                     data=row_as_props,
                                     value_serializer=self._serialize_json,
                                 )
+                                emitted_rows.record_on_delivery(event_id, delivery)
                                 row_index += 1
+
+                            emitted_rows.record_settled()
 
                     await kafka_producer.flush()
                     CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
@@ -352,6 +384,9 @@ class CDPProducer:
                     capture_exception(e)
                     await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
                 finally:
+                    # A row is remembered only once Kafka confirms it, or the next run would
+                    # suppress a row that no subscriber received.
+                    emitted_rows.record_delivered()
                     # TODO(Gilbert09): have better row tracking so we can retry from a particular row
                     if row_index:
                         CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
@@ -360,3 +395,9 @@ class CDPProducer:
                     await asyncio.to_thread(fs.delete_file, file_path)
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
+
+        if suppressed_rows:
+            CDP_PRODUCER_ROWS_SUPPRESSED_TOTAL.labels(team_id=str(self.team_id)).inc(suppressed_rows)
+            await self.logger.ainfo(f"Suppressed {suppressed_rows} unchanged rows an earlier run already produced")
+
+        await emitted_rows.commit()

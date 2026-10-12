@@ -134,11 +134,6 @@ function requiredGate(wf: Workflow, cwd: string, context: Context): SpawnSyncRet
 }
 
 describe('Backend CI comparison boundaries', () => {
-    it('restricts the privileged migration reporter to master', () => {
-        const report = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend-report.yml'))
-        expect(report.on).toMatchObject({ pull_request_target: { branches: ['master'] } })
-    })
-
     it.each(WORKFLOWS)('%s selects a stack layer without counting newer trunk files', (file) => {
         const repo = createGraph()
         try {

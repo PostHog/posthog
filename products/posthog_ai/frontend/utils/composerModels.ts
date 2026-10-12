@@ -8,7 +8,7 @@ import {
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
     CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
@@ -78,6 +78,14 @@ export function modelsForRuntimeAdapter(
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
+// Everything still offered, plus the model this run is already on when the catalogue has since retired it — without
+// that entry the picker names the run's own model by its raw id. Call it through `useMemo`: composers re-render on
+// every keystroke.
+export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
+    const selected = catalogueEntry(catalogue, selectedModel)
+    return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
+}
+
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
 // so the picker opens on Faster/Smarter; a default that sits off the ladder sends it straight to Advanced.
 function ladderDefaultModel(runtimeAdapter: RuntimeAdapterEnumApi): string | undefined {
@@ -93,9 +101,11 @@ export function getDefaultModelForRuntimeAdapter(
 ): string | null {
     const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
     const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    const defaultModel = DEFAULT_MODEL_BY_RUNTIME_ADAPTER[runtimeAdapter]
     const ladderModel = ladderDefaultModel(runtimeAdapter)
     return (
         models.find((option) => option.model === preferredModel)?.model ??
+        models.find((option) => option.model === defaultModel)?.model ??
         models.find((option) => option.model === ladderModel)?.model ??
         models[0]?.model ??
         null

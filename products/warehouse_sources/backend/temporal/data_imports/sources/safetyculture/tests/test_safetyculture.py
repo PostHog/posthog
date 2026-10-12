@@ -1,3 +1,4 @@
+import copy
 import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -61,7 +62,9 @@ def _make_manager(resume_state: SafetyCultureResumeConfig | None = None) -> mock
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: Any) -> tuple[list[str], list[dict[str, Any]]]:
+def _wire(
+    session: mock.MagicMock, responses: Any, bodies: Optional[list[Any]] = None
+) -> tuple[list[str], list[dict[str, Any]]]:
     """Wire a mock session; capture each request's url and params AT SEND TIME.
 
     ``request.url``/``request.params`` are mutated in place across pages (the paginator retargets the
@@ -74,6 +77,8 @@ def _wire(session: mock.MagicMock, responses: Any) -> tuple[list[str], list[dict
     def _prepare(request: Any) -> mock.MagicMock:
         url_snapshots.append(request.url)
         param_snapshots.append(dict(request.params or {}))
+        if bodies is not None:
+            bodies.append(copy.deepcopy(request.json))
         prepared = mock.MagicMock()
         prepared.url = request.url
         return prepared
@@ -114,26 +119,6 @@ class TestFormatModifiedAfter:
 
 class TestInitialRequest:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_static_params_sent_on_first_request(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(_source("inspections", _make_manager()))
-
-        assert urls[0] == f"{BASE_URL}/feed/inspections"
-        assert params[0] == {"archived": "both", "completed": "both"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_params_endpoint_sends_bare_path(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(_source("users", _make_manager()))
-
-        assert urls[0] == f"{BASE_URL}/feed/users"
-        assert params[0] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_first_request_carries_modified_after(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
         _, params = _wire(session, [_response([{"id": "a"}])])
@@ -170,35 +155,8 @@ class TestInitialRequest:
 
         assert "modified_after" not in params[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_without_watermark_omits_modified_after(self, MockSession: MagicMock) -> None:
-        # First incremental run has no cursor yet — send an unfiltered request, never modified_after=None.
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(
-            _source(
-                "inspections", _make_manager(), should_use_incremental_field=True, db_incremental_field_last_value=None
-            )
-        )
-
-        assert "modified_after" not in params[0]
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_next_yields_and_stops(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}], next_page=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # A null next_page ends the feed without persisting resume state.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_next_page_verbatim_and_checkpoints(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
@@ -271,17 +229,6 @@ class TestPagination:
         assert _rows(_source("users", manager)) == []
         manager.save_state.assert_not_called()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_lingering_next_page_terminates(self, MockSession: MagicMock) -> None:
-        # A lingering next_page on an empty page must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response([], next_page="/feed/users?opaque-cursor=xyz")])
-
-        manager = _make_manager()
-        assert _rows(_source("users", manager)) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @parameterized.expand(
         [
             ("null_next_page", {"metadata": {"next_page": None}, "data": [{"id": "a"}]}),
@@ -300,6 +247,87 @@ class TestPagination:
         assert rows == [{"id": "a"}]
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
+
+
+def _structures_response(results: list[dict[str, Any]], next_page_token: str = "") -> Response:
+    return _response(
+        None,
+        raw_body={"results": results, "next_page_token": next_page_token, "total_count": len(results)},
+        url=f"{BASE_URL}/structures/v1/structures/search",
+    )
+
+
+def _structures_body(structure_type: str, page_token: Optional[str] = None) -> dict[str, Any]:
+    page: dict[str, Any] = {"page_size": 100}
+    if page_token:
+        page["page_token"] = page_token
+    return {
+        "params": {"query": "", "include_fields": True, "page": page},
+        "structure_type": {"system_structure_type": structure_type},
+    }
+
+
+class TestStructures:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_each_structure_type_with_body_page_token(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        bodies: list[Any] = []
+        urls, _ = _wire(
+            session,
+            [
+                _structures_response([{"structure_uuid": "s1"}], next_page_token="tok-1"),
+                _structures_response([{"structure_uuid": "s2"}]),
+                # Protobuf JSON drops an empty `results`, so a type with no structures has no key.
+                _response(None, raw_body={"next_page_token": ""}),
+            ],
+            bodies,
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("structures", manager))
+
+        assert rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}]
+        assert urls == [f"{BASE_URL}/structures/v1/structures/search"] * 3
+        assert bodies == [
+            _structures_body("SYSTEM_STRUCTURE_TYPE_SITE"),
+            _structures_body("SYSTEM_STRUCTURE_TYPE_SITE", "tok-1"),
+            _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP"),
+        ]
+        assert manager.save_state.call_args_list == [
+            mock.call(SafetyCultureResumeConfig(structure_type_index=0, page_token="tok-1")),
+            mock.call(SafetyCultureResumeConfig(structure_type_index=1, page_token=None)),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_repeated_page_token_ends_the_structure_type(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        bodies: list[Any] = []
+        _wire(
+            session,
+            [
+                _structures_response([{"structure_uuid": "s1"}], next_page_token="tok-1"),
+                _structures_response([{"structure_uuid": "s2"}], next_page_token="tok-1"),
+                _structures_response([{"structure_uuid": "g1"}]),
+            ],
+            bodies,
+        )
+
+        rows = _rows(_source("structures", _make_manager()))
+
+        assert rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}, {"structure_uuid": "g1"}]
+        assert bodies[2] == _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_structure_type_and_token(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        bodies: list[Any] = []
+        _wire(session, [_structures_response([{"structure_uuid": "g2"}])], bodies)
+
+        manager = _make_manager(SafetyCultureResumeConfig(structure_type_index=1, page_token="tok-g"))
+        rows = _rows(_source("structures", manager))
+
+        assert rows == [{"structure_uuid": "g2"}]
+        assert bodies == [_structures_body("SYSTEM_STRUCTURE_TYPE_GROUP", "tok-g")]
 
 
 class TestErrorHandling:
@@ -383,21 +411,28 @@ class TestCheckAccess:
         with self._patch_session(response):
             assert check_access("sc-token") == (expected_status, expected_message)
 
+    def test_structures_probe_posts_a_scoped_search(self) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        session = MagicMock()
+        session.post.return_value = response
+        with mock.patch.object(safetyculture, "make_tracked_session", return_value=session):
+            assert check_access("sc-token", "/structures/v1/structures/search", "SYSTEM_STRUCTURE_TYPE_SITE") == (
+                200,
+                None,
+            )
+        session.get.assert_not_called()
+        assert session.post.call_args.kwargs["json"] == {
+            "structure_type": {"system_structure_type": "SYSTEM_STRUCTURE_TYPE_SITE"},
+            "params": {"page": {"page_size": 1}},
+        }
+
     def test_connection_error_maps_to_zero(self) -> None:
         with self._patch_session(requests.ConnectionError("boom")):
             status, message = check_access("sc-token")
         assert status == 0
         assert message is not None and "boom" in message
-
-    def test_probes_the_given_feed_path(self) -> None:
-        session = MagicMock()
-        response = MagicMock()
-        response.status_code = 200
-        response.ok = True
-        session.get.return_value = response
-        with mock.patch.object(safetyculture, "make_tracked_session", return_value=session):
-            check_access("sc-token", "/feed/inspections")
-        assert session.get.call_args.args[0] == f"{BASE_URL}/feed/inspections"
 
 
 class TestSafetyCultureSourceResponse:
@@ -406,7 +441,7 @@ class TestSafetyCultureSourceResponse:
         response = _source(endpoint, _make_manager())
         config = SAFETYCULTURE_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
         if config.partition_key:
             assert response.partition_mode == "datetime"

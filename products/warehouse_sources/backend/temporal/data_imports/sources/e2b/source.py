@@ -18,11 +18,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
     INVALID_CREDENTIALS_ERROR,
     NO_ACCESS_ERROR,
+    TEAM_ID_INVALID_ERROR,
+    TEAM_ID_REQUIRED_ERROR,
     E2BResumeConfig,
     e2b_source,
     validate_credentials as validate_e2b_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import (
+    E2B_ENDPOINTS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -47,7 +53,9 @@ class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your E2B API key to sync your sandbox infrastructure data into the PostHog Data warehouse.
 
-You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](https://e2b.dev/dashboard).""",
+You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](https://e2b.dev/dashboard).
+
+The team ID is only needed for the team metrics table. Every other table syncs with the API key alone.""",
             iconPath="/static/services/e2b.png",
             docsUrl="https://posthog.com/docs/cdp/sources/e2b",
             keywords=["sandbox", "ai agents", "code execution", "infrastructure"],
@@ -61,6 +69,14 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
                         required=True,
                         placeholder="e2b_...",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="team_id",
+                        label="Team ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="prj_...",
+                        secret=False,
                     ),
                 ],
             ),
@@ -79,6 +95,10 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
             # `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the sync.
             "401 Client Error: Unauthorized for url: https://api.e2b.app": INVALID_CREDENTIALS_ERROR,
             "403 Client Error: Forbidden for url: https://api.e2b.app": NO_ACCESS_ERROR,
+            # A missing or malformed team ID can only be fixed in the source settings, so retrying
+            # the sync just burns attempts until the job gives up.
+            TEAM_ID_REQUIRED_ERROR: TEAM_ID_REQUIRED_ERROR,
+            TEAM_ID_INVALID_ERROR: TEAM_ID_INVALID_ERROR,
         }
 
     def get_schemas(
@@ -92,12 +112,18 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
     ) -> list[SourceSchema]:
         # Every E2B list endpoint is a point-in-time inventory with no server-side timestamp filter,
         # so all are full refresh (no incremental / append).
+        has_team_id = bool((config.team_id or "").strip())
+
         def _build_schema(endpoint: str) -> SourceSchema:
+            endpoint_config = E2B_ENDPOINTS[endpoint]
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                # A table whose team ID is missing starts unselected rather than failing its first sync.
+                should_sync_default=endpoint_config.should_sync_default
+                and (has_team_id or not endpoint_config.requires_team_id),
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -109,6 +135,9 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
     def validate_credentials(
         self, config: E2BSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
+        endpoint = E2B_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None and endpoint.requires_team_id and not (config.team_id or "").strip():
+            return False, TEAM_ID_REQUIRED_ERROR
         try:
             return validate_e2b_credentials(config.api_key)
         except Exception:
@@ -134,4 +163,5 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            e2b_team_id=config.team_id,
         )

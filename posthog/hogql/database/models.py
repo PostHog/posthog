@@ -166,6 +166,26 @@ class FloatArrayDatabaseField(DatabaseField):
         return ""
 
 
+class IntegerArrayDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import ArrayType, IntegerType
+
+        return ArrayType(nullable=self.is_nullable(), item_type=IntegerType(nullable=False))
+
+    def default_value(self) -> Any:
+        return ""
+
+
+class DateTimeArrayDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import ArrayType, DateTimeType
+
+        return ArrayType(nullable=self.is_nullable(), item_type=DateTimeType(nullable=False))
+
+    def default_value(self) -> Any:
+        return ""
+
+
 class DateDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import DateType
@@ -224,6 +244,9 @@ class Table(FieldOrTable):
     name: str | None = None
     fields: dict[str, FieldOrTable]
     top_level_settings: Optional[HogQLQuerySettings] = None
+    # When True, queries reading this table don't send HogQL's default
+    # `max_bytes_before_external_group_by=0`, so the ClickHouse user profile's spill thresholds apply.
+    inherit_profile_spill: bool = False
     workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 

@@ -486,7 +486,14 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         _, workflow_input = start_workflow.call_args.args
         self.assertEqual(workflow_input.posthog_mcp_scopes, expected_scopes)
 
-    def test_falls_back_to_scout_scopes_for_signals_scout_run(self) -> None:
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNALS_SCOUT, "signals_scout_reports"),
+            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, "read_only"),
+            (Task.OriginProduct.LOOP, "read_only"),
+        ]
+    )
+    def test_falls_back_to_origin_scopes(self, origin: str, expected_scopes: str) -> None:
         # A scout run reconciled without a persisted scope must keep its scout posture — falling back
         # to "full"/"read_only" strips every signal_scout_* scope, so the scout can't emit a report,
         # write scratchpad, or build its profile, and every signals-scout-* tool reads as "Unknown tool".
@@ -495,7 +502,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
             created_by=self.user,
             title="Scout Task",
             description="Scout Description",
-            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            origin_product=origin,
         )
         run = TaskRun.objects.create(task=scout_task, team=self.team, status=TaskRun.Status.QUEUED, state={})
         start_workflow = AsyncMock()
@@ -504,7 +511,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
 
         self.assertEqual(outcome, "recovered")
         _, workflow_input = start_workflow.call_args.args
-        self.assertEqual(workflow_input.posthog_mcp_scopes, "signals_scout_reports")
+        self.assertEqual(workflow_input.posthog_mcp_scopes, expected_scopes)
 
     def test_does_not_fail_run_when_workflow_already_started(self) -> None:
         run = self._orphaned_run()

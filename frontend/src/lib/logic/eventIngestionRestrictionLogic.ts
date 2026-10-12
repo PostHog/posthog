@@ -67,6 +67,7 @@ export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogic
             __default: [] as EventIngestionRestriction[],
             loadEventIngestionRestrictions: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsEventIngestionRestrictionsList() from '~/generated/core/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentTeamIdStrict}/event_ingestion_restrictions/`
                     )

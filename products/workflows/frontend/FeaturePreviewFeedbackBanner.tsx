@@ -31,6 +31,8 @@ export interface FeaturePreviewFeedbackBannerProps {
     prompt: string
     modalTitle: string
     feedbackPlaceholder: string
+    /** Spacing around the banner, for surfaces whose content isn't inset. */
+    className?: string
     'data-attr'?: string
 }
 
@@ -48,6 +50,7 @@ export function FeaturePreviewFeedbackBanner({
     prompt,
     modalTitle,
     feedbackPlaceholder,
+    className = 'm-2',
     'data-attr': dataAttr,
 }: FeaturePreviewFeedbackBannerProps): JSX.Element {
     const [rating, setRating] = useState<Rating | null>(null)
@@ -109,7 +112,7 @@ export function FeaturePreviewFeedbackBanner({
 
     return (
         <>
-            <LemonBanner type="info" dismissKey={dismissKey} className="m-2">
+            <LemonBanner type="info" dismissKey={dismissKey} className={className}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-secondary">{rating ? 'Thanks, your rating is saved.' : prompt}</div>
                     <div className="flex items-center gap-1">

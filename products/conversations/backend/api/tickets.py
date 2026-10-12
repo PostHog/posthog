@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -29,7 +30,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -54,7 +55,12 @@ from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
+from posthog.rate_limit import (
+    ComposeTicketBurstThrottle,
+    ComposeTicketSustainedThrottle,
+    TicketNoteBurstThrottle,
+    TicketNoteSustainedThrottle,
+)
 
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import (
@@ -73,6 +79,9 @@ from products.conversations.backend.api.ticket_filters import (
 )
 from products.conversations.backend.cache import (
     get_cached_unread_count,
+    invalidate_identity_tickets_cache,
+    invalidate_messages_cache,
+    invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_unread_count,
 )
@@ -90,8 +99,11 @@ from products.conversations.backend.models import (
     TicketAssignment,
     TicketView,
 )
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
+from products.conversations.backend.services.messages import ticket_message_type
+from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
 
 from .. import reply_dedupe
 
@@ -123,6 +135,18 @@ class TicketMessageSerializer(serializers.Serializer):
     """A single message in a ticket thread (output-only)."""
 
     id = serializers.UUIDField(read_only=True, help_text="Message (comment) UUID.")
+    message_type = serializers.ChoiceField(
+        choices=TicketMessageType.choices,
+        read_only=True,
+        help_text=(
+            "What the message is, and whether it was sent to the customer. "
+            "customer_message: written by the customer. "
+            "sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. "
+            "It does not confirm that the customer received it, because delivery can fail. "
+            "internal_note: a note for the team only. It was never sent to the customer. "
+            "ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer."
+        ),
+    )
     content = serializers.CharField(read_only=True, help_text="Plain-text message body.")
     rich_content = serializers.JSONField(read_only=True, allow_null=True, help_text="TipTap rich content JSON, if any.")
     author_type = serializers.CharField(read_only=True, help_text="One of: customer, support, AI.")
@@ -180,6 +204,20 @@ class TicketNoteUpdateRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class TicketNoteCreateRequestSerializer(TicketNoteUpdateRequestSerializer):
+    """Payload for adding a private note to a ticket. It has no privacy field: the note is always private."""
+
+    message = serializers.CharField(
+        max_length=5000,
+        help_text="Note content in markdown. The note is visible to your team only and is never sent to the customer.",
+    )
+    rich_content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Optional TipTap rich content JSON for the note. Omit it to show the markdown message.",
+    )
 
 
 class TicketReplyRequestSerializer(serializers.Serializer):
@@ -569,7 +607,14 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        return super().update(instance, validated_data)
+        validated_data.pop("tags", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        # Only the submitted columns. A full save writes back every column this request
+        # loaded, so a delete that commits in between would be undone.
+        instance.save(update_fields=[*validated_data, "updated_at"])
+        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        return instance
 
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):
@@ -702,7 +747,7 @@ class _TicketUpdateDiff:
     partial_update=extend_schema(
         parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
     ),
-    destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
+    destroy=extend_schema(parameters=[TICKET_ID_PARAM], responses={204: None}),
     # The mixin action's default schema documents integer ids; tickets are keyed by UUID.
     bulk_update_tags=extend_schema(
         request=BulkUpdateTagsUUIDRequestSerializer,
@@ -725,6 +770,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "ai_human_outcome",
         "note",
         "delete_note",
+        "create_note",
+        "destroy",
     ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -837,6 +884,70 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window."""
+        ticket = self.get_object()
+        access = self.user_access_control
+        # Without the access-control add-on there is no manager role to grant, so a
+        # team member who can edit tickets can delete them. With it, only a manager
+        # or an organization admin can.
+        if access.access_controls_supported:
+            is_manager = access.check_access_level_for_object(ticket, required_level="manager")
+            if not is_manager and not access.is_organization_admin:
+                raise PermissionDenied("You need manager access to delete this ticket.")
+
+        with transaction.atomic():
+            # Conditional update, so a second concurrent delete cannot move the purge date or the actor.
+            now = timezone.now()
+            deleted = Ticket.objects.filter(team_id=self.team_id, id=ticket.id).update(
+                deleted_at=now, deleted_by=request.user, updated_at=now
+            )
+            if not deleted:
+                raise Http404("Ticket not found")
+            ticket.deleted_at = now
+            ticket.deleted_by = request.user
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="deleted",
+                detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
+            )
+
+        ticket_id = ticket.id
+        team_id = self.team_id
+        widget_session_id = ticket.widget_session_id
+
+        def _after_delete() -> None:
+            # The delete has committed. One failed step must not skip the others or fail the response.
+            steps: list[Callable[[], object]] = [
+                lambda: cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id),
+                lambda: cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id),
+                lambda: invalidate_unread_count_cache(team_id),
+                lambda: invalidate_messages_cache(team_id, str(ticket_id)),
+                lambda: invalidate_identity_tickets_cache(team_id),
+                lambda: report_user_action(
+                    request.user,
+                    "support ticket deleted",
+                    _ticket_action_properties(ticket),
+                    team=self.team,
+                    request=request,
+                ),
+            ]
+            if widget_session_id:
+                steps.append(lambda: invalidate_tickets_cache(team_id, widget_session_id))
+            for step in steps:
+                try:
+                    step()
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": str(ticket_id)})
+
+        transaction.on_commit(_after_delete)
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
@@ -1162,6 +1273,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         ticket and keep it pending.
         """
         with transaction.atomic():
+            # Lock the live row, so a delete waits for this write, or this write sees the delete.
+            live = (
+                Ticket.objects.select_for_update()
+                .filter(team_id=self.team_id, id=instance.id)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if live is None:
+                raise Http404("Ticket not found")
             self.perform_update(serializer)
 
             implied_status = _status_implied_by_snooze(before.snoozed_until, instance.snoozed_until)
@@ -1474,6 +1594,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         return {
             "id": comment.id,
+            "message_type": ticket_message_type(item_context, comment.created_by_id),
             "content": comment.content,
             "rich_content": comment.rich_content,
             "author_type": author_type,
@@ -1581,19 +1702,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = TicketReplyRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        return self._create_message(
+            ticket,
+            message=data["message"],
+            rich_content=data.get("rich_content"),
+            is_private=data["is_private"],
+        )
 
-        item_context = {"author_type": "support", "is_private": data["is_private"]}
+    def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
+        request = self.request
+        item_context = {"author_type": "support", "is_private": is_private}
 
         def create_comment() -> Comment:
             # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
             with transaction.atomic():
                 return Comment.objects.create(
                     team=self.team,
-                    created_by=request.user,
+                    created_by=cast("User", request.user),
                     scope="conversations_ticket",
                     item_id=str(ticket.id),
-                    content=data["message"],
-                    rich_content=data.get("rich_content"),
+                    content=message,
+                    rich_content=rich_content,
                     item_context=item_context,
                 )
 
@@ -1602,8 +1731,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             created_by_id=request.user.id,
             scope="conversations_ticket",
             item_id=str(ticket.id),
-            content=data["message"],
-            rich_content=data.get("rich_content"),
+            content=message,
+            rich_content=rich_content,
             item_context=item_context,
         )
         if fingerprint is None:
@@ -1626,6 +1755,56 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=TicketNoteCreateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TicketMessageSerializer,
+                description=(
+                    "An identical note was already posted by a recent request. The original "
+                    "note is returned and nothing new is written."
+                ),
+            ),
+            201: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(
+                response=TicketErrorSerializer,
+                description="An identical note is still being created by another request.",
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="notes",
+        pagination_class=None,
+        throttle_classes=[TicketNoteBurstThrottle, TicketNoteSustainedThrottle],
+    )
+    def create_note(self, request, *args, **kwargs):
+        """Add a private note to a ticket.
+
+        The note is visible to your team only. The request has no privacy field, so this
+        endpoint never sends anything to the customer.
+        """
+        ticket = self.get_object()
+
+        if not self.team.conversations_enabled:
+            return Response(
+                {"detail": "Support is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TicketNoteCreateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        return self._create_message(
+            ticket,
+            message=data["message"],
+            rich_content=data.get("rich_content"),
+            is_private=True,
         )
 
     @extend_schema(

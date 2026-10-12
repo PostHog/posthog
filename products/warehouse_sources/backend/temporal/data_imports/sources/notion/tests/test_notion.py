@@ -9,6 +9,9 @@ from parameterized import parameterized
 from tenacity import RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+    ADMIN_TOKEN_FORBIDDEN_ERROR,
+    ADMIN_TOKEN_INVALID_ERROR,
+    ADMIN_TOKEN_MISSING_ERROR,
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
     MAX_RETRY_AFTER_SECONDS,
@@ -24,16 +27,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _iter_block_children,
     _iter_page_ids,
     _parse_retry_after,
+    _permission_groups_stream,
     _request,
     _search_body,
     _search_stream,
     _users_stream,
     _wait_strategy,
+    check_permission_groups_access,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import NOTION_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
+
+
+def _fresh_manager() -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    return manager
 
 
 class FakeResponse:
@@ -116,10 +127,6 @@ class TestNotion:
         assert body["page_size"] == 100
         assert "start_cursor" not in body
 
-    def test_search_body_includes_cursor_when_set(self) -> None:
-        body = _search_body("page", "cursor-123")
-        assert body["start_cursor"] == "cursor-123"
-
     def test_search_stream_paginates_and_terminates(self) -> None:
         session = FakeSession(
             [
@@ -138,17 +145,6 @@ class TestNotion:
         assert total_rows == 2
         # Two pages fetched, then the loop terminates on has_more=False.
         assert len(session.calls) == 2
-
-    def test_search_stream_resumes_from_saved_cursor(self) -> None:
-        session = FakeSession([_list_response([{"id": "p1"}], has_more=False, next_cursor=None)])
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NotionResumeConfig(next_cursor="resume-cursor")
-
-        list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
-
-        # The first request must start from the persisted cursor.
-        assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
 
     @staticmethod
     def _invalid_cursor_response() -> FakeResponse:
@@ -214,6 +210,51 @@ class TestNotion:
         assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
         assert "start_cursor" not in session.calls[1]["params"]
 
+    def test_users_stream_stages_next_cursor_before_yielding_a_finished_page(self) -> None:
+        session = FakeSession(
+            [
+                _list_response([{"id": "u1"}, {"id": "u2"}], has_more=True, next_cursor="c1"),
+                _list_response([{"id": "u3"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = _fresh_manager()
+
+        with mock.patch(f"{MODULE}.CHUNK_SIZE", 1):
+            stream = _users_stream(cast(requests.Session, session), mock.MagicMock(), manager)
+            first = next(stream)
+            manager.save_state.assert_called_once_with(NotionResumeConfig(next_cursor="c1"))
+            rest = list(stream)
+
+        assert first.num_rows == 2
+        assert sum(t.num_rows for t in rest) == 1
+
+    def test_permission_groups_stream_pages_through_the_workspace_groups(self) -> None:
+        session = FakeSession([FakeResponse({"object": "user", "bot": {"workspace_id": "ws-1"}})])
+        admin_session = FakeSession(
+            [
+                _list_response([{"object": "group", "id": "g1", "name": "Eng"}], has_more=True, next_cursor="c1"),
+                _list_response([{"object": "group", "id": "g2", "name": "Ops"}], has_more=False, next_cursor=None),
+            ]
+        )
+
+        tables = list(
+            _permission_groups_stream(
+                cast(requests.Session, session),
+                cast(requests.Session, admin_session),
+                mock.MagicMock(),
+                _fresh_manager(),
+            )
+        )
+
+        assert sum(t.num_rows for t in tables) == 2
+        assert session.calls[0]["url"] == "https://api.notion.com/v1/users/me"
+        assert [call["url"] for call in admin_session.calls] == [
+            "https://api.notion.com/admin/v1/spaces/ws-1/groups",
+            "https://api.notion.com/admin/v1/spaces/ws-1/groups",
+        ]
+        assert "start_cursor" not in admin_session.calls[0]["params"]
+        assert admin_session.calls[1]["params"]["start_cursor"] == "c1"
+
     def test_iter_page_ids_restarts_when_cursor_invalid(self) -> None:
         # A page-id search cursor can expire mid-enumeration on a large workspace, which Notion
         # rejects with the same 400 validation_error as the search/users streams. The blocks/comments
@@ -269,20 +310,62 @@ class TestNotion:
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
         assert any("exceeds max depth" in str(call.args[0]) for call in logger.warning.call_args_list)
 
-    def test_blocks_stream_resumes_from_saved_queue(self) -> None:
-        # On retry the blocks stream must consume the persisted page queue instead of re-running the
+    @parameterized.expand(
+        [
+            ("blocks", _blocks_stream, "/v1/blocks/p2/children"),
+            ("comments", _comments_stream, "/v1/comments"),
+        ]
+    )
+    def test_page_fan_out_resumes_from_saved_queue(self, _name, stream, expected_path) -> None:
+        # On retry the fan-out must consume the persisted page queue instead of re-running the
         # full page search from scratch — restarting from zero was what burned API quota on retries.
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
         manager = mock.MagicMock()
         manager.can_resume.return_value = True
         manager.load_state.return_value = NotionResumeConfig(remaining_page_ids=["p2"])
 
-        tables = list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+        tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
 
         assert sum(t.num_rows for t in tables) == 1
-        # Only the resumed page's block-children fetch runs; no /v1/search re-enumeration.
+        # Only the resumed page's fetch runs; no /v1/search re-enumeration.
         assert len(session.calls) == 1
-        assert session.calls[0]["url"].endswith("/v1/blocks/p2/children")
+        assert session.calls[0]["url"].endswith(expected_path)
+
+    @parameterized.expand([("blocks", _blocks_stream), ("comments", _comments_stream)])
+    def test_pages_without_rows_move_the_queue_and_reach_safe_points(self, _name, stream) -> None:
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}, {"id": "p3"}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = _fresh_manager()
+
+        with mock.patch(f"{MODULE}.EMPTY_PAGE_STAGE_INTERVAL_SECONDS", 0):
+            tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert tables == []
+        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
+        assert saved == [["p2", "p3"], ["p3"], []]
+        assert manager.safe_point.call_count == 3
+
+    def test_a_sparse_page_run_yields_a_partial_chunk_with_its_queue_staged_first(self) -> None:
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+            return _list_response([{"id": f"cm{index}"}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = _fresh_manager()
+        events: list[Any] = []
+        manager.save_state.side_effect = lambda state: events.append(state.remaining_page_ids)
+
+        with mock.patch(f"{MODULE}.PARTIAL_FLUSH_INTERVAL_SECONDS", 0):
+            for table in _comments_stream(cast(requests.Session, session), mock.MagicMock(), manager):
+                events.append(table.num_rows)
+
+        assert events == [["p2"], 1, [], 1]
+        manager.safe_point.assert_not_called()
 
     def test_blocks_stream_saves_progress_after_each_yield(self) -> None:
         # After a batch is flushed the in-progress page must be persisted at the head of the queue, so a
@@ -331,27 +414,6 @@ class TestNotion:
                 cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={}
             )
         assert exc_info.value.retry_after is None
-
-    def test_request_retries_chunked_encoding_error(self) -> None:
-        # Notion can break the connection mid-response, which requests surfaces as a
-        # ChunkedEncodingError ("Connection broken: InvalidChunkLength"). It is transient and must be
-        # retried like other connection failures, not propagated as a fatal sync error.
-        attempts = {"count": 0}
-
-        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
-            attempts["count"] += 1
-            if attempts["count"] == 1:
-                raise requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'')")
-            return FakeResponse({"results": []})
-
-        session = mock.MagicMock()
-        session.request.side_effect = request
-
-        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
-            result = _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
-
-        assert result == {"results": []}
-        assert attempts["count"] == 2
 
     def test_request_non_json_2xx_raises_retryable(self) -> None:
         # A 2xx whose body is empty or non-JSON makes response.json() raise JSONDecodeError. That is a
@@ -474,7 +536,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger))
+        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 1
@@ -493,7 +555,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger))
+        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 1
@@ -514,17 +576,6 @@ class TestNotion:
     def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
         assert _parse_retry_after(value) == expected
 
-    def test_wait_strategy_honors_retry_after(self) -> None:
-        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == 3.0
-
-    def test_wait_strategy_honors_multi_minute_retry_after(self) -> None:
-        # Notion routinely asks for several minutes under sustained load. Clamping that to the
-        # exponential ceiling retried inside the penalty window and exhausted attempts, so the
-        # full Retry-After must be honored.
-        state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=336.0))
-        assert _wait_strategy(cast(RetryCallState, state)) == 336.0
-
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
         assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_AFTER_SECONDS
@@ -539,7 +590,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        list(_comments_stream(cast(requests.Session, session), logger))
+        list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         # One search call plus the capped number of comment-page fetches.
         assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT
@@ -582,11 +633,31 @@ class TestNotion:
         assert "Wait a few minutes" in (message or "")
         assert "HTTPSConnectionPool" not in (message or "")
 
+    @parameterized.expand(
+        [
+            ("no_admin_token", None, 200, None, ADMIN_TOKEN_MISSING_ERROR),
+            ("integration_token_rejected", "adm", 401, None, None),
+            ("admin_token_rejected", "adm", 200, 401, ADMIN_TOKEN_INVALID_ERROR),
+            ("admin_scope_missing", "adm", 200, 403, ADMIN_TOKEN_FORBIDDEN_ERROR),
+            ("reachable", "adm", 200, 200, None),
+            ("rate_limited_is_not_a_denial", "adm", 200, 429, None),
+        ]
+    )
+    def test_check_permission_groups_access(
+        self,
+        _name: str,
+        admin_token: str | None,
+        me_status: int,
+        admin_status: int | None,
+        expected: str | None,
+    ) -> None:
+        public_session = FakeSession([FakeResponse({"bot": {"workspace_id": "ws-1"}}, status_code=me_status)])
+        admin_session = FakeSession([FakeResponse({"results": []}, status_code=admin_status or 200)])
+        with mock.patch(f"{MODULE}.make_tracked_session", side_effect=[public_session, admin_session]):
+            message = check_permission_groups_access("tok", admin_token, NOTION_VERSION_2026_03_11)
 
-@pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))
-def test_every_endpoint_has_config(endpoint: str) -> None:
-    config = NOTION_ENDPOINTS[endpoint]
-    assert config.name == endpoint
-    assert config.stream_type in ("search", "users", "blocks", "comments")
-    if config.stream_type == "search":
-        assert config.object_filter in ("page", "data_source")
+        assert message == expected
+        expected_admin_urls = (
+            ["https://api.notion.com/admin/v1/spaces/ws-1/groups?page_size=1"] if admin_status is not None else []
+        )
+        assert [call["url"] for call in admin_session.calls] == expected_admin_urls

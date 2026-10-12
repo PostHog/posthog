@@ -108,7 +108,7 @@ class TestAttentiveWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         )
         assert res.result == {"httpResponse": {"status": 400, "body": "Missing signature"}}
 
-    def test_missing_signing_secret_returns_400(self):
+    def test_missing_signing_secret_drops_delivery(self):
         globals = self._make_signed_request("secret")
         res = self.run_function(
             {
@@ -118,7 +118,10 @@ class TestAttentiveWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             },
             globals=globals,
         )
-        assert res.result == {"httpResponse": {"status": 400, "body": "Signing secret not configured"}}
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Signing secret not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
 
     def test_bypass_signature_check(self):
         body = {"type": "email.opened", "timestamp": 1632945178104}

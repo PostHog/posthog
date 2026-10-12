@@ -13,7 +13,13 @@ import Mention, { type MentionNodeAttrs } from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import "./mention-chip.css";
 import "./mention-composer.css";
 
@@ -22,6 +28,7 @@ interface MentionComposerProps {
   onValueChange: (value: string) => void;
   /** Fired on Enter (without Shift) while the suggestion popup is closed. */
   onSubmit: () => void;
+  onEscape?: () => void;
   /** The taggable pool; typically the org's members. */
   members: UserBasic[];
   allowAgentMention?: boolean;
@@ -58,6 +65,7 @@ export function MentionComposer({
   value,
   onValueChange,
   onSubmit,
+  onEscape,
   members,
   autoFocus = false,
   allowAgentMention = false,
@@ -90,6 +98,10 @@ export function MentionComposer({
   onValueChangeRef.current = onValueChange;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
+  const onEscapeRef = useRef(onEscape);
+  useLayoutEffect(() => {
+    onEscapeRef.current = onEscape;
+  });
   const onMentionInsertRef = useRef(onMentionInsert);
   onMentionInsertRef.current = onMentionInsert;
   const openRef = useRef(open);
@@ -218,6 +230,10 @@ export function MentionComposer({
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             onSubmitRef.current();
+            return true;
+          }
+          if (event.key === "Escape" && onEscapeRef.current) {
+            onEscapeRef.current();
             return true;
           }
           return false;

@@ -1,32 +1,33 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { MessageChannels } from './Channels/MessageChannels'
+import { OptOutScene } from './OptOuts/OptOutScene'
+import { SuppressionScene } from './Suppression/SuppressionScene'
+import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 
-import { LemonTab } from 'lib/lemon-ui/LemonTabs'
-import { urls } from 'scenes/urls'
+// pinned: URL path segments under /workflows and /broadcasts - renaming breaks bookmarks
+export const MESSAGING_NAV_TAB_KEYS = ['library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
+export type MessagingNavTabKey = (typeof MESSAGING_NAV_TAB_KEYS)[number]
 
-/**
- * Sending setup that every messaging surface shares: templates, senders, and who may be sent to.
- * Workflows renders these with their content; Broadcasts renders them as links back to it, so a
- * sender or a suppression rule is one click away from either surface rather than only from one.
- */
-export type MessagingNavTabKey = 'library' | 'channels' | 'opt-outs' | 'suppression' | 'reputation'
+/** The tabs that configure sending, grouped under one "Messaging" tab. */
+export const MESSAGING_SETUP_TAB_KEYS = ['channels', 'opt-outs', 'suppression', 'reputation'] as const
+export type MessagingSetupTabKey = (typeof MESSAGING_SETUP_TAB_KEYS)[number]
 
-export function messagingNavTabs(): LemonTab<MessagingNavTabKey>[] {
-    return [
-        { label: 'Library', key: 'library', link: urls.workflows('library') },
-        { label: 'Channels', key: 'channels', link: urls.workflows('channels') },
-        { label: 'Opt-outs', key: 'opt-outs', link: urls.workflows('opt-outs') },
-        { label: 'Suppression list', key: 'suppression', link: urls.workflows('suppression') },
-        {
-            label: (
-                <>
-                    Reputation{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            key: 'reputation',
-            link: urls.workflows('reputation'),
-        },
-    ]
+export const MESSAGING_TAB_LABELS: Record<MessagingNavTabKey, string> = {
+    library: 'Library',
+    channels: 'Channels',
+    'opt-outs': 'Opt-outs',
+    suppression: 'Suppression list',
+    reputation: 'Reputation',
+}
+
+export const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
+    library: <MessageTemplatesTable />,
+    channels: <MessageChannels />,
+    'opt-outs': <OptOutScene />,
+    suppression: <SuppressionScene />,
+    reputation: <WorkflowsReputation />,
+}
+
+export function isMessagingSetupTab(tab: string): tab is MessagingSetupTabKey {
+    return (MESSAGING_SETUP_TAB_KEYS as readonly string[]).includes(tab)
 }

@@ -623,4 +623,4 @@ def _slack_client(destination: ErrorTrackingAlertDestination) -> WebClient | Non
     integration = destination.integration
     if integration is None or integration.kind != Integration.IntegrationKind.SLACK:
         return None
-    return SlackIntegration(integration).client
+    return SlackIntegration(integration, source="error_tracking_alerts").client

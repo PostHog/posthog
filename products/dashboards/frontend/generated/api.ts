@@ -17,14 +17,11 @@ import type {
     CopyDashboardTileRequestApi,
     CreateTextTileRequestApi,
     DashboardApi,
-    DashboardCollaboratorApi,
-    DashboardSavedViewApi,
-    DashboardSavedViewWriteApi,
-    DashboardSavedViewsListParams,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
+    DashboardWriteOpenApiApi,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -53,10 +50,8 @@ import type {
     DeleteTileRequestApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
-    PaginatedDashboardSavedViewListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
-    PatchedDashboardSavedViewApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
@@ -86,101 +81,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getDashboardSavedViewsListUrl = (projectId: string, params?: DashboardSavedViewsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboard_saved_views/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboard_saved_views/`
-}
-
-export const dashboardSavedViewsList = async (
-    projectId: string,
-    params?: DashboardSavedViewsListParams,
-    options?: RequestInit
-): Promise<PaginatedDashboardSavedViewListApi> => {
-    return apiMutator<PaginatedDashboardSavedViewListApi>(getDashboardSavedViewsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardSavedViewsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/dashboard_saved_views/`
-}
-
-export const dashboardSavedViewsCreate = async (
-    projectId: string,
-    dashboardSavedViewWriteApi: DashboardSavedViewWriteApi,
-    options?: RequestInit
-): Promise<DashboardSavedViewApi> => {
-    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardSavedViewWriteApi),
-    })
-}
-
-export const getDashboardSavedViewsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
-}
-
-export const dashboardSavedViewsUpdate = async (
-    projectId: string,
-    id: string,
-    dashboardSavedViewApi: NonReadonly<DashboardSavedViewApi>,
-    options?: RequestInit
-): Promise<DashboardSavedViewApi> => {
-    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardSavedViewApi),
-    })
-}
-
-export const getDashboardSavedViewsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
-}
-
-export const dashboardSavedViewsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDashboardSavedViewApi?: NonReadonly<PatchedDashboardSavedViewApi>,
-    options?: RequestInit
-): Promise<DashboardSavedViewApi> => {
-    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardSavedViewApi),
-    })
-}
-
-export const getDashboardSavedViewsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
-}
-
-export const dashboardSavedViewsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardSavedViewsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -372,7 +272,7 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
 export const dashboardsCreate = async (
     projectId: string,
-    dashboardApi?: NonReadonly<DashboardApi>,
+    dashboardWriteOpenApiApi?: NonReadonly<DashboardWriteOpenApiApi>,
     params?: DashboardsCreateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -380,56 +280,7 @@ export const dashboardsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
-export const getDashboardsCollaboratorsListUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/collaborators/`
-}
-
-export const dashboardsCollaboratorsList = async (
-    projectId: string,
-    dashboardId: number,
-    options?: RequestInit
-): Promise<DashboardCollaboratorApi[]> => {
-    return apiMutator<DashboardCollaboratorApi[]>(getDashboardsCollaboratorsListUrl(projectId, dashboardId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardsCollaboratorsCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/collaborators/`
-}
-
-export const dashboardsCollaboratorsCreate = async (
-    projectId: string,
-    dashboardId: number,
-    dashboardCollaboratorApi: NonReadonly<DashboardCollaboratorApi>,
-    options?: RequestInit
-): Promise<DashboardCollaboratorApi> => {
-    return apiMutator<DashboardCollaboratorApi>(getDashboardsCollaboratorsCreateUrl(projectId, dashboardId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardCollaboratorApi),
-    })
-}
-
-export const getDashboardsCollaboratorsDestroyUrl = (projectId: string, dashboardId: number, userUuid: string) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/collaborators/${userUuid}/`
-}
-
-export const dashboardsCollaboratorsDestroy = async (
-    projectId: string,
-    dashboardId: number,
-    userUuid: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsCollaboratorsDestroyUrl(projectId, dashboardId, userUuid), {
-        ...options,
-        method: 'DELETE',
+        body: JSON.stringify(dashboardWriteOpenApiApi),
     })
 }
 
@@ -480,7 +331,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 export const dashboardsUpdate = async (
     projectId: string,
     id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
+    dashboardWriteOpenApiApi?: NonReadonly<DashboardWriteOpenApiApi>,
     params?: DashboardsUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -488,7 +339,7 @@ export const dashboardsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
+        body: JSON.stringify(dashboardWriteOpenApiApi),
     })
 }
 

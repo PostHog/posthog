@@ -11,8 +11,7 @@
 //! is the whole saving. Every other blob must be admitted, because the seeder decides those: an
 //! array errors in the VM, a scalar and a literal `null` read every key as null, an empty blob
 //! parses to `{}` and is decided from the cached vacuous verdict, a malformed blob is a skipped
-//! row, and a document holding a number ClickHouse cannot represent also reports `Null` while
-//! `serde_json` parses it and the VM reads its keys.
+//! row, and a document holding a float ClickHouse cannot represent also reports `Null`.
 //!
 //! Needs a reachable ClickHouse, which is why it sits behind `ch-test-support`. It reads its
 //! endpoint through the seeder's own `Config`/`build_client`, so it also exercises the client-side
@@ -22,9 +21,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use clickhouse::{Client, Row};
+use clickhouse::Row;
 use cohort_seeder::clickhouse::client::build_client;
 use cohort_seeder::clickhouse::person_sql::{person_scan_sql, PersonScanSpec};
+use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{PersonRange, ProjectedKeys, UtcMillis};
 use envconfig::Envconfig;
@@ -99,13 +99,14 @@ const CORPUS: &[Case] = &[
     case(r#"{not json"#, &["email"]),
     case(r#"{"email":1,"#, &["email"]),
     case(r#"{'email':1}"#, &["email"]),
-    // The case the plan's tighter predicate would have dropped: ClickHouse gives up on the whole
-    // document over a number it cannot represent and reports `Null`, while `serde_json` parses it
-    // and the VM reads `email` — so this person is a member the scan must not drop.
+    // ClickHouse parses an integer past the 64-bit range, so this blob is an object that carries
+    // `email` and the filter admits it on its keys.
     case(
         r#"{"email":"a@b.com","big":123456789012345678901234567890}"#,
         &["email"],
     ),
+    // ClickHouse gives up on the whole document over a float it cannot represent and reports
+    // `Null`, so the filter admits it with the other non-objects.
     case(r#"{"email":"a@b.com","huge":1e309}"#, &["email"]),
     // Many keys, one read: the shape the filter exists for.
     case(
@@ -227,13 +228,13 @@ async fn the_repeated_aggregate_is_computed_once() {
     );
 }
 
-fn connect() -> Client {
+fn connect() -> ClickHouseClient {
     let config = Config::init_from_env().expect("the seeder config falls back to its defaults");
     build_client(&config).expect("the default ClickHouse client builds")
 }
 
 /// Run the production predicate over `blobs`, in the blobs' own order.
-async fn admit_all(client: &Client, keys: &[&str], blobs: &[&str]) -> Vec<bool> {
+async fn admit_all(client: &ClickHouseClient, keys: &[&str], blobs: &[&str]) -> Vec<bool> {
     let sql = format!(
         "WITH ? AS blobs\nSELECT index, {} AS admitted\nFROM (SELECT arrayJoin(arrayEnumerate(blobs)) AS index, blobs[index] AS blob)\nORDER BY index",
         predicate_over("blob", keys),

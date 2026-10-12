@@ -104,7 +104,11 @@ export interface issuesDataNodeLogicActions {
         issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
-    mutationSuccess: (mutationName: string) => {
+    mutationSuccess: (
+        mutationName: string,
+        issueId?: string | undefined
+    ) => {
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     resolveIssues: (ids: string[]) => {

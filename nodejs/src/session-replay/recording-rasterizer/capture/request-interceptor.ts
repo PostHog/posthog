@@ -1,14 +1,26 @@
 import { randomBytes } from 'node:crypto'
+import { promisify } from 'node:util'
+import { brotliDecompress, gunzip, inflate } from 'node:zlib'
 import { Frame, HTTPRequest } from 'puppeteer'
 
-import { fetch } from '~/common/utils/request'
+import { fetchStreamed } from '~/common/utils/request'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
-import { BLOCK_REQUEST_PREFIX, BlockProxy } from './block-proxy'
+import { BLOCK_REQUEST_PREFIX, BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
 
 const PROXY_TIMEOUT_MS = 10_000
+const MAX_STYLESHEET_BYTES = 10 * 1024 * 1024
+const MAX_CONTENT_ENCODING_LAYERS = 2
+
+type Decoder = (input: Buffer, options: { maxOutputLength: number }) => Promise<Buffer>
+const DECODERS = new Map<string, Decoder>([
+    ['gzip', promisify(gunzip)],
+    ['x-gzip', promisify(gunzip)],
+    ['deflate', promisify(inflate)],
+    ['br', promisify(brotliDecompress)],
+])
 
 // The replay-headless build stamps this placeholder as the player script's nonce attribute
 // (see common/replay-headless/build.mjs). It is swapped for a per-request nonce when the CSP is on
@@ -17,7 +29,7 @@ const NONCE_PLACEHOLDER = '__CSP_NONCE__'
 
 /**
  * Centralizes all Puppeteer request interception: serves the player HTML,
- * forwards block requests to {@link BlockProxy}, proxies sub-frame
+ * forwards block requests to {@link BlockSource}, proxies sub-frame
  * stylesheets, and aborts sub-frame media to prevent beginFrame deadlocks.
  *
  * {@link waitForSettled} gates beginFrame until proxied stylesheets resolve.
@@ -29,7 +41,7 @@ export class RequestInterceptor {
 
     constructor(
         private capturePage: CapturePage,
-        private blockProxy: BlockProxy,
+        private blockProxy: BlockSource,
         private log: Logger = createLogger(),
         private enablePlayerCsp: boolean = config.enablePlayerCsp
     ) {
@@ -164,11 +176,18 @@ export class RequestInterceptor {
                     headers[name] = browserHeaders[name]
                 }
             }
-            const resp = await fetch(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
-            const body = await resp.text()
+            const resp = await fetchStreamed(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
+            const { bytes, overLimit } = await resp.read(MAX_STYLESHEET_BYTES, false)
+            if (overLimit) {
+                throw new Error(`stylesheet is larger than ${MAX_STYLESHEET_BYTES} bytes`)
+            }
+            const body = await decodeContentEncoding(bytes, resp.headerLines)
             await request.respond({
                 status: resp.status,
                 contentType: resp.headers['content-type'] || 'text/css',
+                // A `<link crossorigin>` makes Chrome CORS-check this response, and without the header it
+                // drops the stylesheet and the frame renders unstyled. The fetch above carries no credentials.
+                headers: { 'access-control-allow-origin': '*' },
                 body,
             })
         } catch (err) {
@@ -180,4 +199,33 @@ export class RequestInterceptor {
             }
         }
     }
+}
+
+// A host such as S3 sends an object stored with `Content-Encoding: gzip` encoded even when the request
+// has no `accept-encoding`. Chromium gets the body without that header, so it cannot parse it undecoded.
+async function decodeContentEncoding(
+    body: Buffer,
+    headerLines: Array<{ name: string; value: string }>
+): Promise<Buffer> {
+    const codings = headerLines
+        .filter((line) => line.name === 'content-encoding')
+        .flatMap((line) => line.value.split(','))
+        .map((coding) => coding.trim().toLowerCase())
+        .filter((coding) => coding !== '' && coding !== 'identity')
+    if (codings.length === 0 || body.length === 0) {
+        return body
+    }
+    if (codings.length > MAX_CONTENT_ENCODING_LAYERS) {
+        throw new Error(`too many content encodings: ${codings.join(', ')}`)
+    }
+    let decoded = body
+    // The header lists codings in the order the sender applied them, so decode in reverse.
+    for (const coding of codings.reverse()) {
+        const decode = DECODERS.get(coding)
+        if (!decode) {
+            throw new Error(`unsupported content encoding: ${coding}`)
+        }
+        decoded = await decode(decoded, { maxOutputLength: MAX_STYLESHEET_BYTES })
+    }
+    return decoded
 }

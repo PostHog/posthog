@@ -13,10 +13,12 @@ import type {
   CanvasDataQueryInput,
   CanvasDataResult,
   CanvasLoadInsightInput,
+  SavedInsight,
 } from "./freeformSchemas";
 import {
   fetchCurrentUser,
   fetchInsightByShortId,
+  listSavedInsights,
   readCachedQuery,
   runQuery,
 } from "./posthogApi";
@@ -124,10 +126,16 @@ export class CanvasDataService {
           });
         }
       }
-      const { columns, results } = await runQuery(this.authService, node, {
-        refresh: "blocking",
+      const { columns, results, hogql } = await runQuery(
+        this.authService,
+        node,
+        { refresh: "blocking" },
+      );
+      return boundedResult({
+        columns,
+        results: shaped(results),
+        ...(hogql ? { hogql } : {}),
       });
-      return boundedResult({ columns, results: shaped(results) });
     } catch (err) {
       this.log.warn("Canvas query failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -156,6 +164,10 @@ export class CanvasDataService {
     );
   }
 
+  listSavedInsights(search?: string): Promise<SavedInsight[]> {
+    return listSavedInsights(this.authService, search);
+  }
+
   async loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult> {
     try {
       const insight = await fetchInsightByShortId(
@@ -172,6 +184,11 @@ export class CanvasDataService {
       return boundedResult({
         columns: insight.columns,
         results: isRows ? normalizeHogQLRows(insight.results) : insight.results,
+        insight: {
+          name: insight.name,
+          kind: insight.sourceKind,
+          display: insight.display,
+        },
       });
     } catch (err) {
       this.log.warn("Canvas loadInsight failed", {

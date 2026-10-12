@@ -15,14 +15,14 @@ import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog import settings
+from posthog.clickhouse.backoff import ExponentialBackoff
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
-    Workload,
     get_clickhouse_creds,
     is_file_backed_user,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_producer
@@ -73,7 +73,7 @@ def _dedicated_user_connection_overrides(creds: ClickHouseCredentials) -> dict[s
     untouched, so the pool authenticates as this user with this user's credential.
     """
     overrides: dict[str, Any] = {"user": creds.user}
-    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+    if is_file_backed_user(creds, creds.user):
         overrides["credential_provider"] = creds.read_password
     else:
         overrides["password"] = creds.password
@@ -105,15 +105,16 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=self.retry_max_attempts,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
 
 
-class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+class SatelliteClickhouseClusterResource(dagster.ConfigurableResource):
     max_execution_time: int
     max_memory_usage: int
+    satellite_cluster: str
 
     # OPS is discoverable only from the migrations host/cluster: satellite discovery runs
     # clusterAllReplicas(ops, system.clusters) WHERE cluster = <migrations cluster>, which the default
@@ -126,7 +127,7 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             context.log,
             host=self.host,
             cluster=self.cluster,
-            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            satellite_clusters=[self.satellite_cluster],
             client_settings={
                 "max_execution_time": str(self.max_execution_time),
                 "max_memory_usage": str(self.max_memory_usage),
@@ -136,10 +137,14 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             },
             retry_policy=RetryPolicy(
                 max_attempts=2,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
+
+
+class OpsClickhouseClusterResource(SatelliteClickhouseClusterResource):
+    satellite_cluster: str = settings.CLICKHOUSE_OPS_CLUSTER
 
 
 class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
@@ -180,7 +185,7 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides=_dedicated_user_connection_overrides(creds),
@@ -218,7 +223,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20, max_delay=60),
+                delay=ExponentialBackoff(delay=20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides=_dedicated_user_connection_overrides(creds),
@@ -318,10 +323,8 @@ class PostgresURL(dagster.ConfigurableResource):
 def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
     """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
 
-    Every existing consumer of this resource (`detach_distinct_id_op`,
-    `person_property_reconciliation`, `person_property_reconciliation_restore`)
-    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
-    routing map sends to the INGESTION profile. Binding the resource here keeps
+    Consumers of this resource produce to `clickhouse_person` / `clickhouse_person_distinct_id`,
+    which the routing map sends to the INGESTION profile. Binding the resource here keeps
     that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
     fails loud rather than silently dropping writes via the DEFAULT fallback.
 

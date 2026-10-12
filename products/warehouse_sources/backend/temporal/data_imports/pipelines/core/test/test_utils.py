@@ -29,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _to_list_array,
     align_incoming_decimals_to_delta,
     apply_enabled_columns_projection,
-    conditional_lru_cache_async,
     evolve_pyarrow_schema,
     hex_encode_id_binary_columns,
     is_safe_numeric_widening,
@@ -103,6 +102,17 @@ def test_table_from_py_list_inconsistent_other_types():
             ]
         )
     )
+
+
+def test_table_from_py_list_keeps_the_key_order_of_the_rows():
+    table = table_from_py_list(
+        [
+            {"zeta": 1, "alpha": "a", "mid": None, "beta": 2.5, "omega": "o", "gamma": True, "delta": 3},
+            {"zeta": 2, "alpha": "b", "mid": "m", "beta": 3.5, "omega": "p", "gamma": False, "delta": 4, "late": "x"},
+        ]
+    )
+
+    assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
 
 
 def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
@@ -674,6 +684,12 @@ def test_table_from_py_list_with_postgres_range(value, expected):
 
         assert table.schema.field("column").type == pa.string()
         assert table.column("column").to_pylist() == [expected, None]
+
+        # A batch holding no null: numpy reads a multirange as a nested sequence, so a column of
+        # equal length ones flattens into a 2-D array unless the column is built element by element.
+        table = table_from_py_list([{"column": value}], schema)
+
+        assert table.column("column").to_pylist() == [expected]
 
 
 def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
@@ -1937,40 +1953,63 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
 
 
+@pytest.mark.parametrize(
+    "partition_keys,expected_hash_inputs",
+    [
+        (["id"], ["a1", "b2", "None", "d4"]),
+        (
+            ["seen_at", "id"],
+            [
+                "2024-03-01 10:00:00|a1",
+                "2024-03-01 10:00:00.250000|b2",
+                "None|None",
+                "2024-03-02 00:00:00|d4",
+            ],
+        ),
+        (["id", "dropped_field", "count"], ["a1|None|1", "b2|None|2", "None|None|3", "d4|None|None"]),
+        (["id", "id"], ["a1|a1", "b2|b2", "None|None", "d4|d4"]),
+    ],
+)
+def test_append_partition_key_md5_hashes_only_the_key_values_in_key_order(partition_keys, expected_hash_inputs):
+    rows = pa.table(
+        {
+            "payload": pa.array([{"n": 1}, {"n": 2}, None, {"n": 4}]),
+            "count": pa.array([1, 2, 3, None], type=pa.int64()),
+            "id": pa.array(["a1", "b2", None, "d4"]),
+            "seen_at": pa.array(
+                [
+                    datetime.datetime(2024, 3, 1, 10),
+                    datetime.datetime(2024, 3, 1, 10, 0, 0, 250000),
+                    None,
+                    datetime.datetime(2024, 3, 2),
+                ],
+                type=pa.timestamp("us"),
+            ),
+        }
+    )
+    table = pa.concat_tables([rows.slice(0, 1), rows.slice(1)])
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=45,
+        partition_size=None,
+        partition_keys=partition_keys,
+        partition_mode="md5",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    assert result.table.column_names == [*table.column_names, PARTITION_KEY]
+    assert result.table.column(PARTITION_KEY).to_pylist() == [
+        str(int(hashlib.md5(value.encode()).hexdigest(), 16) % 45) for value in expected_hash_inputs
+    ]
+
+
 def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
     assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)
-
-
-class TestConditionalLruCacheAsyncCachePop:
-    @pytest.mark.asyncio
-    async def test_pop_on_cache_miss_returns_none_without_calling_func(self):
-        # A best-effort cleanup path (e.g. releasing an already-fetched delta table) must be able
-        # to check the cache without ever triggering the wrapped function's own I/O — a miss here
-        # used to mean "call the real function", which made cleanup do an unrelated object-storage
-        # call and risk masking the real error with a fresh, spurious one.
-        calls = []
-
-        @conditional_lru_cache_async(maxsize=1)
-        async def fetch(key: str) -> str:
-            calls.append(key)
-            return f"value-{key}"
-
-        assert fetch.cache_pop("a") is None
-        assert calls == []
-
-    @pytest.mark.asyncio
-    async def test_pop_on_cache_hit_returns_and_removes_cached_value(self):
-        @conditional_lru_cache_async(maxsize=1)
-        async def fetch(key: str) -> str:
-            return f"value-{key}"
-
-        assert await fetch("a") == "value-a"
-
-        assert fetch.cache_pop("a") == "value-a"
-        # Popped, not just read — a second pop finds nothing left to remove.
-        assert fetch.cache_pop("a") is None
 
 
 class TestReconcileBatchToAccumulatedSchema:

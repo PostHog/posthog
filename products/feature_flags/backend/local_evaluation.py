@@ -59,6 +59,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
+    defer_flags_cache_rebuild,
     get_team_ids_with_recently_updated_flags,
     get_teams_with_flags_queryset,
 )
@@ -1004,6 +1005,9 @@ def experiment_changed(sender, instance: "Experiment", **kwargs):
 @receiver(post_delete, sender=Cohort)
 def cohort_changed(sender, instance: "Cohort", **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
+        return
+
+    if defer_flags_cache_rebuild(instance.team_id, "definitions"):
         return
 
     from products.feature_flags.backend.tasks import update_team_flags_cache

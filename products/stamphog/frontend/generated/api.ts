@@ -18,12 +18,15 @@ import type {
     ReviewRequestApi,
     ReviewRequestResponseApi,
     ReviewRunApi,
+    StamphogAddRepositoryApi,
+    StamphogAvailableRepositoriesApi,
     StamphogDigestRunsListParams,
     StamphogInstallInfoApi,
     StamphogPullRequestApi,
     StamphogPullRequestsListParams,
     StamphogRepoConfigApi,
     StamphogRepoConfigWriteApi,
+    StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
     StamphogSyncInstallationRequestApi,
@@ -252,6 +255,62 @@ export const stamphogRepoConfigsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getStamphogRepoConfigsAddRepositoryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/stamphog/repo_configs/add_repository/`
+}
+
+/**
+ * Turn reviews on for a repository from the project's connected GitHub installations. Creates the repo config, or turns an existing one back on. Needs the editor level on stamphog.
+ */
+export const stamphogRepoConfigsAddRepositoryCreate = async (
+    projectId: string,
+    stamphogAddRepositoryApi: StamphogAddRepositoryApi,
+    options?: RequestInit
+): Promise<StamphogRepoConfigApi> => {
+    return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsAddRepositoryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(stamphogAddRepositoryApi),
+    })
+}
+
+export const getStamphogRepoConfigsAvailableRepositoriesRetrieveUrl = (
+    projectId: string,
+    params?: StamphogRepoConfigsAvailableRepositoriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/stamphog/repo_configs/available_repositories/?${stringifiedParams}`
+        : `/api/projects/${projectId}/stamphog/repo_configs/available_repositories/`
+}
+
+/**
+ * List repositories from the project's connected GitHub installations that are not added to stamphog yet, so they can be added with add_repository.
+ */
+export const stamphogRepoConfigsAvailableRepositoriesRetrieve = async (
+    projectId: string,
+    params?: StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
+    options?: RequestInit
+): Promise<StamphogAvailableRepositoriesApi> => {
+    return apiMutator<StamphogAvailableRepositoriesApi>(
+        getStamphogRepoConfigsAvailableRepositoriesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getStamphogRepoConfigsInstallInfoRetrieveUrl = (projectId: string) => {

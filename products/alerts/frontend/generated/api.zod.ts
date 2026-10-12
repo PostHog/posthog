@@ -58,6 +58,10 @@ export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMax = 100
+
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -99,6 +103,14 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsSimulateCreateBodyEvaluationDelayIntervalsMax)
+        .default(alertsSimulateCreateBodyEvaluationDelayIntervalsDefault)
+        .describe(
+            'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
+        ),
     insight: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),

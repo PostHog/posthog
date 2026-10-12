@@ -9,8 +9,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.hog_invocation_results.sql import INSERT_HOG_INVOCATION_RESULT_SQL
 
+from products.cdp.backend.models.hog_invocation_results_sql import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.cdp.backend.services.stuck_invocations import (
     STUCK_INVOCATION_ERROR_KIND,
     StuckInvocation,

@@ -1,0 +1,784 @@
+import re
+import json
+from collections import Counter
+from collections.abc import Callable, Mapping
+from dataclasses import replace
+from datetime import UTC, date, datetime, time, timedelta
+from functools import partial
+from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
+
+import pytest
+import time_machine
+from unittest.mock import MagicMock, patch
+
+import dagster
+from clickhouse_driver import Client
+from dagster._core.remote_origin import RegisteredCodeLocationOrigin, RemoteJobOrigin, RemoteRepositoryOrigin
+
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.dags.data_deletion_requests import data_deletion_request_property_removal
+from posthog.dags.deletes import deletes_job
+from posthog.dags.flag_evaluations_backfill import (
+    FlagEvaluationsBackfillConfig,
+    PolicyDisk,
+    ShardBackfill,
+    ShardBackfillTotals,
+    disk_headroom,
+    flag_evaluations_backfill_job,
+    resolve_backfill_days,
+)
+from posthog.dags.person_overrides import squash_person_overrides
+from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.dataclasses import frozen
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
+
+TEAM_ONE, TEAM_TWO, TEAM_THREE = 1, 2, 3
+
+
+@frozen
+class SourceEvent:
+    label: str
+    team_id: int
+    age: timedelta
+    properties: Mapping[str, object]
+    event: str = FLAG_EVALUATIONS_SOURCE_EVENT
+    # The age of the row's Kafka create time (_timestamp), when that differs from the event's age.
+    kafka_time_age: timedelta | None = None
+
+    @property
+    def uuid(self) -> UUID:
+        return uuid5(NAMESPACE_URL, self.label)
+
+    @property
+    def distinct_id(self) -> str:
+        return f"{self.label}-user"
+
+
+@frozen
+class StoredRow:
+    label: str
+    flag_key: str
+    response: str
+    session_id: str
+    person_id: UUID
+    inserted_at_is_timestamp: bool
+
+
+def flag_called(label: str, team_id: int, age: timedelta) -> SourceEvent:
+    return SourceEvent(
+        label=label,
+        team_id=team_id,
+        age=age,
+        properties={
+            "$feature_flag": f"{label}-flag",
+            "$feature_flag_response": "control",
+            "$session_id": f"{label}-session",
+        },
+    )
+
+
+def copied(event: SourceEvent) -> StoredRow:
+    return StoredRow(
+        label=event.label,
+        flag_key=str(event.properties["$feature_flag"]),
+        response=str(event.properties["$feature_flag_response"]),
+        session_id=str(event.properties["$session_id"]),
+        person_id=uuid5(NAMESPACE_URL, event.distinct_id),
+        inserted_at_is_timestamp=True,
+    )
+
+
+INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
+INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
+# The default one-hour lag limit and the five-minute delivery timeout put the cutoff 65 minutes before the check.
+# A row that ingestion produced two hours ago is older than the cutoff, so the job copies it.
+INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), kafka_time_age=timedelta(hours=2))
+ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
+# An import dated inside the window that ingestion produced just before the consumer-lag check. Its fork row
+# can still be in Kafka, so the job does not copy it.
+IMPORTED_JUST_NOW = replace(flag_called("imported_just_now", TEAM_ONE, timedelta(days=4)), kafka_time_age=timedelta(0))
+
+SOURCE_EVENTS = [
+    INSIDE_RECENT,
+    INSIDE_TEAM_THREE,
+    INSIDE_OLD,
+    ALREADY_FORKED,
+    IMPORTED_JUST_NOW,
+    SourceEvent(
+        label="numeric_flag_key",
+        team_id=TEAM_ONE,
+        age=timedelta(days=3),
+        properties={"$feature_flag": 7, "$feature_flag_response": "control", "$session_id": "numeric-session"},
+    ),
+    SourceEvent(
+        label="empty_flag_key",
+        team_id=TEAM_ONE,
+        age=timedelta(days=3),
+        properties={"$feature_flag": "", "$feature_flag_response": "control", "$session_id": "empty-session"},
+    ),
+    SourceEvent(
+        label="missing_flag_key",
+        team_id=TEAM_ONE,
+        age=timedelta(days=3),
+        properties={"$feature_flag_response": "control", "$session_id": "missing-session"},
+    ),
+    replace(flag_called("other_event", TEAM_ONE, timedelta(days=3)), event="$pageview"),
+    flag_called("today", TEAM_ONE, timedelta(0)),
+    # Twelve hours before now is always after the start of yesterday, even when UTC midnight passes
+    # between seeding and the run. A row from exactly one day ago would move into the window then.
+    flag_called("half_a_day_ago", TEAM_ONE, timedelta(hours=12)),
+    flag_called("past_retention", TEAM_ONE, timedelta(days=91)),
+]
+
+# The job stops unless each Kafka partition in flag_evaluations delivered a row within the
+# consumer-lag limit, because only such rows show that the Kafka path has delivered everything up to
+# the copy window. Rows with this identity stand in for that traffic. Their ages set the lag that
+# the job reads.
+KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timedelta(0), properties={})
+
+# A Kafka row whose inserted_at equals its timestamp, as on a copied row. This happens when the event
+# timestamp has no sub-second part and falls in the second that Kafka received the event.
+KAFKA_ROW_IN_ITS_EVENT_SECOND = SourceEvent(
+    label="kafka_row_in_its_event_second", team_id=TEAM_ONE, age=timedelta(0), properties={}
+)
+
+SAME_UUID_OTHER_TEAM = replace(INSIDE_RECENT, team_id=TEAM_TWO)
+
+
+def forked(event: SourceEvent) -> StoredRow:
+    # insert_flag_evaluations writes no properties, so the shard computes empty typed columns for the
+    # row. A copied duplicate of the same uuid carries the source event's flag key instead.
+    return StoredRow(
+        label=event.label,
+        flag_key="",
+        response="",
+        session_id="",
+        person_id=uuid5(NAMESPACE_URL, event.distinct_id),
+        inserted_at_is_timestamp=True,
+    )
+
+
+DEFAULT_WINDOW_COPIES = (INSIDE_RECENT, INSIDE_TEAM_THREE, INSIDE_OLD)
+
+
+def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[SourceEvent]) -> None:
+    rows = [
+        (
+            event.uuid,
+            event.event,
+            json.dumps(event.properties),
+            now - event.age,
+            event.team_id,
+            event.distinct_id,
+            now - event.age,
+            uuid5(NAMESPACE_URL, event.distinct_id),
+            now - (event.age if event.kafka_time_age is None else event.kafka_time_age),
+        )
+        for event in events
+    ]
+
+    def insert(client: Client) -> None:
+        client.execute(
+            f"""INSERT INTO {EVENTS_DATA_TABLE()}
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp)
+            VALUES""",
+            rows,
+        )
+
+    cluster.any_host_by_role(insert, NodeRole.DATA).result()
+
+
+def seed_flag_evaluation(cluster: ClickhouseCluster, now: datetime, event: SourceEvent) -> None:
+    row = (event.team_id, event.distinct_id, uuid5(NAMESPACE_URL, event.distinct_id), event.uuid, now - event.age)
+    cluster.any_host(partial(insert_flag_evaluations, [row])).result()
+
+
+def seed_kafka_path_row(
+    cluster: ClickhouseCluster,
+    now: datetime,
+    event: SourceEvent = KAFKA_PATH_ROW,
+    partition: int = 0,
+    offset: int = 1,
+    delivery_delay: timedelta = timedelta(seconds=1),
+    consumer_delay: timedelta = timedelta(0),
+) -> None:
+    # The lag check skips rows whose inserted_at equals their timestamp, because the backfill copies
+    # rows that way. A Kafka row usually arrives after its event, so its inserted_at is later.
+    # The cleanup filter treats offset 0 in partition 0 as a copy, so the default offset is 1.
+    kafka_time = now - event.age
+    row = (
+        event.team_id,
+        event.distinct_id,
+        uuid5(NAMESPACE_URL, event.distinct_id),
+        event.uuid,
+        kafka_time - delivery_delay,
+        kafka_time + consumer_delay,
+        kafka_time,
+        partition,
+        offset,
+    )
+
+    def insert(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_flag_evaluations
+            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _timestamp, _partition, _offset)
+            VALUES""",
+            [row],
+        )
+
+    cluster.any_host(insert).result()
+
+
+def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
+    labels = {event.uuid: event.label for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND]}
+
+    def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, int]]:
+        return client.execute(
+            """SELECT uuid, flag_key, response, session_id, person_id, inserted_at = timestamp
+            FROM flag_evaluations
+            WHERE uuid != %(kafka_path_row)s""",
+            {"kafka_path_row": KAFKA_PATH_ROW.uuid},
+        )
+
+    return Counter(
+        StoredRow(
+            label=labels.get(uuid, str(uuid)),
+            flag_key=flag_key,
+            response=response,
+            session_id=session_id,
+            person_id=person_id,
+            inserted_at_is_timestamp=bool(inserted_at_is_timestamp),
+        )
+        for uuid, flag_key, response, session_id, person_id, inserted_at_is_timestamp in cluster.any_host_by_role(
+            select, NodeRole.DATA
+        ).result()
+    )
+
+
+def run_backfill(
+    cluster: ClickhouseCluster, instance: dagster.DagsterInstance | None = None, **overrides: Any
+) -> dagster.ExecuteInProcessResult:
+    # The default disk floor exceeds the free space on a development machine, so every run starts
+    # with the floor off. An explicit instance keeps the job from seeing squash or deletes runs that
+    # other tests left in the shared PostgreSQL-backed instance.
+    config = FlagEvaluationsBackfillConfig(**{"min_free_bytes": 0, **overrides})
+    return flag_evaluations_backfill_job.execute_in_process(
+        run_config=dagster.RunConfig(ops={"plan_flag_evaluations_backfill": config}),
+        resources={"cluster": cluster},
+        instance=instance or dagster.DagsterInstance.ephemeral(),
+        raise_on_error=False,
+    )
+
+
+def days_before(now: datetime, days: int) -> str:
+    return (now - timedelta(days=days)).date().isoformat()
+
+
+def age_at_noon(now: datetime, days_ago: int) -> timedelta:
+    return now - datetime.combine(now.date() - timedelta(days=days_ago), time(12), tzinfo=UTC)
+
+
+def shard_backfill(
+    config: FlagEvaluationsBackfillConfig | None = None,
+    *,
+    instance: dagster.DagsterInstance | None = None,
+    run_id: str = "backfill-run",
+    cluster: MagicMock | None = None,
+) -> ShardBackfill:
+    # The cluster is a mock, so the default config turns off the parts wait, which queries it.
+    return ShardBackfill(
+        cluster=cluster or MagicMock(),
+        shard_num=1,
+        config=config or FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
+        instance=instance or dagster.DagsterInstance.ephemeral(),
+        run_id=run_id,
+        log=MagicMock(),
+        query_tags=DagsterTags(),
+        workload=Workload.DEFAULT,
+        node_role=NodeRole.ALL,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "config_for, reported_rows, expected_copies",
+    [
+        pytest.param(lambda now: {}, [3], DEFAULT_WINDOW_COPIES, id="default_window"),
+        pytest.param(lambda now: {}, [3, 0], DEFAULT_WINDOW_COPIES, id="second_run_copies_nothing_new"),
+        pytest.param(
+            lambda now: {"start_date": days_before(now, 60), "end_date": days_before(now, 30)},
+            [1],
+            (INSIDE_OLD,),
+            id="explicit_window_includes_start_day_and_excludes_end_day",
+        ),
+        pytest.param(lambda now: {"team_ids": [TEAM_TWO]}, [1], (INSIDE_OLD,), id="team_ids"),
+        pytest.param(lambda now: {"team_id_chunks": 3}, [3], DEFAULT_WINDOW_COPIES, id="team_id_chunks"),
+        pytest.param(lambda now: {"dry_run": True}, [3], (), id="dry_run"),
+    ],
+)
+def test_backfill_copies_each_eligible_row_in_the_window_exactly_once(
+    cluster: ClickhouseCluster,
+    config_for: Callable[[datetime], dict[str, Any]],
+    reported_rows: list[int],
+    expected_copies: tuple[SourceEvent, ...],
+) -> None:
+    now = datetime.now(UTC)
+    seed_source_events(cluster, now, SOURCE_EVENTS)
+    seed_flag_evaluation(cluster, now, ALREADY_FORKED)
+    seed_flag_evaluation(cluster, now, SAME_UUID_OTHER_TEAM)
+    seed_kafka_path_row(cluster, now)
+
+    results = [run_backfill(cluster, **config_for(now)) for _ in reported_rows]
+
+    assert [result.success for result in results] == [True] * len(reported_rows)
+    assert [sum(result.output_for_node("backfill_flag_evaluations_shard").values()) for result in results] == (
+        reported_rows
+    )
+    assert stored_rows(cluster) == Counter(
+        [forked(ALREADY_FORKED), forked(SAME_UUID_OTHER_TEAM), *(copied(event) for event in expected_copies)]
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "blocking_job, status, run_config",
+    [
+        pytest.param(squash_person_overrides, dagster.DagsterRunStatus.QUEUED, None, id="queued_squash"),
+        pytest.param(deletes_job, dagster.DagsterRunStatus.STARTED, None, id="started_deletes"),
+        pytest.param(
+            data_deletion_request_property_removal,
+            dagster.DagsterRunStatus.STARTED,
+            {"ops": {"load_property_removal_request": {"config": {"request_id": "unused"}}}},
+            id="started_property_removal",
+        ),
+    ],
+)
+def test_backfill_waits_for_an_active_blocking_run_before_copying(
+    cluster: ClickhouseCluster,
+    blocking_job: dagster.JobDefinition,
+    status: dagster.DagsterRunStatus,
+    run_config: dict[str, Any] | None,
+) -> None:
+    now = datetime.now(UTC)
+    on_first_copied_day = replace(INSIDE_RECENT, age=age_at_noon(now, days_ago=2))
+    seed_source_events(cluster, now, [on_first_copied_day])
+    seed_kafka_path_row(cluster, now)
+    instance = dagster.DagsterInstance.ephemeral()
+    # Dagster refuses to store a QUEUED run that has no code location origin.
+    origin = RemoteJobOrigin(
+        RemoteRepositoryOrigin(RegisteredCodeLocationOrigin("clickhouse"), "__repository__"), blocking_job.name
+    )
+    blocking_run = instance.create_run_for_job(
+        job_def=blocking_job, status=status, run_config=run_config, remote_job_origin=origin
+    )
+    copies_seen_while_blocked: list[int] = []
+
+    def finish_blocking_run(_seconds: float) -> None:
+        run = instance.get_run_by_id(blocking_run.run_id)
+        if run is None or run.is_finished:
+            return
+        copies_seen_while_blocked.append(sum(stored_rows(cluster).values()))
+        instance.report_run_canceled(run)
+
+    # The patch replaces time.sleep for every caller in the process. max_unmerged_parts=0 turns off
+    # the parts wait, so that the blocking-run poll is the only caller that reaches this fake.
+    with patch("posthog.dags.flag_evaluations_backfill.time.sleep", side_effect=finish_blocking_run):
+        result = run_backfill(cluster, instance=instance, max_unmerged_parts=0, start_date=days_before(now, 3))
+
+    assert result.success
+    assert copies_seen_while_blocked == [0]
+    assert stored_rows(cluster) == Counter([copied(on_first_copied_day)])
+
+
+REPAIR_DELETE = (
+    f"DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '2026-03-10' "
+    "AND _partition = 0 AND _offset = 0 AND inserted_at = timestamp"
+)
+
+
+@pytest.mark.parametrize(
+    "status, created_before_the_check, team_ids, repair",
+    [
+        pytest.param(dagster.DagsterRunStatus.STARTED, False, None, f"`{REPAIR_DELETE}`", id="started_during_the_copy"),
+        pytest.param(
+            dagster.DagsterRunStatus.SUCCESS, False, None, f"`{REPAIR_DELETE}`", id="finished_during_the_copy"
+        ),
+        pytest.param(
+            dagster.DagsterRunStatus.STARTED,
+            False,
+            [TEAM_TWO, TEAM_THREE],
+            f"`{REPAIR_DELETE} AND team_id IN ({TEAM_TWO}, {TEAM_THREE})`",
+            id="started_during_a_team_scoped_copy",
+        ),
+        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, False, None, None, id="not_started_yet"),
+        pytest.param(dagster.DagsterRunStatus.CANCELED, True, None, None, id="finished_before_the_check"),
+    ],
+)
+def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
+    status: dagster.DagsterRunStatus, created_before_the_check: bool, team_ids: list[int] | None, repair: str | None
+) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    backfill = shard_backfill(FlagEvaluationsBackfillConfig(team_ids=team_ids), instance=instance)
+    if created_before_the_check:
+        instance.create_run_for_job(job_def=deletes_job, status=status)
+    check = backfill.wait_for_blocking_runs()
+    if not created_before_the_check:
+        instance.create_run_for_job(job_def=deletes_job, status=status)
+
+    if repair is None:
+        backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
+    else:
+        with pytest.raises(dagster.Failure) as failure:
+            backfill.check_no_blocking_run_started(check, day=date(2026, 3, 10))
+        assert repair in str(failure.value.description)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "copy_fails", [pytest.param(False, id="copy_succeeds"), pytest.param(True, id="copy_fails_partway")]
+)
+def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
+    cluster: ClickhouseCluster, copy_fails: bool
+) -> None:
+    now = datetime.now(UTC)
+    on_first_copied_day = replace(INSIDE_RECENT, age=age_at_noon(now, days_ago=2))
+    kafka_row_on_first_copied_day = replace(KAFKA_ROW_IN_ITS_EVENT_SECOND, age=on_first_copied_day.age)
+    seed_source_events(cluster, now, [on_first_copied_day])
+    seed_kafka_path_row(cluster, now)
+    for partition, offset in [(0, 1), (1, 0)]:
+        seed_kafka_path_row(cluster, now, kafka_row_on_first_copied_day, partition, offset, delivery_delay=timedelta(0))
+    instance = dagster.DagsterInstance.ephemeral()
+    copy_day = ShardBackfill.copy_day
+
+    def copy_while_deletes_starts(backfill: ShardBackfill, *args: Any) -> int:
+        instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.STARTED)
+        rows = copy_day(backfill, *args)
+        if copy_fails:
+            raise RuntimeError("the insert stopped partway")
+        return rows
+
+    with patch.object(ShardBackfill, "copy_day", autospec=True, side_effect=copy_while_deletes_starts):
+        # An explicit end_date keeps on_first_copied_day the first day copied if UTC midnight passes.
+        result = run_backfill(cluster, instance=instance, start_date=days_before(now, 3), end_date=days_before(now, 1))
+
+    [failure] = result.get_step_failure_events()
+    assert failure.step_failure_data.error is not None
+    message = failure.step_failure_data.error.message
+    assert "started while" in message
+    assert stored_rows(cluster) == Counter({copied(on_first_copied_day): 1, forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+
+    [repair_delete] = re.findall(r"`(DELETE FROM [^`]+)`", message)
+    cluster.map_one_host_per_shard(lambda client: client.execute(repair_delete)).result()
+
+    assert stored_rows(cluster) == Counter({forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+
+
+@pytest.mark.parametrize(
+    "status, same_run, stops",
+    [
+        pytest.param(dagster.DagsterRunStatus.STARTED, False, True, id="another_run_executing"),
+        pytest.param(dagster.DagsterRunStatus.NOT_STARTED, False, False, id="another_run_not_started"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, True, False, id="only_this_run_executing"),
+    ],
+)
+def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
+    status: dagster.DagsterRunStatus, same_run: bool, stops: bool
+) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    other_run = instance.create_run_for_job(job_def=flag_evaluations_backfill_job, status=status)
+    backfill = shard_backfill(instance=instance, run_id=other_run.run_id if same_run else "backfill-run")
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+
+    with (
+        patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
+        patch.object(ShardBackfill, "consumer_cutoff"),
+        patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
+    ):
+        if stops:
+            with pytest.raises(dagster.Failure, match=other_run.run_id):
+                backfill.run([yesterday])
+        else:
+            backfill.run([yesterday])
+
+    assert copy_day.called is not stops
+
+
+@pytest.mark.parametrize(
+    "rereads, finished_during_disk_wait",
+    [
+        pytest.param([[]], 1, id="first_disk_wait"),
+        pytest.param([["replica-1"], []], 2, id="disk_wait_after_the_reread"),
+    ],
+)
+def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
+    rereads: list[list[str]], finished_during_disk_wait: int
+) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    disk_waits = 0
+
+    def finish_a_deletes_run() -> None:
+        nonlocal disk_waits
+        disk_waits += 1
+        if disk_waits == finished_during_disk_wait:
+            instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.SUCCESS)
+
+    with (
+        patch.object(ShardBackfill, "wait_for_disk_headroom", side_effect=finish_a_deletes_run),
+        patch.object(ShardBackfill, "_hosts_moving_parts", side_effect=rereads),
+        patch.object(ShardBackfill, "consumer_cutoff"),
+        patch.object(ShardBackfill, "copy_day", return_value=5),
+    ):
+        totals = shard_backfill(instance=instance).run([datetime.now(UTC).date() - timedelta(days=1)])
+
+    assert totals == ShardBackfillTotals(days=1, rows=5)
+
+
+# The earliest day the TTL keeps is 2025-12-11 on 2026-03-10, and 2025-12-12 on 2026-03-11.
+@pytest.mark.parametrize(
+    "start, step, step_day, effect",
+    [
+        pytest.param(
+            datetime(2026, 3, 10, 23, tzinfo=UTC),
+            "copy_day",
+            date(2026, 3, 9),
+            "pass_midnight",
+            id="midnight_passes_during_the_previous_copy",
+        ),
+        pytest.param(
+            datetime(2026, 3, 10, 23, tzinfo=UTC),
+            "wait_for_parts_to_merge",
+            date(2025, 12, 11),
+            "pass_midnight",
+            id="midnight_passes_during_the_waits_before_the_copy",
+        ),
+        pytest.param(
+            datetime(2026, 3, 11, 1, tzinfo=UTC),
+            "wait_for_parts_to_merge",
+            date(2025, 12, 11),
+            "fail",
+            id="day_expired_before_its_waits",
+        ),
+    ],
+)
+def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, step_day: date, effect: str) -> None:
+    days = [date(2026, 3, 9), date(2025, 12, 12), date(2025, 12, 11)]
+
+    with time_machine.travel(start, tick=False) as traveller:
+
+        def patched(name: str) -> Callable[..., int]:
+            def run_step(day: date, *args: Any) -> int:
+                if (name, day) == (step, step_day):
+                    if effect == "fail":
+                        raise dagster.Failure(description=f"{name} failed for {day}")
+                    traveller.shift(timedelta(hours=2))
+                return 5
+
+            return run_step
+
+        with (
+            patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
+            patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
+            patch.object(ShardBackfill, "consumer_cutoff"),
+            patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
+        ):
+            totals = shard_backfill().run(days)
+
+    assert [call.args[0] for call in copy_day.call_args_list] == days[:2]
+    assert totals == ShardBackfillTotals(days=2, rows=10)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "overrides, kafka_path_row_ages, consumer_delay",
+    [
+        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], timedelta(0), id="free_space_below_the_floor"),
+        pytest.param(
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(0),
+            id="kafka_path_behind_by_more_than_the_limit",
+        ),
+        pytest.param(
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(hours=2),
+            id="kafka_path_writing_a_backlog_older_than_the_limit",
+        ),
+        pytest.param(
+            {}, [timedelta(0), timedelta(days=2)], timedelta(0), id="one_kafka_partition_silent_for_over_a_day"
+        ),
+        pytest.param({}, [timedelta(days=8)], timedelta(0), id="kafka_path_silent_for_the_whole_lookback"),
+    ],
+)
+def test_backfill_fails_without_copying_when_a_safety_check_fails(
+    cluster: ClickhouseCluster,
+    overrides: dict[str, Any],
+    kafka_path_row_ages: list[timedelta],
+    consumer_delay: timedelta,
+) -> None:
+    now = datetime.now(UTC)
+    seed_source_events(cluster, now, [INSIDE_RECENT])
+    for partition, age in enumerate(kafka_path_row_ages):
+        seed_kafka_path_row(
+            cluster, now, replace(KAFKA_PATH_ROW, age=age), partition=partition, consumer_delay=consumer_delay
+        )
+
+    result = run_backfill(cluster, **overrides)
+
+    assert not result.success
+    assert stored_rows(cluster) == Counter()
+
+
+def test_consumer_cutoff_sits_the_lag_limit_and_the_delivery_timeout_before_the_check() -> None:
+    cluster = MagicMock()
+    cluster.map_any_host_in_shards_by_role.return_value.result.return_value = {1: (2, 30)}
+    backfill = shard_backfill(FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600), cluster=cluster)
+
+    with time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False):
+        created_before = backfill.consumer_cutoff()
+
+    assert created_before == datetime(2026, 3, 10, 11, 45, tzinfo=UTC)
+
+
+BELOW_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
+]
+ABOVE_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=4750, total_bytes=8000),
+]
+UNDER_THE_FLOOR = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=100, total_bytes=8000),
+]
+
+
+@pytest.mark.parametrize(
+    "disks, usable_bytes, below_move_line",
+    [
+        pytest.param(
+            [
+                PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+                PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=500, total_bytes=2000),
+            ],
+            700,
+            False,
+            id="hot_volume_keeps_its_move_reserve",
+        ),
+        pytest.param(BELOW_MOVE_LINE, 4950, True, id="hot_volume_below_its_move_line"),
+        pytest.param(
+            [PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000)],
+            50,
+            False,
+            id="single_volume_has_no_move_line",
+        ),
+    ],
+)
+def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
+    disks: list[PolicyDisk], usable_bytes: int, below_move_line: bool
+) -> None:
+    headroom = disk_headroom(disks)
+
+    assert (headroom.usable_bytes, headroom.below_move_line) == (usable_bytes, below_move_line)
+
+
+# The job reads the disks on each poll of the disk wait, and once more after the wait for squash and deletes runs.
+@pytest.mark.parametrize(
+    "readings, overrides, sleeps, failure",
+    [
+        pytest.param([BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE], {}, 1, None, id="mover_frees_the_disk"),
+        pytest.param([BELOW_MOVE_LINE], {"min_free_bytes": 10_000}, 0, "under the floor", id="under_the_floor"),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE],
+            {},
+            0,
+            None,
+            id="mover_frees_the_disk_after_the_blocking_wait",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
+            {"disk_check_max_wait_seconds": 0},
+            0,
+            "still moving parts",
+            id="disk_still_full_after_the_blocking_wait",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
+            {"disk_check_max_wait_seconds": 120},
+            2,
+            "still moving parts",
+            id="disk_wait_runs_out_after_polling",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, UNDER_THE_FLOOR],
+            {},
+            0,
+            "under the floor",
+            id="disk_under_the_floor_after_the_blocking_wait",
+        ),
+    ],
+)
+def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
+    readings: list[list[PolicyDisk]], overrides: dict[str, Any], sleeps: int, failure: str | None
+) -> None:
+    host = MagicMock()
+    host.connection_info.host = "replica-1"
+    cluster = MagicMock()
+    cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+    backfill = shard_backfill(
+        FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides}), cluster=cluster
+    )
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+    clock = [0.0]
+
+    def advance_clock(seconds: float) -> None:
+        clock[0] += seconds
+
+    with (
+        patch("posthog.dags.flag_evaluations_backfill.time.monotonic", side_effect=lambda: clock[0]),
+        patch("posthog.dags.flag_evaluations_backfill.time.sleep", side_effect=advance_clock) as sleep,
+        patch.object(ShardBackfill, "consumer_cutoff"),
+        patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
+    ):
+        if failure is None:
+            backfill.run([yesterday])
+        else:
+            with pytest.raises(dagster.Failure, match=failure):
+                backfill.run([yesterday])
+
+    assert (sleep.call_count, copy_day.called) == (sleeps, failure is None)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"end_date": "2026-03-10"}, id="end_date_after_yesterday"),
+        pytest.param({"start_date": "2026-03-01", "end_date": "2026-03-01"}, id="empty_window"),
+        pytest.param({"start_date": "2025-12-10"}, id="start_date_already_expired"),
+    ],
+)
+def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:
+    with pytest.raises(dagster.Failure):
+        resolve_backfill_days(FlagEvaluationsBackfillConfig(**overrides), today=date(2026, 3, 10))
+
+
+@pytest.mark.parametrize(
+    "overrides, newest, oldest, count",
+    [
+        pytest.param(
+            {"start_date": "2026-03-06", "end_date": "2026-03-09"}, date(2026, 3, 8), date(2026, 3, 6), 3, id="explicit"
+        ),
+        pytest.param({}, date(2026, 3, 8), date(2025, 12, 11), 88, id="default"),
+    ],
+)
+def test_resolve_backfill_days_lists_each_day_newest_first(
+    overrides: dict[str, Any], newest: date, oldest: date, count: int
+) -> None:
+    days = resolve_backfill_days(FlagEvaluationsBackfillConfig(**overrides), today=date(2026, 3, 10))
+
+    assert (days[0], days[-1], len(days)) == (newest, oldest, count)

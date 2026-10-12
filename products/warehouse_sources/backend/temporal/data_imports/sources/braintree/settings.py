@@ -58,6 +58,9 @@ _CUSTOMER_FIELDS = """
             website
 """
 
+# `price`, `balance` and `nextBillingPeriodAmount` are the `Amount` scalar (a decimal
+# string), not the `MonetaryAmount` object the other streams select `{ value currencyCode }`
+# on — a subselection here fails GraphQL validation for the whole query.
 _RECURRING_BILLING_SUBSCRIPTION_FIELDS = """
             id
             legacyId
@@ -65,9 +68,9 @@ _RECURRING_BILLING_SUBSCRIPTION_FIELDS = """
             planId
             merchantAccountId
             paymentMethodId
-            price { value currencyCode }
-            balance { value currencyCode }
-            nextBillingPeriodAmount { value currencyCode }
+            price
+            balance
+            nextBillingPeriodAmount
             billingDayOfMonth
             currentBillingCycle
             numberOfBillingCycles
