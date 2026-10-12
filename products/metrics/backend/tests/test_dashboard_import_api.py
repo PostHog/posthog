@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from PIL import Image
@@ -414,6 +415,66 @@ class TestDashboardImportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert Task.objects.filter(team=self.team).count() == 3
         self.storage.delete.assert_called()
+
+    def test_one_list_request_finalizes_at_most_one_ended_import(self) -> None:
+        answer = {
+            "dashboard_name": "Orders",
+            "panels": [
+                {
+                    "key": "p3",
+                    "title": "Payments",
+                    "outcome": "approximated",
+                    "reason": "Uses orders_total.",
+                    "query": {"language": "promql", "promql": "sum(rate(orders_total))"},
+                }
+            ],
+        }
+        started = [
+            self._start(
+                source="grafana", grafana_json=_grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])")
+            )
+            for _ in range(2)
+        ]
+        # The runs end without the task run receiver, as when the background finalizer is down.
+        for item in started:
+            TaskRun.objects.filter(task_id=item["id"]).update(status=TaskRun.Status.COMPLETED, output=answer)
+
+        first = self.client.get(self.url).json()
+        second = self.client.get(self.url).json()
+
+        assert sorted(item["status"] for item in first) == ["completed", "running"]
+        assert [item["status"] for item in second] == ["completed", "completed"]
+        assert Dashboard.objects.filter(team=self.team).count() == 2
+
+    def test_an_import_that_another_worker_holds_does_not_block_the_next_one(self) -> None:
+        answer = {
+            "dashboard_name": "Orders",
+            "panels": [
+                {
+                    "key": "p3",
+                    "title": "Payments",
+                    "outcome": "approximated",
+                    "reason": "Uses orders_total.",
+                    "query": {"language": "promql", "promql": "sum(rate(orders_total))"},
+                }
+            ],
+        }
+        # The list is newest first, so the held import starts last and comes first.
+        free, held = (
+            self._start(
+                source="grafana", grafana_json=_grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])")
+            )
+            for _ in range(2)
+        )
+        for item in (held, free):
+            TaskRun.objects.filter(task_id=item["id"]).update(status=TaskRun.Status.COMPLETED, output=answer)
+        task = Task.objects.get(id=held["id"])
+        task.state[IMPORT_STATE_KEY]["finalizing_since"] = timezone.now().isoformat()
+        task.save(update_fields=["state"])
+
+        statuses = {item["id"]: item["status"] for item in self.client.get(self.url).json()}
+
+        assert statuses == {held["id"]: "running", free["id"]: "completed"}
 
     def test_agent_checks_show_as_panel_progress(self) -> None:
         started = self._start(
