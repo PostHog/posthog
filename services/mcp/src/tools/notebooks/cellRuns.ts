@@ -3,7 +3,15 @@ import { wrapError } from '@/lib/errors'
 import { withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
-import { collectRunRefs, findCellTag, replaceCellTag, upsertProp, type CellTagBlock } from './cellTags'
+import {
+    collectRunRefs,
+    findCellTag,
+    readExpressionProp,
+    readStringProp,
+    replaceCellTag,
+    upsertProp,
+    type CellTagBlock,
+} from './cellTags'
 import { visualizationWarnings } from './cellVisualization'
 import { applyMarkdownEdit, notebookPathFor } from './markdownDoc'
 
@@ -60,6 +68,8 @@ export async function dispatchRun(
         output_name: string
         refs: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
         variables?: Schemas.NotebookVariable[]
+        connection_id?: string
+        send_raw_query?: boolean
     }
 ): Promise<string> {
     // Variables ride the run body, as they do from the editor: a SQL cell reading a `{name}`
@@ -200,6 +210,22 @@ function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
     )
 }
 
+/**
+ * The run endpoint takes the data source from the request, not from the notebook, so a run that
+ * omits it sends an external-source cell to PostHog's ClickHouse.
+ */
+function connectionSettings(
+    cell: RunnableCell,
+    cells: CellTagBlock[]
+): { connection_id?: string; send_raw_query?: boolean } {
+    const source = cell.tagName === 'SQLV2' ? cells.find((other) => other.nodeId === cell.nodeId)?.source : undefined
+    const connectionId = source ? readStringProp(source, 'connectionId') : null
+    if (!source || !connectionId) {
+        return {}
+    }
+    return { connection_id: connectionId, send_raw_query: readExpressionProp(source, 'sendRawQuery') === true }
+}
+
 export async function runCellAndWriteBack(
     context: Context,
     notebookId: string,
@@ -218,6 +244,7 @@ export async function runCellAndWriteBack(
             output_name: cell.returnVariable,
             refs: collectRunRefs(cells, cell.nodeId),
             variables,
+            ...connectionSettings(cell, cells),
         })
     } catch (error) {
         throw withUnrunUpstreamHint(error, cells)

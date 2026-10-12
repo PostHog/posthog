@@ -540,13 +540,25 @@ describe('notebook cell tools', () => {
             expect(result.run).toMatchObject({ status: 'not_run', hint: expect.stringContaining('notebooks-run-cell') })
         })
 
-        it('run cell runs a cell as it is, writes the result back, and reports stale dependents', async () => {
+        it.each([
+            { label: 'a cell as it is', sql: 'code="select {country}"', body: { code: 'select {country}' } },
+            {
+                label: 'a cell on an external connection with its connection settings',
+                sql: 'code="select 1" connectionId="conn-1" sendRawQuery={true}',
+                body: { code: 'select 1', connection_id: 'conn-1', send_raw_query: true },
+            },
+            {
+                label: 'a legacy cell that holds its SQL in query',
+                sql: 'query={{"kind":"HogQLQuery","query":"select 1"}}',
+                body: { code: 'select 1' },
+            },
+        ])('run cell runs $label, writes the result back, and reports stale dependents', async ({ sql, body }) => {
             const country = { name: 'country', type: 'string', value: 'US' }
             const state = makeState(
                 [
                     '# Doc',
                     '',
-                    '<SQLV2 nodeId="target" code="select {country}" returnVariable="df" />',
+                    `<SQLV2 nodeId="target" ${sql} returnVariable="df" />`,
                     '',
                     '<PythonV2 nodeId="reader" code="df.head()" returnVariable="out" />',
                     '',
@@ -561,10 +573,11 @@ describe('notebook cell tools', () => {
             expect(state.runBodies[0]).toMatchObject({
                 node_id: 'target',
                 node_type: 'hogql',
-                code: 'select {country}',
                 output_name: 'df',
                 variables: [country],
+                ...body,
             })
+            expect('connection_id' in state.runBodies[0]).toBe('connection_id' in body)
             expect(state.saveBodies).toHaveLength(1)
             expect(state.markdown).toContain('runId="run-1"')
             expect(result).toMatchObject({
