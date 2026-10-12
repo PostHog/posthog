@@ -131,10 +131,40 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is None
 
-    def test_invalid_subdomain_short_circuits(self) -> None:
-        is_valid, message = validate_credentials("evil.com", "you@example.com", "token")
+    @parameterized.expand(
+        [
+            ("bare", "acme"),
+            ("host", "acme.atlassian.net"),
+            ("url_with_path", "https://acme.atlassian.net/wiki/spaces/HOME"),
+            ("padded_mixed_case_host", " Acme.Atlassian.net/ "),
+        ]
+    )
+    @mock.patch(CONFLUENCE_SESSION_PATCH)
+    def test_pasted_site_address_probes_the_atlassian_site(
+        self, _name: str, subdomain: str, mock_session: mock.MagicMock
+    ) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+
+        is_valid, _ = validate_credentials(subdomain, "you@example.com", "token")
+
+        assert is_valid is True
+        probed_url = mock_session.return_value.get.call_args.args[0]
+        assert probed_url.lower().startswith("https://acme.atlassian.net/wiki/api/v2/")
+
+    @parameterized.expand(
+        [
+            ("other_host", "evil.com"),
+            ("atlassian_lookalike", "acme.atlassian.net.evil.com"),
+            ("other_host_url", "https://evil.com/acme.atlassian.net"),
+        ]
+    )
+    @mock.patch(CONFLUENCE_SESSION_PATCH)
+    def test_invalid_subdomain_short_circuits(self, _name: str, subdomain: str, mock_session: mock.MagicMock) -> None:
+        is_valid, message = validate_credentials(subdomain, "you@example.com", "token")
+
         assert is_valid is False
         assert message is not None and "subdomain" in message
+        mock_session.return_value.get.assert_not_called()
 
 
 class TestConfluenceSource:

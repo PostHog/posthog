@@ -4,6 +4,8 @@ from typing import Any
 
 import pytest
 
+import requests
+
 from products.warehouse_sources.backend.facade.source_config import SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config as source_config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
+    always,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -58,7 +61,7 @@ class _DoubleSource(ResumableSource[_DoubleConfig, _Cursor]):
             if resumable_source_manager.can_resume():
                 saved = resumable_source_manager.load_state()
                 start = saved.page if saved is not None else 0
-            session = make_tracked_session()
+            session = make_tracked_session(redact_values=(config.token,))
             page = start
             while True:
                 answer = session.get(f"{_BASE_URL}/rows", params={"page": str(page)}, timeout=(5, 5))
@@ -70,7 +73,8 @@ class _DoubleSource(ResumableSource[_DoubleConfig, _Cursor]):
                 yield rows
             resumable_source_manager.save_state(_Cursor(page=_AFTER_THE_LAST_ROW))
 
-        return SourceResponse(name=inputs.schema_name, items=items, primary_keys=["id"])
+        name = inputs.schema_name if inputs.api_version is None else f"{inputs.schema_name}@{inputs.api_version}"
+        return SourceResponse(name=name, items=items, primary_keys=["id"])
 
 
 def _driver() -> SourceDriver:
@@ -118,6 +122,38 @@ class TestSourceDriver:
         assert request.url == f"{_BASE_URL}/rows?page=0"
         assert request.param("page") == "0"
         assert request.headers["host"] == "double.example.com"
+
+    def test_the_result_carries_what_source_for_pipeline_returned(self) -> None:
+        result = _driver().run("rows", [_page()], api_version="2026-01-01")
+
+        assert result.response is not None
+        assert result.response.name == "rows@2026-01-01"
+        assert result.response.primary_keys == ["id"]
+
+    def test_the_result_carries_the_options_of_each_session(self) -> None:
+        # A source passes its secrets to the session for redaction. The session is real here, so
+        # the options are the only place a test can see them.
+        result = _driver().run("rows", [_page()])
+
+        assert result.session_options == [{"redact_values": ("t",)}]
+
+    def test_an_exception_in_the_script_fails_the_request_as_a_dropped_connection_does(self) -> None:
+        def dropped(_request: Any) -> ScriptedResponse:
+            raise ConnectionResetError("reset by peer")
+
+        result = _driver().run("rows", dropped)
+
+        assert isinstance(result.raised, requests.ConnectionError)
+
+    def test_a_retried_status_needs_an_answer_for_each_try(self) -> None:
+        # The stack below the source retries a 503. One scripted answer runs out on the first
+        # retry, and `always` answers every try.
+        once = _driver().run("rows", [ScriptedResponse(status=503)])
+        every_time = _driver().run("rows", always(ScriptedResponse(status=503)))
+
+        assert isinstance(once.raised, UnexpectedRequest)
+        assert len(every_time.requests) > 1
+        assert not isinstance(every_time.raised, UnexpectedRequest)
 
 
 class TestScriptedResponse:

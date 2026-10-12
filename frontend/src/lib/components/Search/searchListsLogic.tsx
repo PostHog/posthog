@@ -29,6 +29,7 @@ import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/typ
 import { ActivityTab, IntegrationType, UserType } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
+import { SEARCH_TAB_CATEGORY } from './utils'
 
 const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet): boolean =>
     !flag || !!(featureFlags as Record<string, boolean>)[flag]
@@ -48,7 +49,7 @@ const toSearchTabItems = (
                 id: `${parent.id}-tab-${tab.name}`,
                 name: `${displayNameOf(parent)} ${tab.name}`,
                 displayName: tab.name,
-                category: parent.category,
+                category: SEARCH_TAB_CATEGORY,
                 parentName: displayNameOf(parent),
                 href: tab.href,
                 itemType: parent.itemType,

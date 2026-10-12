@@ -35,6 +35,8 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import Flash
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
+    CoordinatorReviewInput,
+    CoordinatorReviewResult,
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
@@ -152,7 +154,10 @@ async def _run_full_review_pr_workflow(
     lens_chunks_capped: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
+    coordinator: bool = False,
+    coordinator_lens_failures: int = 0,
     automatic_reviewed_head_sha: str | None = None,
+    skip_agent_review: bool = False,
     gate_skips: bool = False,
     fail_gate: bool = False,
     workflow_max_attempts: int | None = None,
@@ -199,6 +204,8 @@ async def _run_full_review_pr_workflow(
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
     lens_calls: list[tuple[str, int]] = []
+    coordinator_calls: list[int] = []
+    started_coordinator: list[bool] = []
     lens_timeouts: list[timedelta | None] = []
 
     def _saw_design(stage: str, design: str) -> None:
@@ -229,7 +236,9 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            coordinator=coordinator,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
+            skip_agent_review=skip_agent_review,
         )
 
     gate_calls: list[str] = []
@@ -330,6 +339,11 @@ async def _run_full_review_pr_workflow(
         if (input.lens, input.chunk_id) in fail_lens_units:
             raise ApplicationError("lens session died", non_retryable=True)
 
+    @activity.defn(name="coordinator_review_activity")
+    async def coordinator_review(input: CoordinatorReviewInput) -> CoordinatorReviewResult:
+        coordinator_calls.append(input.lens_chunk_count)
+        return CoordinatorReviewResult(lens_failures=coordinator_lens_failures)
+
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
         _saw_design("dedup", input.review_design)
@@ -421,6 +435,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
+        started_coordinator.append(input.coordinator)
         _saw_design("track", input.review_design)
         return None
 
@@ -452,6 +467,7 @@ async def _run_full_review_pr_workflow(
                 review,
                 single_agent_review,
                 lens_review,
+                coordinator_review,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -531,6 +547,8 @@ async def _run_full_review_pr_workflow(
         "single_agent": single_agent_calls,
         "lens": lens_calls,
         "lens_timeouts": lens_timeouts,
+        "coordinator": coordinator_calls,
+        "started_coordinator": started_coordinator,
         "gate": gate_calls,
         "status_posts": status_posts,
     }
@@ -741,6 +759,33 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("review_design,expect_coordinator", [("single_agent", True), ("pipeline", False)])
+async def test_review_pr_workflow_coordinator_replaces_the_separate_sessions_of_a_single_agent_turn(
+    review_design: str, expect_coordinator: bool
+) -> None:
+    # The fetch records the flag for every turn, so a pipeline turn must ignore it. A coordinated turn must
+    # run no separate sessions, and its events must say it ran coordinated, or the rollout cannot be compared.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design=review_design,
+        lens_chunk_count=2,
+        coordinator=True,
+        coordinator_lens_failures=1,
+    )
+
+    assert recorded["coordinator"] == ([2] if expect_coordinator else [])
+    assert recorded["started_coordinator"] == [expect_coordinator]
+    assert recorded["publish"] == [7]
+    if expect_coordinator:
+        assert recorded["single_agent"] == []
+        assert recorded["lens"] == []
+        [(_, sessions)] = recorded["track_flash"]
+        assert sessions is not None
+        assert (sessions.lens_failures, sessions.coordinator) == (1, True)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "fail_lens_units,fail_main_session,expect_failed",
     [
@@ -774,11 +819,17 @@ async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "enabled,completed,pr_open,expected_review",
-    [(True, False, True, True), (False, False, True, False), (True, True, True, False), (True, False, False, False)],
+    "enabled,completed,pr_open,skip_label,expected_review",
+    [
+        (True, False, True, False, True),
+        (False, False, True, False, False),
+        (True, True, True, False, False),
+        (True, False, False, False, False),
+        (True, False, True, True, False),
+    ],
 )
 async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_prs(
-    enabled: bool, completed: bool, pr_open: bool, expected_review: bool
+    enabled: bool, completed: bool, pr_open: bool, skip_label: bool, expected_review: bool
 ) -> None:
     recorded = await _run_full_review_pr_workflow(
         publish=True,
@@ -787,9 +838,11 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
         review_authored_prs=enabled,
         already_completed=completed,
         pr_open=pr_open,
+        skip_agent_review=skip_label,
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
+    assert bool(recorded["status_posts"]) is expected_review
 
 
 @pytest.mark.asyncio

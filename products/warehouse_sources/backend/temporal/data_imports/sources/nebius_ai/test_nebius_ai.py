@@ -30,12 +30,16 @@ class _FakeResumableManager:
     def save_state(self, data: NebiusAIResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _collect(
     manager: _FakeResumableManager,
     monkeypatch: Any,
     endpoint: str,
     pages: dict[str, Any],
+    staged_at_yield: list[NebiusAIResumeConfig | None] | None = None,
 ) -> list[dict]:
     def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
         result = pages[url]
@@ -53,7 +57,99 @@ def _collect(
         resumable_source_manager=manager,  # type: ignore[arg-type]
     ):
         rows.extend(batch)
+        if staged_at_yield is not None:
+            staged_at_yield.append(manager.saved[-1] if manager.saved else None)
     return rows
+
+
+JOBS_URL = f"{NEBIUS_AI_BASE_URL}/fine_tuning/jobs"
+EVENTS_PAGES = {
+    f"{JOBS_URL}?limit=100": {"data": [{"id": "job-a"}, {"id": "job-b"}], "has_more": True, "last_id": "job-b"},
+    f"{JOBS_URL}?limit=100&after=job-b": {"data": [{"id": "job-c"}], "has_more": False},
+    f"{JOBS_URL}/job-a/events?limit=100": {"data": [{"id": "ev1", "created_at": 3}], "has_more": True},
+    f"{JOBS_URL}/job-a/events?limit=100&after=ev1": {"data": [{"id": "ev2", "created_at": 2}], "has_more": False},
+    f"{JOBS_URL}/job-b/events?limit=100": {"data": [], "has_more": False},
+    f"{JOBS_URL}/job-c/events?limit=100": {"data": [{"id": "ev1", "created_at": 1}], "has_more": False},
+}
+
+
+class TestPerFineTuningJobEndpoints:
+    def test_walks_every_job_page_and_child_page_staging_the_next_position_before_each_yield(
+        self, monkeypatch: Any
+    ) -> None:
+        staged: list[NebiusAIResumeConfig | None] = []
+        rows = _collect(_FakeResumableManager(), monkeypatch, "fine_tuning_job_events", EVENTS_PAGES, staged)
+
+        assert [(r["fine_tuning_job_id"], r["id"]) for r in rows] == [
+            ("job-a", "ev1"),
+            ("job-a", "ev2"),
+            ("job-c", "ev1"),
+        ]
+        assert staged == [
+            NebiusAIResumeConfig(job_id="job-a", after="ev1"),
+            NebiusAIResumeConfig(job_id="job-b"),
+            NebiusAIResumeConfig(jobs_after="job-b"),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "mid_job_child_page",
+                NebiusAIResumeConfig(job_id="job-a", after="ev1"),
+                [("job-a", "ev2"), ("job-c", "ev1")],
+            ),
+            (
+                "job_deleted_since_cursor_was_saved",
+                NebiusAIResumeConfig(job_id="job-gone", after="ev9"),
+                [("job-a", "ev1"), ("job-a", "ev2"), ("job-c", "ev1")],
+            ),
+            ("later_job_page", NebiusAIResumeConfig(jobs_after="job-b"), [("job-c", "ev1")]),
+        ]
+    )
+    def test_resumes_from_saved_position(
+        self, _name: str, state: NebiusAIResumeConfig, expected: list[tuple[str, str]]
+    ) -> None:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            rows = _collect(_FakeResumableManager(state), monkeypatch, "fine_tuning_job_events", EVENTS_PAGES)
+        assert [(r["fine_tuning_job_id"], r["id"]) for r in rows] == expected
+
+
+OPERATIONS_URL = f"{NEBIUS_AI_BASE_URL}/operations"
+
+
+class TestOperationsTimeCursor:
+    def test_pages_by_created_at_cursor_and_drops_repeated_boundary_rows(self) -> None:
+        pages = {
+            f"{OPERATIONS_URL}?limit=2": {"data": [{"id": "op3", "created_at": 300}, {"id": "op2", "created_at": 200}]},
+            f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A03%3A20%2B00%3A00": {
+                "data": [{"id": "op2", "created_at": 200}, {"id": "op1", "created_at": 100}]
+            },
+            f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A01%3A40%2B00%3A00": {
+                "data": [{"id": "op1", "created_at": 100}]
+            },
+        }
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(nebius_ai, "PAGE_SIZE", 2)
+            rows = _collect(_FakeResumableManager(), monkeypatch, "operations", pages)
+        assert [r["id"] for r in rows] == ["op3", "op2", "op1"]
+
+    @parameterized.expand(
+        [
+            ("same_timestamp_page", [{"id": "op2", "created_at": 200}, {"id": "op1", "created_at": 200}]),
+            ("cursor_moves_forward", [{"id": "op4", "created_at": 400}, {"id": "op5", "created_at": 500}]),
+        ]
+    )
+    def test_full_page_whose_cursor_does_not_move_back_fails_the_sync(
+        self, _name: str, second_page: list[dict[str, Any]]
+    ) -> None:
+        pages = {
+            f"{OPERATIONS_URL}?limit=2": {"data": [{"id": "op3", "created_at": 300}, {"id": "op2", "created_at": 200}]},
+            f"{OPERATIONS_URL}?limit=2&cursor_time=1970-01-01T00%3A03%3A20%2B00%3A00": {"data": second_page},
+        }
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(nebius_ai, "PAGE_SIZE", 2)
+            with pytest.raises(nebius_ai.NebiusAIPaginationError):
+                _collect(_FakeResumableManager(), monkeypatch, "operations", pages)
 
 
 class TestValidateCredentials:
@@ -199,13 +295,17 @@ class TestFetchPage:
 class TestSourceResponse:
     @parameterized.expand(
         [
-            ("models", "created", False),
-            ("files", "created_at", True),
-            ("batches", "created_at", True),
-            ("fine_tuning_jobs", "created_at", True),
+            ("models", "created", ["id"]),
+            ("files", "created_at", ["id"]),
+            ("batches", "created_at", ["id"]),
+            ("fine_tuning_jobs", "created_at", ["id"]),
+            ("fine_tuning_job_events", "created_at", ["fine_tuning_job_id", "id"]),
+            ("fine_tuning_job_checkpoints", "created_at", ["fine_tuning_job_id", "id"]),
+            ("datasets", "created_at", ["id"]),
+            ("operations", "created_at", ["id"]),
         ]
     )
-    def test_partition_and_pk_per_endpoint(self, endpoint: str, partition_key: str, _paginated: bool) -> None:
+    def test_partition_and_pk_per_endpoint(self, endpoint: str, partition_key: str, primary_keys: list[str]) -> None:
         response = nebius_ai_source(
             api_key="nbk_test",
             endpoint=endpoint,
@@ -213,7 +313,7 @@ class TestSourceResponse:
             resumable_source_manager=MagicMock(),
         )
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == primary_keys
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
         # These OpenAI-style list endpoints return newest-first.

@@ -5567,9 +5567,9 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
-    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    /** Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead */
     searchKeywords?: string[]
-    /** Tabs of this item that search lists as their own results */
+    /** Tabs with their own URL that search lists as separate rows, below products and people */
     searchTabs?: FileSystemSearchTab[]
 }
 
@@ -6877,6 +6877,8 @@ export interface DashboardFilter {
     interval?: IntervalType | null
     /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
     filterTestAccounts?: boolean | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilter | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilter[] | null
 }
@@ -6889,6 +6891,7 @@ export interface TileFilters {
     explicitDate?: boolean | undefined
     interval?: IntervalType | null | undefined
     filterTestAccounts?: boolean | null | undefined
+    compareFilter?: CompareFilter | null | undefined
     /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
     ignoreDashboardFilters?: boolean | null | undefined
 }

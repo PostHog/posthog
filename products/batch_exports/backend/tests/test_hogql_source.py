@@ -152,6 +152,12 @@ def test_create_hogql_context_for_batch_exports(
         )
 
 
+def test_context_without_hogql_defaults_keeps_the_project_timezone(team) -> None:
+    context = create_hogql_context_for_batch_export(team)
+
+    assert context.modifiers.convertToProjectTimezone is True
+
+
 def test_load_hogql_modifiers_rejects_invalid_values() -> None:
     with pytest.raises(UnsupportedHogQLQueryError, match="Invalid HogQL modifiers"):
         load_hogql_modifiers({"personsOnEventsMode": "not_a_mode"})
