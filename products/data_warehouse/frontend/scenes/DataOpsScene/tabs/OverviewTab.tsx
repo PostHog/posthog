@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconDatabase, IconPeople, IconRefresh } from '@posthog/icons'
 
@@ -81,8 +82,14 @@ export function OverviewTab(): JSX.Element {
     const { loadManagedWarehouseDataStatus } = useActions(managedWarehouseDataStatusLogic)
     const { loadSourceSchemas } = useActions(sourceSchemasModalLogic)
 
-    const openSourceSchemas = (source: ManagedWarehouseSourceSummaryApi): void =>
+    const openSourceSchemas = (source: ManagedWarehouseSourceSummaryApi): void => {
+        // pinned: analytics event and property names, renaming breaks dashboards
+        posthog.capture('managed warehouse source schemas opened', {
+            readiness_state: source.readiness_state,
+            source_type: source.source_type,
+        })
         loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name })
+    }
 
     const sourceSummaryColumns: LemonTableColumns<ManagedWarehouseSourceSummaryApi> = [
         {
