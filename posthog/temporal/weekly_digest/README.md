@@ -33,7 +33,7 @@ Generated via `team_data_key(digest_key, TeamDataKey.*, team_id)`.
 Each Postgres-backed generator reads a team id range with two queries, one for the eligible teams and one for the data, and writes its keys in one Redis pipeline.
 A team with no data of a kind gets no key for it; organization aggregation substitutes an empty default for a missing key.
 The two ClickHouse-backed generators work per range too: expiring recordings are counted for the whole range in one grouped query, and usage trends first find the teams with events in the window in one query, then run the per-team HogQL query for those teams only.
-New error issues come from one range-wide Postgres query, then one per-team HogQL query counts daily occurrences for the teams that have new issues. A team whose count query fails keeps its issues without counts.
+New error issues come from one range-wide Postgres query, which finds the teams with new issues. For each of those teams, the error tracking digest query then ranks and counts the new issues. A team whose count query fails keeps its Postgres issues without counts.
 
 | `TeamDataKey` enum      | Key Pattern                                    | Contents                                       |
 | ----------------------- | ---------------------------------------------- | ---------------------------------------------- |

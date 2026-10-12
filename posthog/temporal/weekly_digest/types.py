@@ -157,8 +157,9 @@ class DigestErrorIssue(BaseModel):
     name: str = "Untitled issue"
     id: UUID
     description: str | None = None
-    # One count per day of the digest window. Empty when the counts could not be queried.
-    daily_occurrences: list[int] = []
+    # None when the counts could not be queried.
+    occurrence_count: int | None = None
+    sparkline: list[dict[str, int]] = []
 
     @field_validator("name", mode="before")
     @classmethod
@@ -166,14 +167,15 @@ class DigestErrorIssue(BaseModel):
         return value or "Untitled issue"
 
     def render_payload(self) -> dict[str, str | int | list | None]:
-        occurrence_count = sum(self.daily_occurrences) if self.daily_occurrences else None
         return {
             "id": str(self.id),
             "name": self.name,
             "description": _single_line(self.description, ERROR_ISSUE_DESCRIPTION_MAX_LENGTH),
-            "occurrence_count": occurrence_count,
-            "occurrence_count_display": compact_number(occurrence_count) if occurrence_count is not None else None,
-            "sparkline": render_sparkline(self.daily_occurrences),
+            "occurrence_count": self.occurrence_count,
+            "occurrence_count_display": (
+                compact_number(self.occurrence_count) if self.occurrence_count is not None else None
+            ),
+            "sparkline": self.sparkline,
         }
 
 

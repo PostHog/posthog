@@ -27,7 +27,6 @@ from products.error_tracking.backend.weekly_digest import (
     get_daily_exception_counts,
     get_exception_counts,
     get_exception_summary_for_team,
-    get_issue_daily_occurrences,
     get_new_issues_for_team,
     get_org_ids_with_exceptions,
     get_source_maps_recommendation_for_team,
@@ -240,25 +239,6 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert len(nonzero) == 3
         assert nonzero[0][0] < nonzero[1][0] < nonzero[2][0]
         assert nonzero[1][1] == 100  # day -3 is the max
-
-    def test_get_issue_daily_occurrences_buckets_whole_days_from_the_period_start(self):
-        # A project timezone away from UTC would shift calendar-day buckets by one.
-        self.team.timezone = "America/Los_Angeles"
-        self.team.save()
-        period_end = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        period_start = period_end - timedelta(days=7)
-        issue = self._create_issue(name="CountedError")
-        other_issue = self._create_issue(name="OtherError")
-        self._create_exception_event(issue_id=issue.id, timestamp=(period_start + timedelta(hours=1)).isoformat())
-        for _ in range(2):
-            self._create_exception_event(issue_id=issue.id, timestamp=(period_end - timedelta(hours=1)).isoformat())
-        self._create_exception_event(issue_id=issue.id, timestamp=(period_end + timedelta(hours=1)).isoformat())
-        self._create_exception_event(issue_id=other_issue.id, timestamp=(period_end - timedelta(hours=1)).isoformat())
-        flush_persons_and_events()
-
-        result = get_issue_daily_occurrences(self.team, [str(issue.id)], period_start, period_end)
-
-        assert result == {str(issue.id): [1, 0, 0, 0, 0, 0, 2]}
 
     def test_get_top_issues_limits_to_5(self):
         for i in range(7):

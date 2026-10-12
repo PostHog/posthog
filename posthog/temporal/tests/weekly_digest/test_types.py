@@ -198,7 +198,8 @@ def test_team_digest_render_payload():
                     name="Error",
                     id=uuid4(),
                     description="Request failed\n    at fetch " + "x" * 200,
-                    daily_occurrences=[0, 1, 400, 0, 0, 0, 0],
+                    occurrence_count=1_525,
+                    sparkline=[{"height_percent": 100}],
                 ),
                 DigestErrorIssue(name="TypeError", id=uuid4()),
             ]
@@ -212,8 +213,8 @@ def test_team_digest_render_payload():
     counted, uncounted = report["new_error_issues"]
     assert counted["description"].startswith("Request failed at fetch xxx")
     assert len(counted["description"]) == 140
-    assert (counted["occurrence_count"], counted["occurrence_count_display"]) == (401, "401")
-    assert [bar["height_percent"] for bar in counted["sparkline"]] == [0, 5, 100, 0, 0, 0, 0]
+    assert (counted["occurrence_count"], counted["occurrence_count_display"]) == (1_525, "1.52K")
+    assert counted["sparkline"] == [{"height_percent": 100}]
     assert (uncounted["occurrence_count"], uncounted["sparkline"]) == (None, [])
     usage_trends = report["usage_trends"]
     assert isinstance(usage_trends, dict)

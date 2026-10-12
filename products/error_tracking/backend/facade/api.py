@@ -757,12 +757,6 @@ def get_daily_exception_counts(team: Any) -> list[dict[str, Any]]:
     return weekly_digest.get_daily_exception_counts(team)
 
 
-def get_issue_daily_occurrences(
-    team: Any, issue_ids: list[str], period_start: datetime, period_end: datetime
-) -> dict[str, list[int]]:
-    return weekly_digest.get_issue_daily_occurrences(team, issue_ids, period_start, period_end)
-
-
 def get_crash_free_sessions(team: Any) -> CrashFreeSummary | None:
     return weekly_digest.get_crash_free_sessions(team)
 

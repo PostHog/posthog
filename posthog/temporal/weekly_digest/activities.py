@@ -85,7 +85,7 @@ from posthog.temporal.weekly_digest.types import (
     UserDigestContext,
 )
 
-from products.error_tracking.backend.facade.api import get_issue_daily_occurrences
+from products.error_tracking.backend.facade.api import get_new_issues_for_team
 from products.growth.backend.product_push.selection import project_uses_product, resolve_product_path
 
 # Every activity below is a sync body behind `@asyncify`, which runs it on the worker's thread pool.
@@ -489,19 +489,7 @@ def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
 NEW_ERROR_ISSUES_PER_TEAM_LIMIT = 5
 
 
-_query_issue_daily_occurrences = _retry_while_clickhouse_busy(get_issue_daily_occurrences)
-
-
-def _with_daily_occurrences(
-    team: Team, issues: ErrorIssueList, period_start: datetime, period_end: datetime
-) -> ErrorIssueList:
-    daily_by_issue = _query_issue_daily_occurrences(
-        team, [str(issue.id) for issue in issues.root], period_start, period_end
-    )
-    counted = [
-        issue.model_copy(update={"daily_occurrences": daily_by_issue.get(str(issue.id), [])}) for issue in issues.root
-    ]
-    return ErrorIssueList(root=sorted(counted, key=lambda issue: sum(issue.daily_occurrences), reverse=True))
+_query_new_issues_for_team = _retry_while_clickhouse_busy(get_new_issues_for_team)
 
 
 def _generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
@@ -518,19 +506,24 @@ def _generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
         per_team_limit=NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
     )
 
-    # A team whose count query fails keeps its issues without counts, which the email renders without a chart.
+    # The Postgres lookup only finds the teams worth a ClickHouse query. Their issues then come from
+    # the error tracking digest, so both emails rank and count new issues the same way. A team whose
+    # query fails keeps the Postgres issues without counts, which the email renders without a chart.
     # execute_hogql_query reads several team columns, so load the teams in full.
     for team in Team.objects.filter(id__in=issues_by_team.keys()).order_by("id"):
         try:
-            issues_by_team[team.id] = _with_daily_occurrences(
-                team, issues_by_team[team.id], input.digest.period_start, input.digest.period_end
-            )
+            counted_issues = ErrorIssueList.model_validate(_query_new_issues_for_team(team))
         except Exception as e:
             logger.warning(
                 f"Failed to count error issue occurrences for team {team.id}, skipping counts...",
                 error=str(e),
                 team_id=team.id,
             )
+            continue
+        if counted_issues.root:
+            issues_by_team[team.id] = counted_issues
+        else:
+            del issues_by_team[team.id]
 
     _store_resources(input, logger, TeamDataKey.ERROR_ISSUES, issues_by_team, eligible_team_ids)
 

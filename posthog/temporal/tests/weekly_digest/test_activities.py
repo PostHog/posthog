@@ -264,6 +264,14 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
     return [f"issue {index}" for index in range(1, NEW_ERROR_ISSUES_PER_TEAM_LIMIT + 1)]
 
 
+def _error_issue_lookup_from_postgres(input: GenerateDigestDataBatchInput) -> None:
+    # A failed error tracking query keeps the issues the Postgres lookup found, which this test checks.
+    with patch(
+        "posthog.temporal.weekly_digest.activities._query_new_issues_for_team", side_effect=RuntimeError("down")
+    ):
+        run_sync(generate_error_issue_lookup, input)
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_fn,key_kind,payload_field,make_rows",
@@ -280,7 +288,7 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
         ),
         (generate_feature_flag_lookup, TeamDataKey.FEATURE_FLAGS, "name", _make_feature_flags),
         (generate_survey_lookup, TeamDataKey.SURVEYS_LAUNCHED, "name", _make_surveys),
-        (generate_error_issue_lookup, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
+        (_error_issue_lookup_from_postgres, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
     ],
 )
 def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
@@ -309,36 +317,51 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("counts_available", [True, False])
-def test_generate_error_issue_lookup_orders_issues_by_occurrences(
-    counts_available, team, redis_servers, common_input, digest
+@pytest.mark.parametrize(
+    "error_tracking_result,expected",
+    [
+        # Error tracking ranks and counts the new issues, and its list replaces the Postgres one.
+        (
+            [
+                {
+                    "id": str(uuid4()),
+                    "name": "Error",
+                    "description": "busy",
+                    "occurrence_count": 12,
+                    "sparkline": [{"height_percent": 100}],
+                }
+            ],
+            [("busy", 12, [{"height_percent": 100}])],
+        ),
+        # A failed query keeps the Postgres issues without counts.
+        (RuntimeError("ClickHouse is down"), [("quiet", None, []), ("busy", None, [])]),
+        # No new issue has occurrences outside test accounts, so the team gets no errors section.
+        ([], None),
+    ],
+)
+def test_generate_error_issue_lookup_takes_new_issues_from_error_tracking(
+    error_tracking_result, expected, team, redis_servers, common_input, digest
 ):
-    quiet = create_issue(
+    create_issue(
         team_id=team.id, name="TypeError", description="quiet", created_at=digest.period_end - timedelta(hours=1)
     )
-    busy = create_issue(
-        team_id=team.id, name="Error", description="busy", created_at=digest.period_start + timedelta(hours=1)
-    )
-    daily_by_issue = {str(quiet): [1, 0, 0, 0, 0, 0, 0], str(busy): [0, 3, 0, 0, 0, 0, 9]}
-    occurrences = (
-        patch("posthog.temporal.weekly_digest.activities._query_issue_daily_occurrences", return_value=daily_by_issue)
-        if counts_available
-        else patch(
-            "posthog.temporal.weekly_digest.activities._query_issue_daily_occurrences", side_effect=RuntimeError("down")
-        )
+    create_issue(team_id=team.id, name="Error", description="busy", created_at=digest.period_start + timedelta(hours=1))
+    mock_kwargs = (
+        {"side_effect": error_tracking_result}
+        if isinstance(error_tracking_result, Exception)
+        else {"return_value": error_tracking_result}
     )
 
-    with occurrences:
+    with patch("posthog.temporal.weekly_digest.activities._query_new_issues_for_team", **mock_kwargs):
         run_sync(generate_error_issue_lookup, batch_input(team, digest, common_input))
 
-    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.ERROR_ISSUES, team.id)))
-    if counts_available:
-        assert [(issue["description"], issue["daily_occurrences"]) for issue in stored] == [
-            ("busy", [0, 3, 0, 0, 0, 0, 9]),
-            ("quiet", [1, 0, 0, 0, 0, 0, 0]),
-        ]
+    stored = redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.ERROR_ISSUES, team.id))
+    if expected is None:
+        assert stored is None
     else:
-        assert [(issue["description"], issue["daily_occurrences"]) for issue in stored] == [("quiet", []), ("busy", [])]
+        assert [
+            (issue["description"], issue["occurrence_count"], issue["sparkline"]) for issue in json.loads(stored)
+        ] == expected
 
 
 def _run_lookup(activity_fn: Callable[..., Any]) -> Callable[[TeamIdRange, Digest, CommonInput], None]:
@@ -348,8 +371,8 @@ def _run_lookup(activity_fn: Callable[..., Any]) -> Callable[[TeamIdRange, Diges
 
 
 def _run_error_issue_lookup_without_occurrences(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
-    # Occurrence counts run one HogQL query per team with new issues, like usage trends.
-    with patch("posthog.temporal.weekly_digest.activities._query_issue_daily_occurrences", return_value={}):
+    # Error tracking runs one HogQL query per team with new issues, like usage trends.
+    with patch("posthog.temporal.weekly_digest.activities._query_new_issues_for_team", return_value=[]):
         _run_lookup(generate_error_issue_lookup)(team_range, digest, common)
 
 
