@@ -49,7 +49,7 @@ def probe_credentials(config: KajabiSourceConfig, schema_name: str | None) -> in
             return session.get(f"{BASE_URL}/me", auth=auth, timeout=(10, 30), allow_redirects=False).status_code
 
         endpoint = schema_for_resource(ENDPOINTS, schema_name)
-        params = {"filter[site_id]": config.site_id, "page[size]": 1, "page[number]": 1}
+        params: dict[str, Any] = {"filter[site_id]": config.site_id, "page[size]": 1, "page[number]": 1}
         if endpoint.fanout is not None:
             response = session.get(
                 f"{BASE_URL}/contacts", params=params, auth=auth, timeout=(10, 30), allow_redirects=False
