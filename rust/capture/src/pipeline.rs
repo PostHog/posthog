@@ -16,12 +16,8 @@ use crate::api::CaptureError;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v0_request::{DataType, OverflowReason, ProcessedEventMetadata};
 
-/// A lane of one pipeline. The pipeline is the "which product stream is
-/// this" classification, decided at the edge (endpoint + event name) and
-/// stamped as [`DataType`]; AI membership is stamp-based, not name-based, so
-/// an undiverted `$ai_*` event is a plain analytics event. Each pipeline
-/// names only the lanes it has, so an address no output backs cannot be
-/// built.
+/// A lane of one pipeline, taken from the event's [`DataType`]. Each pipeline
+/// names only the lanes it has, so an address no output backs cannot be built.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PipelineLane {
     Analytics(AnalyticsLane),
