@@ -1,7 +1,7 @@
 {
     "id": "01a12fb6-3cfb-0000-ed9f-421d53f34527",
     "name": "Abandoned checkout recovery",
-    "description": "Email people who start checkout but don't finish. Stops as soon as they complete a purchase.",
+    "description": "Email people who start checkout but don't finish. Anyone who completes an order leaves the workflow.",
     "version": 1,
     "created_at": "2026-10-12T00:00:00Z",
     "created_by": null,
@@ -13,8 +13,8 @@
             "actions": [],
             "events": [
                 {
-                    "id": "checkout started",
-                    "name": "checkout started",
+                    "id": "Checkout Started",
+                    "name": "Checkout Started",
                     "type": "events",
                     "order": 0
                 }
@@ -36,8 +36,8 @@
                     "actions": [],
                     "events": [
                         {
-                            "id": "order completed",
-                            "name": "order completed",
+                            "id": "Order Completed",
+                            "name": "Order Completed",
                             "type": "events",
                             "order": 0
                         }
@@ -50,21 +50,33 @@
     "edges": [
         {
             "from": "trigger_node",
-            "to": "action_delay_31336d78-4fd1-4daa-9de8-7a50e79b8174",
+            "to": "action_wait_until_condition_checkout_bought_hour",
             "type": "continue"
         },
         {
-            "from": "action_delay_31336d78-4fd1-4daa-9de8-7a50e79b8174",
+            "from": "action_wait_until_condition_checkout_bought_hour",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "action_wait_until_condition_checkout_bought_hour",
             "to": "action_function_email_60c6b81a-2a3b-4132-9db6-73526a9335c4",
             "type": "continue"
         },
         {
             "from": "action_function_email_60c6b81a-2a3b-4132-9db6-73526a9335c4",
-            "to": "action_delay_1187e87c-db23-42d2-bbe5-9b5e12e45ec1",
+            "to": "action_wait_until_condition_checkout_bought_day",
             "type": "continue"
         },
         {
-            "from": "action_delay_1187e87c-db23-42d2-bbe5-9b5e12e45ec1",
+            "from": "action_wait_until_condition_checkout_bought_day",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "action_wait_until_condition_checkout_bought_day",
             "to": "action_function_email_1cd2fcb4-7bb7-4ea5-8849-bb2be2b8304e",
             "type": "continue"
         },
@@ -92,8 +104,8 @@
                     "actions": [],
                     "events": [
                         {
-                            "id": "checkout started",
-                            "name": "checkout started",
+                            "id": "Checkout Started",
+                            "name": "Checkout Started",
                             "type": "events",
                             "order": 0
                         }
@@ -102,18 +114,38 @@
             }
         },
         {
-            "id": "action_delay_31336d78-4fd1-4daa-9de8-7a50e79b8174",
-            "name": "Delay",
-            "description": "Wait for 1 hour.",
+            "id": "action_wait_until_condition_checkout_bought_hour",
+            "name": "Bought within an hour?",
+            "description": "People who complete the order leave the workflow.",
             "on_error": null,
             "created_at": 1791763200000,
             "updated_at": 1791763200000,
             "filters": null,
-            "type": "delay",
-            "output_variable": null,
+            "type": "wait_until_condition",
             "config": {
-                "delay_duration": "1h"
-            }
+                "condition": {
+                    "filters": null
+                },
+                "events": [
+                    {
+                        "name": "Order Completed",
+                        "filters": {
+                            "source": "events",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "Order Completed",
+                                    "name": "Order Completed",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "max_wait_duration": "1h"
+            },
+            "output_variable": null
         },
         {
             "id": "action_function_email_60c6b81a-2a3b-4132-9db6-73526a9335c4",
@@ -304,18 +336,38 @@
             }
         },
         {
-            "id": "action_delay_1187e87c-db23-42d2-bbe5-9b5e12e45ec1",
-            "name": "Delay",
-            "description": "Wait for 1 day.",
+            "id": "action_wait_until_condition_checkout_bought_day",
+            "name": "Bought within a day?",
+            "description": "People who complete the order after the first reminder leave the workflow.",
             "on_error": null,
             "created_at": 1791763200000,
             "updated_at": 1791763200000,
             "filters": null,
-            "type": "delay",
-            "output_variable": null,
+            "type": "wait_until_condition",
             "config": {
-                "delay_duration": "1d"
-            }
+                "condition": {
+                    "filters": null
+                },
+                "events": [
+                    {
+                        "name": "Order Completed",
+                        "filters": {
+                            "source": "events",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "Order Completed",
+                                    "name": "Order Completed",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "max_wait_duration": "1d"
+            },
+            "output_variable": null
         },
         {
             "id": "action_function_email_1cd2fcb4-7bb7-4ea5-8849-bb2be2b8304e",

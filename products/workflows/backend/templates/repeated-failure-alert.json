@@ -1,7 +1,7 @@
 {
     "id": "019cc330-b1cc-0000-85a3-4f18ffa9f2ee",
     "name": "Alert team in case of a repeated failure",
-    "description": "Alert your team in Slack when an action keeps failing, after a short wait that skips one-off errors.",
+    "description": "Alert your team in Slack when someone hits the same failure twice within 10 minutes. One-off failures are skipped, and each person alerts at most once an hour.",
     "version": 1,
     "created_at": "2026-03-06T12:47:54.317218Z",
     "created_by": {
@@ -19,53 +19,48 @@
     "trigger": {
         "type": "event",
         "filters": {
-            "events": [
-                {
-                    "id": null,
-                    "name": "All events",
-                    "type": "events",
-                    "uuid": "b943e971-df9e-4bf1-bf3b-7ce670f8349b",
-                    "order": 0
-                }
-            ],
             "source": "events",
             "actions": [],
-            "bytecode": ["_H", 1, 29],
-            "filter_test_accounts": false
+            "events": [
+                {
+                    "id": "action failed",
+                    "name": "action failed",
+                    "type": "events",
+                    "order": 0
+                }
+            ]
         }
     },
-    "trigger_masking": null,
+    "trigger_masking": {
+        "hash": "{person.id}",
+        "ttl": 3600,
+        "threshold": null
+    },
     "conversion": {
         "filters": [],
-        "bytecode": [],
         "window_minutes": null
     },
     "exit_condition": "exit_only_at_end",
     "edges": [
         {
-            "to": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
             "from": "trigger_node",
+            "to": "action_wait_until_condition_failure_repeated",
             "type": "continue"
         },
         {
-            "to": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
-            "from": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
-            "type": "continue"
-        },
-        {
-            "to": "exit_node",
-            "from": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
-            "type": "continue"
-        },
-        {
+            "from": "action_wait_until_condition_failure_repeated",
             "to": "action_function_06d3ef9b-4b5c-4aaa-a308-dd67235ea2ee",
-            "from": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
             "type": "branch",
             "index": 0
         },
         {
+            "from": "action_wait_until_condition_failure_repeated",
             "to": "exit_node",
+            "type": "continue"
+        },
+        {
             "from": "action_function_06d3ef9b-4b5c-4aaa-a308-dd67235ea2ee",
+            "to": "exit_node",
             "type": "continue"
         }
     ],
@@ -73,7 +68,7 @@
         {
             "id": "trigger_node",
             "name": "Action failed",
-            "description": "Add your event with failure status (payment, signup, or request failed)",
+            "description": "Pick the event you send when something fails, for example a failed payment or signup.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -82,55 +77,51 @@
             "config": {
                 "type": "event",
                 "filters": {
-                    "events": [
-                        {
-                            "id": null,
-                            "name": "All events",
-                            "type": "events",
-                            "uuid": "b943e971-df9e-4bf1-bf3b-7ce670f8349b",
-                            "order": 0
-                        }
-                    ],
                     "source": "events",
                     "actions": [],
-                    "bytecode": ["_H", 1, 29],
-                    "filter_test_accounts": false
+                    "events": [
+                        {
+                            "id": "action failed",
+                            "name": "action failed",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ]
                 }
             },
             "output_variable": null
         },
         {
-            "id": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
-            "name": "Delay",
-            "description": "Wait for 10  minutes.",
+            "id": "action_wait_until_condition_failure_repeated",
+            "name": "Fails again within 10 minutes?",
+            "description": "Use the same event as the trigger. One-off failures time out here and exit.",
             "on_error": null,
-            "created_at": 1772801050715,
-            "updated_at": 1772801050715,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
             "filters": null,
-            "type": "delay",
+            "type": "wait_until_condition",
             "config": {
-                "delay_duration": "10m"
-            },
-            "output_variable": null
-        },
-        {
-            "id": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
-            "name": "Still failing?",
-            "description": "Check if the trigger event is still failing.",
-            "on_error": null,
-            "created_at": 1772801065675,
-            "updated_at": 1772801065675,
-            "filters": null,
-            "type": "conditional_branch",
-            "config": {
-                "conditions": [
+                "condition": {
+                    "filters": null
+                },
+                "events": [
                     {
+                        "name": "action failed",
                         "filters": {
                             "source": "events",
-                            "bytecode": ["_H", 1, 29]
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "action failed",
+                                    "name": "action failed",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ]
                         }
                     }
-                ]
+                ],
+                "max_wait_duration": "10m"
             },
             "output_variable": null
         },

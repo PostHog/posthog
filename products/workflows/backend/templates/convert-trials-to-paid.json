@@ -1,7 +1,7 @@
 {
     "id": "01a12fb6-3cf9-0000-0054-59dbc8b54651",
     "name": "Convert trials to paid",
-    "description": "Help trial users get set up, remind them before the trial ends, and tell sales. Stops when they upgrade.",
+    "description": "Help trial users get set up, remind them before the trial ends, and tell sales. Anyone who upgrades leaves the workflow. Built for a 14-day trial, so change the waits to match yours.",
     "version": 1,
     "created_at": "2026-10-12T00:00:00Z",
     "created_by": null,
@@ -21,7 +21,11 @@
             ]
         }
     },
-    "trigger_masking": null,
+    "trigger_masking": {
+        "hash": "{person.id}",
+        "ttl": 1209600,
+        "threshold": null
+    },
     "conversion": {
         "window": "14d",
         "filters": [],
@@ -46,21 +50,33 @@
     "edges": [
         {
             "from": "trigger_node",
-            "to": "action_delay_80412c3f-3a55-4b2d-b834-66c6abb5a4f7",
+            "to": "action_wait_until_condition_trial_upgraded_early",
             "type": "continue"
         },
         {
-            "from": "action_delay_80412c3f-3a55-4b2d-b834-66c6abb5a4f7",
+            "from": "action_wait_until_condition_trial_upgraded_early",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "action_wait_until_condition_trial_upgraded_early",
             "to": "action_function_email_e54bfd10-6669-4253-a630-2fd7172781d6",
             "type": "continue"
         },
         {
             "from": "action_function_email_e54bfd10-6669-4253-a630-2fd7172781d6",
-            "to": "action_delay_41afbedf-6306-4052-a551-8ed30379ffb5",
+            "to": "action_wait_until_condition_trial_upgraded_late",
             "type": "continue"
         },
         {
-            "from": "action_delay_41afbedf-6306-4052-a551-8ed30379ffb5",
+            "from": "action_wait_until_condition_trial_upgraded_late",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "action_wait_until_condition_trial_upgraded_late",
             "to": "action_function_email_429dba79-f1f2-44d6-8e7c-ad8fea96491e",
             "type": "continue"
         },
@@ -103,18 +119,38 @@
             }
         },
         {
-            "id": "action_delay_80412c3f-3a55-4b2d-b834-66c6abb5a4f7",
-            "name": "Delay",
-            "description": "Wait for 3 days.",
+            "id": "action_wait_until_condition_trial_upgraded_early",
+            "name": "Upgraded in the first 3 days?",
+            "description": "Skip the setup nudge for people who already upgraded.",
             "on_error": null,
             "created_at": 1791763200000,
             "updated_at": 1791763200000,
             "filters": null,
-            "type": "delay",
-            "output_variable": null,
+            "type": "wait_until_condition",
             "config": {
-                "delay_duration": "3d"
-            }
+                "condition": {
+                    "filters": null
+                },
+                "events": [
+                    {
+                        "name": "subscription started",
+                        "filters": {
+                            "source": "events",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "subscription started",
+                                    "name": "subscription started",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "max_wait_duration": "3d"
+            },
+            "output_variable": null
         },
         {
             "id": "action_function_email_e54bfd10-6669-4253-a630-2fd7172781d6",
@@ -305,18 +341,38 @@
             }
         },
         {
-            "id": "action_delay_41afbedf-6306-4052-a551-8ed30379ffb5",
-            "name": "Delay",
-            "description": "Wait for 8 days.",
+            "id": "action_wait_until_condition_trial_upgraded_late",
+            "name": "Upgraded before the trial ends?",
+            "description": "Skip the reminder for people who upgraded since the nudge.",
             "on_error": null,
             "created_at": 1791763200000,
             "updated_at": 1791763200000,
             "filters": null,
-            "type": "delay",
-            "output_variable": null,
+            "type": "wait_until_condition",
             "config": {
-                "delay_duration": "8d"
-            }
+                "condition": {
+                    "filters": null
+                },
+                "events": [
+                    {
+                        "name": "subscription started",
+                        "filters": {
+                            "source": "events",
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "subscription started",
+                                    "name": "subscription started",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "max_wait_duration": "8d"
+            },
+            "output_variable": null
         },
         {
             "id": "action_function_email_429dba79-f1f2-44d6-8e7c-ad8fea96491e",

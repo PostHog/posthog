@@ -1,7 +1,7 @@
 {
     "id": "019cd2a2-1f48-0000-3c3a-b665db575806",
     "name": "Re-engagement workflow for inactive users",
-    "description": "Win back people who have not opened your product for a while, with a friendly reminder.",
+    "description": "Win back people who haven't been active for 14 days with a friendly reminder.",
     "version": 1,
     "created_at": "2026-03-09T12:46:06.152325Z",
     "created_by": {
@@ -18,7 +18,18 @@
     "updated_at": "2026-03-09T12:59:57.126911Z",
     "trigger": {
         "type": "event",
-        "filters": {}
+        "filters": {
+            "source": "events",
+            "actions": [],
+            "events": [
+                {
+                    "id": "user logged in",
+                    "name": "user logged in",
+                    "type": "events",
+                    "order": 0
+                }
+            ]
+        }
     },
     "trigger_masking": null,
     "conversion": {
@@ -29,29 +40,24 @@
     "exit_condition": "exit_only_at_end",
     "edges": [
         {
-            "to": "action_delay_7525d311-a539-443d-a300-3ca01f937ffe",
             "from": "trigger_node",
+            "to": "action_wait_until_condition_came_back",
             "type": "continue"
         },
         {
+            "from": "action_wait_until_condition_came_back",
             "to": "exit_node",
-            "from": "action_conditional_branch_17b90785-78e3-424d-927a-eac3e5fe2133",
             "type": "branch",
             "index": 0
         },
         {
-            "to": "action_conditional_branch_17b90785-78e3-424d-927a-eac3e5fe2133",
-            "from": "action_delay_7525d311-a539-443d-a300-3ca01f937ffe",
-            "type": "continue"
-        },
-        {
+            "from": "action_wait_until_condition_came_back",
             "to": "action_function_email_4f104320-4f26-4ad3-bc4d-6149155c4e82",
-            "from": "action_conditional_branch_17b90785-78e3-424d-927a-eac3e5fe2133",
             "type": "continue"
         },
         {
-            "to": "exit_node",
             "from": "action_function_email_4f104320-4f26-4ad3-bc4d-6149155c4e82",
+            "to": "exit_node",
             "type": "continue"
         }
     ],
@@ -59,7 +65,7 @@
         {
             "id": "trigger_node",
             "name": "Key event performed",
-            "description": "The user has performed a key event.",
+            "description": "Pick the event that shows someone is active, for example logging in.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -67,48 +73,59 @@
             "type": "trigger",
             "config": {
                 "type": "event",
-                "filters": {}
+                "filters": {
+                    "source": "events",
+                    "actions": [],
+                    "events": [
+                        {
+                            "id": "user logged in",
+                            "name": "user logged in",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ]
+                }
             },
             "output_variable": null
         },
         {
-            "id": "action_delay_7525d311-a539-443d-a300-3ca01f937ffe",
-            "name": "Delay",
-            "description": "Wait for 14 days.",
+            "id": "action_wait_until_condition_came_back",
+            "name": "Active again within 14 days?",
+            "description": "Use the same event as the trigger. People who come back leave the workflow.",
             "on_error": null,
-            "created_at": 1773060596829,
-            "updated_at": 1773060596829,
-            "type": "delay",
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "wait_until_condition",
             "config": {
-                "delay_duration": "14d"
-            },
-            "output_variable": null
-        },
-        {
-            "id": "action_conditional_branch_17b90785-78e3-424d-927a-eac3e5fe2133",
-            "name": "Check activity",
-            "description": "Add the same event and check if the user has performed it.",
-            "on_error": null,
-            "created_at": 1773060760828,
-            "updated_at": 1773060760828,
-            "type": "conditional_branch",
-            "config": {
-                "conditions": [
+                "condition": {
+                    "filters": null
+                },
+                "events": [
                     {
+                        "name": "user logged in",
                         "filters": {
                             "source": "events",
-                            "properties": [],
-                            "bytecode": ["_H", 1, 29]
+                            "actions": [],
+                            "events": [
+                                {
+                                    "id": "user logged in",
+                                    "name": "user logged in",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ]
                         }
                     }
-                ]
+                ],
+                "max_wait_duration": "14d"
             },
             "output_variable": null
         },
         {
             "id": "action_function_email_4f104320-4f26-4ad3-bc4d-6149155c4e82",
-            "name": "Email",
-            "description": "Send an email to the user.",
+            "name": "We miss you",
+            "description": "Invite people back after 14 days without activity.",
             "on_error": null,
             "created_at": 1773061191837,
             "updated_at": 1773061191837,
