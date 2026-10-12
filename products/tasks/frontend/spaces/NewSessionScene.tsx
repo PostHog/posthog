@@ -9,6 +9,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { newSessionSceneLogic } from './newSessionSceneLogic'
+import { newSessionSuggestionsLogic } from './newSessionSuggestionsLogic'
 import { SpaceTaskComposer } from './SpaceTaskComposer'
 import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
 
@@ -21,6 +22,8 @@ export function NewSessionScene(): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { space, spacesLoading, spacesUnavailable, composerRepositoryConfig } = useValues(newSessionSceneLogic)
     const { sessionStarted, loadSpaces } = useActions(newSessionSceneLogic)
+    const { suggestions } = useValues(newSessionSuggestionsLogic)
+    const { selectSuggestion } = useActions(newSessionSuggestionsLogic)
 
     if (!enabled) {
         return <NotFound object="page" />
@@ -66,6 +69,8 @@ export function NewSessionScene(): JSX.Element {
                                             panelId={`new-session-${space.id}`}
                                             repositoryConfig={composerRepositoryConfig}
                                             onTaskCreated={sessionStarted}
+                                            starterSuggestions={suggestions}
+                                            onStarterSuggestionSelect={selectSuggestion}
                                         />
                                     </div>
                                 )

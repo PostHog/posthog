@@ -44,6 +44,10 @@ import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttac
 import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
+import {
+    type ComposerStarterSuggestion,
+    QuillComposerStarterSuggestions,
+} from '../../../components/quill/QuillComposerStarterSuggestions'
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
@@ -55,9 +59,17 @@ export interface TaskComposerProps {
     focusRequest?: number
     /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
     autoFocus?: boolean
+    starterSuggestions?: ComposerStarterSuggestion[]
+    onStarterSuggestionSelect?: (suggestion: ComposerStarterSuggestion, index: number) => void
 }
 
-export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
+export function TaskComposer({
+    variant = 'page',
+    focusRequest = 0,
+    autoFocus = true,
+    starterSuggestions,
+    onStarterSuggestionSelect,
+}: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const {
         submitNewTask,
@@ -117,6 +129,15 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
         if (item.requiresUserInput) {
             textAreaRef.current?.focus()
         }
+    }
+
+    const handleSelectStarterSuggestion = (suggestion: ComposerStarterSuggestion, index: number): void => {
+        if (suggestion.mode && getModesForRuntimeAdapter(composerAdapter).includes(suggestion.mode)) {
+            pickPermissionMode(suggestion.mode)
+        }
+        applySuggestion({ content: suggestion.prompt, requiresUserInput: true })
+        textAreaRef.current?.focus()
+        onStarterSuggestionSelect?.(suggestion, index)
     }
 
     const field = (
@@ -276,6 +297,13 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                     </div>
 
                     {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
+                    {skin === 'quill' && starterSuggestions && starterSuggestions.length > 0 && (
+                        <QuillComposerStarterSuggestions
+                            suggestions={starterSuggestions}
+                            hidden={draft.value.length > 0}
+                            onSelect={handleSelectStarterSuggestion}
+                        />
+                    )}
                 </Suggestions.Root>
             </div>
         </div>
