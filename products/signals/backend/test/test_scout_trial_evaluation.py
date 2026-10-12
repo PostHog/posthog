@@ -784,6 +784,7 @@ class TestScoutTrialEvaluation(BaseTest):
         assert report.runs[0].criteria == []
         assert report.runs[0].score is None
         assert report.variants[0].judged_runs == 0
+        assert report.outcome is not None
         assert report.outcome.status == "inconclusive"
         assert not report.outcome.variant_ids
         assert self.scout_run.summary not in report.model_dump_json()
