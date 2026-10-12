@@ -18,7 +18,12 @@ import { ActivityScope } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import type { Ticket, TicketStatus } from '../../types'
-import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
+import {
+    EmailReplyBlockedReason,
+    getEmailReplyBlockedReason,
+    getImpersonationTicketContext,
+    supportTicketSceneLogic,
+} from './supportTicketSceneLogic'
 
 const FEEDBACK_STORAGE_KEY = 'conversations_ai_reply_feedback'
 
@@ -458,6 +463,52 @@ describe('getEmailReplyBlockedReason', () => {
         ['fully configured email ticket', emailTicket(), { email_enabled: true }, null],
     ])('%s', (_name, ticket, settings, expected) => {
         expect(getEmailReplyBlockedReason(ticket, settings)).toBe(expected)
+    })
+})
+
+describe('getImpersonationTicketContext', () => {
+    type ContextTicket = Parameters<typeof getImpersonationTicketContext>[0]
+
+    const widgetTicket = (overrides: Partial<ContextTicket> = {}): ContextTicket => ({
+        id: 'ticket-1',
+        channel_source: 'widget',
+        distinct_id: 'user-distinct-id',
+        identity_verified: true,
+        anonymous_traits: { email: 'typed@example.com' },
+        ...overrides,
+    })
+
+    // A widget request signs the distinct ID only, and the email comes from the form. Using the
+    // email for a widget ticket, or the distinct ID of a ticket nothing signed, points the staff
+    // lookup at an account the sender picked.
+    test.each<[string, ContextTicket, ReturnType<typeof getImpersonationTicketContext>]>([
+        [
+            'verified widget ticket carries its signed distinct ID',
+            widgetTicket(),
+            {
+                ticketId: 'ticket-1',
+                email: 'typed@example.com',
+                isEmailUnverified: true,
+                verifiedDistinctId: 'user-distinct-id',
+            },
+        ],
+        [
+            'unverified widget ticket has no signed distinct ID',
+            widgetTicket({ identity_verified: false }),
+            { ticketId: 'ticket-1', email: 'typed@example.com', isEmailUnverified: true },
+        ],
+        [
+            'verified email ticket keeps the email lookup',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'customer@example.com',
+                anonymous_traits: {},
+                email_from: 'customer@example.com',
+            }),
+            { ticketId: 'ticket-1', email: 'customer@example.com', isEmailUnverified: false },
+        ],
+    ])('%s', (_name, ticket, expected) => {
+        expect(getImpersonationTicketContext(ticket)).toEqual(expected)
     })
 })
 

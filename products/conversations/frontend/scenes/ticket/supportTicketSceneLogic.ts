@@ -36,7 +36,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
+import {
+    ImpersonationTicketContext,
+    impersonationNoticeLogic,
+} from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
@@ -135,6 +138,32 @@ function regionFromUrl(url?: string): Region | undefined {
         }
     }
     return undefined
+}
+
+export function getImpersonationTicketContext(
+    ticket: Pick<
+        Ticket,
+        | 'id'
+        | 'channel_source'
+        | 'distinct_id'
+        | 'identity_verified'
+        | 'anonymous_traits'
+        | 'email_from'
+        | 'session_context'
+    >
+): ImpersonationTicketContext {
+    const isWidgetTicket = ticket.channel_source === 'widget'
+    return {
+        ticketId: ticket.id,
+        // email_from is the customer's address on email tickets, and it's the only
+        // place it lives on tickets whose traits were never populated.
+        email: ticket.anonymous_traits?.email || ticket.email_from || '',
+        region: regionFromUrl(ticket.session_context?.current_url),
+        // A widget request signs the distinct ID only. The email comes from the form, so the
+        // sender can enter the address of another account.
+        isEmailUnverified: isWidgetTicket,
+        verifiedDistinctId: isWidgetTicket && ticket.identity_verified === true ? ticket.distinct_id : undefined,
+    }
 }
 
 function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt?: string): DataTableNode {
@@ -1301,13 +1330,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
-                impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
-                    ticketId: ticket.id,
-                    // email_from is the customer's address on email tickets, and it's the only
-                    // place it lives on tickets whose traits were never populated.
-                    email: ticket.anonymous_traits?.email || ticket.email_from || '',
-                    region: regionFromUrl(ticket.session_context?.current_url),
-                })
+                impersonationNoticeLogic.findMounted()?.actions.setTicketContext(getImpersonationTicketContext(ticket))
 
                 // Load session context data
                 actions.loadPerson()
