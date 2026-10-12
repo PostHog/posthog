@@ -12,7 +12,7 @@ import {
     Text,
 } from '@posthog/quill'
 
-import type { NewSessionSuggestion, NewSessionSuggestionIcon } from './newSessionSuggestions'
+import type { NewSessionSuggestion, NewSessionSuggestionIcon } from './newSessionSuggestionDefaults'
 
 const SUGGESTION_ICONS: Record<NewSessionSuggestionIcon, { Icon: typeof IconBug; color: string }> = {
     trends: { Icon: IconTrending, color: 'var(--color-product-customer-analytics-light)' },

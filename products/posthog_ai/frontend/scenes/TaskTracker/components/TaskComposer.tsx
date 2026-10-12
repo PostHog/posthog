@@ -60,7 +60,6 @@ export interface TaskComposerProps {
 }
 
 export interface ComposerPrefillRequest {
-    id: number
     prompt: string
     mode?: PermissionMode
 }
@@ -69,7 +68,7 @@ export function TaskComposer({
     variant = 'page',
     focusRequest = 0,
     autoFocus = true,
-    prefillRequest = null,
+    prefillRequest,
 }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const {
@@ -78,6 +77,7 @@ export function TaskComposer({
         pickPermissionMode,
         setActiveSuggestionGroup,
         applySuggestion,
+        applyPrefill,
         clearConsentBlock,
     } = useActions(taskTrackerSceneLogic)
     const {
@@ -132,18 +132,15 @@ export function TaskComposer({
         }
     }
 
-    const appliedPrefillId = useRef(prefillRequest?.id ?? null)
+    const appliedPrefill = useRef(prefillRequest)
     useEffect(() => {
-        if (!prefillRequest || prefillRequest.id === appliedPrefillId.current) {
+        if (!prefillRequest || prefillRequest === appliedPrefill.current) {
             return
         }
-        appliedPrefillId.current = prefillRequest.id
-        if (prefillRequest.mode && getModesForRuntimeAdapter(composerAdapter).includes(prefillRequest.mode)) {
-            pickPermissionMode(prefillRequest.mode)
-        }
-        applySuggestion({ content: prefillRequest.prompt, requiresUserInput: true })
+        appliedPrefill.current = prefillRequest
+        applyPrefill(prefillRequest.prompt, prefillRequest.mode)
         textAreaRef.current?.focus()
-    }, [prefillRequest, composerAdapter, pickPermissionMode, applySuggestion])
+    }, [prefillRequest, applyPrefill])
 
     const field = (
         <Composer.Field>
