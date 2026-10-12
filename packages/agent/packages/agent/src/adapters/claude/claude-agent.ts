@@ -3053,11 +3053,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (!config || !taskId || !taskRunId) {
       return undefined;
     }
-    return async (status, message) => {
+    return async (status, message, report) => {
       try {
         await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
           status,
           ...(status === "failed" && message ? { error_message: message } : {}),
+          ...(report ? { output: { final_message: report } } : {}),
         });
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);

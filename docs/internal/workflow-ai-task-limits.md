@@ -45,5 +45,6 @@ Provision the key only after the release that carries the route is live on the p
 A wake that lands while the step is still dispatching cannot be applied, because the worker owns the job state until it parks. The `cdp_hogflow_step_resume` counter reports these as `job_running`.
 A run takes seconds to minutes to finish, so a wake meets this only as the duplicate of one already taken; the route answers 409 and the caller drops it.
 Leave the flag off until the API that emits the wake is deployed.
-A task that ends through the agent's `finish` tool completes a few seconds before its final message is saved.
-The step waits for that message (up to 30 seconds) rather than continuing with an empty one.
+A task that ends through the agent's `finish` tool stops its sandbox before the last turn ends, so the relay cannot save that turn's text.
+The agent passes its report in the `report` argument of `finish`, and the completion request saves it as the final message, so the step wakes with it at once.
+When `finish` carries no report, the step waits up to 30 seconds for a final message and then continues without one.

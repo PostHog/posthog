@@ -174,9 +174,17 @@ describe("finish tool", () => {
     const spy = vi.fn(async () => {});
     const result = await finishTool.handler(
       { cwd: "/repo", requestFinish: spy },
-      { status: "failed", reason: "ran out of quota" },
+      {
+        status: "failed",
+        reason: "ran out of quota",
+        report: "  Opened 2 PRs\n",
+      },
     );
-    expect(spy).toHaveBeenCalledWith("failed", "ran out of quota");
+    expect(spy).toHaveBeenCalledWith(
+      "failed",
+      "ran out of quota",
+      "Opened 2 PRs",
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -184,12 +192,16 @@ describe("finish tool", () => {
     updateTaskRun.mockResolvedValue({});
     const result = await finishTool.handler(
       { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      { status: "failed", reason: "blocked" },
+      { status: "failed", reason: "blocked", report: "Opened 2 PRs" },
     );
     expect(updateTaskRun).toHaveBeenCalledWith(
       "task-1",
       "run-1",
-      { status: "failed", error_message: "blocked" },
+      {
+        status: "failed",
+        error_message: "blocked",
+        output: { final_message: "Opened 2 PRs" },
+      },
       expect.any(AbortSignal),
     );
     expect(result.isError).toBeUndefined();

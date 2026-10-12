@@ -1052,6 +1052,20 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel, *, turn_completed: boo
         )
 
 
+def _finish_saved_report(run: TaskRunModel, output: dict) -> bool:
+    """True when the `finish` tool saved the report, so turn prose must not replace it.
+
+    When the agent completes a workflow run, the API drops any earlier message. So a message on
+    a completed run of this kind comes from the `finish` call that completed it.
+    """
+    return (
+        run.status == TaskRunModel.Status.COMPLETED
+        and bool(output.get("final_message"))
+        and run.task.origin_product == TaskModel.OriginProduct.WORKFLOW
+        and bool((run.state or {}).get("end_run_when_done"))
+    )
+
+
 def _persist_final_message(run_id: str, text: str) -> None:
     """Sync DB write; call via asyncio.to_thread."""
     try:
@@ -1060,6 +1074,8 @@ def _persist_final_message(run_id: str, text: str) -> None:
         with transaction.atomic():
             run = TaskRunModel.objects.select_for_update().get(id=run_id)
             output = run.output if isinstance(run.output, dict) else {}
+            if _finish_saved_report(run, output):
+                return
             run.output = {**output, "final_message": text}
             run.save(update_fields=["output", "updated_at"])
         # The `finish` tool can complete the run before this message lands (the row lock orders the two).
