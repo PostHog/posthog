@@ -27,6 +27,7 @@ import type {
     InsightBulkRestoreResponseApi,
     InsightBulkSetTestAccountFilterRequestApi,
     InsightBulkSetTestAccountFilterResponseApi,
+    InsightQueryCancelRequestApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -781,7 +782,7 @@ export const getInsightsCancelCreateUrl = (projectId: string, params?: InsightsC
 
 export const insightsCancelCreate = async (
     projectId: string,
-    insightApi?: NonReadonly<InsightApi>,
+    insightQueryCancelRequestApi: InsightQueryCancelRequestApi,
     params?: InsightsCancelCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -789,7 +790,7 @@ export const insightsCancelCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightApi),
+        body: JSON.stringify(insightQueryCancelRequestApi),
     })
 }
 

@@ -9234,6 +9234,11 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface InsightQueryCancelRequestApi {
+    /** Client request ID of the running insight query to cancel. */
+    client_query_id: string
+}
+
 /**
  * Insight enriched with view-count and recent-viewer fields, used by the trending action.
  */

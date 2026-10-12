@@ -34,7 +34,7 @@ import {
     type WidgetIssueMetadataDelta,
 } from '@posthog/products-dashboards/frontend/widgets/error_tracking/applyWidgetIssueMetadataChange'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import api, { ApiConfig, ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -127,6 +127,7 @@ import {
     type DashboardSettingsChange,
     type DashboardFilterChange,
 } from 'products/dashboards/frontend/dashboardSettings/dashboardChanges'
+import { insightsCancelCreate } from 'products/product_analytics/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -4994,8 +4995,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: async ({ clientQueryId, queryStartTime, dashboardInteractionId }) => {
             const { currentTeamId, dashboardLoadData } = values
             try {
-                // nosemgrep: prefer-codegen-api-namespaced-product_analytics -- Generated insightsCancelCreate expects InsightApi, not { client_query_id }.
-                await api.insights.cancelQuery(clientQueryId, currentTeamId ?? undefined)
+                await insightsCancelCreate(String(currentTeamId ?? ApiConfig.getCurrentTeamId()), {
+                    client_query_id: clientQueryId,
+                })
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

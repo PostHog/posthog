@@ -114,9 +114,11 @@ describe('dashboardLogic', () => {
      *             i666    i999
      */
     let dashboards: Record<number, DashboardType> = {}
+    let cancelledRequests: unknown[] = []
 
     beforeEach(() => {
         jest.spyOn(api, 'update')
+        cancelledRequests = []
 
         const insights: Record<number, InsightModel> = {
             172: {
@@ -254,7 +256,10 @@ describe('dashboardLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team_id/insights/cancel/': [201],
+                '/api/environments/:team_id/insights/cancel/': async ({ request, params }) => {
+                    cancelledRequests.push({ teamId: params.team_id, body: await request.json() })
+                    return [201]
+                },
             },
             patch: {
                 '/api/environments/:team_id/dashboards/:id/': async ({ request, params }) => {
@@ -3137,7 +3142,6 @@ describe('dashboardLogic', () => {
                             return realGetInsightWithRetry(...args)
                         }
                     )
-                const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
                 const capture = jest.spyOn(posthog, 'capture').mockImplementation()
 
                 const poll = async (cond: () => boolean, message: string): Promise<void> => {
@@ -3180,6 +3184,9 @@ describe('dashboardLogic', () => {
                     gates[insight1.short_id].release()
                     gates[insight2.short_id].release()
                     await refreshDone
+                    expect(cancelledRequests).toEqual([
+                        { teamId: String(MOCK_TEAM_ID), body: { client_query_id: 'q1' } },
+                    ])
                     expect(capture).toHaveBeenCalledWith(
                         'time to see data',
                         expect.objectContaining({
@@ -3191,7 +3198,6 @@ describe('dashboardLogic', () => {
                 } finally {
                     Object.values(gates).forEach(({ release }) => release())
                     getInsightWithRetrySpy.mockRestore()
-                    cancelQuerySpy.mockRestore()
                 }
             })
 

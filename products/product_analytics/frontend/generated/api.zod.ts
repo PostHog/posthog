@@ -282,9 +282,9 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
-export const InsightsCancelCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsCancelCreateBody = /* @__PURE__ */ zod.object({
+    client_query_id: zod.string().describe('Client request ID of the running insight query to cancel.'),
+})
 
 /**
  * Generate an AI-suggested name and description for an insight based on its query configuration.
