@@ -9,16 +9,9 @@ import { ACCURACY_CUTOFFS, confusionDateRange, percent } from '../onlinePerforma
 import { eventName } from '../pipelineQuestion'
 import { SectionCard } from './SectionCard'
 
-const CELL_TINT = {
-    caught: 'bg-success-highlight',
-    falseAlarm: 'bg-warning-highlight',
-    missed: 'bg-danger-highlight',
-    ignored: 'bg-fill-secondary',
-} as const
-
-function Cell({ count, label, tint }: { count: number; label: string; tint: keyof typeof CELL_TINT }): JSX.Element {
+function Cell({ count, label, tint }: { count: number; label: string; tint: string }): JSX.Element {
     return (
-        <div className={`rounded p-3 min-w-0 ${CELL_TINT[tint]}`}>
+        <div className={`rounded p-3 min-w-0 ${tint}`}>
             <div className="text-xl @xl:text-2xl font-semibold tabular-nums">{count.toLocaleString()}</div>
             <div className="text-xs text-secondary">{label}</div>
         </div>
@@ -97,8 +90,8 @@ export function ConfusionMatrixCard(): JSX.Element {
                                 <div />
 
                                 <div className="text-sm font-semibold self-center">Flagged</div>
-                                <Cell count={confusion.tp} label="Caught" tint="caught" />
-                                <Cell count={confusion.fp} label="False alarm" tint="falseAlarm" />
+                                <Cell count={confusion.tp} label="Caught" tint="bg-success-highlight" />
+                                <Cell count={confusion.fp} label="False alarm" tint="bg-warning-highlight" />
                                 <Rate
                                     label="Hit rate"
                                     value={confusion.precision}
@@ -107,8 +100,8 @@ export function ConfusionMatrixCard(): JSX.Element {
                                 />
 
                                 <div className="text-sm font-semibold self-center">Not flagged</div>
-                                <Cell count={confusion.fn} label="Missed" tint="missed" />
-                                <Cell count={confusion.tn} label="Correctly ignored" tint="ignored" />
+                                <Cell count={confusion.fn} label="Missed" tint="bg-danger-highlight" />
+                                <Cell count={confusion.tn} label="Correctly ignored" tint="bg-fill-secondary" />
                                 <div />
 
                                 <div />
