@@ -119,8 +119,8 @@ class ScopeGateNode(AssistantNode):
 
     def _build_model(self) -> MaxChatOpenAI:
         return MaxChatOpenAI(
-            model="gpt-4.1-nano",
-            temperature=0,
+            model="gpt-5.6-luna",
+            reasoning_effort="none",
             max_completion_tokens=50,
             max_retries=0,
             timeout=SCOPE_GATE_TIMEOUT_SECONDS,
