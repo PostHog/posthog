@@ -24,6 +24,8 @@ const billingJsonWithoutIconKeys: BillingType = {
     })),
 }
 
+const VERCEL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
+
 const meta: Meta = {
     title: 'Scenes-Other/Billing',
     parameters: {
@@ -84,15 +86,30 @@ export const BillingManagedByPartner: Story = {
     },
 }
 
-export const BillingBilledThroughVercel: Story = {
+export const BillingManagedByVercel: Story = {
     render: () => {
         useStorybookMocks({
             get: {
                 '/api/billing/': {
                     ...billingJson,
                     billing_provider: BillingProvider.Vercel,
-                    external_billing_provider_invoices_url:
-                        'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices',
+                    external_billing_provider_invoices_url: VERCEL_INVOICES_URL,
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingManagedByVercelWithoutSubscription: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingUnsubscribedJson,
+                    billing_provider: BillingProvider.Vercel,
+                    external_billing_provider_invoices_url: VERCEL_INVOICES_URL,
                 },
             },
         })

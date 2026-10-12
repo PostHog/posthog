@@ -7,16 +7,11 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 
 export function BillingUpgradeCTA({ children, disabledReason, ...props }: LemonButtonProps): JSX.Element {
     const { reportBillingCTAShown } = useActions(eventUsageLogic)
-    const { billingManagedByPartnerDisabledReason, billingThroughVercelDisabledReason } = useValues(billingLogic)
+    const { selfServeBillingDisabledReason } = useValues(billingLogic)
     useOnMountEffect(reportBillingCTAShown)
 
     return (
-        <LemonButton
-            {...props}
-            disabledReason={
-                billingManagedByPartnerDisabledReason || billingThroughVercelDisabledReason || disabledReason
-            }
-        >
+        <LemonButton {...props} disabledReason={selfServeBillingDisabledReason || disabledReason}>
             {children}
         </LemonButton>
     )

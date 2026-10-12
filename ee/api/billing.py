@@ -2,7 +2,7 @@ import re
 import json
 from collections.abc import Callable, Sequence
 from datetime import timedelta
-from typing import Any, NoReturn, Optional, cast
+from typing import Any, NoReturn, Optional, Self, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -36,7 +36,12 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    BillingServiceResponseError,
+    http_session,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -112,6 +117,23 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class BillingManagedByProviderError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "billing_managed_by_provider"
+    default_detail = "Billing for this organization is managed outside PostHog. Contact support to change your plan."
+    default_type = "invalid_request"
+
+    @classmethod
+    def from_billing_refusal(cls, error: BillingServiceResponseError) -> Self | None:
+        body = error.body
+        if error.status_code != status.HTTP_400_BAD_REQUEST or not isinstance(body, dict):
+            return None
+        if body.get("code") != cls.default_code:
+            return None
+        message = body.get("error")
+        return cls(message if isinstance(message, str) and message else None)
 
 
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -279,6 +301,19 @@ class BillingNotManagedByPartner(permissions.BasePermission):
 def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
     partner = get_billing_lock_partner(organization) if organization else None
     return {"partner_name": partner.name} if partner else None
+
+
+def vercel_invoices_url(organization: Organization | None) -> str | None:
+    if organization is None:
+        return None
+    vercel_integration = OrganizationIntegration.objects.filter(
+        organization=organization,
+        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+    ).first()
+    if not vercel_integration or not vercel_integration.integration_id:
+        return None
+    account_url = vercel_integration.config.get("account", {}).get("url", "")
+    return f"{account_url}/invoices" if account_url else None
 
 
 class BillingSerializer(serializers.Serializer):
@@ -581,15 +616,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
 
-        vercel_integration = OrganizationIntegration.objects.filter(
-            organization=org,
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-        ).first()
-
-        if vercel_integration and vercel_integration.integration_id:
-            account_url = vercel_integration.config.get("account", {}).get("url", "")
-            if account_url:
-                response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
+        invoices_url = vercel_invoices_url(org)
+        if invoices_url:
+            response["external_billing_provider_invoices_url"] = invoices_url
 
         response["billing_managed_by_partner"] = billing_managed_by_partner(org)
 
@@ -686,7 +715,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.activate_subscription(organization, request.data)
+        try:
+            res = billing_manager.activate_subscription(organization, request.data)
+        except BillingServiceResponseError as error:
+            if managed_by_provider := BillingManagedByProviderError.from_billing_refusal(error):
+                raise managed_by_provider from error
+            raise
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
@@ -754,7 +788,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         organization = self._get_org_required()
 
         billing_manager = self.get_billing_manager()
-        res = billing_manager._get_stripe_portal_url(organization)
+        try:
+            res = billing_manager._get_stripe_portal_url(organization)
+        except BillingServiceResponseError as error:
+            managed_by_provider = BillingManagedByProviderError.from_billing_refusal(error)
+            if managed_by_provider is None:
+                raise
+            invoices_url = vercel_invoices_url(organization)
+            if invoices_url is None:
+                raise managed_by_provider from error
+            return redirect(invoices_url)
         return redirect(res)
 
     @action(methods=["GET"], detail=False)
@@ -871,7 +914,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize(organization)
+        try:
+            res = billing_manager.authorize(organization)
+        except BillingServiceResponseError as error:
+            if managed_by_provider := BillingManagedByProviderError.from_billing_refusal(error):
+                raise managed_by_provider from error
+            raise
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
