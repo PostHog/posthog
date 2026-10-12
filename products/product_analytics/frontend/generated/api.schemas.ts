@@ -8305,19 +8305,25 @@ export const DatePartApi = {
     DayOfWeek: 'day_of_week',
 } as const
 
+export interface BILocalFieldDefinition1Api {
+    aggregate: boolean
+    expression: string
+    kind?: 'expression'
+}
+
 export interface BICategoryGroupApi {
     name: string
     values: string[]
 }
 
-export interface BILocalFieldDefinition1Api {
+export interface BILocalFieldDefinition2Api {
     expression: string
     groups: BICategoryGroupApi[]
     kind?: 'groups'
     other: string
 }
 
-export interface BILocalFieldDefinition2Api {
+export interface BILocalFieldDefinition3Api {
     expression: string
     kind?: 'bins'
     origin: number
@@ -8356,7 +8362,8 @@ export interface BIFieldApi {
     datePart?: DatePartApi | null
     expression: string
     id: string
-    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | null
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | BILocalFieldDefinition3Api | null
+    localFieldId?: string | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi

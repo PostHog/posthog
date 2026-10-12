@@ -37,6 +37,7 @@ export function BIFieldPill({
         addFieldToShelf,
         convertMeasureToDimension,
         duplicateField,
+        editCalculatedField,
         editCalculatedMeasure,
         moveFieldToShelf,
         removeFieldFromShelf,
@@ -125,8 +126,15 @@ export function BIFieldPill({
                               moveFieldToShelf('values', index, value?.shelf === 'columns' ? 'rows' : 'columns'),
                       }
                     : null,
-                !isCalculatedMeasure ? { label: 'Edit field expression', onClick: () => setEditing('field') } : null,
-                value?.aggregation === 'custom'
+                field.localDefinition?.kind === 'expression'
+                    ? {
+                          label: 'Edit calculated field',
+                          onClick: () => editCalculatedField({ ...field, id: field.localFieldId ?? field.id }),
+                      }
+                    : !isCalculatedMeasure
+                      ? { label: 'Edit field expression', onClick: () => setEditing('field') }
+                      : null,
+                value?.aggregation === 'custom' && field.localDefinition?.kind !== 'expression'
                     ? { label: 'Edit calculated measure', onClick: () => editCalculatedMeasure(index) }
                     : null,
                 sortKey
