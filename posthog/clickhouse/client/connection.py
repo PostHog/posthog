@@ -533,6 +533,7 @@ def default_client(
     *,
     database: str = "system",
     send_receive_timeout: int | None = None,
+    connect_timeout: int | None = None,
     workload: Workload | None = None,
     team_id: int | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
@@ -568,6 +569,8 @@ def default_client(
         kwargs["password"] = password
     if send_receive_timeout is not None:
         kwargs["send_receive_timeout"] = send_receive_timeout
+    if connect_timeout is not None:
+        kwargs["connect_timeout"] = connect_timeout
     return ClickHouseClient(**kwargs)
 
 

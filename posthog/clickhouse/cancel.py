@@ -1,3 +1,7 @@
+from concurrent.futures import Future
+from functools import partial
+from time import monotonic
+
 from django.conf import settings
 
 from statshog.defaults.django import statsd
@@ -5,6 +9,8 @@ from statshog.defaults.django import statsd
 from posthog.api.services.query import logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import default_client
+from posthog.clickhouse.native_metadata import submit_native_metadata
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -14,40 +20,64 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 _SEND_RECEIVE_TIMEOUT_SECONDS = 15
 
 
-def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
-    initiator_host = None
-    native_cancel_error: Exception | None = None
+# validated_client_query_id appends one underscore and exactly eight random characters.
+def _cancel_native_query(team_id: int, client_query_id: str) -> None:
+    with default_client(
+        workload=Workload.NATIVE_EVENTS,
+        team_id=team_id,
+        database=CLICKHOUSE_DATABASE,
+        connect_timeout=1,
+        send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS,
+    ) as client:
+        # nosemgrep: clickhouse-fstring-param-audit - CLICKHOUSE_CLUSTER is a settings constant
+        sync_execute(
+            f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8 SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
+            {"client_query_id": f"{team_id}_{client_query_id}_"},
+            sync_client=client,
+        )
+    statsd.incr("clickhouse.query.cancellation.native", tags={"team_id": team_id})
 
+
+def _log_native_cancellation(team_id: int, client_query_id: str, future: Future[None]) -> None:
+    if not future.cancelled() and (error := future.exception()) is not None:
+        logger.warning("Failed to cancel native query %s: %s", client_query_id, error)
+        statsd.incr("clickhouse.query.cancellation.native_failed", tags={"team_id": team_id})
+
+
+def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     statsd.incr("clickhouse.query.cancellation.requested", tags={"team_id": team_id})
-    if settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
-        try:
-            with default_client(
-                workload=Workload.NATIVE_EVENTS,
-                team_id=team_id,
-                database=CLICKHOUSE_DATABASE,
-                send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS,
-            ) as client:
-                # nosemgrep: clickhouse-fstring-param-audit - CLICKHOUSE_CLUSTER is a settings constant
-                sync_execute(
-                    f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
-                    {"client_query_id": f"{team_id}_{client_query_id}%"},
-                    sync_client=client,
-                )
-            statsd.incr("clickhouse.query.cancellation.native", tags={"team_id": team_id})
-        except Exception as e:
-            native_cancel_error = e
-            logger.warning("Failed to cancel native query %s: %s", client_query_id, e)
-            statsd.incr("clickhouse.query.cancellation.native_failed", tags={"team_id": team_id})
+    # Cleanup queries must not appear among the queries they discover or cancel.
+    with tags_context(team_id=None, client_query_id=None):
+        native = None
+        native_deadline = None
+        if settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            native_deadline = monotonic() + 20
+            native = submit_native_metadata(partial(_cancel_native_query, team_id, client_query_id))
+            if native is not None:
+                native.add_done_callback(partial(_log_native_cancellation, team_id, client_query_id))
+
+        legacy_found = _cancel_legacy_query(team_id, client_query_id)
+        if legacy_found or not settings.CLICKHOUSE_NATIVE_EVENTS_HOST:
+            return
+        if native is None:
+            raise RuntimeError("Native query cancellation is busy; retry cancellation")
+        # DNS and connection retries can outlive individual socket timeouts.
+        assert native_deadline is not None
+        native.result(timeout=max(0.0, native_deadline - monotonic()))
+
+
+def _cancel_legacy_query(team_id: int, client_query_id: str) -> bool:
+    initiator_host = None
     try:
         with default_client(database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
             result = sync_execute(
                 """
                 SELECT FQDN(), query_id
                 FROM distributed_system_processes
-                WHERE query_id LIKE %(client_query_id)s
+                WHERE startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8
                 SETTINGS max_execution_time = 2
                 """,
-                {"client_query_id": f"{team_id}_{client_query_id}%"},
+                {"client_query_id": f"{team_id}_{client_query_id}_"},
                 sync_client=client,
             )
         initiator_host, query_id = result[0] if (result and len(result[0]) == 2) else (None, None)
@@ -70,11 +100,10 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         with default_client(database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
             # nosemgrep: clickhouse-fstring-param-audit - CLICKHOUSE_CLUSTER from settings constant
             result = sync_execute(
-                f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE query_id LIKE %(client_query_id)s SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
-                {"client_query_id": f"{team_id}_{client_query_id}%"},
+                f"KILL QUERY ON CLUSTER '{CLICKHOUSE_CLUSTER}' WHERE startsWith(query_id, %(client_query_id)s) AND length(query_id) = length(%(client_query_id)s) + 8 SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
+                {"client_query_id": f"{team_id}_{client_query_id}_"},
                 sync_client=client,
             )
         logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)
         statsd.incr("clickhouse.query.cancellation.on_cluster", tags={"team_id": team_id})
-    if native_cancel_error is not None and initiator_host is None:
-        raise native_cancel_error
+    return initiator_host is not None

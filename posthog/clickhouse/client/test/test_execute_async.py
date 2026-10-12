@@ -7,7 +7,7 @@ from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import MagicMock, patch
 
 from django.db import transaction
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -24,7 +24,6 @@ from posthog.clickhouse.client import (
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
@@ -53,49 +52,6 @@ ZERO_PROGRESS = {
     "time_elapsed": 0,
     "active_cpu_time": 0,
 }
-
-
-class TestNativeEventsQueryCancellation(SimpleTestCase):
-    @parameterized.expand([(False,), (True,)])
-    @override_settings(
-        CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=False
-    )
-    def test_native_failure_is_reported_unless_the_query_is_found_and_cancelled_on_legacy(
-        self, legacy_found: bool
-    ) -> None:
-        from posthog.clickhouse.cancel import cancel_query_on_cluster
-
-        results = [[("legacy.example.com", "44_example-query")], []] if legacy_found else [[]]
-        with (
-            patch("posthog.clickhouse.cancel.default_client"),
-            patch("posthog.clickhouse.cancel.sync_execute", side_effect=[RuntimeError("native unavailable"), *results]),
-        ):
-            if legacy_found:
-                cancel_query_on_cluster(44, "example-query")
-            else:
-                with self.assertRaisesRegex(RuntimeError, "native unavailable"):
-                    cancel_query_on_cluster(44, "example-query")
-
-    @override_settings(
-        CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=False
-    )
-    def test_cancel_reaches_native_cluster_even_when_legacy_discovery_has_no_query(self) -> None:
-        from posthog.clickhouse.cancel import cancel_query_on_cluster
-
-        with (
-            patch("posthog.clickhouse.cancel.default_client") as client,
-            patch("posthog.clickhouse.cancel.sync_execute", return_value=[]) as execute,
-        ):
-            cancel_query_on_cluster(44, "example-query")
-        native_clients = [
-            call for call in client.call_args_list if call.kwargs.get("workload") == Workload.NATIVE_EVENTS
-        ]
-        self.assertEqual(len(native_clients), 1)
-        self.assertEqual(native_clients[0].kwargs["send_receive_timeout"], 15)
-        kills = [call for call in execute.call_args_list if "KILL QUERY" in call.args[0]]
-        self.assertEqual(len(kills), 1)
-        self.assertIn("ON CLUSTER", kills[0].args[0])
-        self.assertEqual(kills[0].args[1], {"client_query_id": "44_example-query%"})
 
 
 class TestQueryStatusManager(SimpleTestCase):

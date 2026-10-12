@@ -357,6 +357,36 @@ class TestNewEventsSchemaUserRollout(SimpleTestCase):
         executor = HogQLQueryExecutor(query="SELECT 1", team=self.team, user=self.user, modifiers=self.modifiers)
         self.assertIs(executor.query_modifiers.useNewEventsSchema, True)
 
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_direct_trino_queue_preserves_pure_inputs(self, enrolled: bool) -> None:
+        from posthog.hogql.transforms.trino.manifest import TrinoCatalogManifest, transpile_hogql_to_trino
+
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.DISABLED}
+        query = HogQLQuery(query="SELECT 1", connectionId="example-connection")
+        user = self.user if enrolled else User(id=124, is_staff=True)
+        source = MagicMock(direct_engine="trino", has_managed_warehouse_prefix=False)
+        cache = MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None)
+        with (
+            patch("posthog.hogql_queries.hogql_query_runner.get_direct_connection_source", return_value=source),
+            patch("posthog.hogql_queries.query_runner.posthoganalytics.capture"),
+            patch("posthog.hogql_queries.query_runner.groups", return_value={}),
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+        ):
+            runner = HogQLQueryRunner(query=query, team=self.team, user=user)
+            runner.enqueue_async_calculation(cache_manager=cache, user=user)
+            worker = get_query_runner(enqueue.call_args.kwargs["query_json"], self.team, user=user)
+        assert isinstance(worker, HogQLQueryRunner)
+        compiled = transpile_hogql_to_trino(
+            worker.query.query,
+            manifest=TrinoCatalogManifest(tables=()),
+            filters=worker.query.filters,
+            variables=worker.query.variables,
+            modifiers=worker.query.modifiers,
+        )
+        self.assertIn("SELECT 1", compiled.sql)
+        self.assertEqual(enqueue.call_args.kwargs["query_json"], query.model_dump())
+
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_native_table_executes_on_native_workload(self) -> None:
         executor = HogQLQueryExecutor(query="SELECT 1", team=self.team, user=self.user, modifiers=self.modifiers)

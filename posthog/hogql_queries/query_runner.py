@@ -1958,6 +1958,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sources.append(query_json)
         return sources
 
+    def _should_pin_events_schema_for_async(self) -> bool:
+        return True
+
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
@@ -2110,6 +2113,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "modifiers" in modifier_source
             and self.modifiers.useNewEventsSchema is not None
             and (self.modifiers.useNewEventsSchema or settings.CLICKHOUSE_NATIVE_EVENTS_HOST or explicit_schema_choice)
+            and self._should_pin_events_schema_for_async()
         ):
             for source in modifier_sources:
                 if isinstance(source.get("modifiers"), dict):
