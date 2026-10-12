@@ -1146,24 +1146,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 setPendingApproval: (_, { proposalId }) => proposalId,
                 clearPendingApproval: () => null,
-                // Also set pendingApprovalProposalId when loading a conversation with a pending approval
                 setConversation: (state, { conversation }) => {
-                    // Find all pending approvals from the conversation
-                    const pendingApprovals =
-                        conversation?.pending_approvals?.filter((a) => a.decision_status === 'pending') ?? []
-
-                    // If there are no pending approvals, clear the state
-                    if (pendingApprovals.length === 0) {
+                    if (!conversation) {
                         return null
                     }
-
-                    // If current state is still in the pending list, keep it
-                    if (state && pendingApprovals.some((a) => a.proposal_id === state)) {
+                    const approvals = conversation.pending_approvals
+                    if (!approvals) {
                         return state
                     }
-
-                    // Otherwise, use the first (newest) pending approval
-                    return pendingApprovals[0]?.proposal_id ?? null
+                    const stateResolved = approvals.some(
+                        (a) => a.proposal_id === state && a.decision_status !== 'pending'
+                    )
+                    if (state && !stateResolved) {
+                        return state
+                    }
+                    return approvals.find((a) => a.decision_status === 'pending')?.proposal_id ?? null
                 },
             },
         ],

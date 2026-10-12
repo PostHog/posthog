@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from parameterized import parameterized
 
-from posthog.schema import AssistantEventType, FailureMessage
+from posthog.schema import AssistantEventType, FailureMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -883,3 +883,49 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         await graph.ainvoke(await runner._init_or_update_state(), config)
         self.assertFalse((await graph.aget_state(config)).next)
         self.assertEqual(executed, ["second"] if action == "approve" else [])
+
+    @parameterized.expand(
+        [
+            ("new_message", {"live": "auto_rejected", "stale": "auto_rejected"}),
+            ("stale_response", {"live": "pending", "stale": "auto_rejected"}),
+        ]
+    )
+    async def test_unresumable_pending_approval_is_auto_rejected(self, trigger: str, expected: dict[str, str]) -> None:
+        live_id, stale_id = str(uuid4()), str(uuid4())
+
+        def operation(state: AssistantState) -> dict[str, object]:
+            interrupt(ApprovalRequest(proposal_id=live_id, tool_name="create_insight", preview="Update", payload={}))
+            return {}
+
+        builder = StateGraph(AssistantState)
+        builder.add_node("operation", operation)
+        builder.add_edge(START, "operation")
+        builder.add_edge("operation", END)
+        graph = builder.compile(checkpointer=MemorySaver())
+        runner, _ = self._create_runner_with_interrupt(None)
+        runner._graph = graph
+        config = runner._get_config()
+        config["callbacks"] = []
+        await graph.ainvoke(AssistantState(messages=[]), config)
+        self.conversation.approval_decisions = {
+            live_id: {"decision_status": "pending"},
+            stale_id: {"decision_status": "pending"},
+        }
+        await self.conversation.asave(update_fields=["approval_decisions"])
+
+        if trigger == "new_message":
+            runner._latest_message = HumanMessage(content="are you stuck?", id=str(uuid4()))
+            await runner._init_or_update_state()
+        else:
+            runner._resume_payload = {"action": "approve", "proposal_id": stale_id}
+            with self.assertRaisesMessage(ValueError, "Approval does not match a pending operation"):
+                await runner._init_or_update_state()
+
+        await self.conversation.arefresh_from_db()
+        self.assertEqual(
+            {
+                "live": self.conversation.approval_decisions[live_id]["decision_status"],
+                "stale": self.conversation.approval_decisions[stale_id]["decision_status"],
+            },
+            expected,
+        )

@@ -32,12 +32,14 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import {
+    ApprovalDecisionStatus,
     Conversation,
     ConversationDetail,
     ConversationStatus,
     ConversationType,
     OrganizationType,
     InsightShortId,
+    PendingApproval,
 } from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -3139,6 +3141,40 @@ describe('maxThreadLogic', () => {
                 .tool_calls as EnhancedToolCall[]
             // Approved operations should show as completed
             expect(enhancedToolCalls?.[0].status).toBe('completed')
+        })
+    })
+
+    describe('pending approval selection', () => {
+        const approval = (proposal_id: string, decision_status: ApprovalDecisionStatus): PendingApproval => ({
+            proposal_id,
+            decision_status,
+            tool_name: 'create_insight',
+            preview: `Update insight ${proposal_id}`,
+            payload: {},
+        })
+        const visibleProposal = (): string | undefined => logic.values.activeDangerousOperationApproval?.proposalId
+
+        it('keeps a streamed approval visible after the turn ends and moves past resolved ones', () => {
+            logic.actions.addPendingApprovalData(approval('stale', 'pending'))
+            logic.actions.setPendingApproval('stale')
+            logic.actions.setResolvedApprovalStatus('stale', 'approved')
+
+            logic.actions.addPendingApprovalData(approval('new', 'pending'))
+            logic.actions.setPendingApproval('new')
+            expect(visibleProposal()).toBe('new')
+
+            logic.actions.setConversation({ ...MOCK_CONVERSATION, pending_approvals: [approval('stale', 'pending')] })
+            expect(visibleProposal()).toBe('new')
+
+            logic.actions.setConversation(MOCK_CONVERSATION)
+            expect(visibleProposal()).toBe('new')
+
+            logic.actions.setPendingApproval('stale')
+            logic.actions.setConversation({
+                ...MOCK_CONVERSATION,
+                pending_approvals: [approval('new', 'pending'), approval('stale', 'auto_rejected')],
+            })
+            expect(visibleProposal()).toBe('new')
         })
     })
 
