@@ -353,6 +353,35 @@ const insightCreate = (): ToolBase<
     },
 })
 
+const InsightDataChecksRunSchema = () => {
+    const InsightsDataChecksCreateBody = orvalSchemas.InsightsDataChecksCreateBody()
+    return InsightsDataChecksCreateBody.extend({ query: InsightQuery })
+}
+
+const insightDataChecksRun = (): ToolBase<
+    ReturnType<typeof InsightDataChecksRunSchema>,
+    WithAgentNote<Schemas.InsightDataChecks>
+> => ({
+    name: 'insight-data-checks-run',
+    schema: InsightDataChecksRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InsightDataChecksRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas.InsightDataChecks>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/data_checks/`,
+            body,
+        })
+        return withAgentNote(
+            result,
+            "When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its share of the events, and offer the fix. Do not change the insight or the project's filter settings before the user agrees. When every check passed, say so in a few words. Do not list the checks that passed.\n"
+        )
+    },
+})
+
 const InsightDeleteSchema = () => {
     const InsightsDestroyParams = orvalSchemas.InsightsDestroyParams()
     return z.preprocess(
@@ -712,6 +741,7 @@ const insightsTrendingRetrieve = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'elements-stats-retrieve': elementsStatsRetrieve,
     'insight-create': insightCreate,
+    'insight-data-checks-run': insightDataChecksRun,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
     'insight-update': insightUpdate,

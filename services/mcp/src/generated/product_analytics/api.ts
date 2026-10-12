@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -371,6 +371,23 @@ export const InsightsAllActivityRetrieveQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
 })
+
+/**
+ * Check the events behind an insight for the common ways they mislead: internal and test users, local development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose series are events. The checks apply the insight's own filters and date range, and read a sample of an insight with more than 1 million events. Nothing is stored.
+ */
+export const InsightsDataChecksCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const InsightsDataChecksCreateQueryParams = () => zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+})
+
+export const InsightsDataChecksCreateBody = () => zod.looseObject({})
 
 /**
  * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
