@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudResumeConfig]):
-    codebase_detection = detect(env=("^(PREFECT_CLOUD|PREFECTCLOUD)_",))
+    codebase_detection = detect(env=("^PREFECT_API_KEY$", "^PREFECT_API_URL$"), pypi=("prefect", "prefect-client"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

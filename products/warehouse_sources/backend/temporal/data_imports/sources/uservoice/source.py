@@ -36,7 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UservoiceSource(ResumableSource[UservoiceSourceConfig, UservoiceResumeConfig]):
-    codebase_detection = detect(env=("^USERVOICE_",))
+    codebase_detection = detect(
+        env=("^USERVOICE_",), script_hosts=("widget.uservoice.com",), pypi=("uservoice",), rubygems=("uservoice-ruby",)
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

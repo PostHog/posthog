@@ -37,7 +37,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MercadoPagoSource(ResumableSource[MercadoPagoSourceConfig, MercadoPagoResumeConfig]):
-    codebase_detection = detect(env=("^(MERCADO_PAGO|MERCADOPAGO)_",))
+    codebase_detection = detect(
+        env=("^(MERCADO_PAGO|MERCADOPAGO)_",),
+        script_hosts=("sdk.mercadopago.com",),
+        npm=("mercadopago", "@mercadopago/sdk-react", "@mercadopago/sdk-js"),
+        pypi=("mercadopago",),
+        composer=("mercadopago/dx-php",),
+        go=("github.com/mercadopago/sdk-go",),
+        maven=("com.mercadopago:sdk-java",),
+        rubygems=("mercadopago-sdk",),
+    )
 
     lists_tables_without_credentials = True
     api_docs_url = "https://www.mercadopago.com.br/developers/en/changelog"

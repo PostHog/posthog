@@ -37,7 +37,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
     codebase_detection = detect(
         env=("^PENDO_",),
-        npm=("@pendo/agent",),
+        script_hosts=("cdn.pendo.io", "cdn.eu.pendo.io", "us1.cdn.pendo.io", "cdn.jpn.pendo.io", "cdn.au.pendo.io"),
+        npm=("@pendo/agent", "rn-pendo-sdk"),
+        cocoapods=("Pendo",),
+        pub=("pendo_sdk",),
+        swiftpm=("github.com/pendo-io/pendo-mobile-sdk",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
     )
 

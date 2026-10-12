@@ -29,7 +29,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EppoSource(SimpleSource[EppoSourceConfig]):
-    codebase_detection = detect(env=("^EPPO_",))
+    codebase_detection = detect(
+        env=("^EPPO_",),
+        npm=("@eppo/js-client-sdk", "@eppo/node-server-sdk", "@eppo/react-native-sdk"),
+        pypi=("eppo-server-sdk",),
+        cargo=("eppo",),
+        composer=("eppo/php-sdk",),
+        go=("github.com/Eppo-exp/golang-sdk",),
+        hex=("eppo_sdk",),
+        maven=("cloud.eppo:eppo-server-sdk", "cloud.eppo:android-sdk"),
+        pub=("eppo",),
+        rubygems=("eppo-server-sdk",),
+        swiftpm=("github.com/eppo-exp/eppo-ios-sdk",),
+    )
 
     # Every endpoint here is a static entry in ENDPOINTS with no I/O — safe for public docs.
     lists_tables_without_credentials = True

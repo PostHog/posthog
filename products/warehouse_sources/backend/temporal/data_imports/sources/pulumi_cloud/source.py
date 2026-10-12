@@ -34,7 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PulumiCloudSource(ResumableSource[PulumiCloudSourceConfig, PulumiCloudResumeConfig]):
-    codebase_detection = detect(env=("^(PULUMI_CLOUD|PULUMICLOUD)_",))
+    codebase_detection = detect(
+        env=("^PULUMI_ACCESS_TOKEN$",),
+        npm=("@pulumi/pulumi", "@pulumi/pulumiservice"),
+        pypi=("pulumi", "pulumi-pulumiservice"),
+        go=("github.com/pulumi/pulumi/sdk",),
+        maven=("com.pulumi:pulumi",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

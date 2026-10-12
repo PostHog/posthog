@@ -37,7 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResumeConfig]):
     codebase_detection = detect(
-        env=("^HUGGINGFACE_", "^HF_TOKEN$"), npm=("@huggingface/inference",), pypi=("huggingface-hub",)
+        env=("^HUGGINGFACE_", "^HF_TOKEN$", "^HUGGING_FACE_HUB_TOKEN$", "^HF_HUB_"),
+        npm=("@huggingface/inference", "@huggingface/hub"),
+        pypi=("huggingface-hub",),
+        cargo=("hf-hub",),
     )
 
     api_docs_url = "https://huggingface.co/docs/hub/api"

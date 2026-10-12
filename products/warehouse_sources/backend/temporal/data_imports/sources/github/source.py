@@ -160,7 +160,13 @@ class GithubSource(
     # 'Github' (not 'GitHub') - matches the ExternalDataSourceType value.
     # Default auth is the GitHub App integration (OAuth), so deep-link.
     codebase_detection = detect(
-        npm=("@octokit/rest", "@octokit/core", "@octokit/graphql", "octokit"), pypi=("pygithub",), rubygems=("octokit",)
+        npm=("@octokit/rest", "@octokit/core", "@octokit/graphql", "octokit", "@octokit/app"),
+        pypi=("pygithub", "githubkit"),
+        cargo=("octocrab",),
+        composer=("knplabs/github-api",),
+        go=("github.com/google/go-github",),
+        maven=("org.kohsuke:github-api",),
+        rubygems=("octokit",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

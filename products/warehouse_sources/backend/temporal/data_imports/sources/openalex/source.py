@@ -45,7 +45,7 @@ FILTERABLE_ENDPOINTS: dict[str, str] = {
 
 @SourceRegistry.register
 class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]):
-    codebase_detection = detect(env=("^OPENALEX_",))
+    codebase_detection = detect(env=("^OPENALEX_",), pypi=("pyalex",))
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # OpenAlex serves a single unversioned API at api.openalex.org: no version path segment,

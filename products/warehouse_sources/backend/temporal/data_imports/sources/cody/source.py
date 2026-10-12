@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodySource(ResumableSource[CodySourceConfig, CodyResumeConfig]):
-    codebase_detection = detect(env=("^CODY_",))
+    codebase_detection = detect(env=("^CODY_", "^SRC_ACCESS_TOKEN$", "^SRC_ENDPOINT$"), npm=("@sourcegraph/cody",))
 
     api_docs_url = "https://sourcegraph.com/docs/analytics/api"
 

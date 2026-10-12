@@ -56,7 +56,15 @@ class SparkPostSource(
     ResumableSource[SparkPostSourceConfig, SparkPostResumeConfig],
     WebhookSource[SparkPostSourceConfig],
 ):
-    codebase_detection = detect(env=("^SPARKPOST_",), npm=("sparkpost",), pypi=("sparkpost",))
+    codebase_detection = detect(
+        env=("^SPARKPOST_",),
+        npm=("sparkpost",),
+        pypi=("sparkpost",),
+        composer=("sparkpost/sparkpost",),
+        go=("github.com/SparkPost/gosparkpost",),
+        maven=("com.sparkpost:sparkpost-lib",),
+        rubygems=("sparkpost",),
+    )
 
     api_docs_url = "https://developers.sparkpost.com/api/"
 

@@ -36,7 +36,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SplunkObservabilityCloudSource(
     ResumableSource[SplunkObservabilityCloudSourceConfig, SplunkObservabilityCloudResumeConfig]
 ):
-    codebase_detection = detect(env=("^(SPLUNK_OBSERVABILITY_CLOUD|SPLUNKOBSERVABILITYCLOUD)_",))
+    codebase_detection = detect(
+        env=("^SPLUNK_ACCESS_TOKEN$", "^SPLUNK_REALM$"),
+        script_hosts=("cdn.observability.splunkcloud.com", "cdn.signalfx.com"),
+        npm=("@splunk/otel", "@splunk/otel-web"),
+        pypi=("splunk-opentelemetry",),
+        go=("github.com/signalfx/splunk-otel-go",),
+        maven=("com.splunk:splunk-otel-javaagent", "com.splunk:splunk-otel-android"),
+        rubygems=("splunk-otel",),
+        swiftpm=("github.com/signalfx/splunk-otel-ios",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

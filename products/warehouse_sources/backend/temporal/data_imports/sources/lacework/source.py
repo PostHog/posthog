@@ -35,7 +35,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LaceworkSource(ResumableSource[LaceworkSourceConfig, LaceworkResumeConfig]):
-    codebase_detection = detect(env=("^LACEWORK_",))
+    codebase_detection = detect(
+        env=("^LACEWORK_", "^LW_ACCOUNT$", "^LW_SUBACCOUNT$", "^LW_API_KEY$", "^LW_API_SECRET$"),
+        pypi=("laceworksdk",),
+        go=("github.com/lacework/go-sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

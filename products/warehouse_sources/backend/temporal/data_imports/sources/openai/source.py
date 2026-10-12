@@ -33,7 +33,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
-    codebase_detection = detect(env=("^OPENAI_",), npm=("openai",), pypi=("openai",))
+    codebase_detection = detect(
+        env=("^OPENAI_",),
+        npm=("openai", "@ai-sdk/openai", "@langchain/openai"),
+        pypi=("openai", "langchain-openai"),
+        cargo=("async-openai",),
+        composer=("openai-php/client", "openai-php/laravel"),
+        go=("github.com/openai/openai-go", "github.com/sashabaranov/go-openai"),
+        hex=("openai_ex",),
+        maven=("com.openai:openai-java",),
+        pub=("dart_openai",),
+        rubygems=("openai", "ruby-openai"),
+        swiftpm=("github.com/macpaw/openai",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://platform.openai.com/docs/api-reference"

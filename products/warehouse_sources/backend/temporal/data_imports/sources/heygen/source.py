@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
-    codebase_detection = detect(env=("^(HEY_GEN|HEYGEN)_",))
+    codebase_detection = detect(env=("^(HEY_GEN|HEYGEN)_",), npm=("@heygen/streaming-avatar",))
 
     supported_versions = ("v3",)
     default_version = "v3"

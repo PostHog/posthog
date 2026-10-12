@@ -51,7 +51,22 @@ class WhopSource(
     ResumableSource[WhopSourceConfig, WhopResumeConfig],
     WebhookSource[WhopSourceConfig],
 ):
-    codebase_detection = detect(env=("^WHOP_",), npm=("@whop/api", "@whop-apps/sdk"))
+    codebase_detection = detect(
+        env=("^WHOP_", "^NEXT_PUBLIC_WHOP_"),
+        script_hosts=("cdn.whop.com",),
+        npm=(
+            "@whop/api",
+            "@whop-apps/sdk",
+            "@whop/sdk",
+            "@whop/react",
+            "@whop/checkout",
+            "@whop/embedded-components-react-js",
+            "@whop/elements",
+            "@whop/elements-react",
+        ),
+        pypi=("whop-sdk", "whop"),
+        go=("github.com/whopio/whopsdk-go",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Whop's dated `Api-Version-Date` header pins the Experimental API. The stable `/api/v1`

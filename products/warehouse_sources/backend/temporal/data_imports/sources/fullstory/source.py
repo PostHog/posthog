@@ -41,7 +41,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConfig]):
     codebase_detection = detect(
         env=("^FULLSTORY_",),
-        npm=("@fullstory/browser", "@fullstory/react-native"),
+        script_hosts=("edge.fullstory.com",),
+        npm=(
+            "@fullstory/browser",
+            "@fullstory/react-native",
+            "@fullstory/snippet",
+            "@fullstory/babel-plugin-react-native",
+            "@fullstory/babel-plugin-annotate-react",
+        ),
+        cocoapods=("FullStory",),
+        pub=("fullstory_flutter",),
+        swiftpm=("github.com/fullstorydev/fullstory-swift-package-ios",),
         competes_with=(ProductKey.SESSION_REPLAY,),
     )
 

@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PartnerStackSource(ResumableSource[PartnerStackSourceConfig, PartnerStackResumeConfig]):
-    codebase_detection = detect(env=("^(PARTNER_STACK|PARTNERSTACK)_",))
+    codebase_detection = detect(env=("^(PARTNER_STACK|PARTNERSTACK)_",), script_hosts=("snippet.growsumo.com",))
 
     supported_versions = ("v2",)
     default_version = "v2"

@@ -43,7 +43,20 @@ class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
     # are a known false positive.
     codebase_detection = detect(
         env=("^DBT_",),
-        pypi=("dbt-core", "dbt-snowflake", "dbt-postgres", "dbt-bigquery", "dbt-redshift", "dbt-databricks"),
+        pypi=(
+            "dbt-core",
+            "dbt-snowflake",
+            "dbt-postgres",
+            "dbt-bigquery",
+            "dbt-redshift",
+            "dbt-databricks",
+            "dbt-spark",
+            "dbt-athena",
+            "dbt-fabric",
+            "dbt-trino",
+            "dbt-duckdb",
+            "dbt-clickhouse",
+        ),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

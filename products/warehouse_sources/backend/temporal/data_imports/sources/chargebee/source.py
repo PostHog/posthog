@@ -42,7 +42,21 @@ _SITE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 @SourceRegistry.register
 class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConfig]):
-    codebase_detection = detect(env=("^CHARGEBEE_",), npm=("chargebee",), pypi=("chargebee",))
+    codebase_detection = detect(
+        env=("^CHARGEBEE_",),
+        script_hosts=("js.chargebee.com",),
+        npm=(
+            "chargebee",
+            "@chargebee/chargebee-js-react-wrapper",
+            "@chargebee/chargebee-js-vue-wrapper",
+            "@chargebee/nextjs",
+        ),
+        pypi=("chargebee",),
+        composer=("chargebee/chargebee-php", "chargebee/cashier"),
+        go=("github.com/chargebee/chargebee-go",),
+        maven=("com.chargebee:chargebee-java",),
+        rubygems=("chargebee",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

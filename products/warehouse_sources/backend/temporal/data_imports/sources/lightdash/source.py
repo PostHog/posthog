@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightdashSource(SimpleSource[LightdashSourceConfig]):
-    codebase_detection = detect(env=("^LIGHTDASH_",))
+    codebase_detection = detect(env=("^LIGHTDASH_",), npm=("@lightdash/cli", "@lightdash/sdk"), pypi=("lightdash",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.

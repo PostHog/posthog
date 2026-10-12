@@ -37,7 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SonarqubeSource(ResumableSource[SonarqubeSourceConfig, SonarqubeResumeConfig], ValidateDatabaseHostMixin):
-    codebase_detection = detect(env=("^SONARQUBE_",))
+    codebase_detection = detect(
+        env=("^SONARQUBE_", "^SONAR_TOKEN$", "^SONAR_HOST_URL$"),
+        npm=("sonarqube-scanner",),
+        pypi=("pysonar",),
+        maven=(
+            "org.sonarsource.scanner.maven:sonar-maven-plugin",
+            "org.sonarsource.scanner.gradle:sonarqube-gradle-plugin",
+        ),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

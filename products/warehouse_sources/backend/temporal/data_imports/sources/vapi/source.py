@@ -34,7 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
-    codebase_detection = detect(env=("^VAPI_",), npm=("@vapi-ai/server-sdk",), pypi=("vapi-server-sdk",))
+    codebase_detection = detect(
+        env=("^VAPI_",),
+        npm=("@vapi-ai/server-sdk", "@vapi-ai/web"),
+        pypi=("vapi-server-sdk", "vapi-python"),
+        go=("github.com/VapiAI/server-sdk-go",),
+    )
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION

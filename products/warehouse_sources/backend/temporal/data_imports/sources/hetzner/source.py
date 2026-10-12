@@ -40,7 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HetznerSource(ResumableSource[HetznerSourceConfig, HetznerResumeConfig]):
-    codebase_detection = detect(env=("^HETZNER_",))
+    codebase_detection = detect(
+        env=("^HETZNER_", "^HCLOUD_TOKEN$"), pypi=("hcloud",), go=("github.com/hetznercloud/hcloud-go",)
+    )
 
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
     # publish in the public docs.

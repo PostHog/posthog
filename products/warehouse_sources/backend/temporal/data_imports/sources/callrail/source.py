@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]):
-    codebase_detection = detect(env=("^(CALL_RAIL|CALLRAIL)_",))
+    codebase_detection = detect(env=("^(CALL_RAIL|CALLRAIL)_",), script_hosts=("cdn.callrail.com",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

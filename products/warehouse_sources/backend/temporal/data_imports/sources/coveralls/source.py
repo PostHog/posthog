@@ -36,7 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConfig]):
-    codebase_detection = detect(env=("^COVERALLS_",))
+    codebase_detection = detect(
+        env=("^COVERALLS_",),
+        npm=("coveralls", "coveralls-next"),
+        pypi=("coveralls",),
+        composer=("php-coveralls/php-coveralls",),
+        go=("github.com/mattn/goveralls",),
+        hex=("excoveralls",),
+        rubygems=("coveralls", "coveralls_reborn"),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

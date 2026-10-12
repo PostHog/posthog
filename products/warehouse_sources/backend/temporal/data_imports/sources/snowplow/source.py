@@ -40,8 +40,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]):
     codebase_detection = detect(
         env=("^SNOWPLOW_",),
-        npm=("@snowplow/node-tracker",),
+        npm=("@snowplow/node-tracker", "@snowplow/browser-tracker", "@snowplow/react-native-tracker"),
         pypi=("snowplow-tracker",),
+        cargo=("snowplow_tracker",),
+        cocoapods=("SnowplowTracker",),
+        composer=("snowplow/snowplow-tracker",),
+        go=("github.com/snowplow/snowplow-golang-tracker",),
+        maven=("com.snowplowanalytics:snowplow-android-tracker", "com.snowplowanalytics:snowplow-java-tracker"),
+        pub=("snowplow_tracker",),
+        rubygems=("snowplow-tracker",),
+        swiftpm=("github.com/snowplow/snowplow-ios-tracker",),
         competes_with=(ProductKey.PRODUCT_ANALYTICS,),
     )
 

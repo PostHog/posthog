@@ -60,7 +60,7 @@ class CalendlySource(
     ResumableSource[CalendlySourceConfig, CalendlyResumeConfig],
     WebhookSource[CalendlySourceConfig],
 ):
-    codebase_detection = detect(env=("^CALENDLY_",))
+    codebase_detection = detect(env=("^CALENDLY_",), script_hosts=("assets.calendly.com",), npm=("react-calendly",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.calendly.com/"

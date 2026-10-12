@@ -110,7 +110,11 @@ SnowflakeErrors = {
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[SnowflakeSourceConfig, SnowflakeResumeState]):
     codebase_detection = detect(
-        env=("^SNOWFLAKE_",), npm=("snowflake-sdk",), pypi=("snowflake-connector-python", "snowflake-sqlalchemy")
+        env=("^SNOWFLAKE_",),
+        npm=("snowflake-sdk",),
+        pypi=("snowflake-connector-python", "snowflake-sqlalchemy", "snowflake-snowpark-python", "snowflake"),
+        go=("github.com/snowflakedb/gosnowflake",),
+        maven=("net.snowflake:snowflake-jdbc",),
     )
 
     @property

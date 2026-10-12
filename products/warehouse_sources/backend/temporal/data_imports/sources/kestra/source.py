@@ -39,7 +39,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
-    codebase_detection = detect(env=("^KESTRA_",))
+    codebase_detection = detect(
+        env=("^KESTRA_",),
+        npm=("@kestra-io/kestra-sdk",),
+        pypi=("kestrapy", "kestra"),
+        go=("github.com/kestra-io/client-sdk/go-sdk",),
+        maven=("io.kestra:kestra-api-client",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v1",)

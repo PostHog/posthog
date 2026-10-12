@@ -42,7 +42,7 @@ _SCOPE_REQUIRED_MESSAGE = (
 
 @SourceRegistry.register
 class CrossrefSource(ResumableSource[CrossrefSourceConfig, CrossrefResumeConfig]):
-    codebase_detection = detect(env=("^CROSSREF_",))
+    codebase_detection = detect(env=("^CROSSREF_",), pypi=("habanero", "crossrefapi"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/CrossRef/rest-api-doc"

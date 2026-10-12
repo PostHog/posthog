@@ -43,7 +43,14 @@ _MANAGEMENT_ACCOUNT_HINT = (
 
 @SourceRegistry.register
 class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOrganizationsResumeConfig]):
-    codebase_detection = detect(env=("^(AWS_ORGANIZATIONS|AWSORGANIZATIONS)_",))
+    codebase_detection = detect(
+        env=("^(AWS_ORGANIZATIONS|AWSORGANIZATIONS)_",),
+        npm=("@aws-sdk/client-organizations",),
+        cargo=("aws-sdk-organizations",),
+        go=("github.com/aws/aws-sdk-go-v2/service/organizations",),
+        maven=("software.amazon.awssdk:organizations", "com.amazonaws:aws-java-sdk-organizations"),
+        rubygems=("aws-sdk-organizations",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = (ORGANIZATIONS_API_VERSION,)

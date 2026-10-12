@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
-    codebase_detection = detect(env=("^SHORTCUT_",), npm=("@shortcut/client",))
+    codebase_detection = detect(
+        env=("^SHORTCUT_API_TOKEN$", "^SHORTCUT_TOKEN$"), npm=("@shortcut/client", "@useshortcut/client")
+    )
 
     supported_versions = ("v3",)
     default_version = "v3"

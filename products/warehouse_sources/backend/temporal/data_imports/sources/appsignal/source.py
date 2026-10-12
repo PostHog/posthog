@@ -34,7 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConfig]):
-    codebase_detection = detect(env=("^APPSIGNAL_",))
+    codebase_detection = detect(
+        env=("^APPSIGNAL_",),
+        npm=("@appsignal/nodejs", "@appsignal/javascript"),
+        pypi=("appsignal",),
+        hex=("appsignal", "appsignal_phoenix"),
+        rubygems=("appsignal",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

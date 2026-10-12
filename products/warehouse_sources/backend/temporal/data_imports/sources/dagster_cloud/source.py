@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DagsterCloudSource(ResumableSource[DagsterCloudSourceConfig, DagsterCloudResumeConfig]):
-    codebase_detection = detect(env=("^(DAGSTER_CLOUD|DAGSTERCLOUD)_",))
+    codebase_detection = detect(env=("^(DAGSTER_CLOUD|DAGSTERCLOUD)_",), pypi=("dagster-cloud", "dagster-cloud-cli"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

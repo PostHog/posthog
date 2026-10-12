@@ -42,7 +42,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClarifaiSource(ResumableSource[ClarifaiSourceConfig, ClarifaiResumeConfig]):
-    codebase_detection = detect(env=("^CLARIFAI_",))
+    codebase_detection = detect(
+        env=("^CLARIFAI_",),
+        npm=("clarifai-nodejs", "clarifai-nodejs-grpc", "clarifai"),
+        pypi=("clarifai", "clarifai-grpc"),
+        go=("github.com/Clarifai/clarifai-go-grpc",),
+        maven=("com.clarifai:clarifai-grpc",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

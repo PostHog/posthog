@@ -39,7 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
-    codebase_detection = detect(env=("^QDRANT_",))
+    codebase_detection = detect(
+        env=("^QDRANT_",),
+        npm=("@qdrant/js-client-rest", "@qdrant/qdrant-js"),
+        pypi=("qdrant-client",),
+        cargo=("qdrant-client",),
+        go=("github.com/qdrant/go-client",),
+        maven=("io.qdrant:client",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

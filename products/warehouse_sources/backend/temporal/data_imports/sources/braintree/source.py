@@ -43,7 +43,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConfig]):
-    codebase_detection = detect(env=("^BRAINTREE_",), npm=("braintree",), pypi=("braintree",), rubygems=("braintree",))
+    codebase_detection = detect(
+        env=("^BRAINTREE_",),
+        script_hosts=("js.braintreegateway.com",),
+        npm=("braintree", "braintree-web", "braintree-web-drop-in"),
+        pypi=("braintree",),
+        cocoapods=("Braintree", "BraintreeDropIn"),
+        composer=("braintree/braintree_php",),
+        go=("github.com/braintree-go/braintree-go",),
+        maven=("com.braintreepayments.gateway:braintree-java", "com.braintreepayments.api:drop-in"),
+        rubygems=("braintree",),
+        swiftpm=("github.com/braintree/braintree_ios",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (

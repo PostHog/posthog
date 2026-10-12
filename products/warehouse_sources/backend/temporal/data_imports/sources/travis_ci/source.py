@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TravisCISource(ResumableSource[TravisCISourceConfig, TravisCIResumeConfig]):
-    codebase_detection = detect(env=("^(TRAVIS_CI|TRAVISCI)_",))
+    codebase_detection = detect(env=("^(TRAVIS_CI|TRAVISCI)_",), rubygems=("travis",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

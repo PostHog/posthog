@@ -35,7 +35,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BunnySource(ResumableSource[BunnySourceConfig, BunnyResumeConfig]):
-    codebase_detection = detect(env=("^BUNNY_",))
+    codebase_detection = detect(
+        env=("^BUNNY_", "^BUNNYNET_"),
+        npm=("@bunny.net/storage-sdk", "@bunny.net/edgescript-sdk"),
+        composer=("bunnycdn/storage",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.bunny.net/reference"

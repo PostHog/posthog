@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
-    codebase_detection = detect(env=("^(PG_ANALYZE|PGANALYZE)_",))
+    codebase_detection = detect(env=("^PGA_API_KEY$", "^PGA_API_SYSTEM_ID$"))
 
     api_docs_url = "https://pganalyze.com/docs/api"
 

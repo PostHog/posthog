@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetorialSource(ResumableSource[MetorialSourceConfig, MetorialResumeConfig]):
-    codebase_detection = detect(env=("^METORIAL_",))
+    codebase_detection = detect(env=("^METORIAL_",), npm=("metorial", "@metorial/sdk"), pypi=("metorial",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

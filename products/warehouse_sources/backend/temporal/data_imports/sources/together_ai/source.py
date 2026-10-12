@@ -31,7 +31,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
-    codebase_detection = detect(env=("^TOGETHER_",), npm=("together-ai",), pypi=("together",))
+    codebase_detection = detect(
+        env=("^TOGETHER_API_KEY$", "^TOGETHER_BASE_URL$"),
+        npm=("together-ai",),
+        pypi=("together",),
+        go=("github.com/togethercomputer/together-go",),
+    )
 
     api_docs_url = "https://docs.together.ai/reference"
 

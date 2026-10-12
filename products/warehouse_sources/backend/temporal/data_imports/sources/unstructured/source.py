@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UnstructuredSource(ResumableSource[UnstructuredSourceConfig, UnstructuredResumeConfig]):
-    codebase_detection = detect(env=("^UNSTRUCTURED_",))
+    codebase_detection = detect(
+        env=("^UNSTRUCTURED_",), npm=("unstructured-client",), pypi=("unstructured", "unstructured-client")
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

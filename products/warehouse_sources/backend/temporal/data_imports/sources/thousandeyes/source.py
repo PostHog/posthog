@@ -40,7 +40,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThousandeyesSource(ResumableSource[ThousandeyesSourceConfig, ThousandeyesResumeConfig]):
-    codebase_detection = detect(env=("^THOUSANDEYES_",))
+    codebase_detection = detect(
+        env=("^THOUSANDEYES_", "^TE_TOKEN$"),
+        pypi=("thousandeyes-sdk-core",),
+        go=("github.com/thousandeyes/thousandeyes-sdk-go",),
+    )
 
     lists_tables_without_credentials = True
     supported_versions = ("v7",)

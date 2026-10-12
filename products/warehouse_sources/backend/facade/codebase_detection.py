@@ -100,6 +100,7 @@ def not_detectable(reason: str) -> NotDetectable:
 
 SHORT_NAME = "The name is too short to use as a .env key prefix."
 COMMON_WORD = "The name is a common word, so a .env key prefix built from it matches unrelated projects."
+NO_CODE_SIGNAL = "No SDK, documented .env key or script host identifies the vendor in code."
 
 
 _UI_ONLY_FIELDS = (

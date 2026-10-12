@@ -76,7 +76,9 @@ class PlanetScalePostgresSource(PostgresSource):
     see `planetscale_mysql`.
     """
 
-    codebase_detection = detect(env=("^(PLANET_SCALE_POSTGRES|PLANETSCALEPOSTGRES)_",))
+    codebase_detection = detect(
+        env=("^PLANETSCALE_SERVICE_TOKEN$", "^PLANETSCALE_SERVICE_TOKEN_ID$", "^PLANETSCALE_ORG$")
+    )
 
     api_docs_url = "https://planetscale.com/docs/postgres"
 

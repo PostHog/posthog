@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TestrailSource(ResumableSource[TestrailSourceConfig, TestrailResumeConfig]):
-    codebase_detection = detect(env=("^TESTRAIL_",))
+    codebase_detection = detect(env=("^TESTRAIL_",), pypi=("trcli",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

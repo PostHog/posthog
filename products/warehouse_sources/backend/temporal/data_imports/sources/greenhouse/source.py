@@ -49,7 +49,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeConfig]):
-    codebase_detection = detect(env=("^GREENHOUSE_",))
+    codebase_detection = detect(
+        env=("^GREENHOUSE_",), script_hosts=("boards.greenhouse.io", "boards-api.greenhouse.io")
+    )
 
     supported_versions = (GREENHOUSE_V1, GREENHOUSE_V3)
     default_version = GREENHOUSE_V3

@@ -30,7 +30,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TursoSource(ResumableSource[TursoSourceConfig, TursoResumeConfig]):
-    codebase_detection = detect(env=("^TURSO_",))
+    codebase_detection = detect(
+        env=("^TURSO_",),
+        npm=("@libsql/client", "@tursodatabase/serverless", "@tursodatabase/api"),
+        pypi=("libsql",),
+        cargo=("libsql",),
+        go=("github.com/tursodatabase/libsql-client-go", "github.com/tursodatabase/go-libsql"),
+    )
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.turso.tech/api-reference/introduction"

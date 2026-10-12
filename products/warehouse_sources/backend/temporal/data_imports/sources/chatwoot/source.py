@@ -66,7 +66,12 @@ class ChatwootSource(
     ResumableSource[ChatwootSourceConfig, ChatwootResumeConfig],
     WebhookSource[ChatwootSourceConfig],
 ):
-    codebase_detection = detect(env=("^CHATWOOT_",))
+    codebase_detection = detect(
+        env=("^CHATWOOT_",),
+        script_hosts=("app.chatwoot.com",),
+        npm=("@chatwoot/react-native-widget",),
+        pub=("chatwoot_sdk",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

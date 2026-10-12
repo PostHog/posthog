@@ -33,7 +33,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]):
-    codebase_detection = detect(npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb"), pypi=("pynamodb",))
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/util-dynamodb", "dynamoose"),
+        pypi=("pynamodb",),
+        cargo=("aws-sdk-dynamodb",),
+        go=("github.com/aws/aws-sdk-go-v2/service/dynamodb",),
+        maven=("software.amazon.awssdk:dynamodb", "software.amazon.awssdk:dynamodb-enhanced"),
+        rubygems=("aws-sdk-dynamodb",),
+    )
 
     supported_versions = (DYNAMODB_API_VERSION,)
     default_version = DYNAMODB_API_VERSION

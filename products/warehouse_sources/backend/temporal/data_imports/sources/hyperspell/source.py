@@ -35,7 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeConfig]):
-    codebase_detection = detect(env=("^HYPERSPELL_",))
+    codebase_detection = detect(
+        env=("^HYPERSPELL_",),
+        npm=("hyperspell", "@hyperspell/hyperspell"),
+        pypi=("hyperspell",),
+        go=("github.com/hyperspell/hyperspell-go",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.hyperspell.com/api-reference/introduction"

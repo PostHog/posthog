@@ -37,15 +37,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyResumeConfig]):
     codebase_detection = detect(
-        env=("^LAUNCHDARKLY_", "^LD_SDK_KEY$"),
+        env=("^LAUNCHDARKLY_", "^LD_SDK_KEY$", "^LD_ENV_"),
         npm=(
             "launchdarkly-node-server-sdk",
             "@launchdarkly/node-server-sdk",
             "launchdarkly-js-client-sdk",
             "launchdarkly-react-client-sdk",
+            "@launchdarkly/js-client-sdk",
+            "@launchdarkly/react-native-client-sdk",
+            "@launchdarkly/vercel-server-sdk",
+            "@launchdarkly/cloudflare-server-sdk",
         ),
         pypi=("launchdarkly-server-sdk",),
+        cargo=("launchdarkly-server-sdk",),
+        cocoapods=("LaunchDarkly",),
+        composer=("launchdarkly/server-sdk",),
+        go=("github.com/launchdarkly/go-server-sdk",),
+        hex=("launchdarkly_server_sdk",),
+        maven=("com.launchdarkly:launchdarkly-java-server-sdk", "com.launchdarkly:launchdarkly-android-client-sdk"),
+        pub=("launchdarkly_flutter_client_sdk",),
         rubygems=("launchdarkly-server-sdk",),
+        swiftpm=("github.com/launchdarkly/ios-client-sdk",),
         competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 

@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WeightsAndBiasesSource(ResumableSource[WeightsAndBiasesSourceConfig, WeightsAndBiasesResumeConfig]):
-    codebase_detection = detect(env=("^WANDB_",), pypi=("wandb",))
+    codebase_detection = detect(env=("^WANDB_",), npm=("@wandb/sdk",), pypi=("wandb",), cargo=("wandb",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

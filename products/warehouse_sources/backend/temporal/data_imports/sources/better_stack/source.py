@@ -43,8 +43,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResumeConfig]):
     # Logtail is Better Stack's log product - same account, same source.
     codebase_detection = detect(
-        env=("^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_"),
-        npm=("@logtail/node", "@logtail/js"),
+        env=("^BETTERSTACK_", "^BETTER_STACK_", "^LOGTAIL_", "^NEXT_PUBLIC_BETTER_STACK_", "^BETTERUPTIME_API_TOKEN$"),
+        npm=("@logtail/node", "@logtail/js", "@logtail/browser", "@logtail/next", "@logtail/winston", "@logtail/pino"),
+        pypi=("logtail-python",),
+        composer=("logtail/monolog-logtail",),
+        maven=("com.logtail:logback-logtail",),
+        rubygems=("logtail", "logtail-rails"),
         competes_with=(ProductKey.LOGS,),
     )
 

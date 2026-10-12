@@ -31,7 +31,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
-    codebase_detection = detect(env=("^(IP2_WHOIS|IP2WHOIS)_",))
+    codebase_detection = detect(
+        env=("^(IP2_WHOIS|IP2WHOIS)_",),
+        npm=("ip2whois-nodejs",),
+        pypi=("ip2whois",),
+        composer=("ip2whois/ip2whois-php",),
+        go=("github.com/ip2whois/ip2whois-go",),
+        rubygems=("ip2whois_ruby",),
+    )
 
     supported_versions = ("v2",)
     default_version = "v2"

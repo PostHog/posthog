@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]):
-    codebase_detection = detect(env=("^CHURNKEY_",))
+    codebase_detection = detect(
+        env=("^CHURNKEY_", "^NEXT_PUBLIC_CHURNKEY_APP_ID$"), script_hosts=("assets.churnkey.co",)
+    )
 
     api_docs_url = "https://docs.churnkey.co/data-integrations/data-api/"
 

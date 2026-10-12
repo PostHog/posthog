@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.facade.codebase_detection import COMMON_WORD, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
-    codebase_detection = not_detectable(COMMON_WORD)
+    codebase_detection = detect(
+        script_hosts=("cdn.adjust.com",),
+        npm=("@adjustcom/adjust-web-sdk", "react-native-adjust"),
+        cocoapods=("Adjust",),
+        maven=("com.adjust.sdk:adjust-android",),
+        pub=("adjust_sdk",),
+        swiftpm=("github.com/adjust/ios_sdk",),
+    )
 
     # The Report Service API carries no version token in its path, headers, or params, so there is
     # no vendor version to pin.

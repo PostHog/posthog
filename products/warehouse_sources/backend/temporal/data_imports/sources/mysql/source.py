@@ -105,6 +105,10 @@ class MySQLSource(
         env=("^MYSQL_",),
         npm=("mysql", "mysql2"),
         pypi=("pymysql", "mysqlclient", "mysql-connector-python"),
+        cargo=("mysql", "mysql_async"),
+        go=("github.com/go-sql-driver/mysql",),
+        hex=("myxql",),
+        maven=("com.mysql:mysql-connector-j", "mysql:mysql-connector-java"),
         rubygems=("mysql2",),
     )
 

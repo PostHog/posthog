@@ -43,8 +43,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
     codebase_detection = detect(
         env=("^BRAZE_",),
-        npm=("@braze/web-sdk", "@braze/react-native-sdk"),
+        script_hosts=("js.appboycdn.com",),
+        npm=("@braze/web-sdk", "@braze/react-native-sdk", "@braze/web-sdk-core", "appboy-web-sdk"),
         pypi=("braze-client",),
+        cocoapods=("BrazeKit", "Appboy-iOS-SDK"),
+        maven=("com.braze:android-sdk-ui", "com.braze:android-sdk-base"),
+        pub=("braze_plugin",),
+        swiftpm=("github.com/braze-inc/braze-swift-sdk",),
         competes_with=(ProductKey.WORKFLOWS,),
     )
 

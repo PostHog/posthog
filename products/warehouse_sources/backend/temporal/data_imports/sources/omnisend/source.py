@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OmnisendSource(ResumableSource[OmnisendSourceConfig, OmnisendResumeConfig]):
-    codebase_detection = detect(env=("^OMNISEND_",))
+    codebase_detection = detect(env=("^OMNISEND_",), script_hosts=("omnisnippet1.com",))
 
     supported_versions = (OMNISEND_V3, OMNISEND_2026_03_15)
     default_version = OMNISEND_2026_03_15

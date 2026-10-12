@@ -28,7 +28,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
-    codebase_detection = detect(env=("^SVIX_",), npm=("svix",), pypi=("svix",))
+    codebase_detection = detect(
+        env=("^SVIX_",),
+        npm=("svix",),
+        pypi=("svix",),
+        cargo=("svix",),
+        composer=("svix/svix",),
+        go=("github.com/svix/svix-webhooks",),
+        maven=("com.svix:svix", "com.svix.kotlin:svix-kotlin"),
+        rubygems=("svix",),
+    )
 
     supported_versions = ("v1",)
     default_version = "v1"

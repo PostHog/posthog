@@ -35,7 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
     codebase_detection = detect(
-        env=("^ELEVENLABS_", "^ELEVEN_LABS_"), npm=("@elevenlabs/elevenlabs-js", "elevenlabs"), pypi=("elevenlabs",)
+        env=("^ELEVENLABS_", "^ELEVEN_LABS_"),
+        npm=(
+            "@elevenlabs/elevenlabs-js",
+            "elevenlabs",
+            "@elevenlabs/client",
+            "@elevenlabs/react",
+            "@elevenlabs/react-native",
+        ),
+        pypi=("elevenlabs",),
+        swiftpm=("github.com/elevenlabs/elevenlabs-swift-sdk",),
     )
 
     api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"

@@ -51,7 +51,14 @@ class PostmarkSource(
     ResumableSource[PostmarkSourceConfig, PostmarkResumeConfig],
     WebhookSource[PostmarkSourceConfig],
 ):
-    codebase_detection = detect(env=("^POSTMARK_",), npm=("postmark",), pypi=("postmarker",), rubygems=("postmark",))
+    codebase_detection = detect(
+        env=("^POSTMARK_",),
+        npm=("postmark",),
+        pypi=("postmarker", "postmark-python"),
+        composer=("wildbit/postmark-php",),
+        maven=("com.postmarkapp:postmark",),
+        rubygems=("postmark", "postmark-rails"),
+    )
 
     api_docs_url = "https://postmarkapp.com/developer"
 

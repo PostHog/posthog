@@ -35,7 +35,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TelnyxSource(ResumableSource[TelnyxSourceConfig, TelnyxResumeConfig]):
-    codebase_detection = detect(env=("^TELNYX_",), npm=("telnyx",), pypi=("telnyx",))
+    codebase_detection = detect(
+        env=("^TELNYX_",),
+        npm=("telnyx", "@telnyx/webrtc", "@telnyx/react-client"),
+        pypi=("telnyx",),
+        cocoapods=("TelnyxRTC",),
+        composer=("telnyx/telnyx-php",),
+        go=("github.com/team-telnyx/telnyx-go",),
+        maven=("com.telnyx.sdk:telnyx",),
+        pub=("telnyx_webrtc",),
+        rubygems=("telnyx",),
+        swiftpm=("github.com/team-telnyx/telnyx-webrtc-ios",),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

@@ -36,7 +36,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
-    codebase_detection = detect(env=("^PLAID_",), npm=("plaid",), pypi=("plaid-python", "plaid"), rubygems=("plaid",))
+    codebase_detection = detect(
+        env=("^PLAID_",),
+        script_hosts=("cdn.plaid.com",),
+        npm=("plaid", "react-plaid-link", "react-native-plaid-link-sdk"),
+        pypi=("plaid-python",),
+        cocoapods=("Plaid",),
+        go=("github.com/plaid/plaid-go",),
+        maven=("com.plaid:plaid-java", "com.plaid.link:sdk-core"),
+        rubygems=("plaid",),
+        swiftpm=("github.com/plaid/plaid-link-ios-spm", "github.com/plaid/plaid-link-ios"),
+    )
 
     api_docs_url = "https://plaid.com/docs/api/"
 

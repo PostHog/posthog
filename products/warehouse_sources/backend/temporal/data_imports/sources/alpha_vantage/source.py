@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
-    codebase_detection = detect(env=("^(ALPHA_VANTAGE|ALPHAVANTAGE)_",))
+    codebase_detection = detect(env=("^(ALPHA_VANTAGE|ALPHAVANTAGE)_",), pypi=("alpha-vantage",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.alphavantage.co/documentation/"

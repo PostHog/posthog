@@ -45,9 +45,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConfig]):
     codebase_detection = detect(
-        env=("^LANGSMITH_", "^LANGCHAIN_API_KEY$"),
+        env=(
+            "^LANGSMITH_",
+            "^LANGCHAIN_API_KEY$",
+            "^LANGCHAIN_TRACING_V2$",
+            "^LANGCHAIN_ENDPOINT$",
+            "^LANGCHAIN_PROJECT$",
+        ),
         npm=("langsmith",),
         pypi=("langsmith",),
+        go=("github.com/langchain-ai/langsmith-go",),
+        maven=("com.langchain.smith:langsmith-java",),
         competes_with=(ProductKey.LLM_ANALYTICS,),
     )
 

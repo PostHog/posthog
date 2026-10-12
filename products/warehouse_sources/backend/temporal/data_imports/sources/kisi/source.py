@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KisiSource(ResumableSource[KisiSourceConfig, KisiResumeConfig]):
-    codebase_detection = detect(env=("^KISI_",))
+    codebase_detection = detect(env=("^KISI_",), npm=("kisi-client",))
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.kisi.io/platform/apis/"
