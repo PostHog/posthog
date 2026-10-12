@@ -383,6 +383,27 @@ class TestMetricsPromQLMode(APIBaseTest):
 
         assert (series.clause, series.labels) == (clause, labels)
 
+    def test_shared_histogram_quantiles_map_each_quantile_to_its_clause(self) -> None:
+        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
+        payload = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {"metric": {"job": "api", "clause": quantile}, "values": [[start, value]]}
+                    for quantile, value in (("0.9", "9"), ("0.5", "5"))
+                ],
+            },
+        }
+        promql = 'histogram_quantiles("clause", 0.9, 0.5, sum by (le, job) (rate(x_bucket)))'
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            results = self._runner(promql).calculate().results
+
+        assert {series.clause: (series.labels, series.points[0].value) for series in results} == {
+            "a": ({"job": "api"}, 9.0),
+            "b": ({"job": "api"}, 5.0),
+        }
+
     def test_empty_scalar_result_has_no_series(self) -> None:
         payload = {"status": "success", "data": {"resultType": "scalar", "result": []}}
         with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
