@@ -30,6 +30,7 @@ _CLOCK_LIMIT_SECONDS = 4 * 3600.0
 _REQUEST_LIMIT = 40
 
 _SOURCES_PACKAGE = "products.warehouse_sources.backend.temporal.data_imports.sources"
+_PLUGIN_SOURCES_PACKAGE = "products.warehouse_sources.sources"
 _UNSET = object()
 _PUBLIC_ADDRESS = "93.184.216.34"
 _REAL_SLEEP = time.sleep
@@ -236,7 +237,8 @@ def _sleep_aliases() -> list[tuple[Any, str]]:
     """Each `from time import sleep` binding in a loaded source module. A patch of `time.sleep` does not reach them."""
     aliases: list[tuple[Any, str]] = []
     for module_name, module in list(sys.modules.items()):
-        if not module_name.startswith(_SOURCES_PACKAGE):
+        # Vendors live in this package and in the `products.warehouse_sources.sources` package.
+        if not module_name.startswith((_SOURCES_PACKAGE, _PLUGIN_SOURCES_PACKAGE)):
             continue
         aliases.extend((module, name) for name, value in list(vars(module).items()) if value is _REAL_SLEEP)
     return aliases

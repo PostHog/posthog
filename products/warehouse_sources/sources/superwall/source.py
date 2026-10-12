@@ -1,0 +1,29 @@
+from typing import cast
+
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
+)
+from products.warehouse_sources.sources.superwall._config import SuperwallSourceConfig
+
+
+@SourceRegistry.register
+class SuperwallSource(SimpleSource[SuperwallSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SUPERWALL
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.SUPERWALL,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+            label="Superwall",
+            iconPath="/static/services/superwall.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

@@ -24,6 +24,35 @@ depends_on = [
 ]
 layer = "modules"
 
+# One module per vendor directory under `products/warehouse_sources/sources/`. A vendor imports shared code only
+# from the SDK, never from the product backend, the core or another vendor.
+[[modules]]
+path = "products.warehouse_sources.sources.*"
+depends_on = ["products.warehouse_sources.sources.sdk", "products.warehouse_sources.sources.sdk.internals"]
+layer = "modules"
+
+# The explicit entry wins over the glob for `products.warehouse_sources.sources.sdk`. The SDK re-exports the shared source code
+# of warehouse_sources, which still lives in the product.
+[[modules]]
+path = "products.warehouse_sources.sources.sdk"
+depends_on = ["posthog", "products.warehouse_sources"]
+layer = "modules"
+
+# Re-exports from product modules that warehouse_sources does not expose (pipeline core, naming
+# convention). An interface entry for them would count as a legacy interface leak in product:lint, so
+# this one file is `unchecked`. Move a name to `common` or the facade to take it out of here.
+[[modules]]
+path = "products.warehouse_sources.sources.sdk.internals"
+depends_on = ["products.warehouse_sources"]
+layer = "modules"
+unchecked = true
+
+# The shared pytest setup of the vendor tests (job-context isolation and the sleep cap). It is not a vendor.
+[[modules]]
+path = "products.warehouse_sources.sources.conftest"
+depends_on = ["products.warehouse_sources"]
+layer = "modules"
+
 [[modules]]
 path = "common.hogql_parser"
 depends_on = []

@@ -1,23 +1,23 @@
 ---
 name: implementing-warehouse-sources
-description: Implement and extend PostHog Data warehouse import sources. Use when adding a new source under products/warehouse_sources/backend/temporal/data_imports/sources, adding datasets/endpoints to an existing source, or adding incremental sync, resumable imports, webhook ingestion, pagination, credentials validation, and source tests.
+description: Implement and extend PostHog Data warehouse import sources. Use when adding a new source under products/warehouse_sources/sources/ (or changing one there or under products/warehouse_sources/backend/temporal/data_imports/sources), adding datasets/endpoints to an existing source, or adding incremental sync, resumable imports, webhook ingestion, pagination, credentials validation, and source tests.
 ---
 
 # Implementing Data warehouse sources
 
-Use this skill when building or updating Data warehouse sources in `products/warehouse_sources/backend/temporal/data_imports/sources/`.
+Use this skill when building or updating Data warehouse sources. New sources go in the `products/warehouse_sources/sources/` tree, one directory per vendor (`products/warehouse_sources/sources/AGENTS.md`). Shared code (`common/`) and the vendors that other code imports stay in `products/warehouse_sources/backend/temporal/data_imports/sources/`.
 
 ## Read first
 
 Before coding, read:
 
-- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
+- `products/warehouse_sources/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
 - `products/warehouse_sources/backend/temporal/data_imports/sources/README.md`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
-- **`chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `klaviyo/` or `github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
+- **`products/warehouse_sources/sources/chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/` or `products/warehouse_sources/backend/temporal/data_imports/sources/github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
 - For webhook-capable sources, read `products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
 
 ## Picking the right base class
@@ -95,8 +95,9 @@ Follow this order. Each step maps to TODOs in `source.template`.
 2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
 
    ```sh
-   mkdir -p products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}
-   cp products/warehouse_sources/backend/temporal/data_imports/sources/source.template products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}/source.py
+   mkdir -p products/warehouse_sources/sources/{SOURCE_NAME}
+   cp products/warehouse_sources/sources/source.template products/warehouse_sources/sources/{SOURCE_NAME}/source.py
+   touch products/warehouse_sources/sources/{SOURCE_NAME}/__init__.py
    ```
 
    Then add the one enum member. `ExternalDataSourceType` at `products/warehouse_sources/backend/types.py`
@@ -107,8 +108,8 @@ Follow this order. Each step maps to TODOs in `source.template`.
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
-5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
+5. **Register** the source — nothing to edit. The loader finds `products/warehouse_sources/sources/{SOURCE_NAME}/source.py` by its directory, and the `@SourceRegistry.register` decorator on the class handles runtime registration. Keep the empty `__init__.py` files in the vendor directory and in `tests/`.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/sources/<your_source>/_config.py` (one generated module per source; vendors that stay in the product get `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py`, whose package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -176,8 +177,8 @@ authoritative — they're applied directly (`description_source="canonical"`) an
 Add a `canonical_descriptions.py` **accompanying the source** (sibling of `source.py` / `settings.py`):
 
 ```python
-# products/warehouse_sources/backend/temporal/data_imports/sources/{source}/canonical_descriptions.py
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
+# products/warehouse_sources/sources/{source}/canonical_descriptions.py
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Charge": {  # key = ExternalDataSchema.name (the endpoint name from get_schemas / ENDPOINTS)
@@ -195,7 +196,7 @@ Then override the hook on the source class with a lazy import of the sibling fil
 
 ```python
 def get_canonical_descriptions(self) -> CanonicalDescriptions:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
+    from products.warehouse_sources.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
     return CANONICAL_DESCRIPTIONS
 ```
 
@@ -237,12 +238,11 @@ The richer the table list, the better the docs — so pair this with `canonical_
 
 Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
 catalog (a category rail + tile grid). A test (`tests/test_source_categories.py`) fails if any registered
-source has no category, so this is non-optional. Import `SourceConfig` and `DataWarehouseSourceCategory` from
-`products.warehouse_sources.backend.facade.source_config`, and `name` from the facade `ExternalDataSourceType`:
+source has no category, so this is non-optional. A vendor in `products/warehouse_sources/sources/` imports `SourceConfig`,
+`DataWarehouseSourceCategory` and `ExternalDataSourceType` from `products.warehouse_sources.sources.sdk`:
 
 ```python
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ExternalDataSourceType, SourceConfig
 ...
 return SourceConfig(
     name=ExternalDataSourceType.STRIPE,
@@ -838,7 +838,7 @@ A typical REST source needs one transport module of 10 to 25 parameterized cases
 ```text
 Bootstrapping:
 - [ ] Enum added to products/warehouse_sources/backend/types.py (ALL_CAPS, no underscores between words) — the only place a source type is declared
-- [ ] Source imported in products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py + __all__
+- [ ] Source directory at products/warehouse_sources/sources/<source>/ with empty __init__.py files (vendor dir and tests/)
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
 Source implementation:
