@@ -193,8 +193,8 @@ export default function RecentsScreen() {
               snippet="Report"
               onPress={() =>
                 router.push({
-                  pathname: "/(drawer)/self-driving",
-                  params: { report: item.id },
+                  pathname: "/report/[id]",
+                  params: { id: item.id },
                 })
               }
             />
