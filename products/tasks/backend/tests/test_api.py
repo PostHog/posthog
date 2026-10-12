@@ -520,7 +520,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure")
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", None)
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"

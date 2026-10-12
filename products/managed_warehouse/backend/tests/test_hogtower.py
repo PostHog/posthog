@@ -305,7 +305,7 @@ class TestWarehouseRoutes:
     @pytest.mark.parametrize("engine", ["duckdb", "trino"])
     def test_monitoring_is_passed_through(self, fake: FakeHogtower, engine: str) -> None:
         prefix = "/monitoring/trino" if engine == "trino" else "/monitoring"
-        snapshot = {"queries": []} if engine == "trino" else {"sessions": 1}
+        snapshot: dict[str, object] = {"queries": []} if engine == "trino" else {"sessions": 1}
         response = _mapped("GET", f"{prefix}/snapshot")
         assert (response.status_code, response.json()) == (200, snapshot)
         params = {"metric": "query_rate", "window": "1h"}
