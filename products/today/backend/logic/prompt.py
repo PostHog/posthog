@@ -12,10 +12,10 @@ from ..models import DailyBriefing
 from .content import BriefingContent
 from .fact_sheet import FactSheet, stored_fact_sheet
 
-MAX_WORDS = 80
-MAX_LINK_WORDS = 8
-MAX_LABEL_WORDS = 6
-MAX_SIGNAL_CHARS = 40
+MAX_WORDS = 45
+MAX_LINK_WORDS = 5
+MAX_LABEL_WORDS = 4
+MAX_SIGNAL_CHARS = 30
 
 
 def _item_rows(fact_sheet: FactSheet, summaries: Mapping[str, str]) -> list[dict[str, object]]:

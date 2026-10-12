@@ -19,11 +19,17 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalScoutBackgroundBand,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness import lazy_seed
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
@@ -41,6 +47,7 @@ from products.signals.backend.scout_harness.team_limits import (
     DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
+    BackgroundBackoff,
     BackgroundBand,
     BackgroundEnrollment,
     Enrollment,
@@ -81,11 +88,13 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _DueRun,
     _overdue_seconds,
     _slot_anchor,
+    _stamp_dispatched_runs,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.models import Task, TaskRun
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
 _IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
@@ -691,6 +700,28 @@ _GENERAL = "signals-scout-general"
             {"background": {"enabled": True, "team_ids": [3], "bands": ["1"]}},
             BackgroundEnrollment(True, _GENERAL, frozenset({3}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK),
         ),
+        (
+            {
+                "background": {
+                    "enabled": True,
+                    "team_ids": [3],
+                    "backoff": {"enabled": True, "factor": 2, "max_interval_minutes": 129600},
+                }
+            },
+            BackgroundEnrollment(
+                True,
+                _GENERAL,
+                frozenset({3}),
+                None,
+                DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+                backoff=BackgroundBackoff(factor=2, max_interval_minutes=129600),
+            ),
+        ),
+        (
+            # A malformed backoff turns the backoff off and never costs the block its `team_ids`.
+            {"background": {"enabled": True, "team_ids": [3], "backoff": {"enabled": True, "factor": 1}}},
+            BackgroundEnrollment(True, _GENERAL, frozenset({3}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK),
+        ),
     ],
 )
 def test_parse_background(payload, expected):
@@ -698,9 +729,18 @@ def test_parse_background(payload, expected):
 
 
 def _background(
-    team_ids: set[int], *, enabled: bool = True, max_new: int = 5, bands: dict[int, BackgroundBand] | None = None
+    team_ids: set[int],
+    *,
+    enabled: bool = True,
+    max_new: int = 5,
+    bands: dict[int, BackgroundBand] | None = None,
+    backoff: BackgroundBackoff | None = None,
 ) -> BackgroundEnrollment:
-    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new, bands or {})
+    return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new, bands or {}, backoff)
+
+
+_WEEK_MINUTES = 7 * 24 * 60
+_BACKOFF = BackgroundBackoff(factor=2, max_interval_minutes=90 * 24 * 60)
 
 
 _NO_ENROLLMENT = Enrollment(wildcard=False, explicit=set(), skip=set())
@@ -829,6 +869,140 @@ class TestBackgroundEnrollment:
         assert hand_picked_config.status == SignalScoutConfig.Status.ACTIVE
         assert hand_picked_config.background_band is None
 
+    def _weekly_background_config(self, team: Team, **kwargs: Any) -> SignalScoutConfig:
+        with team_scope(team.id, canonical=True):
+            _create_skill(team, _GENERAL)
+            return _create_config(
+                team,
+                _GENERAL,
+                managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+                run_interval_minutes=_WEEK_MINUTES,
+                **kwargs,
+            )
+
+    def _tick(
+        self, team: Team, config: SignalScoutConfig, background: BackgroundEnrollment, at: datetime, *, runs: bool
+    ) -> bool:
+        with time_machine.travel(at, tick=False):
+            planned = _collect_planned_runs(_NO_ENROLLMENT, background=background)
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=background.backoff)
+        dispatched = PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned
+        if dispatched and runs:
+            self._record_run(team, config, at + timedelta(minutes=1))
+        return dispatched
+
+    def _record_run(self, team: Team, config: SignalScoutConfig, at: datetime) -> None:
+        with time_machine.travel(at, tick=False):
+            task = Task.objects.create(
+                team=team,
+                title="scout run",
+                description="scout run",
+                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            )
+            SignalScoutRun.all_teams.create(
+                task_run=TaskRun.objects.create(task=task, team=team),
+                team=team,
+                scout_config=config,
+                skill_name=_GENERAL,
+                skill_version=1,
+            )
+
+    @parameterized.expand(
+        [
+            ("runs_back_off_to_the_cap", True, [7, 14, 28, 56, 90, 90, 90]),
+            # A child that skips (quota, daily report limit) creates no run, so the level never rises.
+            ("skipped_runs_stay_weekly", False, [7, 7, 7, 7, 7, 7, 7]),
+        ]
+    )
+    def test_unengaged_dispatches_over_400_days(self, _name, runs, expected_gaps):
+        team = self._team()
+        config = self._weekly_background_config(team)
+        # Start on the config's own weekly slot, so the first stamp lands exactly on the start day.
+        start = _slot_anchor(str(config.pk), _WEEK_MINUTES, datetime(2026, 1, 5, tzinfo=UTC))
+        background = _background({team.id}, backoff=_BACKOFF)
+
+        dispatch_days = [
+            day for day in range(400) if self._tick(team, config, background, start + timedelta(days=day), runs=runs)
+        ]
+
+        gaps = [later - earlier for earlier, later in zip(dispatch_days, dispatch_days[1:])]
+        assert gaps[:7] == expected_gaps
+        config.refresh_from_db()
+        assert config.run_interval_minutes == _WEEK_MINUTES
+
+    @parameterized.expand(
+        [
+            ("engaged_resets_to_weekly", True, SignalScoutConfig.ManagedBy.BACKGROUND, _BACKOFF, True, 0),
+            ("unengaged_stays_backed_off", False, SignalScoutConfig.ManagedBy.BACKGROUND, _BACKOFF, False, 3),
+            ("no_backoff_block_runs_weekly", False, SignalScoutConfig.ManagedBy.BACKGROUND, None, True, 3),
+            ("team_managed_never_backs_off", False, SignalScoutConfig.ManagedBy.TEAM, _BACKOFF, True, 3),
+        ]
+    )
+    def test_backed_off_config_eight_days_after_its_last_run(
+        self, _name, engaged, managed_by, backoff, expect_dispatch, expected_level
+    ):
+        team = self._team()
+        last_run_at = datetime(2026, 3, 2, tzinfo=UTC)
+        config = self._weekly_background_config(team, last_run_at=last_run_at, background_backoff_level=3)
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(managed_by=managed_by)
+        if engaged:
+            with time_machine.travel(last_run_at + timedelta(days=2), tick=False):
+                report = SignalReport.objects.create(team=team, title="A report", summary="Something")
+                user = User.objects.create(email=f"member-{team.id}@example.com")
+                SignalReportAction.record(
+                    team_id=team.id,
+                    report_id=str(report.pk),
+                    user_id=user.pk,
+                    action_type=SignalReportAction.ActionType.VIEW,
+                )
+        at = last_run_at + timedelta(days=8)
+        enrollment = (
+            Enrollment(wildcard=False, explicit={team.id}, skip=set())
+            if managed_by == SignalScoutConfig.ManagedBy.TEAM
+            else _NO_ENROLLMENT
+        )
+
+        with (
+            time_machine.travel(at, tick=False),
+            patch(
+                "products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs",
+                return_value={_GENERAL},
+            ),
+        ):
+            planned = _collect_planned_runs(enrollment, background=_background({team.id}, backoff=backoff))
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=backoff)
+
+        assert (PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned) is expect_dispatch
+        config.refresh_from_db()
+        assert config.background_backoff_level == expected_level
+
+    @parameterized.expand([("acknowledgement_lost", False), ("failed_between_writes", True)])
+    def test_retried_stamp_raises_the_level_once(self, _name, first_attempt_fails):
+        team = self._team()
+        last_run_at = datetime(2026, 3, 2, tzinfo=UTC)
+        config = self._weekly_background_config(team, last_run_at=last_run_at)
+        self._record_run(team, config, last_run_at + timedelta(minutes=1))
+        planned = [PlannedRun(team_id=team.id, skill_name=_GENERAL)]
+        at = last_run_at + timedelta(days=7)
+
+        with time_machine.travel(at, tick=False):
+            if first_attempt_fails:
+                with (
+                    patch(
+                        "products.signals.backend.temporal.agentic.scout_coordinator.DateTimeField",
+                        side_effect=RuntimeError("stamp failed"),
+                    ),
+                    pytest.raises(RuntimeError),
+                ):
+                    _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+            else:
+                _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+
+        config.refresh_from_db()
+        assert config.background_backoff_level == 1
+        assert config.last_run_at == at
+
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
 
@@ -922,11 +1096,17 @@ class TestFailureStreakProbeCollection:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam):
+@pytest.mark.parametrize("approved", [True, False, None])
+async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam, aorganization, approved):
     # Wiring guard for the whole half-open path: a lane the breaker paused is invisible to the
     # `enabled=True` dispatch query, so only `_collect_probe_runs` inside `_collect_planned_runs`
     # can bring it back — if that call is dropped, a wedged lane whose cause was fixed stays
     # paused forever with no human in the loop.
+    # Without AI data processing consent every output is dropped, so neither lane may dispatch.
+    aorganization.is_ai_data_processing_approved = approved
+    await sync_to_async(aorganization.save)(update_fields=["is_ai_data_processing_approved"])
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-broken")
     await database_sync_to_async(_create_config)(
         ateam,
@@ -939,7 +1119,8 @@ async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam):
 
     planned = await _run_activity()
 
-    assert [p.skill_name for p in planned] == ["signals-scout-broken"]
+    expected = ["signals-scout-broken", "signals-scout-errors"] if approved is True else []
+    assert [p.skill_name for p in planned] == expected
 
 
 class TestCronScheduleDueCheck:

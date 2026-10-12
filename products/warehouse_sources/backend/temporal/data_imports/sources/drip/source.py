@@ -102,7 +102,7 @@ class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
 You can find your API token under **Settings → User Settings → API** in Drip, and your account ID under **Settings → Account → General Info** (it's the numeric ID in your Drip dashboard URL).""",
             iconPath="/static/services/drip.png",
             docsUrl="https://posthog.com/docs/cdp/sources/drip",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

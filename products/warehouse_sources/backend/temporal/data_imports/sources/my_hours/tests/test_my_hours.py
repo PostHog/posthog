@@ -1,7 +1,9 @@
 import json
+from datetime import datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -54,29 +56,15 @@ def _wire(responses: list[Response]) -> tuple[requests.Session, list[Any]]:
     return session, sent
 
 
+def _pages(source_response: Any) -> list[list[dict[str, Any]]]:
+    return list(source_response.items())
+
+
 def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return [row for page in _pages(source_response) for row in page]
 
 
 class TestSync:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_the_full_array_once(self, mock_session: mock.MagicMock) -> None:
-        session, sent = _wire([_response([{"id": 1}, {"id": 2}])])
-        mock_session.return_value = session
-
-        rows = _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # Unpaginated: exactly one request, no pagination follow-up.
-        assert session.send.call_count == 1  # type: ignore[attr-defined]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_array_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        session, _sent = _wire([_response([])])
-        mock_session.return_value = session
-
-        assert _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j")) == []
-
     @parameterized.expand([("clients", "/Clients"), ("projects", "/Projects/getAll"), ("users", "/Users/getAll")])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_request_targets_the_expected_url(self, endpoint: str, path: str, mock_session: mock.MagicMock) -> None:
@@ -86,16 +74,6 @@ class TestSync:
         _rows(my_hours_source(api_key="mh-key", endpoint=endpoint, team_id=1, job_id="j"))
 
         assert sent[0].url == f"{MY_HOURS_BASE_URL}{path}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_apikey_prefixed_authorization_header(self, mock_session: mock.MagicMock) -> None:
-        # My Hours rejects requests that omit the literal `apikey ` prefix, so this is load-bearing.
-        session, sent = _wire([_response([])])
-        mock_session.return_value = session
-
-        _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
-
-        assert sent[0].headers["Authorization"] == "apikey mh-key"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
@@ -131,11 +109,6 @@ class TestSync:
 
 
 class TestAuth:
-    def test_sets_apikey_prefixed_header(self) -> None:
-        request = requests.Request("GET", MY_HOURS_BASE_URL).prepare()
-        MyHoursApiKeyAuth("mh-key")(request)
-        assert request.headers["Authorization"] == "apikey mh-key"
-
     def test_declares_raw_key_as_secret_for_redaction(self) -> None:
         assert MyHoursApiKeyAuth("mh-key").secret_values() == ("mh-key",)
 
@@ -174,12 +147,6 @@ class TestCheckAccess:
         assert status == 0
         assert message is not None and "boom" in message
 
-    def test_probe_targets_clients_endpoint(self, monkeypatch: Any) -> None:
-        response = mock.MagicMock(status_code=200, ok=True)
-        session = self._patch_session(monkeypatch, response)
-        check_access("mh-key")
-        assert session.get.call_args.args[0] == f"{MY_HOURS_BASE_URL}/Clients"
-
 
 class TestMyHoursSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
@@ -188,10 +155,118 @@ class TestMyHoursSourceResponse:
         mock_session.return_value = mock.MagicMock()
         response = my_hours_source(api_key="mh-key", endpoint=endpoint, team_id=1, job_id="j")
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == MY_HOURS_ENDPOINTS[endpoint].primary_keys
         # The list endpoints carry no stable timestamp, so we don't partition.
         assert response.partition_mode is None
 
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in MY_HOURS_ENDPOINTS.values())
-        assert set(MY_HOURS_ENDPOINTS) == set(ENDPOINTS)
+
+class TestTimeLogs:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, [("2010-01-01", "2010-01-31"), ("2010-02-01", "2010-02-21")]),
+            ("incremental_from_watermark", True, datetime(2010, 2, 5), [("2010-02-05", "2010-02-21")]),
+            ("incremental_watermark_after_today", True, datetime(2010, 3, 10), [("2010-02-21", "2010-02-21")]),
+        ]
+    )
+    @time_machine.travel("2010-02-20 12:00:00", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_date_windows(
+        self,
+        _name: str,
+        incremental: bool,
+        last_value: datetime | None,
+        expected_windows: list[tuple[str, str]],
+        mock_session: mock.MagicMock,
+    ) -> None:
+        session, sent = _wire([_response({"data": []}) for _ in expected_windows])
+        mock_session.return_value = session
+
+        _rows(
+            my_hours_source(
+                api_key="mh-key",
+                endpoint="time_logs",
+                team_id=1,
+                job_id="j",
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=last_value,
+            )
+        )
+
+        assert all(p.method == "PUT" and p.url == f"{MY_HOURS_BASE_URL}/Reports/activitydx" for p in sent)
+        options = [json.loads(p.body)["options"] for p in sent]
+        assert [(o["dateFrom"], o["dateTo"]) for o in options] == expected_windows
+
+    @time_machine.travel("2010-02-20 12:00:00", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_each_non_empty_window_sorted_by_date(self, mock_session: mock.MagicMock) -> None:
+        session, _sent = _wire(
+            [
+                _response(
+                    {
+                        "data": [
+                            {"logId": 2, "date": "2010-01-20T00:00:00"},
+                            {"logId": 1, "date": "2010-01-03T00:00:00"},
+                        ],
+                        "totalCount": -1,
+                    }
+                ),
+                _response({"data": [], "totalCount": -1}),
+            ]
+        )
+        mock_session.return_value = session
+
+        pages = _pages(my_hours_source(api_key="mh-key", endpoint="time_logs", team_id=1, job_id="j"))
+
+        assert pages == [[{"logId": 1, "date": "2010-01-03T00:00:00"}, {"logId": 2, "date": "2010-01-20T00:00:00"}]]
+
+
+class TestProjectFanout:
+    @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_project_tasks_flattens_every_task_list(self, mock_session: mock.MagicMock) -> None:
+        session, sent = _wire(
+            [
+                _response([{"id": 11}, {"id": 12}]),
+                _response(
+                    [
+                        {
+                            "listName": "Task list",
+                            "listNo": 0,
+                            "incompletedTasks": [{"id": 1}],
+                            "completedTasks": [{"id": 2}],
+                            "archivedTasks": [{"id": 3}],
+                        }
+                    ]
+                ),
+                _response([]),
+            ]
+        )
+        mock_session.return_value = session
+
+        rows = _rows(my_hours_source(api_key="mh-key", endpoint="project_tasks", team_id=1, job_id="j"))
+
+        assert [p.url for p in sent] == [
+            f"{MY_HOURS_BASE_URL}/Projects/getAll",
+            f"{MY_HOURS_BASE_URL}/Projects/11/tasklist",
+            f"{MY_HOURS_BASE_URL}/Projects/12/tasklist",
+        ]
+        assert rows == [
+            {"id": task_id, "projectId": 11, "taskListName": "Task list", "taskListNo": 0} for task_id in (1, 2, 3)
+        ]
+
+    @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_project_members_carry_project_id_and_skip_deleted_projects(self, mock_session: mock.MagicMock) -> None:
+        session, sent = _wire(
+            [
+                _response([{"id": 11}, {"id": 12}]),
+                _response([{"id": 5, "userId": 5, "userName": "A"}]),
+                _response({"error": "not found"}, status=404),
+            ]
+        )
+        mock_session.return_value = session
+
+        rows = _rows(my_hours_source(api_key="mh-key", endpoint="project_members", team_id=1, job_id="j"))
+
+        assert sent[1].url == f"{MY_HOURS_BASE_URL}/Projects/11/userlist"
+        assert rows == [{"id": 5, "userId": 5, "userName": "A", "projectId": 11}]

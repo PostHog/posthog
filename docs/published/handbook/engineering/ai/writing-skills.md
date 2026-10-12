@@ -78,14 +78,16 @@ but need guidance on _which_ tools to use, in _what order_, with _what constrain
 
 Query skills should choose methods from the requested calculation and output, not require typed queries or SQL for every task.
 Reuse matching approved metrics or saved queries when they define the requested measure.
-Use typed queries when standard PostHog calculation rules or native insight controls matter.
+Default to typed runners for new product analytics and dashboard insights when their schemas support the requested calculation, including simple event counts, unique users, property sums, breakdowns, and time series.
 Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL.
-For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates.
+When both methods fit a new event-analytics query, use the typed runner. SQL examples and SQL discovery calls do not determine the final analysis method. Save supported dashboard analyses as native query nodes.
 Keep valid existing SQL when it fits the task. A task that needs SQL does not require a failed typed-query attempt first.
 Reassess when the task changes. Neither the previous tool call nor a request for a chart determines the next method.
 
 Tool descriptions should state capabilities and limits. Skill examples should show direct inputs for the method they teach.
 Keep SQL examples for SQL tasks rather than requiring agents to reconstruct typed inputs from generated SQL.
+
+Rendering guidance must account for the harness: direct tools and some exec hosts display query apps inline, while other exec hosts need the separate top-level `render-ui` tool. Skip duplicate rendering only when the harness or response indicates that the view is already displayed. Otherwise, if `render-ui` is available and its enum includes the query tool, render with the same tool name and validated input after the query succeeds. If no UI path is available, summarize or follow the harness's presentation instructions; do not change a supported typed query to SQL just to display a chart.
 
 ### When to write a skill
 

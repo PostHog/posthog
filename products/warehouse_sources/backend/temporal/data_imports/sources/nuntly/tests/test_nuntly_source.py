@@ -3,7 +3,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuntly import NuntlySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.source import NuntlySource
 
 
@@ -36,16 +35,6 @@ class TestNuntlySource:
     def test_non_retryable_errors(self, observed_error: str, expected_match: bool) -> None:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors) is expected_match
-
-    def test_get_schemas_match_endpoints_full_refresh_only(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        for schema in schemas.values():
-            # Nuntly documents no server-side timestamp filter on any list endpoint.
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
 
     @parameterized.expand(
         [

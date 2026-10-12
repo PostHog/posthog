@@ -1,15 +1,21 @@
 import * as d3 from 'd3'
 import { RefObject } from 'react'
 
+import {
+    sankeyJustify,
+    sankeyLayout,
+    sankeyLinkHorizontal,
+    type SankeyLink,
+    type SankeyLayout,
+} from '@posthog/quill-charts'
+
 import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils/url'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
-import sankey, { sankeyJustify, sankeyLinkHorizontal, type SankeyLink, type SankeyLayout } from '~/vendor/d3/sankey'
 
-// eslint-disable-next-line import/no-cycle
-import { FALLBACK_CANVAS_WIDTH } from './Paths'
-import { PathNodeData, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
+import { FALLBACK_CANVAS_WIDTH } from './constants'
+import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
 import { Paths } from './types'
 
 export interface PathsHoverHandlers {
@@ -31,7 +37,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
 }
 
 const createSankeyGenerator = (width: number, height: number): SankeyLayout<PathNodeData, {}> => {
-    return sankey<PathNodeData, {}>()
+    return sankeyLayout<PathNodeData, {}>()
         .nodeId((d) => d.name)
         .nodeAlign(sankeyJustify)
         .nodeSort(null)
@@ -118,11 +124,11 @@ const appendPathLinks = (svg: any, links: SankeyLink<PathNodeData, {}>[], handle
 
     link.append('path')
         .attr('d', sankeyLinkHorizontal())
-        .attr('id', (d: PathNodeData) => `path-${d.index}`)
-        .attr('stroke-width', (d: PathNodeData) => {
+        .attr('id', (d: PathTargetLink) => `path-${d.index}`)
+        .attr('stroke-width', (d: PathTargetLink) => {
             return Math.max(1, d.width)
         })
-        .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
+        .on('mouseover', (_event: MouseEvent, data: PathTargetLink) => {
             if (handlers.isCardHovered()) {
                 return
             }
@@ -137,7 +143,7 @@ const appendPathLinks = (svg: any, links: SankeyLink<PathNodeData, {}>[], handle
 
     link.append('g')
         .append('path')
-        .attr('d', (data: PathNodeData) => {
+        .attr('d', (data: PathTargetLink) => {
             if (data.source.layer === 0) {
                 return
             }
@@ -147,7 +153,7 @@ const appendPathLinks = (svg: any, links: SankeyLink<PathNodeData, {}>[], handle
         })
         .attr('fill', 'url(#dropoff-gradient)')
         .attr('stroke-width', 0)
-        .attr('transform', (data: PathNodeData) => {
+        .attr('transform', (data: PathTargetLink) => {
             return (
                 'translate(' +
                 Math.round(data.source.x1) +

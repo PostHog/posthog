@@ -73,6 +73,17 @@ MIN_RUN_INTERVAL = dt.timedelta(minutes=30)
 # A rule backed by this many ratings survives a run unless at least as many ratings contradict it, so one
 # dissenting rating narrows a well-backed rule instead of erasing it.
 PROTECTED_SUPPORT = 3
+# The topics the scan prompt builds in. A `built_in` retirement only skips protection for a rule about one of them,
+# so text injected into the model's input cannot use the flag to delete an unrelated, well-backed rule.
+_BUILT_IN_TOPICS = re.compile(
+    r"personal|\bnames?\b|e-?mail|identit|phone|address"
+    r"|mask|blank|black|grey|gray|empty|canvas|iframe|embed|video|not (?:recorded|captured|rendered)"
+    r"|click|tap|idle|inactiv|read|scroll|brows|pause"
+    r"|load|spinner|wait|slow|timeout|connect"
+    r"|validation|paywall|upgrade|plan limit|disabled"
+    r"|ends? (?:before|during|mid)|unknown",
+    re.IGNORECASE,
+)
 _IDENTIFIER = re.compile(r"https?://|www\.|@|\b[0-9a-f]{8}-[0-9a-f]{4}-")
 
 
@@ -126,6 +137,10 @@ class _LlmRetired(BaseModel):
     contradicted_by: list[str] = Field(
         default_factory=list, description="Rating numbers from the input that go against the rule."
     )
+    built_in: bool = Field(
+        default=False,
+        description="True when the rule only restates one of the built-in rules every scan already follows.",
+    )
 
 
 class _LlmScannerRules(BaseModel):
@@ -172,6 +187,12 @@ a page behaves or what counts as normal there. Keep it at scanner level when it 
 - Each rule is one imperative sentence of at most {MAX_RULE_CHARS} characters that a scanner can apply to a \
 session it has never seen. Describe the situation, not a specific session.
 - Never put names, emails, ids, URLs, quotes of personal data, or session-specific values in a rule.
+- Every scan already follows these built-in rules: personal data stays out of its output; masked and unrecorded \
+content (canvas, iframes, video) is a recording limit, not a bug; repeated clicks on a control that responds, \
+reading or idling, waits that resolve, and validation messages or paywalls are ordinary use; and an outcome is \
+unknown when the recording ends before it. Never write a rule that only restates one of them, and retire an \
+existing rule that does, with `built_in` set. A rule that adds something specific to this product, such as which page draws a map on a \
+canvas, still belongs.
 - A rule refines how a scanner applies its question. It never changes the question.
 - At most {MAX_PROJECT_RULES} project rules and {MAX_SCANNER_RULES} rules per scanner. Merge before you drop.
 - Return every scanner from the input with its full rule list, even when the text is unchanged, so the counts \
@@ -473,6 +494,15 @@ def _merge(
     # A rule the response also keeps stays its own rule, so a contradictory merge of it is ignored.
     kept_by_response = {rule.id for rule in proposed if rule.id in by_id and _clean_text(rule.text) is not None}
     merged_into: dict[str, str] = {}
+    # A rule that only restates what the scan prompt now builds in goes however well rated it was.
+    built_in = {
+        entry.id
+        for entry in retired
+        if entry.built_in
+        and entry.id not in kept_by_response
+        and (stored := by_id.get(entry.id)) is not None
+        and _BUILT_IN_TOPICS.search(stored.text)
+    }
     for entry in retired:
         new_against[entry.id].update(rating_ids[key] for key in entry.contradicted_by if key in rating_ids)
         if entry.merged_into and entry.merged_into != entry.id and entry.id not in kept_by_response:
@@ -520,7 +550,7 @@ def _merge(
         )
 
     for previous in current:
-        if previous.id in kept_ids or merged_into.get(previous.id) in kept_ids:
+        if previous.id in kept_ids or merged_into.get(previous.id) in kept_ids or previous.id in built_in:
             continue
         against = new_against.get(previous.id, set())
         if _protected(previous, against):
@@ -744,7 +774,6 @@ def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_json_schema=_LlmRules.model_json_schema(),
-        temperature=0.2,
     )
     try:
         response = client.models.generate_content(

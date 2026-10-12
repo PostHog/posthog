@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
-import { PostHogApiError, PostHogPermissionError, PostHogRateLimitError, PostHogValidationError } from '@/lib/errors'
+import {
+    MCPToolResultError,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogRateLimitError,
+    PostHogValidationError,
+} from '@/lib/errors'
 import { invokeMcpTool } from '@/tools/posthogAiTools/invokeTool'
 import type { Context } from '@/tools/types'
 
@@ -36,6 +42,37 @@ describe('invokeMcpTool', () => {
 
         expect(result).toEqual({ success: true, content: 'rows' })
     })
+
+    it.each(['unknown_identifier', null, undefined])(
+        'preserves backend error type and optional code through the API client: %s',
+        async (errorCode) => {
+            const content =
+                'Tool failed: MaxToolRetryableError: Check the column names. You may retry with adjusted inputs.'
+            stubFetch(
+                new Response(
+                    JSON.stringify({
+                        success: false,
+                        content,
+                        error_type: 'validation',
+                        error_code: errorCode,
+                    }),
+                    { status: 200 }
+                )
+            )
+
+            const error = await invokeMcpTool(makeContext(), 'execute_sql', { query: 'SELECT missing_column' }).catch(
+                (e) => e
+            )
+
+            expect(error).toBeInstanceOf(MCPToolResultError)
+            expect({ message: error.message, errorType: error.errorType, errorCode: error.errorCode }).toEqual({
+                message: content,
+                errorType: 'validation',
+                errorCode: errorCode ?? undefined,
+            })
+            expect(fetch).toHaveBeenCalledOnce()
+        }
+    )
 
     it('keeps failures from older backends as errors during a rolling deploy', async () => {
         stubFetch(new Response(JSON.stringify({ success: false, content: 'Tool failed' })))

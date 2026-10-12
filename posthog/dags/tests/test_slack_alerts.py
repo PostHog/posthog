@@ -9,12 +9,49 @@ from posthog.dags.slack_alerts import (
     SLACK_SECTION_TEXT_LIMIT,
     _truncate_for_slack,
     get_job_owner_for_alert,
+    notify_slack_on_failure,
     send_slack_alert,
     should_suppress_alert,
 )
 
 
 class TestSlackAlertsRouting:
+    def test_query_log_archive_export_alert_uses_query_performance_owner(self):
+        failed_run = dagster.DagsterRun(
+            "export_query_log_archive_to_s3",
+            run_id="run-id",
+            tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value},
+        )
+        failure_event = dagster.DagsterEvent(
+            event_type_value=dagster.DagsterEventType.RUN_FAILURE.value,
+            job_name=failed_run.job_name,
+            message="failed",
+        )
+        context = dagster.RunFailureSensorContext(
+            sensor_name="notify_slack_on_failure",
+            dagster_run=failed_run,
+            dagster_event=failure_event,
+            instance=dagster.DagsterInstance.ephemeral(),
+        )
+        slack = mock.MagicMock()
+        client = slack.get_client.return_value
+
+        with (
+            mock.patch("posthog.dags.slack_alerts.settings.CLOUD_DEPLOYMENT", "US"),
+            mock.patch("posthog.dags.slack_alerts.settings.DAGSTER_DOMAIN", "dagster.example.com"),
+        ):
+            notify_slack_on_failure(context, slack=slack)
+
+        call_kwargs = client.chat_postMessage.call_args.kwargs
+        assert call_kwargs["channel"] == "#alerts-query-performance"
+        assert call_kwargs["blocks"][1]["text"] == {
+            "type": "mrkdwn",
+            "text": "*Runbook*: <https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export|Recover the query log archive export>",
+        }
+        assert call_kwargs["text"].endswith(
+            "Runbook: https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export"
+        )
+
     def test_regular_job_uses_owner_tag(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "some_regular_job"

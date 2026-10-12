@@ -48,6 +48,7 @@ export function HealthAlertsEntryPoint({
         triggers: HEALTH_ALERT_TRIGGERS,
         destinations: HEALTH_ALERT_DESTINATIONS,
         presetTriggerKinds: presetKinds,
+        contextId: 'health-alerts',
     }
 
     return (

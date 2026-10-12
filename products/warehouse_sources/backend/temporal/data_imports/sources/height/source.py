@@ -25,6 +25,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeightSource(SimpleSource[HeightSourceConfig]):
+    # v1 is the terminal Height API version: Height discontinued its service on 2025-09-24 and ships
+    # no successor, so there is no version to repin to. The per-version deprecation framework does
+    # not apply, because it never deprecates a source's sole/default version.
     api_docs_url = "https://height.notion.site/API-documentation-643aea5bf01742de9232ed5b8b23a91b"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -99,7 +99,14 @@ def format_query_results_for_llm(
         if is_boxplot_query(query):
             formatted = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
         else:
-            formatted = TrendsResultsFormatter(query, response["results"], team, utc_now).format()
+            formatted = TrendsResultsFormatter(
+                query,
+                response["results"],
+                team,
+                utc_now,
+                resolved_date_range=response.get("resolved_date_range"),
+                resolved_compare_date_range=response.get("resolved_compare_date_range"),
+            ).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         formatted = FunnelResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):

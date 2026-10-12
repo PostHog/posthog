@@ -24,6 +24,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPanel } from '../../components/FilterPanel'
 import { HeatmapHeader } from '../../components/HeatmapHeader'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
+import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -64,12 +65,14 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         regenerateDisabledReason,
         switchToScreenshotDisabledReason,
         displayUrlIsPattern,
+        historyView,
     } = useValues(logic)
     const {
         setName,
         onIframeLoad,
         setScreenshotLoaded,
         setScreenshotError,
+        setHistoryScreenshotStatus,
         exportHeatmap,
         setContainerWidth,
         discardChanges,
@@ -193,6 +196,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
+                <HeatmapsPricingNotice />
                 <HeatmapHeader />
                 <FilterPanel lockedWidth={lockedWidth ?? undefined} previewUnavailable={previewUnavailable} />
                 {isHeightCapped && (
@@ -281,13 +285,21 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                                 display: 'block',
                                             }}
                                             onLoad={() => {
-                                                setScreenshotLoaded(true)
-                                                setScreenshotError(null)
+                                                if (historyView) {
+                                                    setHistoryScreenshotStatus(historyView.imageUrl, true)
+                                                } else {
+                                                    setScreenshotLoaded(true)
+                                                    setScreenshotError(null)
+                                                }
                                             }}
                                             className="rounded-b-lg border-l border-r border-b"
                                             onError={() => {
-                                                setScreenshotLoaded(false)
-                                                setScreenshotError('The screenshot failed to load.')
+                                                if (historyView) {
+                                                    setHistoryScreenshotStatus(historyView.imageUrl, false)
+                                                } else {
+                                                    setScreenshotLoaded(false)
+                                                    setScreenshotError('The screenshot failed to load.')
+                                                }
                                             }}
                                         />
                                     </>

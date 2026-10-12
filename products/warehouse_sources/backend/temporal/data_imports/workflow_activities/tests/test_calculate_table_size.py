@@ -155,6 +155,48 @@ class TestCalculateTableSizeActivity:
                     CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
                 )
 
+    def test_reraises_a_concurrent_delta_log_purge_as_non_reportable(self, tmp_path: Path) -> None:
+        # A full refresh (or another maintenance pass) can purge a table's `_delta_log` out from
+        # under this activity's own DeltaTable() open in _live_delta_size_mib. delta-rs surfaces that
+        # race as a bare DeltaError ("Kernel error: File not found: .../_delta_log/<version>.json"),
+        # not the TableNotFoundError _live_delta_size_mib already handles.
+        team = _team()
+        schema, _table, job = _schema_table_job(
+            team, table_format="DeltaS3Wrapper", queryable_folder="stripe_charge__query_a"
+        )
+
+        with (
+            override_settings(BUCKET_URL=str(tmp_path)),
+            patch(f"{_DELTA_TABLE_MODULE}.delta_storage_options", return_value={}),
+            patch(
+                "deltalake.DeltaTable",
+                side_effect=deltalake.exceptions.DeltaError(
+                    "Kernel error: File not found: dlt/team_1_postgres_test/properties/_delta_log/00000000000000000001.json"
+                ),
+            ),
+        ):
+            with pytest.raises(TransientObjectStoreError):
+                calculate_table_size_activity(
+                    CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+                )
+
+    def test_reraises_unrelated_delta_error(self, tmp_path: Path) -> None:
+        team = _team()
+        schema, _table, job = _schema_table_job(
+            team, table_format="DeltaS3Wrapper", queryable_folder="stripe_charge__query_a"
+        )
+
+        with (
+            override_settings(BUCKET_URL=str(tmp_path)),
+            patch(f"{_DELTA_TABLE_MODULE}.delta_storage_options", return_value={}),
+            patch("deltalake.DeltaTable", side_effect=deltalake.exceptions.DeltaError("Generic error: data corrupted")),
+        ):
+            with pytest.raises(deltalake.exceptions.DeltaError) as exc_info:
+                calculate_table_size_activity(
+                    CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+                )
+        assert not isinstance(exc_info.value, NonReportableError)
+
     def test_reads_the_size_of_the_live_files_from_the_delta_log(self, tmp_path: Path) -> None:
         # An S3 listing of the query folder pages through every object and takes minutes on a large
         # table. The Delta log already carries the size of each live file, and the query folder holds

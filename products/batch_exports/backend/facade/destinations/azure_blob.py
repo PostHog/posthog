@@ -9,6 +9,7 @@ Importing this module loads the destination's vendor SDK, so keep it off the
 """
 
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    AzureBlobIntegrationNotFoundError,
     MalformedConnectionStringError,
     _get_azure_blob_integration as get_azure_blob_integration,
     _is_authorization_failure_response_error as is_authorization_failure_response_error,
@@ -17,6 +18,7 @@ from products.batch_exports.backend.temporal.destinations.constants import AZURE
 
 __all__ = [
     "AZURE_BLOB_SUPPORTED_COMPRESSIONS",
+    "AzureBlobIntegrationNotFoundError",
     "MalformedConnectionStringError",
     "get_azure_blob_integration",
     "is_authorization_failure_response_error",
