@@ -1,23 +1,24 @@
 # ingestion-consumer
 
 Rust Kafka consumer that routes analytics events to Node.js ingestion workers over ordered gRPC streams, with at most one request per key in flight.
-It reads batches from Kafka, groups messages by Kafka message key, packs each key's messages into requests (preserving per-key ordering; unkeyed messages can go to any worker), sends each request on its worker's `WorkerIngest` stream, and commits offsets only after every message in the batch is accepted.
+It reads batches from Kafka, groups messages by Kafka message key, packs each key's messages into requests (preserving per-key ordering; unkeyed messages can go to any worker), sends each request on its worker's `WorkerIngest` stream, and commits each partition's frontier: one past the prefix every worker accepted.
 Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully: in-flight work finishes, and new work for their keys waits and goes to survivors in order.
 
 ## Ordering sentinels
 
-`order_sentinel.rs` turns the consumer's two core guarantees into always-on, alertable metrics (see the module docs for semantics).
+`order_sentinel.rs` and `commit_sentinel.rs` turn the consumer's core guarantees into always-on, alertable metrics (see the module docs for semantics).
 Each guarantee has a violation counter that must stay flat and a denominator that must grow:
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
-| Commits are contiguous, monotonic, non-empty per partition, and cover only completed offsets | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty\|uncredited}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
+| Commits are contiguous, monotonic, non-empty per partition, and cover only completed offsets (the span check runs at `poll` granularity only, see below) | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty\|uncredited}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
 | Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
 
 Commit success can't be observed via rdkafka's `commit_callback` — librdkafka drops the result of manual async commits (no conf-level `offset_commit_cb` is ever registered by rust-rdkafka, and only sync commits attach a reply queue).
 Instead a background commit monitor fetches the group's broker-committed offsets every 30s (one OffsetFetch) and compares them to what was attempted: `commit_confirmation_lag` is transiently positive while async commits are in flight, and persistently positive when commits are submitted but not landing (e.g. a stuck coordinator).
+A frontier the pacer still holds is not an attempt; the sentinel records the attempted offset when the pacer hands it out.
 Alerts should gate on `ingestion_consumer_offset_commits_total > 0` — an idle consumer that never committed has nothing to confirm.
 
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
@@ -31,13 +32,20 @@ Null-key messages (e.g. overflow rerouting) are excluded from both checks: the p
 ## Offset ledger
 
 The consumer holds the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
-Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
-A partition that settles without a frontier is not committed and stays on its last commit.
-A batch with no frontier on any partition is not committed at all; `ingestion_consumer_commits_skipped_total{reason}` counts those, where `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
-Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which checks it and passes it to the commit pacer (`commit_pacer.rs`); after settling a poll the consumer asks the pacer what is due and commits it in one call.
-The pacer is immediate for now, so every poll commits its frontiers as it completes; an interval pacer that coalesces per partition comes with per-partition commits (see the driver-model plan, cycle 8).
-The commit pacer holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
+Every delivered message is charged to its partition's ledger during collection, and accepted work completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
+A partition that settles without a frontier is not committed and stays on its last commit: an earlier group on that partition is still out.
+Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which passes it to the commit pacer (`commit_pacer.rs`); the consumer commits what the pacer hands back.
+The pacer holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
+
+`CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger.
+`poll` (the default) settles a whole poll once every one of its groups is accepted, oldest poll first, and commits its frontiers at once.
+`group` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
+At `group` granularity the pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
+The consumer asks the pacer on each completion wake, at the top of each loop turn, and on the completion wait's one-second heartbeat, and commits everything pending on exit.
+Admission is still per poll at both granularities: `CONSUMER_MAX_BACKGROUND_TASKS` caps in-flight polls, and a slot frees when its whole poll is covered, oldest first, so a stalled key still holds its poll's slot.
+The sentinel's span check compares the span each poll delivered against the previous commit; it runs at `poll` granularity only, because at `group` granularity a frontier no longer maps to one poll's slice, and `kafka_consumer_ledger_gap_offsets_total` reports the gaps a frontier walks instead.
+At `poll` granularity, `ingestion_consumer_commits_skipped_total{reason}` counts polls that settle with no frontier: `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
 The ledger emits its own metrics, so any consumer built on the crate reports the same series.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
@@ -84,7 +92,7 @@ Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time deb
 Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
 The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
 The ingestion control plane UI consumes these endpoints to render the consumer's live state.
-`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events, recorded at the same points that emit metrics, and it never influences routing: poll dispatch, commit and failure; every request the batcher sends (`RequestSent`) and how it settled (`RequestResolved`, with the unfinished count of a partial ack, or `RequestFailed` with its cause); worker health and membership.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events, recorded at the same points that emit metrics, and it never influences routing: poll dispatch, completion, commit submission and failure; every request the batcher sends (`RequestSent`) and how it settled (`RequestResolved`, with the unfinished count of a partial ack, or `RequestFailed` with its cause); worker health and membership.
 A poll and a request both carry their assignment epoch and their offsets per topic-partition as runs of consecutive offsets, which is how the control plane UI matches a request to exactly the polls it carries, because a request can merge messages from several polls.
 Routing keys never enter the payload, because they hold distinct ids.
 

@@ -16,11 +16,11 @@ use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::commit_monitor::spawn_commit_monitor;
-use crate::commit_pacer::ImmediateCommitPacer;
+use crate::commit_pacer::CommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
-use crate::config::Config;
+use crate::config::{CompletionGranularity, Config};
 use crate::debug_recorder::{
-    record_if, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
+    record_if, CommitOffset, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
 };
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
@@ -161,7 +161,7 @@ struct CollectedBatch {
 
 /// One submitted poll, awaiting its group completions. The consumer
 /// correlates completions to it by assignment epoch, partition, and offset;
-/// the poll commits only once completions cover every message.
+/// the poll retires only once completions cover every message.
 struct InFlightPoll {
     /// Consumer-side id for logs and debug events only; the batcher's
     /// internal batch id never crosses the boundary.
@@ -172,7 +172,7 @@ struct InFlightPoll {
     message_count: u32,
     /// Messages covered by completions so far, accepted or not.
     covered: u32,
-    /// Worker-accepted messages so far. The poll commits only when this
+    /// Worker-accepted messages so far. The poll retires only when this
     /// reaches `message_count`.
     accepted: u32,
     dispatched_at: Instant,
@@ -278,31 +278,51 @@ fn strip_revoked_partitions(
 /// with any discarded offset counts as stale once.
 ///
 /// [`send_group_completions`]: crate::batcher
-fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
+fn apply_completion(
+    in_flight: &mut VecDeque<InFlightPoll>,
+    completion: &GroupCompletion,
+    mut settle: impl FnMut(&TopicPartition, u64, &[Offset]),
+) {
+    let fully_accepted = completion.accepted as usize == completion.offsets.len();
     let mut accepted = completion.accepted;
     let mut unmatched: u64 = 0;
-    'offsets: for offset in &completion.offsets {
-        let is_accepted = accepted > 0;
-        accepted = accepted.saturating_sub(1);
+    let mut remaining = completion.offsets.as_slice();
+    'runs: while let Some(first) = remaining.first() {
         for poll in in_flight
             .iter_mut()
             .filter(|poll| poll.assignment_epoch == completion.assignment_epoch)
         {
             for (topic_partition, deliveries) in poll.partitions.iter_mut() {
-                if topic_partition.partition == completion.partition.0
-                    && deliveries.span.first <= offset.0
-                    && offset.0 <= deliveries.span.last
+                let span = deliveries.span;
+                if topic_partition.partition != completion.partition.0
+                    || first.0 < span.first
+                    || span.last < first.0
                 {
-                    poll.covered += 1;
-                    poll.accepted += u32::from(is_accepted);
-                    deliveries.covered += 1;
-                    deliveries.accepted += u32::from(is_accepted);
-                    deliveries.credit(offset.0);
-                    continue 'offsets;
+                    continue;
                 }
+                let run_len = remaining
+                    .iter()
+                    .take_while(|offset| span.first <= offset.0 && offset.0 <= span.last)
+                    .count();
+                let (run, rest) = remaining.split_at(run_len);
+                let run_accepted = accepted.min(run_len as u32);
+                accepted -= run_accepted;
+                poll.covered += run_len as u32;
+                poll.accepted += run_accepted;
+                deliveries.covered += run_len as u32;
+                deliveries.accepted += run_accepted;
+                for offset in run {
+                    deliveries.credit(offset.0);
+                }
+                if fully_accepted {
+                    settle(topic_partition, deliveries.generation, run);
+                }
+                remaining = rest;
+                continue 'runs;
             }
         }
         unmatched += 1;
+        remaining = &remaining[1..];
     }
     if unmatched > 0 {
         counter!("ingestion_consumer_stale_group_completions_total").increment(1);
@@ -338,6 +358,32 @@ fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InF
     Ok(poll)
 }
 
+fn settle_run(
+    ledger: &TopicOffsetLedger,
+    sentinel: &CommitSentinel,
+    topic_partition: &TopicPartition,
+    generation: u64,
+    offsets: &[Offset],
+) {
+    match ledger.settle(topic_partition, generation, offsets.iter().copied()) {
+        Ok(Some(_)) => {
+            if let Some(taken) = ledger.take_frontier(topic_partition) {
+                sentinel.advance_frontier_unchecked(topic_partition, taken);
+            }
+        }
+        Ok(None) => {}
+        Err(rejection) => warn_rejection(
+            "settle",
+            topic_partition,
+            rejection,
+            RejectedSlice::settled(&OffsetSpan {
+                first: offsets[0].0,
+                last: offsets[offsets.len() - 1].0,
+            }),
+        ),
+    }
+}
+
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
@@ -350,11 +396,12 @@ pub struct IngestionConsumerOptions {
     pub group_id: String,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
+    pub completion_granularity: CompletionGranularity,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
 /// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
-/// and commits offsets once the batcher's completions cover a poll.
+/// and commits offsets once the batcher's completions cover a poll or a group.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<SentinelContext>>,
     batcher: Batcher,
@@ -382,6 +429,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+    completion_granularity: CompletionGranularity,
 }
 
 impl IngestionConsumer {
@@ -413,6 +461,7 @@ impl IngestionConsumer {
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            completion_granularity: options.completion_granularity,
             consumer,
             batcher,
             outputs: Some(outputs),
@@ -454,7 +503,11 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_sentinel = Arc::new(CommitSentinel::new(ImmediateCommitPacer::new()));
+        let commit_pacer = CommitPacer::for_granularity(
+            config.consumer_completion_granularity,
+            Duration::from_millis(config.consumer_commit_interval_ms),
+        );
+        let commit_sentinel = Arc::new(CommitSentinel::new(commit_pacer));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         batcher
             .key_order_sentinel()
@@ -492,6 +545,7 @@ impl IngestionConsumer {
             debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            completion_granularity: config.consumer_completion_granularity,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -531,7 +585,10 @@ impl IngestionConsumer {
             return;
         }
 
-        info!("Consumer loop starting");
+        info!(
+            completion_granularity = ?self.completion_granularity,
+            "Consumer loop starting"
+        );
         record_if(&self.debug_recorder, || DebugEventKind::ConsumerStarted {
             group_id: self.group_id.clone(),
             workers: self.worker_urls.clone(),
@@ -544,6 +601,9 @@ impl IngestionConsumer {
         );
 
         self.run(completions, errors).await;
+        if let Err(err) = self.commit_all() {
+            warn!(error = %err, "Could not submit pending frontiers on exit");
+        }
         info!("Consumer loop stopped");
     }
 
@@ -562,6 +622,13 @@ impl IngestionConsumer {
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
+
+            // Not beside `collect_batch`: a tick there would drop a collection
+            // in progress.
+            if let Err(err) = self.commit_due() {
+                self.fail_commit(err);
+                return;
+            }
 
             if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
                 tokio::select! {
@@ -624,6 +691,16 @@ impl IngestionConsumer {
         }
         self.consumer.commit(&tpl, CommitMode::Async)?;
         counter!("ingestion_consumer_offset_commits_total").increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::CommitSubmitted {
+            offsets: offsets
+                .iter()
+                .map(|(topic_partition, offset)| CommitOffset {
+                    topic: topic_partition.topic.clone(),
+                    partition: topic_partition.partition,
+                    offset: offset.0,
+                })
+                .collect(),
+        });
         Ok(())
     }
 
@@ -671,11 +748,8 @@ impl IngestionConsumer {
         }
     }
 
-    /// Wait for completions to cover the oldest in-flight poll, then commit
-    /// it. Commits only the oldest poll: later completed polls stay
-    /// uncommitted behind any earlier one, preserving at-least-once delivery
-    /// across worker or pipeline failures. Completions for newer polls are
-    /// still credited while waiting.
+    /// Wait for completions to cover the oldest in-flight poll, then retire
+    /// it. Completions for newer polls are credited while waiting.
     async fn complete_oldest_poll(
         &self,
         in_flight_polls: &mut VecDeque<InFlightPoll>,
@@ -696,7 +770,9 @@ impl IngestionConsumer {
             }
             tokio::select! {
                 completion = completions.recv() => match completion {
-                    Some(completion) => apply_completion(in_flight_polls, completion),
+                    Some(completion) => self
+                        .apply_completions(in_flight_polls, completions, completion)
+                        .map_err(Failure::Commit)?,
                     None => return Err(Failure::Batch(anyhow::anyhow!(
                         "batcher completion channel closed"
                     ))),
@@ -707,18 +783,21 @@ impl IngestionConsumer {
                         "batcher error channel closed"
                     ))),
                 },
-                _ = heartbeat.tick() => self.handle.report_healthy(),
+                _ = heartbeat.tick() => {
+                    self.handle.report_healthy();
+                    self.commit_due().map_err(Failure::Commit)?;
+                }
             }
         }
 
         let poll = pop_committable(in_flight_polls).map_err(Failure::Batch)?;
 
-        self.settle_poll(&poll.partitions);
-        if let Some(offsets) = self.commit_sentinel.take_due() {
-            self.commit_offsets(&offsets).map_err(Failure::Commit)?;
+        if self.completion_granularity == CompletionGranularity::Poll {
+            self.settle_poll(&poll.partitions);
+            self.commit_due().map_err(Failure::Commit)?;
         }
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
-        record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
+        record_if(&self.debug_recorder, || DebugEventKind::PollCompleted {
             batch_id: poll.poll_id.clone(),
             accepted: poll.accepted,
             duration_ms: poll.dispatched_at.elapsed().as_millis() as u64,
@@ -749,6 +828,59 @@ impl IngestionConsumer {
                 stripped,
                 "Removed revoked partitions' messages from in-flight polls"
             );
+        }
+    }
+
+    fn apply_completions(
+        &self,
+        in_flight_polls: &mut VecDeque<InFlightPoll>,
+        completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
+        first: GroupCompletion,
+    ) -> anyhow::Result<()> {
+        if self.completion_granularity == CompletionGranularity::Poll {
+            apply_completion(in_flight_polls, &first, |_, _, _| {});
+            return Ok(());
+        }
+
+        let mut settle = |topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]| {
+            settle_run(
+                &self.topic_offset_ledger,
+                &self.commit_sentinel,
+                topic_partition,
+                generation,
+                offsets,
+            )
+        };
+        let mut completion = first;
+        loop {
+            apply_completion(in_flight_polls, &completion, &mut settle);
+            // A redelivered offset can sit in a later poll too; the caller
+            // pops a covered head before the next completion is matched.
+            if in_flight_polls
+                .front()
+                .is_some_and(InFlightPoll::is_complete)
+            {
+                break;
+            }
+            let Ok(next) = completions.try_recv() else {
+                break;
+            };
+            completion = next;
+        }
+        self.commit_due()
+    }
+
+    fn commit_due(&self) -> anyhow::Result<()> {
+        match self.commit_sentinel.take_due(Instant::now()) {
+            Some(offsets) => self.commit_offsets(&offsets),
+            None => Ok(()),
+        }
+    }
+
+    fn commit_all(&self) -> anyhow::Result<()> {
+        match self.commit_sentinel.take_all() {
+            Some(offsets) => self.commit_offsets(&offsets),
+            None => Ok(()),
         }
     }
 
@@ -1186,8 +1318,6 @@ fn emit_latest_processed_timestamp_metrics(
     partitions: &HashMap<TopicPartition, PartitionDeliveries>,
     group_id: &str,
 ) {
-    // Per-partition latest committed timestamp — matches Node.js
-    // `latest_processed_timestamp_ms`.
     for (topic_partition, partition) in partitions {
         gauge!(
             "latest_processed_timestamp_ms",
@@ -1244,19 +1374,50 @@ mod tests {
         }
     }
 
+    fn credit(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
+        apply_completion(in_flight, &completion, |_, _, _| {});
+    }
+
     #[test]
-    fn apply_completion_credits_the_poll_holding_the_offsets() {
+    fn an_accepted_completion_settles_one_run_per_poll() {
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
+        in_flight[1]
+            .partitions
+            .get_mut(&TopicPartition::new("test", 0))
+            .unwrap()
+            .generation = 1;
+        let mut runs = Vec::new();
 
-        apply_completion(&mut in_flight, completion(1, 0, &[4, 6], 2));
+        apply_completion(
+            &mut in_flight,
+            &completion(1, 0, &[2, 3, 4, 5], 4),
+            |topic_partition, generation, offsets| {
+                runs.push((topic_partition.partition, generation, offsets.to_vec()));
+            },
+        );
 
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[1].covered, 2);
-        assert_eq!(in_flight[1].accepted, 2);
-        assert!(!in_flight[1].is_complete());
+        assert_eq!(
+            runs,
+            vec![
+                (0, 0, vec![MessageOffset(2), MessageOffset(3)]),
+                (0, 1, vec![MessageOffset(4), MessageOffset(5)]),
+            ],
+            "each run carries its own poll's generation"
+        );
+    }
 
-        apply_completion(&mut in_flight, completion(1, 0, &[5, 7], 2));
-        assert!(in_flight[1].is_complete());
+    #[test]
+    fn a_short_accepted_completion_settles_nothing() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
+        let mut runs = 0;
+
+        apply_completion(&mut in_flight, &completion(1, 0, &[0, 1], 1), |_, _, _| {
+            runs += 1
+        });
+
+        assert_eq!(runs, 0, "the ledger must not commit past a dropped message");
+        assert_eq!(in_flight[0].covered, 2);
+        assert_eq!(in_flight[0].accepted, 1);
     }
 
     #[test]
@@ -1265,7 +1426,7 @@ mod tests {
         // send, so its completion spans both spans.
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
 
-        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
+        credit(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
 
         assert_eq!(in_flight[0].covered, 2);
         assert_eq!(in_flight[0].accepted, 2);
@@ -1277,7 +1438,7 @@ mod tests {
     fn apply_completion_under_report_shorts_the_tail_poll() {
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
 
-        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 3));
+        credit(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 3));
 
         assert_eq!(in_flight[0].accepted, 2, "leading offsets are accepted");
         assert_eq!(
@@ -1291,7 +1452,7 @@ mod tests {
     fn a_complete_poll_with_a_charged_offset_no_completion_covered_is_not_committable() {
         let mut in_flight = VecDeque::from([poll(1, 0, 10, 12, 3)]);
 
-        apply_completion(&mut in_flight, completion(1, 0, &[10, 12, 12], 3));
+        credit(&mut in_flight, completion(1, 0, &[10, 12, 12], 3));
 
         assert!(in_flight[0].is_complete());
         let error = pop_committable(&mut in_flight)
@@ -1315,7 +1476,7 @@ mod tests {
             .push((MessageOffset(i64::MAX), Charge::ZERO));
         let mut in_flight = VecDeque::from([gapped]);
 
-        apply_completion(&mut in_flight, completion(1, 0, &[0, i64::MAX], 2));
+        credit(&mut in_flight, completion(1, 0, &[0, i64::MAX], 2));
 
         assert!(in_flight[0].is_complete());
         assert!(pop_committable(&mut in_flight).is_ok());
@@ -1351,7 +1512,7 @@ mod tests {
             .delivered = 2;
         let mut in_flight = VecDeque::from([two]);
         // Partition 1 already had one message covered before the revoke.
-        apply_completion(&mut in_flight, completion(1, 1, &[10], 1));
+        credit(&mut in_flight, completion(1, 1, &[10], 1));
 
         let stripped = strip_revoked_partitions(
             &mut in_flight,
@@ -1368,9 +1529,9 @@ mod tests {
 
         // The kept partition completes the poll; a late completion for the
         // revoked partition is discarded, not credited.
-        apply_completion(&mut in_flight, completion(1, 1, &[11], 1));
+        credit(&mut in_flight, completion(1, 1, &[11], 1));
         assert_eq!(in_flight[0].covered, 0);
-        apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
+        credit(&mut in_flight, completion(1, 0, &[0, 1], 2));
         assert!(in_flight[0].is_complete());
         assert_eq!(in_flight[0].accepted, 2);
         assert!(pop_committable(&mut in_flight).is_ok());
@@ -1461,7 +1622,7 @@ mod tests {
         assert_eq!(in_flight.len(), 1);
         assert_eq!(in_flight[0].poll_id, "reassigned");
 
-        apply_completion(&mut in_flight, completion(1, 0, &[10, 10], 2));
+        credit(&mut in_flight, completion(1, 0, &[10, 10], 2));
         assert!(in_flight[0].is_complete());
         let reassigned = pop_committable(&mut in_flight)
             .expect("an offset credited twice still counts as credited");
@@ -1508,22 +1669,48 @@ mod tests {
         // completions in its own poll.
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(2, 0, 0, 3, 4)]);
 
-        apply_completion(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));
+        credit(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));
 
         assert_eq!(in_flight[0].covered, 0);
         assert_eq!(in_flight[1].covered, 4);
     }
 
     #[test]
-    fn apply_completion_discards_a_completion_matching_no_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
+    fn a_covered_head_is_popped_before_a_redelivered_offset_is_matched() {
+        let ledger = TopicOffsetLedger::new();
+        let sentinel = sentinel();
+        let partition = TopicPartition::new("test", 0);
+        ledger.forget_partitions([("test", 0)]);
+        charge_offsets(&ledger, &partition, 1, &[0, 1]);
+        let mut settle = |topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]| {
+            settle_run(&ledger, &sentinel, topic_partition, generation, offsets)
+        };
 
-        // Wrong partition, then wrong epoch: neither may be credited.
-        apply_completion(&mut in_flight, completion(1, 2, &[1], 1));
-        apply_completion(&mut in_flight, completion(9, 0, &[1], 1));
+        // Both polls carry the same offsets: a regain during collection.
+        let mut old = poll(3, 0, 0, 1, 2);
+        old.poll_id = "old".into();
+        let mut replay = poll(3, 0, 0, 1, 2);
+        replay.poll_id = "replay".into();
+        replay.partitions.get_mut(&partition).unwrap().generation = 1;
+        let mut in_flight = VecDeque::from([old, replay]);
+        let event = completion(3, 0, &[0, 1], 2);
 
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[0].accepted, 0);
+        apply_completion(&mut in_flight, &event, &mut settle);
+        assert_eq!(in_flight[0].poll_id, "old");
+        assert!(in_flight[0].is_complete());
+        assert!(
+            sentinel.take_due(Instant::now()).is_none(),
+            "the old generation's settle is stale"
+        );
+        in_flight.pop_front();
+
+        apply_completion(&mut in_flight, &event, &mut settle);
+        assert_eq!(in_flight[0].poll_id, "replay");
+        assert!(in_flight[0].is_complete());
+        assert_eq!(
+            sentinel.take_due(Instant::now()),
+            Some(HashMap::from([(partition, MessageOffset(2))]))
+        );
     }
 
     /// A poll's slice of one partition, charged to the ledger under the
@@ -1562,7 +1749,7 @@ mod tests {
     #[test]
     fn a_settled_poll_hands_its_frontier_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
 
@@ -1570,7 +1757,7 @@ mod tests {
 
         assert_eq!((settlement.settled, settlement.advanced), (1, 1));
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(tp, MessageOffset(12))]))
         );
     }
@@ -1578,14 +1765,14 @@ mod tests {
     #[test]
     fn a_gap_in_what_kafka_delivered_fires_the_sentinel_and_still_commits() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let first = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
         assert!(settle_partitions(&ledger, &sentinel, &first)
             .violations
             .is_empty());
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(tp.clone(), MessageOffset(12))]))
         );
 
@@ -1599,7 +1786,7 @@ mod tests {
         assert_eq!(settlement.violations[0].prev_committed, 12);
         assert_eq!(settlement.violations[0].span.first, 14);
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(tp, MessageOffset(16))]))
         );
     }
@@ -1607,7 +1794,7 @@ mod tests {
     #[test]
     fn a_rejected_slice_hands_nothing_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
         // The partition left and came back while the poll was in flight.
@@ -1616,13 +1803,13 @@ mod tests {
         let settlement = settle_partitions(&ledger, &sentinel, &partitions);
 
         assert_eq!((settlement.settled, settlement.advanced), (0, 0));
-        assert!(sentinel.take_due().is_none());
+        assert!(sentinel.take_due(Instant::now()).is_none());
     }
 
     #[test]
     fn a_poll_behind_an_incomplete_one_hands_nothing_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let _older = charged(&ledger, &tp, 10, 11);
         let newer = HashMap::from([(tp.clone(), charged(&ledger, &tp, 12, 13))]);
@@ -1630,7 +1817,7 @@ mod tests {
         let settlement = settle_partitions(&ledger, &sentinel, &newer);
 
         assert_eq!((settlement.settled, settlement.advanced), (1, 0));
-        assert!(sentinel.take_due().is_none());
+        assert!(sentinel.take_due(Instant::now()).is_none());
     }
 
     #[test]
@@ -1663,5 +1850,96 @@ mod tests {
             last: 21,
         };
         assert_eq!(frontier_span(&span, None), None);
+    }
+
+    fn charge_offsets(
+        ledger: &TopicOffsetLedger,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: &[i64],
+    ) {
+        ledger
+            .charge(
+                topic_partition,
+                generation,
+                offsets.iter().map(|&o| (MessageOffset(o), Charge::ZERO)),
+            )
+            .expect("the test ledger accepts the charge");
+    }
+
+    fn sentinel() -> CommitSentinel {
+        CommitSentinel::new(CommitPacer::immediate())
+    }
+
+    #[test]
+    fn a_partition_commits_only_once_its_completed_prefix_is_contiguous() {
+        let ledger = TopicOffsetLedger::new();
+        let sentinel = sentinel();
+        let p0 = TopicPartition::new("events", 0);
+        charge_offsets(&ledger, &p0, 0, &[10, 11, 12]);
+
+        settle_run(&ledger, &sentinel, &p0, 0, &[MessageOffset(12)]);
+        assert!(
+            sentinel.take_due(Instant::now()).is_none(),
+            "the window base is still incomplete"
+        );
+
+        settle_run(
+            &ledger,
+            &sentinel,
+            &p0,
+            0,
+            &[MessageOffset(10), MessageOffset(11)],
+        );
+        assert_eq!(
+            sentinel.take_due(Instant::now()),
+            Some(HashMap::from([(p0, MessageOffset(13))])),
+            "the late completion releases the whole prefix"
+        );
+    }
+
+    #[test]
+    fn a_partition_with_a_held_prefix_does_not_hold_back_another() {
+        let ledger = TopicOffsetLedger::new();
+        let sentinel = sentinel();
+        let p0 = TopicPartition::new("events", 0);
+        let p1 = TopicPartition::new("events", 1);
+        charge_offsets(&ledger, &p0, 0, &[10, 11]);
+        charge_offsets(&ledger, &p1, 0, &[20, 21]);
+
+        settle_run(
+            &ledger,
+            &sentinel,
+            &p0,
+            0,
+            &[MessageOffset(10), MessageOffset(11)],
+        );
+        settle_run(&ledger, &sentinel, &p1, 0, &[MessageOffset(21)]);
+
+        assert_eq!(
+            sentinel.take_due(Instant::now()),
+            Some(HashMap::from([(p0, MessageOffset(12))])),
+            "partition 1 waits for offset 20"
+        );
+    }
+
+    #[test]
+    fn a_stale_stamp_run_commits_nothing() {
+        let ledger = TopicOffsetLedger::new();
+        let sentinel = sentinel();
+        let p0 = TopicPartition::new("events", 0);
+        charge_offsets(&ledger, &p0, 0, &[10]);
+
+        ledger.forget_partitions([("events", 0)]);
+        charge_offsets(&ledger, &p0, 1, &[10]);
+
+        settle_run(&ledger, &sentinel, &p0, 0, &[MessageOffset(10)]);
+
+        assert!(sentinel.take_due(Instant::now()).is_none());
+        assert_eq!(
+            ledger.held(&p0).offsets,
+            1,
+            "the redelivered offset stays uncompleted"
+        );
     }
 }
