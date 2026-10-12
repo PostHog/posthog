@@ -1448,6 +1448,8 @@ class ExternalDataSourceType(LabeledStrEnum):
     USERBACK = "Userback", "Userback"
     REWARDFUL = "Rewardful", "Rewardful"
     TRACKLUTION = "Tracklution", "Tracklution"
+    WISE = "Wise", "Wise"
+    LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

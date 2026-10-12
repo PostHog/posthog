@@ -3544,6 +3544,8 @@ export interface CredentialApi {
  * * `Userback` - Userback
  * * `Rewardful` - Rewardful
  * * `Tracklution` - Tracklution
+ * * `Wise` - Wise
+ * * `LaravelCloud` - LaravelCloud
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4925,6 +4927,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Userback: 'Userback',
     Rewardful: 'Rewardful',
     Tracklution: 'Tracklution',
+    Wise: 'Wise',
+    LaravelCloud: 'LaravelCloud',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
