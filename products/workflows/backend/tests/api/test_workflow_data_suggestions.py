@@ -1,3 +1,4 @@
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -19,7 +20,11 @@ from products.workflows.backend.services.data_suggestions.planner import (
     WorkflowIdea,
 )
 from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage
-from products.workflows.backend.services.data_suggestions.service import _FULL_SCAN_MAX_WEEKLY_EVENTS, _weekly_counts
+from products.workflows.backend.services.data_suggestions.service import (
+    _FULL_SCAN_MAX_WEEKLY_EVENTS,
+    FAILURE_CACHE_TTL_SECONDS,
+    _weekly_counts,
+)
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
@@ -112,8 +117,12 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list()["suggestions"] == body["suggestions"]
         assert suggest_ideas.call_count == 1
 
+    @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_ranks_welcome_flows_above_busier_events(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_ranks_welcome_flows_above_busier_events(
+        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
+    ) -> None:
+        classify.return_value = {"query executed": "other", "trial_started": "trial", "user_registered": "signup"}
         suggest_ideas.return_value = [
             _idea("query executed", stage="other"),
             _idea("trial_started", stage="trial"),
@@ -128,8 +137,10 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("query executed", "other"),
         ]
 
+    @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_keeps_only_the_best_idea_per_stage(self, suggest_ideas: MagicMock, _flag) -> None:
+    def test_keeps_only_the_best_idea_per_stage(self, suggest_ideas: MagicMock, classify: MagicMock, _flag) -> None:
+        classify.return_value = {"user_registered": "signup", "query executed": "signup", "trial_started": "trial"}
         suggest_ideas.return_value = [
             _idea("user_registered", stage="signup"),
             _idea("query executed", stage="signup"),
@@ -183,6 +194,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list() == {"status": "unavailable", "suggestions": []}
         assert self._list() == {"status": "unavailable", "suggestions": []}
         assert classify.call_count == 1
+
+    @patch(f"{SERVICE}.classify_event_stages", return_value={})
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_the_llm_label_never_gives_an_unclassified_event_a_high_weight(
+        self, suggest_ideas: MagicMock, _classify: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("query executed", stage="signup")]
+
+        assert [s["stage"] for s in self._list()["suggestions"]] == ["other"]
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_an_empty_answer_is_retried_soon(self, suggest_ideas: MagicMock, _flag) -> None:
+        suggest_ideas.return_value = [_idea("made_up_event")]
+
+        with time_machine.travel(timezone.now(), tick=False) as clock:
+            assert self._list() == {"status": "ready", "suggestions": []}
+            clock.shift(FAILURE_CACHE_TTL_SECONDS + 60)
+            self._list()
+
+        assert suggest_ideas.call_count == 2
 
     @patch(f"{SERVICE}._estimated_weekly_events", return_value=2 * _FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock, _flag) -> None:

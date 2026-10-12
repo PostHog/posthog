@@ -234,10 +234,16 @@ class TestDataSuggestions(SimpleTestCase):
         assert "person.properties.secret" not in copy
         assert "{%" not in copy
 
-    def test_build_workflow_starts_model_copy_with_a_capital(self) -> None:
-        built = build_workflow(IDEA.model_copy(update={"name": "welcome new trial users"}), plan(step()), context())
+    @parameterized.expand(
+        [
+            ("starts with a capital", "welcome new trial users", "Welcome new trial users"),
+            ("an em dash becomes a comma", "Welcome — let's get started", "Welcome, let's get started"),
+        ]
+    )
+    def test_build_workflow_cleans_model_copy(self, _name: str, written: str, expected: str) -> None:
+        built = build_workflow(IDEA.model_copy(update={"name": written}), plan(step()), context())
         assert built is not None
-        assert built.name == "Welcome new trial users"
+        assert built.name == expected
 
     def test_select_prompt_events_keeps_quiet_lifecycle_events_and_drops_noise(self) -> None:
         counts = {"query executed": 9000, "page scrolled": 5000, "user_signed_up": 40, "rare_click": 2}
