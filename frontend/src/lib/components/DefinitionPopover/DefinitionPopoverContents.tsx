@@ -765,8 +765,12 @@ export function ControlledDefinitionPopover({
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
                         title={
+                            // A group that does not title its items with `name` falls back to
+                            // `getName`, which keeps a feature flag with no description from showing
+                            // as "(empty string)". A property keeps its raw key, because
+                            // PropertyKeyInfo resolves the label from it.
                             <PropertyKeyInfo
-                                value={item.name ?? ''}
+                                value={item.name || group.getName?.(item) || ''}
                                 type={group.type}
                                 disablePopover
                                 disableIcon={!!icon}

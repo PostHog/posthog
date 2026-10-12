@@ -26,6 +26,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import {
     hasRecentContext,
+    pickMinimalRecentItem,
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -500,10 +501,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                           allGroups.find((g) => g.type === stripped.group)
                         : undefined
                 const sourceGroupType = recentContext?.sourceGroupType ?? declaredGroup?.type ?? group.type
-                const cleanItem = {
-                    name: stripped.name,
-                    ...(stripped.id ? { id: stripped.id } : {}),
-                }
+                const cleanItem = pickMinimalRecentItem(stripped)
                 const sourceGroupName = recentContext?.sourceGroupName ?? declaredGroup?.name ?? group.name
                 const propertyFilterFromRecent = recentContext?.propertyFilter
                 // Defer one tick — keeps the recents write off the

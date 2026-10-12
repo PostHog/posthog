@@ -1,9 +1,9 @@
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from './suggestedContextFilters'
 
-const { Events, EventProperties, Cohorts } = TaxonomicFilterGroupType
+const { Events, EventProperties, Cohorts, FeatureFlags } = TaxonomicFilterGroupType
 
 function recent(
     sourceGroupType: TaxonomicFilterGroupType,
@@ -68,6 +68,49 @@ describe('suggestedContextFilters', () => {
             expect(
                 (out[0] as unknown as { _recentContext: { propertyFilter?: unknown } })._recentContext.propertyFilter
             ).toBeUndefined()
+        })
+    })
+
+    describe('filterRecentsForContext feature flags', () => {
+        const flagRecent = (
+            id: number,
+            item: Record<string, unknown>,
+            context: Record<string, unknown> = {}
+        ): TaxonomicDefinitionTypes =>
+            ({
+                name: '',
+                ...item,
+                _recentContext: { sourceGroupType: FeatureFlags, sourceValue: id, ...context },
+            }) as unknown as TaxonomicDefinitionTypes
+
+        it('keeps a flag recent that carries its key and drops one stored without', () => {
+            const out = filterRecentsForContext([flagRecent(1, { key: 'my-flag' }), flagRecent(2, {})], [FeatureFlags])
+            expect(out).toHaveLength(1)
+            expect((out[0] as unknown as { key: string }).key).toBe('my-flag')
+        })
+
+        // The shape propertyFilterLogic records for a completed flag dependency: no `key` on the item.
+        const dependencyRecent = flagRecent(
+            7,
+            { name: 'my-flag' },
+            {
+                propertyFilter: {
+                    type: PropertyFilterType.Flag,
+                    key: '7',
+                    label: 'my-flag',
+                    operator: PropertyOperator.FlagEvaluatesTo,
+                    value: true,
+                },
+            }
+        )
+
+        it.each([
+            ['keeps a completed flag dependency in a value picker', undefined, ['my-flag', 'my-flag']],
+            ['drops a completed flag dependency in a key-only picker', true, []],
+        ])('%s', (_name: string, selectingKeyOnly: boolean | undefined, expected: string[]) => {
+            expect(
+                names(filterRecentsForContext([dependencyRecent], [FeatureFlags], undefined, selectingKeyOnly))
+            ).toEqual(expected)
         })
     })
 

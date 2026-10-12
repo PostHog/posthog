@@ -28,6 +28,7 @@ import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLo
 import type { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import {
     hasRecentContext,
+    pickMinimalRecentItem,
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -2664,7 +2665,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     setTimeout(() => {
                         if (recentTaxonomicFiltersLogic.isMounted()) {
                             const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
-                            const cleanItem = { name: stripped.name, ...(stripped.id ? { id: stripped.id } : {}) }
+                            const cleanItem = pickMinimalRecentItem(stripped)
                             const sourceGroupName = hasRecentContext(item)
                                 ? item._recentContext.sourceGroupName
                                 : group.name

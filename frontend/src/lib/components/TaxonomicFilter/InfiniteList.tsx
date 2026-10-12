@@ -254,7 +254,10 @@ const renderItemContents = ({
             )
         }
         const coreDef = getCoreFilterDefinition(item.name, itemGroup.type)
-        const label = coreDef?.label || item.name || ''
+        // `getName` holds the label for a group that does not label its rows with `name`, such as a
+        // feature flag, where `name` holds the description and the row shows `key`. The popover for
+        // the same row resolves its label the same way.
+        const label = coreDef?.label || itemGroup.getName?.(item) || item.name || ''
         return (
             <div className="taxonomic-list-row-contents min-w-0">
                 {icon}
