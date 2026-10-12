@@ -33,11 +33,9 @@ impl Destination {
         }
     }
 
-    /// Whether this destination accepts events without a partition key.
     pub fn absorbs_hot_keys(&self) -> bool {
         match self {
             Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
-            // Their consumers rely on per-distinct-id ordering.
             Self::AnalyticsHistorical
             | Self::Dlq
             | Self::Custom(_)
@@ -51,7 +49,6 @@ impl Destination {
     pub fn writes_persons(&self) -> bool {
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => true,
-            // Replayed into analytics ingestion.
             Self::Dlq | Self::Custom(_) => true,
             Self::AiEvents
             | Self::AiEventsOverflow
@@ -78,8 +75,6 @@ impl Destination {
     }
 }
 
-/// What [`crate::v1::prepare::serialize_batch`] reads from a request event to
-/// build its [`PreparedEvent`](crate::outputs::PreparedEvent).
 pub trait Publishable: Send + Sync {
     fn uuid(&self) -> Uuid;
 
@@ -89,7 +84,6 @@ pub trait Publishable: Send + Sync {
 
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
 
-    /// [`Publishable::ordering`] decides whether the record carries this key.
     fn partition_key(&self, ctx: &RequestContext) -> String;
 
     fn ordering(&self) -> OrderingGuarantee;
@@ -121,7 +115,6 @@ mod destination_tests {
         assert_eq!(destination.pipeline(), expected);
     }
 
-    /// Each v1 destination names the same routed slot as its v0 counterpart.
     #[rstest::rstest]
     #[case(Destination::AnalyticsMain, Some(V0Destination::AnalyticsMain))]
     #[case(
