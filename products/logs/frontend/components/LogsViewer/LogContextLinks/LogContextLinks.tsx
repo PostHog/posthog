@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -16,6 +18,8 @@ import { ViewTraceButton } from 'products/tracing/frontend/components/ViewTraceB
 import { type ErrorScope, usableId } from 'products/tracing/frontend/errorCorrelation'
 
 import { LogErrorCount } from './LogErrorCount'
+import { MissingLinkInvestigate } from './MissingLinkInvestigate'
+import { MissingLink } from './missingLinkPrompt'
 
 export type LogContextLinksSurface = 'drawer' | 'row'
 
@@ -39,9 +43,16 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
-    const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!traceId && !sessionId && !distinctId) {
+    const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+    const missing: MissingLink[] = featureFlags[FEATURE_FLAGS.LOGS_MISSING_LINK_INVESTIGATE]
+        ? [!traceId && 'trace', !sessionId && 'session', !distinctId && 'person'].filter(
+              (link): link is MissingLink => !!link
+          )
+        : []
+
+    if (!traceId && !sessionId && !distinctId && missing.length === 0) {
         return null
     }
 
@@ -85,6 +96,7 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
                     data-attr={`logs-${surface}-context-recording`}
                 />
             )}
+            {missing.length > 0 && <MissingLinkInvestigate log={log} missing={missing} surface={surface} />}
         </div>
     )
 }
