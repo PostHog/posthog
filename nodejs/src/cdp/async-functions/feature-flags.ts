@@ -9,8 +9,9 @@ import {
 } from '../services/feature-flags/feature-flag-repository'
 
 const DEFAULT_LIMIT = 25
-// Workflow variables share a small size cap, so a long list would be dropped from the variable.
 const MAX_LIMIT = 100
+// All workflow variables together must stay under 5KB, or the step fails. This leaves room for other variables.
+const MAX_RESULT_BYTES = 4096
 
 function optionalString(value: unknown): string | null {
     if (value === null || value === undefined) {
@@ -36,7 +37,7 @@ function daysAgo(days: number | null): Date | null {
     return days === null ? null : DateTime.utc().minus({ days }).toJSDate()
 }
 
-export function parseFeatureFlagListQuery(opts: Record<string, unknown> | undefined): FeatureFlagListQuery {
+function parseFeatureFlagListQuery(opts: Record<string, unknown> | undefined): FeatureFlagListQuery {
     const status = optionalString(opts?.status) ?? 'enabled'
     if (!['any', 'enabled', 'disabled'].includes(status)) {
         throw new Error(`[HogFunction] - postHogGetFeatureFlags 'status' must be any, enabled or disabled`)
@@ -71,6 +72,22 @@ export function parseFeatureFlagListQuery(opts: Record<string, unknown> | undefi
     }
 }
 
+function fitToVariableSizeLimit(result: FeatureFlagListResult): FeatureFlagListResult {
+    const flags = [...result.flags]
+    const build = (): FeatureFlagListResult => ({
+        count: flags.length,
+        keys: flags.map((flag) => flag.key),
+        flags,
+        has_more: result.has_more || flags.length < result.flags.length,
+    })
+    let fitted = build()
+    while (flags.length > 0 && Buffer.byteLength(JSON.stringify(fitted), 'utf8') > MAX_RESULT_BYTES) {
+        flags.pop()
+        fitted = build()
+    }
+    return fitted
+}
+
 registerAsyncFunction('postHogGetFeatureFlags', {
     execute: async (args, context, result) => {
         const [opts] = args as [Record<string, unknown> | undefined]
@@ -82,7 +99,7 @@ registerAsyncFunction('postHogGetFeatureFlags', {
         const team = await context.teamManager.getTeam(context.invocation.teamId)
         const rootTeamId = team?.project_id ?? context.invocation.teamId
 
-        const flags = await context.featureFlagRepository.list(rootTeamId, query)
+        const flags = fitToVariableSizeLimit(await context.featureFlagRepository.list(rootTeamId, query))
 
         // Return value contract: see example.ts.
         result.invocation.state.vmState?.stack.push(flags)
@@ -115,6 +132,7 @@ registerAsyncFunction('postHogGetFeatureFlags', {
                     created_by_email: 'owner@example.com',
                 },
             ],
+            has_more: false,
         }
     },
 })

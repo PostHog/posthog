@@ -37,6 +37,8 @@ export type FeatureFlagListResult = {
     count: number
     keys: string[]
     flags: FeatureFlagSummary[]
+    /** More flags match than the result holds. */
+    has_more: boolean
 }
 
 type FeatureFlagPropertyFilter = {
@@ -66,7 +68,7 @@ type FeatureFlagRow = {
     created_by_email: string | null
 }
 
-// Release-condition matching runs in Node after the query, so the query reads more rows than it returns.
+// The query keeps only flags with a condition on the property. The exact match runs in Node on at most this many rows.
 const TARGETING_SCAN_LIMIT = 1000
 
 function propertyValues(property: FeatureFlagPropertyFilter): string[] {
@@ -124,7 +126,8 @@ export class FeatureFlagRepository {
     public async list(teamId: number, query: FeatureFlagListQuery): Promise<FeatureFlagListResult> {
         const active = query.status === 'any' ? null : query.status === 'enabled'
         const search = query.search ? `%${escapeLikePattern(query.search)}%` : null
-        const scanLimit = query.targeting ? TARGETING_SCAN_LIMIT : query.limit
+        // One extra row tells us whether more flags match than the limit allows.
+        const scanLimit = query.targeting ? TARGETING_SCAN_LIMIT : query.limit + 1
 
         const { rows } = await this.postgres.query<FeatureFlagRow>(
             PostgresUse.COMMON_READ,
@@ -139,9 +142,22 @@ export class FeatureFlagRepository {
                AND ($3::text IS NULL OR flag.key ILIKE $3 OR flag.name ILIKE $3)
                AND ($4::timestamptz IS NULL OR flag.created_at < $4)
                AND ($5::timestamptz IS NULL OR COALESCE(flag.updated_at, flag.created_at) < $5)
+               AND ($7::text IS NULL OR jsonb_path_exists(
+                   flag.filters,
+                   '$.groups[*].properties[*] ? (@.key == $property)',
+                   jsonb_build_object('property', $7::text)
+               ))
              ORDER BY flag.created_at DESC, flag.id DESC
              LIMIT $6`,
-            [teamId, active, search, query.createdBefore, query.updatedBefore, scanLimit],
+            [
+                teamId,
+                active,
+                search,
+                query.createdBefore,
+                query.updatedBefore,
+                scanLimit,
+                query.targeting?.property ?? null,
+            ],
             'listFeatureFlagsForWorkflow'
         )
 
@@ -159,6 +175,11 @@ export class FeatureFlagRepository {
             })
         )
 
-        return { count: flags.length, keys: flags.map((flag) => flag.key), flags }
+        return {
+            count: flags.length,
+            keys: flags.map((flag) => flag.key),
+            flags,
+            has_more: matching.length > query.limit,
+        }
     }
 }

@@ -102,7 +102,8 @@ return postHogGetFeatureFlags({
             secret: false,
             required: false,
             default: 25,
-            description: 'Up to 100. Newest flags come first.',
+            description:
+                'Up to 100. Newest flags come first. A list too large for a workflow variable is cut short, and has_more is true.',
         },
     ],
 }

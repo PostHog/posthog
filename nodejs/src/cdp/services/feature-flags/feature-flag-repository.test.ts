@@ -137,7 +137,7 @@ describe('FeatureFlagRepository', () => {
             await closeHub(hub)
         })
 
-        it.each<[string, Partial<FeatureFlagListQuery>, string[]]>([
+        it.each<[string, Partial<FeatureFlagListQuery>, string[], boolean?]>([
             ['enabled flags by default', {}, ['new-for-everyone', 'old-recently-changed', 'old-project-two']],
             [
                 'any status',
@@ -162,12 +162,39 @@ describe('FeatureFlagRepository', () => {
                 { targeting: { property: 'project_id', value: '2', match: 'only' } },
                 ['old-project-two'],
             ],
-            ['limit', { limit: 1 }, ['new-for-everyone']],
-        ])('returns %s', async (_name, query, expectedKeys) => {
+            ['limit', { limit: 1 }, ['new-for-everyone'], true],
+            [
+                'limit equal to the matches',
+                { limit: 3 },
+                ['new-for-everyone', 'old-recently-changed', 'old-project-two'],
+            ],
+        ])('returns %s', async (_name, query, expectedKeys, expectedHasMore = false) => {
             const result = await repository.list(teamId, { ...baseQuery, ...query })
 
-            expect(result.keys).toEqual(expectedKeys)
-            expect(result.count).toBe(expectedKeys.length)
+            expect(result).toMatchObject({ keys: expectedKeys, count: expectedKeys.length, has_more: expectedHasMore })
+        })
+
+        it('finds an old flag for the release condition behind more than 1000 newer flags', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_featureflag (key, name, filters, active, deleted, team_id, created_at, updated_at)
+                 SELECT 'newer-' || i, 'newer', $2::jsonb, TRUE, FALSE, $1, now() - interval '1 day', now() - interval '1 day'
+                 FROM generate_series(1, 1000) AS i`,
+                [
+                    teamId,
+                    JSON.stringify({
+                        groups: [{ properties: [{ key: 'email', value: ['a@example.com'] }], rollout_percentage: 100 }],
+                    }),
+                ],
+                'insertNewerFlags'
+            )
+
+            const result = await repository.list(teamId, {
+                ...baseQuery,
+                targeting: { property: 'project_id', value: '2', match: 'only' },
+            })
+
+            expect(result.keys).toEqual(['old-project-two'])
         })
 
         it('returns the flag creator email', async () => {
