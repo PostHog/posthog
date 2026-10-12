@@ -43,7 +43,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
-from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.error_telemetry import task_run_failure_category, truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
@@ -3274,6 +3274,7 @@ class TaskRun(models.Model):
             {
                 "error_message": truncate_error_message(error),
                 "error_type": error_type or "unspecified",
+                "failure_category": task_run_failure_category(error_type, self.state),
                 "duration_seconds": self._duration_seconds(),
                 **self.failure_sandbox_backend_properties(),
             },

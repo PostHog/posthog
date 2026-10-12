@@ -397,10 +397,11 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "error_type,expected_error_type",
+        "error_type,expected_error_type,expected_category",
         [
-            ("ActivityError", "ActivityError"),
-            (None, "unspecified"),
+            ("ActivityError", "ActivityError", "platform"),
+            ("SandboxProvisionError", "SandboxProvisionError", "sandbox_provisioning"),
+            (None, "unspecified", "platform"),
         ],
     )
     @pytest.mark.parametrize(
@@ -420,6 +421,7 @@ class TestUpdateTaskRunStatusActivity:
         test_task_run: TaskRun,
         error_type: str | None,
         expected_error_type: str,
+        expected_category: str,
         sandbox_backend: str | None,
         persisted_state: dict[str, str],
         expected_backend: str | None,
@@ -440,6 +442,7 @@ class TestUpdateTaskRunStatusActivity:
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
         assert props["error_type"] == expected_error_type
+        assert props["failure_category"] == expected_category
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
         assert props.get("sandbox_backend") == expected_backend

@@ -55,6 +55,7 @@ import {
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
+import { CredentialRelayError } from "./credential-relay";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -1860,6 +1861,24 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    it.each([
+      [new CredentialRelayError("timeout"), "credential_not_delivered"],
+      [new Error("boom"), undefined],
+    ])(
+      "tags a fatal %s with failure category %s",
+      async (error, expectedCategory) => {
+        const testServer = createFailureTestServer() as unknown as {
+          posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+          reportFatalError(error: unknown): Promise<void>;
+        };
+
+        await testServer.reportFatalError(error);
+
+        const [, , body] = testServer.posthogAPI.updateTaskRun.mock.calls[0];
+        expect(body.state.failure_category).toBe(expectedCategory);
+      },
+    );
+
     const interactivePayload: JwtPayload = {
       run_id: "run-1",
       task_id: "task-1",
@@ -2156,6 +2175,31 @@ describe("AgentServer HTTP Mode", () => {
         expect.objectContaining({
           status: "failed",
           error_message: "upstream_request_rejected: router rejected request",
+        }),
+      );
+    });
+
+    it("reports a gateway user limit as the run failure category", async () => {
+      const testServer = createFailureTestServer();
+
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.internalError(
+          {
+            classification: "upstream_provider_failure",
+            result: `API Error: 429 {"error":{"message":"user limit exceeded: day","code":"user_limit_exceeded"}}`,
+          },
+          "The upstream provider did not complete this request.",
+        ),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          state: expect.objectContaining({ failure_category: "user_limit" }),
         }),
       );
     });
