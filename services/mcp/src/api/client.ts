@@ -935,44 +935,29 @@ export class ApiClient {
                     hidden?: boolean
                 }
             }): Promise<Result<ApiEventDefinition>> => {
-                try {
-                    // Fetching the event definition by name to get its ID
-                    const searchParams = new URLSearchParams({ name: eventName })
-                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+                // Fetching the event definition by name to get its ID
+                const searchParams = new URLSearchParams({ name: eventName })
+                const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
 
-                    const findResponse = await this.fetch(findUrl)
+                const findResult = await this.fetchJson<ApiEventDefinition>(findUrl)
 
-                    if (findResponse.status === 404) {
+                if (!findResult.success) {
+                    if (findResult.error instanceof PostHogApiError && findResult.error.status === 404) {
                         return {
                             success: false,
                             error: new Error(`Event definition not found: ${eventName}`),
                         }
                     }
-
-                    if (!findResponse.ok) {
-                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
-                    }
-
-                    const eventDef = (await findResponse.json()) as ApiEventDefinition
-
-                    // Updating the event definition by ID
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${eventDef.id}/`
-
-                    const updateResponse = await this.fetch(updateUrl, {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    })
-
-                    if (!updateResponse.ok) {
-                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
-                    }
-
-                    const responseData = (await updateResponse.json()) as ApiEventDefinition
-
-                    return { success: true, data: responseData }
-                } catch (error) {
-                    return { success: false, error: error as Error }
+                    return findResult
                 }
+
+                // Updating the event definition by ID
+                const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${findResult.data.id}/`
+
+                return this.fetchJson<ApiEventDefinition>(updateUrl, {
+                    method: 'PATCH',
+                    body: JSON.stringify(data),
+                })
             },
 
             updatePropertyDefinition: async ({
@@ -994,52 +979,37 @@ export class ApiClient {
                     hidden?: boolean
                 }
             }): Promise<Result<ApiPropertyDefinition>> => {
-                try {
-                    // Property definitions have no by-name lookup endpoint, so resolve the id via the
-                    // list endpoint: `properties` does an exact-name match, and `type` disambiguates a
-                    // name that exists across taxonomies (e.g. an event property and a person property).
-                    const findParams = getSearchParamsFromRecord({
-                        properties: propertyName,
-                        type: type ?? 'event',
-                        group_type_index: groupTypeIndex,
-                    })
-                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${findParams}`
+                // Property definitions have no by-name lookup endpoint, so resolve the id via the
+                // list endpoint: `properties` does an exact-name match, and `type` disambiguates a
+                // name that exists across taxonomies (e.g. an event property and a person property).
+                const findParams = getSearchParamsFromRecord({
+                    properties: propertyName,
+                    type: type ?? 'event',
+                    group_type_index: groupTypeIndex,
+                })
+                const findUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${findParams}`
 
-                    const findResponse = await this.fetch(findUrl)
+                const findResult = await this.fetchJson<{ results: ApiPropertyDefinition[] }>(findUrl)
 
-                    if (!findResponse.ok) {
-                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
-                    }
-
-                    const findData = (await findResponse.json()) as { results: ApiPropertyDefinition[] }
-                    const propertyDef = findData.results.find((def) => def.name === propertyName)
-
-                    if (!propertyDef) {
-                        return {
-                            success: false,
-                            error: new Error(
-                                `Property definition not found: ${propertyName} (type: ${type ?? 'event'})`
-                            ),
-                        }
-                    }
-
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${propertyDef.id}/`
-
-                    const updateResponse = await this.fetch(updateUrl, {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    })
-
-                    if (!updateResponse.ok) {
-                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
-                    }
-
-                    const responseData = (await updateResponse.json()) as ApiPropertyDefinition
-
-                    return { success: true, data: responseData }
-                } catch (error) {
-                    return { success: false, error: error as Error }
+                if (!findResult.success) {
+                    return findResult
                 }
+
+                const propertyDef = findResult.data.results.find((def) => def.name === propertyName)
+
+                if (!propertyDef) {
+                    return {
+                        success: false,
+                        error: new Error(`Property definition not found: ${propertyName} (type: ${type ?? 'event'})`),
+                    }
+                }
+
+                const updateUrl = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${propertyDef.id}/`
+
+                return this.fetchJson<ApiPropertyDefinition>(updateUrl, {
+                    method: 'PATCH',
+                    body: JSON.stringify(data),
+                })
             },
 
             updatePathCleaningFilters: async ({

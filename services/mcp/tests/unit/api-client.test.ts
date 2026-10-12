@@ -646,6 +646,41 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
+        it.each([
+            {
+                name: 'event definition',
+                lookup: { id: 'event-id', name: 'test_event' },
+                update: (client: ApiClient) =>
+                    client.projects().updateEventDefinition({
+                        projectId: '17',
+                        eventName: 'test_event',
+                        data: { description: 'Test' },
+                    }),
+            },
+            {
+                name: 'property definition',
+                lookup: { results: [{ id: 'property-id', name: 'test_property' }] },
+                update: (client: ApiClient) =>
+                    client.projects().updatePropertyDefinition({
+                        projectId: '17',
+                        propertyName: 'test_property',
+                        data: { description: 'Test' },
+                    }),
+            },
+        ])('ends a $name update that never answers', async ({ lookup, update }) => {
+            const mockFetch = stubStalledFetch()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(lookup), { status: 200 }))
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(update(client))
+
+            expect(result).toMatchObject({ success: false })
+            const error = (result as { error: unknown }).error
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            expect(error).toMatchObject({ method: 'PATCH', retryable: false, timedOut: true })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
         it('gives a query request more time than the default deadline', async () => {
             stubStalledFetch()
             const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
