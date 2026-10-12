@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { type ChangeEvent, type KeyboardEvent, useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { Input, Text } from '@posthog/quill'
+import { Text, Textarea } from '@posthog/quill'
 
 import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
@@ -101,14 +101,14 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                             <IconX />
                         </TodayActionButton>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <Input
+                    <div className="flex items-end gap-1.5">
+                        <Textarea
                             value={feedbackNoteDraft}
-                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
                                 setFeedbackNoteDraft(event.target.value)
                             }
-                            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-                                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                            onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+                                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                                     event.preventDefault()
                                     sendNote()
                                 }
@@ -116,8 +116,9 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                             placeholder="Your note improves future reports"
                             aria-label="Add a note about this report"
                             maxLength={NOTE_MAX_LENGTH}
+                            rows={2}
                             autoFocus
-                            className="h-9 min-w-0 flex-1"
+                            className="max-h-48 min-h-14! min-w-0 flex-1 resize-none"
                             data-attr="today-report-feedback-note"
                         />
                         {/* Shown only once there is text, so there is never a disabled button to look at. */}

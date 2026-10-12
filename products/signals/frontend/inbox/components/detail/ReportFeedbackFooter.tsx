@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { InboxReportFeedbackSentiment } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -128,19 +128,24 @@ export function ReportFeedbackFooter({
                             data-attr="inbox-report-feedback-question-dismiss"
                         />
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <LemonInput
-                            size="medium"
-                            fullWidth
-                            value={feedbackNoteDraft}
-                            onChange={setFeedbackNoteDraft}
-                            onPressEnter={sendNote}
-                            placeholder="Your note improves future reports"
-                            aria-label="Add a note about this report"
-                            maxLength={FEEDBACK_NOTE_MAX_LENGTH}
-                            autoFocus={askedHere}
-                            data-attr="inbox-report-feedback-note"
-                        />
+                    <div className="flex items-end gap-1.5">
+                        {/* `className` lands on the inner textarea too, so the flex sizing stays on a wrapper. */}
+                        <div className="min-w-0 flex-1">
+                            <LemonTextArea
+                                value={feedbackNoteDraft}
+                                // Capped here rather than with `maxLength`, whose counter footer would
+                                // make the small field a block.
+                                onChange={(value) => setFeedbackNoteDraft(value.slice(0, FEEDBACK_NOTE_MAX_LENGTH))}
+                                onPressEnter={sendNote}
+                                placeholder="Your note improves future reports"
+                                aria-label="Add a note about this report"
+                                minRows={2}
+                                maxRows={8}
+                                autoFocus={askedHere}
+                                className="resize-none"
+                                data-attr="inbox-report-feedback-note"
+                            />
+                        </div>
                         {/* Shown only once there is text, so there is never a disabled button to look at. */}
                         {feedbackNoteDraft.trim() && (
                             <LemonButton
