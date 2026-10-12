@@ -1772,13 +1772,19 @@ describe('Hog Executor', () => {
                 expect(received['authorization']).toMatch(/^AWS4-HMAC-SHA256 .*SignedHeaders=[a-z0-9;-]*x-api-key/)
             })
 
-            it('errors loudly instead of sending the request when the secret headers input is missing', async () => {
+            it.each([
+                ['the secret headers input is missing', undefined],
+                ['a secret header value is not text', { value: { Authorization: 12345 } }],
+            ])('errors loudly instead of sending the request when %s', async (_name, secretHeaders) => {
                 const invocation = await createFetchInvocation({
                     url: `${baseUrl}/`,
                     method: 'POST',
                     body: '{}',
                     secret_headers_input: 'secret_headers',
                 })
+                if (secretHeaders) {
+                    invocation.hogFunction.encrypted_inputs = { secret_headers: secretHeaders } as any
+                }
 
                 const result = await executor.executeFetch(invocation)
 
