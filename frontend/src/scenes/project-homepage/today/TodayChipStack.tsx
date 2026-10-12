@@ -8,8 +8,8 @@ export interface TodayChip {
     icon: JSX.Element
     /** Lifted, because the matching item is hovered elsewhere on the page. */
     active?: boolean
-    onClick?: () => void
-    onHoverChange?: (hovered: boolean) => void
+    onClick: () => void
+    onHoverChange: (hovered: boolean) => void
 }
 
 interface TodayChipStackProps {
@@ -34,8 +34,8 @@ export function TodayChipStack({ chips, dataAttr }: TodayChipStackProps): JSX.El
                             aria-label={`Open ${chip.label}`}
                             data-attr={dataAttr}
                             onClick={chip.onClick}
-                            onMouseEnter={() => chip.onHoverChange?.(true)}
-                            onMouseLeave={() => chip.onHoverChange?.(false)}
+                            onMouseEnter={() => chip.onHoverChange(true)}
+                            onMouseLeave={() => chip.onHoverChange(false)}
                         />
                     }
                 >

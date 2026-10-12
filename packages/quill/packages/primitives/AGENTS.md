@@ -634,6 +634,23 @@ The arrow inherits the popup's border and background, so restyling the popover c
 </Tooltip>
 ```
 
+For a row of icon buttons, share one tooltip across them so it slides from trigger to trigger instead of closing and reopening. Create a handle with `createTooltipHandle`, pass it and a `payload` to each `TooltipTrigger`, and render one `Tooltip` with the same handle that reads the payload:
+
+```tsx
+const [tooltip] = React.useState(() => createTooltipHandle<string>())
+
+<TooltipProvider>
+  {items.map((item) => (
+    <TooltipTrigger key={item.key} handle={tooltip} payload={item.label} render={<Button size="icon" aria-label={item.label} />}>
+      {item.icon}
+    </TooltipTrigger>
+  ))}
+  <Tooltip handle={tooltip}>{({ payload }) => <TooltipContent>{payload}</TooltipContent>}</Tooltip>
+</TooltipProvider>
+```
+
+On React 18, put the trigger inside a component's `render` (`<IconStackItem render={<TooltipTrigger … />} />`), not the other way round, because the trigger needs a ref that a plain function component drops.
+
 ### Radio Group
 
 ```tsx
@@ -720,6 +737,7 @@ When the stack sits on a surface other than the app background, set `--quill-ico
 
 Outside an Empty, the same stack can trail a line of text for the items the line is about.
 Tiles are decorative by default; `render={<button aria-label="…" />}` makes one clickable, and `active` lifts it while its item is hovered elsewhere.
+For tooltips on the tiles, use one shared tooltip (see Tooltip) so it slides between them: `render={<TooltipTrigger handle={tooltip} payload={label} render={<button aria-label={label} />} />}`.
 
 ### Item List
 

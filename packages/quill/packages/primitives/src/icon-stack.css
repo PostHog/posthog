@@ -36,9 +36,13 @@
         --icon-stack-tilt: 3deg;
     }
 
-    .quill-icon-stack__slot:has(> [data-active]) {
+    /* Only the tile lifts. Its slot holds still, so the hover stays at the tile's resting edge. */
+    .quill-icon-stack__slot:is(:has(> [data-active]), :hover:has(> :is(a, button))) {
         z-index: 20;
-        transform: translateX(var(--icon-stack-x)) translateY(-4px) rotate(-8deg) scale(1.08);
+    }
+
+    .quill-icon-stack__slot:is(:has(> [data-active]), :hover:has(> :is(a, button))) > .quill-icon-stack__item {
+        transform: translateY(-4px) rotate(calc(-6deg - var(--icon-stack-tilt))) scale(1.08);
     }
 
     /* The ring defaults to the app background. Set `--quill-icon-stack-ring` when the stack
@@ -56,6 +60,7 @@
         border: 3px solid var(--quill-icon-stack-ring, var(--background));
         border-radius: 0.5rem;
         box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 14%, transparent);
+        transition: transform 180ms cubic-bezier(0.645, 0.045, 0.355, 1);
     }
 
     /* A product color is mid-tone in both themes, so its glyph stays white. */
@@ -80,16 +85,11 @@
             --icon-stack-x: calc(var(--icon-stack-index) * var(--icon-stack-spread) + var(--icon-stack-shift));
             --icon-stack-tilt: 0deg;
         }
-
-        /* An interactive tile lifts under the pointer. */
-        .quill-icon-stack:hover .quill-icon-stack__slot:has(> :is(a, button):hover) {
-            z-index: 20;
-            transform: translateX(var(--icon-stack-x)) translateY(-4px) rotate(-6deg) scale(1.08);
-        }
     }
 
     @media (prefers-reduced-motion: reduce) {
-        .quill-icon-stack__slot {
+        .quill-icon-stack__slot,
+        .quill-icon-stack__item {
             transition: none;
         }
     }

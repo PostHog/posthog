@@ -1,8 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { Folder, LayoutDashboard, NotebookText, Palette } from 'lucide-react'
+import * as React from 'react'
 
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './empty'
 import { IconStack, IconStackItem } from './icon-stack'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 
 const meta: Meta<typeof IconStack> = {
     title: 'Primitives/IconStack',
@@ -50,27 +52,104 @@ export const InEmpty: Story = {
     },
 }
 
+const ITEMS = [
+    { key: 'canvas', label: 'Open the canvas', color: '#7c3aed', icon: <Palette /> },
+    { key: 'notebook', label: 'Open the notebook', color: '#ef4444', icon: <NotebookText /> },
+    { key: 'dashboard', label: 'Open the dashboard', color: '#ff8b07', icon: <LayoutDashboard /> },
+    { key: 'folder', label: 'Open the folder', icon: <Folder /> },
+]
+
 export const Interactive: Story = {
     render: () => {
         return (
             <p className="text-sm">
-                Three things need you today{' '}
+                Four things need you today{' '}
                 <IconStack className="ml-2 align-middle">
-                    <IconStackItem color="#7c3aed" render={<button type="button" aria-label="Open the canvas" />}>
-                        <Palette />
-                    </IconStackItem>
-                    <IconStackItem
-                        color="#ef4444"
-                        active
-                        render={<button type="button" aria-label="Open the notebook" />}
-                    >
-                        <NotebookText />
-                    </IconStackItem>
-                    <IconStackItem color="#ff8b07" render={<button type="button" aria-label="Open the dashboard" />}>
-                        <LayoutDashboard />
-                    </IconStackItem>
+                    {ITEMS.map((item) => (
+                        <IconStackItem
+                            key={item.key}
+                            color={item.color}
+                            render={<button type="button" aria-label={item.label} />}
+                        >
+                            {item.icon}
+                        </IconStackItem>
+                    ))}
                 </IconStack>
             </p>
         )
     },
+}
+
+function ActiveOnHoverStory(): React.ReactElement {
+    const [hoveredKey, setHoveredKey] = React.useState<string | null>(null)
+    return (
+        <div className="flex flex-col gap-4 text-sm">
+            <p>
+                Four things need you today{' '}
+                <IconStack className="ml-2 align-middle">
+                    {ITEMS.map((item) => (
+                        <IconStackItem
+                            key={item.key}
+                            color={item.color}
+                            active={hoveredKey === item.key}
+                            render={<button type="button" aria-label={item.label} />}
+                        >
+                            {item.icon}
+                        </IconStackItem>
+                    ))}
+                </IconStack>
+            </p>
+            <ul className="flex flex-col gap-1">
+                {ITEMS.map((item) => (
+                    <li
+                        key={item.key}
+                        className="w-fit cursor-default rounded px-2 py-1 hover:bg-muted"
+                        onMouseEnter={() => setHoveredKey(item.key)}
+                        onMouseLeave={() => setHoveredKey(null)}
+                    >
+                        {item.label}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    )
+}
+
+/** Hover a row to make its tile `active`, the way the Today briefing links its text to its chips. */
+export const ActiveOnHover: Story = {
+    render: () => <ActiveOnHoverStory />,
+}
+
+function WithTooltipsStory(): React.ReactElement {
+    const [tooltip] = React.useState(() => createTooltipHandle<string>())
+    return (
+        <TooltipProvider>
+            <p className="text-sm">
+                Four things need you today{' '}
+                <IconStack className="ml-2 align-middle">
+                    {ITEMS.map((item) => (
+                        <IconStackItem
+                            key={item.key}
+                            color={item.color}
+                            render={
+                                <TooltipTrigger
+                                    handle={tooltip}
+                                    payload={item.label}
+                                    render={<button type="button" aria-label={item.label} />}
+                                />
+                            }
+                        >
+                            {item.icon}
+                        </IconStackItem>
+                    ))}
+                </IconStack>
+            </p>
+            <Tooltip handle={tooltip}>{({ payload }) => <TooltipContent>{payload}</TooltipContent>}</Tooltip>
+        </TooltipProvider>
+    )
+}
+
+/** One tooltip shared through a handle, so it slides from tile to tile instead of closing and reopening. */
+export const WithTooltips: Story = {
+    render: () => <WithTooltipsStory />,
 }
