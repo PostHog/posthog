@@ -66,7 +66,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         tab: props.tab || 'workflow',
     }
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
-    const { currentTab } = useValues(sceneLogic)
+    const { currentTab, hasBeenActive } = useValues(sceneLogic)
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -169,7 +169,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
         // Batch workflows report per run, so a rolling overview does not fit them.
-        overviewTabEnabled && originalWorkflow.trigger?.type !== 'batch'
+        overviewTabEnabled &&
+        originalWorkflow.trigger?.type !== 'batch' &&
+        (originalWorkflow.status === 'active' || hasBeenActive)
             ? {
                   label: 'Overview',
                   key: 'overview',
