@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Seven assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Nine assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -10,6 +10,7 @@ Seven assets on one daily partition, each writing Parquet under the configured S
     inbox_report_title_embeddings/v1/dt=D/  the same shape, for the title-only rendering
     inbox_report_reviewers/v1/dt=D/         one row per suggested reviewer of each spine report
     inbox_user_report_interactions/v1/dt=D/ cumulative interactions at (report, person) grain
+    inbox_project_vectors/v1/dt=D/          per-team mean report vectors of past engagement, by kind
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
@@ -17,7 +18,8 @@ is a report-grain leaf: nothing joins it, and the training side pairs it to inbo
 by report_id when it measures one rendering against the other. inbox_report_reviewers is a
 (report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
-leaf with its own schema version, so nothing joins it either.
+leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
+(team, kind) leaf with its own schema version, built from the embeddings and labels snapshots.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -64,6 +66,7 @@ from django.db.models import Count, Min
 
 import dagster
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
@@ -117,6 +120,14 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    EMBEDDING_COLUMNS,
+    LABEL_COLUMNS,
+    MIN_HISTORY_REPORTS,
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    VECTOR_KINDS,
+    project_vectors,
+)
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
@@ -154,6 +165,7 @@ MODEL_DATA_TABLE = "inbox_report_model_data"
 SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
 REVIEWERS_TABLE = "inbox_report_reviewers"
 USER_INTERACTIONS_TABLE = "inbox_user_report_interactions"
+PROJECT_VECTORS_TABLE = "inbox_project_vectors"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
@@ -1335,6 +1347,58 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
     )
 
 
+@dagster.asset(
+    name=PROJECT_VECTORS_TABLE,
+    # Read after the embeddings snapshot has finished, so its vectors and the snapshot query's do
+    # not share the run pod's memory. Nothing joins this asset, so its failure does not fail the
+    # training table.
+    deps=[EMBEDDINGS_TABLE, LABELS_TABLE],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
+    """Per-team context vectors as of the partition end, for a report born on the next day."""
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    bucket = dataset_bucket()
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = s3_client()
+
+    embeddings = read_parquet(
+        client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key), list(EMBEDDING_COLUMNS)
+    )
+    # The snapshot was filtered when it was written. Filter it again, so an opt-out since then counts.
+    consent_team_ids = training_consent_team_ids()
+    consented = embeddings.filter(
+        pc.is_in(embeddings.column("report_team_id"), value_set=pa.array(sorted(consent_team_ids), type=pa.int64()))
+    )
+    excluded_reports = embeddings.num_rows - consented.num_rows
+    del embeddings
+    labels = read_parquet(
+        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+    )
+    table = project_vectors(labels, consented, snapshot_end)
+
+    key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
+    write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
+    counts = table.select(["kind", "n_reports"]).to_pylist()
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
+            **{
+                f"teams_with_{kind}_history": dagster.MetadataValue.int(
+                    sum(1 for row in counts if row["kind"] == kind and row["n_reports"] >= MIN_HISTORY_REPORTS)
+                )
+                for kind in VECTOR_KINDS
+            },
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded_reports),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
 def label_provenance_ok(
     pg_status: str | None,
     pg_updated_at: datetime.datetime | None,
@@ -1501,6 +1565,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         TITLE_EMBEDDINGS_TABLE,
         REVIEWERS_TABLE,
         USER_INTERACTIONS_TABLE,
+        PROJECT_VECTORS_TABLE,
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
