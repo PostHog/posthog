@@ -38,11 +38,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HightouchSource(ResumableSource[HightouchSourceConfig, HightouchResumeConfig]):
     codebase_detection = detect(
+        env=("^HIGHTOUCH_",),
+        script_hosts=("cdn.hightouch-events.com",),
         npm=("@ht-sdks/events-sdk-js-browser", "@ht-sdks/events-sdk-js-node", "@ht-sdks/events-sdk-react-native"),
         pypi=("events-sdk-python",),
         go=("github.com/ht-sdks/events-sdk-go",),
-        env=("^HIGHTOUCH_",),
-        script_hosts=("cdn.hightouch-events.com",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -41,12 +41,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTrailResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-cloudtrail",),
-        rubygems=("aws-sdk-cloudtrail",),
-        go=("github.com/aws/aws-sdk-go-v2/service/cloudtrail",),
-        cargo=("aws-sdk-cloudtrail",),
-        maven=("software.amazon.awssdk:cloudtrail", "com.amazonaws:aws-java-sdk-cloudtrail"),
         env=("^(AWS_CLOUD_TRAIL|AWSCLOUDTRAIL)_",),
+        npm=("@aws-sdk/client-cloudtrail",),
+        cargo=("aws-sdk-cloudtrail",),
+        go=("github.com/aws/aws-sdk-go-v2/service/cloudtrail",),
+        maven=("software.amazon.awssdk:cloudtrail", "com.amazonaws:aws-java-sdk-cloudtrail"),
+        rubygems=("aws-sdk-cloudtrail",),
     )
 
     lists_tables_without_credentials = True

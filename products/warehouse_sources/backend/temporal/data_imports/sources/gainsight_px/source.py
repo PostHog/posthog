@@ -37,9 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResumeConfig]):
     codebase_detection = detect(
-        maven=("com.gainsight.px:mobile-sdk",),
         env=("^(GAINSIGHT_PX|GAINSIGHTPX)_",),
         script_hosts=("web-sdk.aptrinsic.com",),
+        maven=("com.gainsight.px:mobile-sdk",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

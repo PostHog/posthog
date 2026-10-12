@@ -43,17 +43,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
     codebase_detection = detect(
+        env=("^(AWS_WAF|AWSWAF)_",),
         npm=("@aws-sdk/client-wafv2", "@aws-sdk/client-waf"),
-        rubygems=("aws-sdk-wafv2", "aws-sdk-waf"),
-        go=("github.com/aws/aws-sdk-go-v2/service/wafv2", "github.com/aws/aws-sdk-go-v2/service/waf"),
         cargo=("aws-sdk-wafv2", "aws-sdk-waf"),
+        go=("github.com/aws/aws-sdk-go-v2/service/wafv2", "github.com/aws/aws-sdk-go-v2/service/waf"),
         maven=(
             "software.amazon.awssdk:wafv2",
             "software.amazon.awssdk:waf",
             "com.amazonaws:aws-java-sdk-wafv2",
             "com.amazonaws:aws-java-sdk-waf",
         ),
-        env=("^(AWS_WAF|AWSWAF)_",),
+        rubygems=("aws-sdk-wafv2", "aws-sdk-waf"),
     )
 
     lists_tables_without_credentials = True

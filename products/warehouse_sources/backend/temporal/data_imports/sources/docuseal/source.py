@@ -36,12 +36,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DocusealSource(ResumableSource[DocusealSourceConfig, DocusealResumeConfig]):
     codebase_detection = detect(
-        npm=("@docuseal/api", "@docuseal/react", "@docuseal/vue", "@docuseal/angular"),
-        pypi=("docuseal",),
-        rubygems=("docuseal",),
-        composer=("docusealco/docuseal-php",),
         env=("^DOCUSEAL_",),
         script_hosts=("cdn.docuseal.com", "cdn.docuseal.co"),
+        npm=("@docuseal/api", "@docuseal/react", "@docuseal/vue", "@docuseal/angular"),
+        pypi=("docuseal",),
+        composer=("docusealco/docuseal-php",),
+        rubygems=("docuseal",),
     )
 
     api_docs_url = "https://www.docuseal.com/docs/api"

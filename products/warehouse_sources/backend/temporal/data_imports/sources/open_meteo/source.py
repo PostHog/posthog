@@ -49,10 +49,10 @@ Free use is licensed CC BY 4.0 and requires attribution to Open-Meteo."""
 @SourceRegistry.register
 class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConfig]):
     codebase_detection = detect(
+        env=("^(OPEN_METEO|OPENMETEO)_",),
         npm=("openmeteo",),
         pypi=("openmeteo-requests", "openmeteo-sdk"),
         swiftpm=("github.com/open-meteo/sdk",),
-        env=("^(OPEN_METEO|OPENMETEO)_",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs

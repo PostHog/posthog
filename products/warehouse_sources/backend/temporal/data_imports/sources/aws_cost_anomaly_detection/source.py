@@ -41,12 +41,12 @@ class AwsCostAnomalyDetectionSource(
     ResumableSource[AwsCostAnomalyDetectionSourceConfig, AwsCostAnomalyDetectionResumeConfig]
 ):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-cost-explorer",),
-        rubygems=("aws-sdk-costexplorer",),
-        go=("github.com/aws/aws-sdk-go-v2/service/costexplorer",),
-        cargo=("aws-sdk-costexplorer",),
-        maven=("software.amazon.awssdk:costexplorer", "com.amazonaws:aws-java-sdk-costexplorer"),
         env=("^(AWS_COST_ANOMALY_DETECTION|AWSCOSTANOMALYDETECTION)_",),
+        npm=("@aws-sdk/client-cost-explorer",),
+        cargo=("aws-sdk-costexplorer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/costexplorer",),
+        maven=("software.amazon.awssdk:costexplorer", "com.amazonaws:aws-java-sdk-costexplorer"),
+        rubygems=("aws-sdk-costexplorer",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs

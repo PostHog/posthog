@@ -35,12 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DropboxSignSource(ResumableSource[DropboxSignSourceConfig, DropboxSignResumeConfig]):
     codebase_detection = detect(
+        env=("^(DROPBOX_SIGN|DROPBOXSIGN)_",),
         npm=("@dropbox/sign", "hellosign-embedded", "hellosign-sdk"),
         pypi=("dropbox-sign", "hellosign-python-sdk"),
-        rubygems=("dropbox-sign",),
         composer=("dropbox/sign",),
         maven=("com.dropbox.sign:dropbox-sign",),
-        env=("^(DROPBOX_SIGN|DROPBOXSIGN)_",),
+        rubygems=("dropbox-sign",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

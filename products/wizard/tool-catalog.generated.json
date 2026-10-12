@@ -2633,6 +2633,53 @@
             }
         },
         {
+            "kind": "Clerk",
+            "label": "Clerk",
+            "warehouse_source_type": "Clerk",
+            "wizard_setup_mode": "in-cli",
+            "competes_with": [],
+            "superseded_by": [],
+            "signals": {
+                "env_key_patterns": [
+                    "^CLERK_SECRET_KEY$",
+                    "^NEXT_PUBLIC_CLERK_",
+                    "^CLERK_PUBLISHABLE_KEY$",
+                    "^CLERK_WEBHOOK_SIGNING_SECRET$",
+                    "^CLERK_ENCRYPTION_KEY$",
+                    "^VITE_CLERK_",
+                    "^EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY$",
+                    "^PUBLIC_CLERK_PUBLISHABLE_KEY$"
+                ],
+                "script_hosts": [],
+                "packages": {
+                    "npm": [
+                        "@clerk/nextjs",
+                        "@clerk/clerk-react",
+                        "@clerk/backend",
+                        "@clerk/express",
+                        "@clerk/fastify",
+                        "@clerk/remix",
+                        "@clerk/react",
+                        "@clerk/clerk-js",
+                        "@clerk/astro",
+                        "@clerk/vue",
+                        "@clerk/nuxt",
+                        "@clerk/react-router",
+                        "@clerk/tanstack-react-start",
+                        "@clerk/expo",
+                        "@clerk/clerk-expo",
+                        "@clerk/chrome-extension",
+                        "@clerk/clerk-sdk-node"
+                    ],
+                    "pypi": ["clerk-backend-api"],
+                    "go": ["github.com/clerk/clerk-sdk-go"],
+                    "pub": ["clerk_flutter"],
+                    "rubygems": ["clerk-sdk-ruby"],
+                    "swiftpm": ["github.com/clerk/clerk-ios"]
+                }
+            }
+        },
+        {
             "kind": "Clever",
             "label": "Clever",
             "warehouse_source_type": "Clever",

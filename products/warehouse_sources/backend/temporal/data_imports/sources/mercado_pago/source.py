@@ -38,14 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MercadoPagoSource(ResumableSource[MercadoPagoSourceConfig, MercadoPagoResumeConfig]):
     codebase_detection = detect(
+        env=("^(MERCADO_PAGO|MERCADOPAGO)_",),
+        script_hosts=("sdk.mercadopago.com",),
         npm=("mercadopago", "@mercadopago/sdk-react", "@mercadopago/sdk-js"),
         pypi=("mercadopago",),
-        rubygems=("mercadopago-sdk",),
         composer=("mercadopago/dx-php",),
         go=("github.com/mercadopago/sdk-go",),
         maven=("com.mercadopago:sdk-java",),
-        env=("^(MERCADO_PAGO|MERCADOPAGO)_",),
-        script_hosts=("sdk.mercadopago.com",),
+        rubygems=("mercadopago-sdk",),
     )
 
     lists_tables_without_credentials = True

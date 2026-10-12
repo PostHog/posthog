@@ -33,9 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KapaAISource(ResumableSource[KapaAISourceConfig, KapaResumeConfig]):
     codebase_detection = detect(
-        npm=("@kapaai/react-sdk", "@kapaai/agent-react", "@kapaai/agent-core"),
         env=("^(KAPA_AI|KAPAAI)_",),
         script_hosts=("widget.kapa.ai",),
+        npm=("@kapaai/react-sdk", "@kapaai/agent-react", "@kapaai/agent-core"),
     )
 
     lists_tables_without_credentials = True

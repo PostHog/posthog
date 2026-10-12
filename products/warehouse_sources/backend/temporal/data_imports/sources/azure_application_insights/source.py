@@ -52,6 +52,12 @@ class AzureApplicationInsightsSource(
     ResumableSource[AzureApplicationInsightsSourceConfig, AzureApplicationInsightsResumeConfig]
 ):
     codebase_detection = detect(
+        env=(
+            "^(AZURE_APPLICATION_INSIGHTS|AZUREAPPLICATIONINSIGHTS)_",
+            "^APPLICATIONINSIGHTS_",
+            "^APPINSIGHTS_INSTRUMENTATIONKEY$",
+        ),
+        script_hosts=("js.monitor.azure.com", "az416426.vo.msecnd.net"),
         npm=(
             "applicationinsights",
             "@microsoft/applicationinsights-web",
@@ -65,7 +71,6 @@ class AzureApplicationInsightsSource(
             "opencensus-ext-azure",
             "applicationinsights",
         ),
-        rubygems=("application_insights",),
         go=("github.com/microsoft/ApplicationInsights-Go",),
         maven=(
             "com.microsoft.azure:applicationinsights-core",
@@ -75,12 +80,7 @@ class AzureApplicationInsightsSource(
             "com.azure:azure-monitor-opentelemetry-exporter",
             "com.azure:azure-monitor-opentelemetry-autoconfigure",
         ),
-        env=(
-            "^(AZURE_APPLICATION_INSIGHTS|AZUREAPPLICATIONINSIGHTS)_",
-            "^APPLICATIONINSIGHTS_",
-            "^APPINSIGHTS_INSTRUMENTATIONKEY$",
-        ),
-        script_hosts=("js.monitor.azure.com", "az416426.vo.msecnd.net"),
+        rubygems=("application_insights",),
     )
 
     supported_versions = ("v1",)

@@ -37,12 +37,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BraintrustSource(ResumableSource[BraintrustSourceConfig, BraintrustResumeConfig]):
     codebase_detection = detect(
+        env=("^BRAINTRUST_",),
         npm=("braintrust", "autoevals"),
         pypi=("braintrust", "autoevals"),
-        rubygems=("braintrust",),
         go=("github.com/braintrustdata/braintrust-sdk-go", "github.com/braintrustdata/braintrust-go"),
         maven=("dev.braintrust:braintrust-sdk-java",),
-        env=("^BRAINTRUST_",),
+        rubygems=("braintrust",),
     )
 
     lists_tables_without_credentials = True

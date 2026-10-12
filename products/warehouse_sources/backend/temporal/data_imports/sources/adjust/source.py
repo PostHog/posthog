@@ -40,12 +40,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
     codebase_detection = detect(
-        npm=("@adjustcom/adjust-web-sdk", "react-native-adjust"),
-        maven=("com.adjust.sdk:adjust-android",),
-        swiftpm=("github.com/adjust/ios_sdk",),
-        cocoapods=("Adjust",),
-        pub=("adjust_sdk",),
         script_hosts=("cdn.adjust.com",),
+        npm=("@adjustcom/adjust-web-sdk", "react-native-adjust"),
+        cocoapods=("Adjust",),
+        maven=("com.adjust.sdk:adjust-android",),
+        pub=("adjust_sdk",),
+        swiftpm=("github.com/adjust/ios_sdk",),
     )
 
     # The Report Service API carries no version token in its path, headers, or params, so there is

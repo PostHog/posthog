@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ApifyDatasetSource(ResumableSource[ApifyDatasetSourceConfig, ApifyResumeConfig]):
-    codebase_detection = detect(npm=("apify-client", "apify"), pypi=("apify-client", "apify"), env=("^APIFY_",))
+    codebase_detection = detect(env=("^APIFY_",), npm=("apify-client", "apify"), pypi=("apify-client", "apify"))
 
     supported_versions = ("v2",)
     default_version = "v2"

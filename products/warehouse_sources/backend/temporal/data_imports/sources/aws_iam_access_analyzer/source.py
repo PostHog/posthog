@@ -43,12 +43,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfig, AwsIamAccessAnalyzerResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-accessanalyzer",),
-        rubygems=("aws-sdk-accessanalyzer",),
-        go=("github.com/aws/aws-sdk-go-v2/service/accessanalyzer",),
-        cargo=("aws-sdk-accessanalyzer",),
-        maven=("software.amazon.awssdk:accessanalyzer", "com.amazonaws:aws-java-sdk-accessanalyzer"),
         env=("^(AWS_IAM_ACCESS_ANALYZER|AWSIAMACCESSANALYZER)_",),
+        npm=("@aws-sdk/client-accessanalyzer",),
+        cargo=("aws-sdk-accessanalyzer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/accessanalyzer",),
+        maven=("software.amazon.awssdk:accessanalyzer", "com.amazonaws:aws-java-sdk-accessanalyzer"),
+        rubygems=("aws-sdk-accessanalyzer",),
     )
 
     lists_tables_without_credentials = True

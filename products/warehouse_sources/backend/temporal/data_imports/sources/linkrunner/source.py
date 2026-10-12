@@ -35,13 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LinkrunnerSource(ResumableSource[LinkrunnerSourceConfig, LinkrunnerResumeConfig]):
     codebase_detection = detect(
-        npm=("rn-linkrunner", "@linkrunner/web", "capacitor-linkrunner", "cordova-linkrunner", "expo-linkrunner"),
-        maven=("io.linkrunner:android-sdk",),
-        swiftpm=("github.com/linkrunner-labs/linkrunner-ios",),
-        cocoapods=("LinkrunnerKit",),
-        pub=("linkrunner",),
         env=("^LINKRUNNER_",),
         script_hosts=("cdn.linkrunner.io",),
+        npm=("rn-linkrunner", "@linkrunner/web", "capacitor-linkrunner", "cordova-linkrunner", "expo-linkrunner"),
+        cocoapods=("LinkrunnerKit",),
+        maven=("io.linkrunner:android-sdk",),
+        pub=("linkrunner",),
+        swiftpm=("github.com/linkrunner-labs/linkrunner-ios",),
     )
 
     api_docs_url = "https://docs.linkrunner.io/api-reference/campaign-apis"

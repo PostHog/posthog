@@ -50,11 +50,11 @@ if TYPE_CHECKING:
 @SourceRegistry.register
 class FintocSource(ResumableSource[FintocSourceConfig, FintocResumeState], WebhookSource[FintocSourceConfig]):
     codebase_detection = detect(
+        env=("^FINTOC_",),
+        script_hosts=("js.fintoc.com",),
         npm=("fintoc", "@fintoc/fintoc-js"),
         pypi=("fintoc",),
         rubygems=("fintoc",),
-        env=("^FINTOC_",),
-        script_hosts=("js.fintoc.com",),
     )
 
     lists_tables_without_credentials = True

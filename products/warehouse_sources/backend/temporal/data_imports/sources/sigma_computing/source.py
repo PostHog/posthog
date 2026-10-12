@@ -56,8 +56,8 @@ REGION_OPTIONS = [
 @SourceRegistry.register
 class SigmaComputingSource(ResumableSource[SigmaComputingSourceConfig, SigmaComputingResumeConfig]):
     codebase_detection = detect(
-        npm=("@sigmacomputing/embed-sdk", "@sigmacomputing/react-embed-sdk"),
         env=("^(SIGMA_COMPUTING|SIGMACOMPUTING)_",),
+        npm=("@sigmacomputing/embed-sdk", "@sigmacomputing/react-embed-sdk"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResumeConfig]):
-    codebase_detection = detect(pypi=("pygitguardian", "ggshield"), env=("^GITGUARDIAN_",))
+    codebase_detection = detect(env=("^GITGUARDIAN_",), pypi=("pygitguardian", "ggshield"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

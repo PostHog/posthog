@@ -42,12 +42,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConfig]):
     codebase_detection = detect(
+        env=("^METRONOME_BEARER_TOKEN$",),
         npm=("@metronome/sdk",),
         pypi=("metronome-sdk",),
-        rubygems=("metronome-sdk",),
         go=("github.com/Metronome-Industries/metronome-go",),
         maven=("com.metronome.api:metronome-java",),
-        env=("^METRONOME_BEARER_TOKEN$",),
+        rubygems=("metronome-sdk",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

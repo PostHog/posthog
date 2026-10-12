@@ -37,9 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
     codebase_detection = detect(
+        env=("^AUTUMN_SECRET_KEY$",),
         npm=("autumn-js", "atmn", "@useautumn/convex", "@useautumn/gateway"),
         pypi=("autumn-py",),
-        env=("^AUTUMN_SECRET_KEY$",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

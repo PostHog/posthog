@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SimFinSource(SimpleSource[SimFinSourceConfig]):
-    codebase_detection = detect(pypi=("simfin",), env=("^(SIM_FIN|SIMFIN)_",))
+    codebase_detection = detect(env=("^(SIM_FIN|SIMFIN)_",), pypi=("simfin",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

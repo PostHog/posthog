@@ -44,12 +44,12 @@ if TYPE_CHECKING:
 @SourceRegistry.register
 class PineconeSource(ResumableSource[PineconeSourceConfig, PineconeResumeConfig]):
     codebase_detection = detect(
+        env=("^PINECONE_",),
         npm=("@pinecone-database/pinecone",),
         pypi=("pinecone", "pinecone-client"),
-        go=("github.com/pinecone-io/go-pinecone",),
         cargo=("pinecone-sdk",),
+        go=("github.com/pinecone-io/go-pinecone",),
         maven=("io.pinecone:pinecone-client",),
-        env=("^PINECONE_",),
     )
 
     lists_tables_without_credentials = True

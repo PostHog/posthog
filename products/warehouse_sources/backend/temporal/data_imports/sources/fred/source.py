@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FredSource(ResumableSource[FredSourceConfig, FredResumeConfig]):
-    codebase_detection = detect(pypi=("fredapi",), env=("^FRED_API_KEY$",))
+    codebase_detection = detect(env=("^FRED_API_KEY$",), pypi=("fredapi",))
 
     api_docs_url = "https://fred.stlouisfed.org/docs/api/fred/"
 

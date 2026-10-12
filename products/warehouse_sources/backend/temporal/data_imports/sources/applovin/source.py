@@ -40,12 +40,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AppLovinSource(ResumableSource[AppLovinSourceConfig, AppLovinResumeConfig]):
     codebase_detection = detect(
-        npm=("react-native-applovin-max",),
-        maven=("com.applovin:applovin-sdk",),
-        swiftpm=("github.com/applovin/applovin-max-swift-package",),
-        cocoapods=("AppLovinSDK",),
-        pub=("applovin_max",),
         env=("^(APP_LOVIN|APPLOVIN)_",),
+        npm=("react-native-applovin-max",),
+        cocoapods=("AppLovinSDK",),
+        maven=("com.applovin:applovin-sdk",),
+        pub=("applovin_max",),
+        swiftpm=("github.com/applovin/applovin-max-swift-package",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs

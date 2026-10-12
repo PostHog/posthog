@@ -33,9 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
     codebase_detection = detect(
+        env=("^OMNI_API_TOKEN$", "^OMNI_API_KEY$", "^OMNI_BASE_URL$", "^OMNI_URL$"),
         npm=("@omni-co/embed",),
         pypi=("omni-python-sdk",),
-        env=("^OMNI_API_TOKEN$", "^OMNI_API_KEY$", "^OMNI_BASE_URL$", "^OMNI_URL$"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

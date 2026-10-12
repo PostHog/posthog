@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CortexSource(SimpleSource[CortexSourceConfig]):
-    codebase_detection = detect(pypi=("cortexapps-cli",), env=("^CORTEX_API_KEY$", "^CORTEX_BASE_URL$"))
+    codebase_detection = detect(env=("^CORTEX_API_KEY$", "^CORTEX_BASE_URL$"), pypi=("cortexapps-cli",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.

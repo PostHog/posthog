@@ -39,12 +39,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
+        env=("^JENKINS_",),
         npm=("jenkins",),
         pypi=("python-jenkins", "api4jenkins"),
-        rubygems=("jenkins_api_client",),
         go=("github.com/bndr/gojenkins",),
         maven=("com.offbytwo.jenkins:jenkins-client",),
-        env=("^JENKINS_",),
+        rubygems=("jenkins_api_client",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

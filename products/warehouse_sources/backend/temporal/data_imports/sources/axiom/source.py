@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
     codebase_detection = detect(
+        env=("^AXIOM_", "^NEXT_PUBLIC_AXIOM_"),
         npm=(
             "@axiomhq/js",
             "@axiomhq/winston",
@@ -50,9 +51,8 @@ class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
             "@axiomhq/ai",
         ),
         pypi=("axiom-py",),
-        go=("github.com/axiomhq/axiom-go",),
         cargo=("axiom-rs",),
-        env=("^AXIOM_", "^NEXT_PUBLIC_AXIOM_"),
+        go=("github.com/axiomhq/axiom-go",),
     )
 
     lists_tables_without_credentials = True

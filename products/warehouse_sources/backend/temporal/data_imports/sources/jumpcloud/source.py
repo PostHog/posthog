@@ -47,7 +47,7 @@ def _schema_description(endpoint: str) -> str | None:
 
 @SourceRegistry.register
 class JumpcloudSource(ResumableSource[JumpcloudSourceConfig, JumpcloudResumeConfig]):
-    codebase_detection = detect(rubygems=("jumpcloud",), go=("github.com/TheJumpCloud/jcapi-go",), env=("^JUMPCLOUD_",))
+    codebase_detection = detect(env=("^JUMPCLOUD_",), go=("github.com/TheJumpCloud/jcapi-go",), rubygems=("jumpcloud",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

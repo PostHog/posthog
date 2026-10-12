@@ -39,12 +39,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsStepFunctionsResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-sfn",),
-        rubygems=("aws-sdk-states",),
-        go=("github.com/aws/aws-sdk-go-v2/service/sfn",),
-        cargo=("aws-sdk-sfn",),
-        maven=("software.amazon.awssdk:sfn", "com.amazonaws:aws-java-sdk-stepfunctions"),
         env=("^(AWS_STEP_FUNCTIONS|AWSSTEPFUNCTIONS)_",),
+        npm=("@aws-sdk/client-sfn",),
+        cargo=("aws-sdk-sfn",),
+        go=("github.com/aws/aws-sdk-go-v2/service/sfn",),
+        maven=("software.amazon.awssdk:sfn", "com.amazonaws:aws-java-sdk-stepfunctions"),
+        rubygems=("aws-sdk-states",),
     )
 
     lists_tables_without_credentials = True

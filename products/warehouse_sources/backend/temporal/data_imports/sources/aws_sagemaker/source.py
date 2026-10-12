@@ -43,13 +43,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerResumeConfig]):
     codebase_detection = detect(
+        env=("^(AWS_SAGEMAKER|AWSSAGEMAKER)_", "^SAGEMAKER_"),
         npm=("@aws-sdk/client-sagemaker",),
         pypi=("sagemaker",),
-        rubygems=("aws-sdk-sagemaker",),
-        go=("github.com/aws/aws-sdk-go-v2/service/sagemaker",),
         cargo=("aws-sdk-sagemaker",),
+        go=("github.com/aws/aws-sdk-go-v2/service/sagemaker",),
         maven=("software.amazon.awssdk:sagemaker", "com.amazonaws:aws-java-sdk-sagemaker"),
-        env=("^(AWS_SAGEMAKER|AWSSAGEMAKER)_", "^SAGEMAKER_"),
+        rubygems=("aws-sdk-sagemaker",),
     )
 
     lists_tables_without_credentials = True

@@ -35,10 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ElasticemailSource(ResumableSource[ElasticemailSourceConfig, ElasticEmailResumeConfig]):
     codebase_detection = detect(
+        env=("^ELASTICEMAIL_", "^ELASTIC_EMAIL_"),
         npm=("@elasticemail/elasticemail-client", "@elasticemail/elasticemail-client-ts-axios"),
         pypi=("elasticemail",),
         composer=("elasticemail/elasticemail-php",),
-        env=("^ELASTICEMAIL_", "^ELASTIC_EMAIL_"),
     )
 
     supported_versions = ("v4",)

@@ -38,9 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
     codebase_detection = detect(
+        env=("^SIM_API_KEY$", "^SIM_BASE_URL$", "^SIMSTUDIO_API_KEY$"),
         npm=("simstudio-ts-sdk",),
         pypi=("simstudio-sdk",),
-        env=("^SIM_API_KEY$", "^SIM_BASE_URL$", "^SIMSTUDIO_API_KEY$"),
     )
 
     lists_tables_without_credentials = True

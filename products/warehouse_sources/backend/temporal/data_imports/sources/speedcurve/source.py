@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpeedcurveSource(ResumableSource[SpeedcurveSourceConfig, SpeedcurveResumeConfig]):
-    codebase_detection = detect(npm=("speedcurve",), env=("^SPEEDCURVE_",), script_hosts=("cdn.speedcurve.com",))
+    codebase_detection = detect(env=("^SPEEDCURVE_",), script_hosts=("cdn.speedcurve.com",), npm=("speedcurve",))
 
     lists_tables_without_credentials = True
     # SpeedCurve v2 remains beta: https://support.speedcurve.com/reference/getting-started-with-api-v2

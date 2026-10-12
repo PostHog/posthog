@@ -47,10 +47,10 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
         env=("^ANTHROPIC_",),
         npm=("@anthropic-ai/sdk",),
         pypi=("anthropic",),
-        rubygems=("anthropic",),
         composer=("anthropic-ai/sdk",),
         go=("github.com/anthropics/anthropic-sdk-go",),
         maven=("com.anthropic:anthropic-java",),
+        rubygems=("anthropic",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

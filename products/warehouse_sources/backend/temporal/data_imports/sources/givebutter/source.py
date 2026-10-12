@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GivebutterSource(ResumableSource[GivebutterSourceConfig, GivebutterResumeConfig]):
     codebase_detection = detect(
-        npm=("@givebutter/sdk",), env=("^GIVEBUTTER_",), script_hosts=("widgets.givebutter.com",)
+        env=("^GIVEBUTTER_",), script_hosts=("widgets.givebutter.com",), npm=("@givebutter/sdk",)
     )
 
     lists_tables_without_credentials = True

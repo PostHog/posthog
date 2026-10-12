@@ -30,7 +30,7 @@ YOCO_DEVELOPER_CONSOLE_URL = "https://developer.yoco.com/ui"
 
 @SourceRegistry.register
 class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
-    codebase_detection = detect(composer=("yoco/yoco-php",), env=("^YOCO_",))
+    codebase_detection = detect(env=("^YOCO_",), composer=("yoco/yoco-php",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Yoco serves a single unversioned `/v1/` path and documents no version choice, so the

@@ -43,9 +43,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RevolutMerchantSource(ResumableSource[RevolutMerchantSourceConfig, RevolutMerchantResumeConfig]):
     codebase_detection = detect(
-        npm=("@revolut/checkout",),
         env=("^(REVOLUT_MERCHANT|REVOLUTMERCHANT)_",),
         script_hosts=("merchant.revolut.com",),
+        npm=("@revolut/checkout",),
     )
 
     lists_tables_without_credentials = True

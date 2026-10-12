@@ -39,12 +39,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-budgets",),
-        rubygems=("aws-sdk-budgets",),
-        go=("github.com/aws/aws-sdk-go-v2/service/budgets",),
-        cargo=("aws-sdk-budgets",),
-        maven=("software.amazon.awssdk:budgets", "com.amazonaws:aws-java-sdk-budgets"),
         env=("^(AWS_BUDGETS|AWSBUDGETS)_",),
+        npm=("@aws-sdk/client-budgets",),
+        cargo=("aws-sdk-budgets",),
+        go=("github.com/aws/aws-sdk-go-v2/service/budgets",),
+        maven=("software.amazon.awssdk:budgets", "com.amazonaws:aws-java-sdk-budgets"),
+        rubygems=("aws-sdk-budgets",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs

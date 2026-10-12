@@ -33,14 +33,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class Neo4jSource(SimpleSource[Neo4jSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
+        env=("^NEO4J_",),
         npm=("neo4j-driver",),
         pypi=("neo4j",),
-        rubygems=("neo4j-ruby-driver",),
-        hex=("bolt_sips",),
-        go=("github.com/neo4j/neo4j-go-driver",),
         cargo=("neo4rs",),
+        go=("github.com/neo4j/neo4j-go-driver",),
+        hex=("bolt_sips",),
         maven=("org.neo4j.driver:neo4j-java-driver",),
-        env=("^NEO4J_",),
+        rubygems=("neo4j-ruby-driver",),
     )
 
     supported_versions = (API_VERSION,)

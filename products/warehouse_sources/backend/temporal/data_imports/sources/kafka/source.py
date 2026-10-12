@@ -62,19 +62,19 @@ def _credential_fields() -> list[FieldType]:
 @SourceRegistry.register
 class KafkaSource(SimpleSource[KafkaSourceConfig], CursorSource[KafkaCursor]):
     codebase_detection = detect(
+        env=("^KAFKA_",),
         npm=("kafkajs", "@confluentinc/kafka-javascript", "node-rdkafka"),
         pypi=("kafka-python", "confluent-kafka", "aiokafka"),
-        rubygems=("ruby-kafka", "rdkafka", "karafka"),
-        hex=("brod", "kafka_ex"),
+        cargo=("rdkafka",),
         go=(
             "github.com/segmentio/kafka-go",
             "github.com/IBM/sarama",
             "github.com/confluentinc/confluent-kafka-go",
             "github.com/twmb/franz-go",
         ),
-        cargo=("rdkafka",),
+        hex=("brod", "kafka_ex"),
         maven=("org.apache.kafka:kafka-clients",),
-        env=("^KAFKA_",),
+        rubygems=("ruby-kafka", "rdkafka", "karafka"),
     )
 
     @property

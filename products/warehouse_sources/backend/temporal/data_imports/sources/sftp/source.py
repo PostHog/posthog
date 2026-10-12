@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        npm=("ssh2-sftp-client",), pypi=("pysftp",), go=("github.com/pkg/sftp",), env=("^SFTP_",)
+        env=("^SFTP_",), npm=("ssh2-sftp-client",), pypi=("pysftp",), go=("github.com/pkg/sftp",)
     )
 
     api_docs_url = "https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02"

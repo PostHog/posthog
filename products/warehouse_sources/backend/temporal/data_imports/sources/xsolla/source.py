@@ -38,10 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class XsollaSource(ResumableSource[XsollaSourceConfig, XsollaResumeConfig]):
     codebase_detection = detect(
-        npm=("@xsolla/pay-station-sdk",),
-        composer=("xsolla/xsolla-sdk-php",),
         env=("^XSOLLA_",),
         script_hosts=("cdn.xsolla.net",),
+        npm=("@xsolla/pay-station-sdk",),
+        composer=("xsolla/xsolla-sdk-php",),
     )
 
     lists_tables_without_credentials = True

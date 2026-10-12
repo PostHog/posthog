@@ -39,10 +39,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResumeConfig]):
     codebase_detection = detect(
+        env=("^(AZURE_DEVOPS|AZUREDEVOPS)_", "^SYSTEM_ACCESSTOKEN$"),
         npm=("azure-devops-node-api", "azure-devops-extension-sdk", "azure-devops-extension-api"),
         pypi=("azure-devops",),
         go=("github.com/microsoft/azure-devops-go-api/azuredevops",),
-        env=("^(AZURE_DEVOPS|AZUREDEVOPS)_", "^SYSTEM_ACCESSTOKEN$"),
     )
 
     api_docs_url = "https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning"

@@ -78,12 +78,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         env=("^BIGQUERY_",),
         npm=("@google-cloud/bigquery",),
         pypi=("google-cloud-bigquery", "sqlalchemy-bigquery", "pandas-gbq"),
-        rubygems=("google-cloud-bigquery",),
-        composer=("google/cloud-bigquery",),
-        hex=("google_api_big_query",),
-        go=("cloud.google.com/go/bigquery",),
         cargo=("gcp-bigquery-client",),
+        composer=("google/cloud-bigquery",),
+        go=("cloud.google.com/go/bigquery",),
+        hex=("google_api_big_query",),
         maven=("com.google.cloud:google-cloud-bigquery",),
+        rubygems=("google-cloud-bigquery",),
     )
 
     # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;

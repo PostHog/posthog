@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ChameleonSource(ResumableSource[ChameleonSourceConfig, ChameleonResumeConfig]):
     codebase_detection = detect(
-        npm=("@chamaeleonidae/chmln",), script_hosts=("fast.chameleon.io", "fast.trychameleon.com")
+        script_hosts=("fast.chameleon.io", "fast.trychameleon.com"), npm=("@chamaeleonidae/chmln",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

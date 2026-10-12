@@ -40,8 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HarnessSource(ResumableSource[HarnessSourceConfig, HarnessResumeConfig]):
     codebase_detection = detect(
-        go=("github.com/harness/harness-go-sdk",),
         env=("^HARNESS_PLATFORM_API_KEY$", "^HARNESS_API_KEY$", "^HARNESS_ACCOUNT_ID$", "^HARNESS_ENDPOINT$"),
+        go=("github.com/harness/harness-go-sdk",),
     )
 
     lists_tables_without_credentials = True

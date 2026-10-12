@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeConfig]):
     codebase_detection = detect(
-        npm=("browser-use-sdk",), pypi=("browser-use", "browser-use-sdk"), env=("^(BROWSER_USE|BROWSERUSE)_",)
+        env=("^(BROWSER_USE|BROWSERUSE)_",), npm=("browser-use-sdk",), pypi=("browser-use", "browser-use-sdk")
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -40,9 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
     codebase_detection = detect(
+        script_hosts=("connect.withmono.com",),
         npm=("@mono.co/connect.js", "@mono.co/connect-react-native", "mono-node"),
         pub=("mono_connect",),
-        script_hosts=("connect.withmono.com",),
     )
 
     lists_tables_without_credentials = True

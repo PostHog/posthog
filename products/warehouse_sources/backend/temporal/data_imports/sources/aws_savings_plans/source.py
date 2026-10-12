@@ -43,12 +43,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavingsPlansResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-savingsplans",),
-        rubygems=("aws-sdk-savingsplans",),
-        go=("github.com/aws/aws-sdk-go-v2/service/savingsplans",),
-        cargo=("aws-sdk-savingsplans",),
-        maven=("software.amazon.awssdk:savingsplans", "com.amazonaws:aws-java-sdk-savingsplans"),
         env=("^(AWS_SAVINGS_PLANS|AWSSAVINGSPLANS)_",),
+        npm=("@aws-sdk/client-savingsplans",),
+        cargo=("aws-sdk-savingsplans",),
+        go=("github.com/aws/aws-sdk-go-v2/service/savingsplans",),
+        maven=("software.amazon.awssdk:savingsplans", "com.amazonaws:aws-java-sdk-savingsplans"),
+        rubygems=("aws-sdk-savingsplans",),
     )
 
     lists_tables_without_credentials = True

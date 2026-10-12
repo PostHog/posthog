@@ -36,9 +36,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]):
     codebase_detection = detect(
-        npm=("@scaleway/sdk",),
-        pypi=("scaleway",),
-        go=("github.com/scaleway/scaleway-sdk-go",),
         env=(
             "^SCALEWAY_",
             "^SCW_ACCESS_KEY$",
@@ -47,6 +44,9 @@ class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]
             "^SCW_DEFAULT_PROJECT_ID$",
             "^SCW_DEFAULT_ORGANIZATION_ID$",
         ),
+        npm=("@scaleway/sdk",),
+        pypi=("scaleway",),
+        go=("github.com/scaleway/scaleway-sdk-go",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

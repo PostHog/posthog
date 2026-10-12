@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendutySource(ResumableSource[ZendutySourceConfig, ZendutyResumeConfig]):
-    codebase_detection = detect(pypi=("zenduty-api",), go=("github.com/Zenduty/zenduty-go-sdk",), env=("^ZENDUTY_",))
+    codebase_detection = detect(env=("^ZENDUTY_",), pypi=("zenduty-api",), go=("github.com/Zenduty/zenduty-go-sdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://apidocs.zenduty.com/"

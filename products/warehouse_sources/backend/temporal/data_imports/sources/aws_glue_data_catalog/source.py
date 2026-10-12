@@ -40,12 +40,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, AwsGlueDataCatalogResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-glue",),
-        rubygems=("aws-sdk-glue",),
-        go=("github.com/aws/aws-sdk-go-v2/service/glue",),
-        cargo=("aws-sdk-glue",),
-        maven=("software.amazon.awssdk:glue", "com.amazonaws:aws-java-sdk-glue"),
         env=("^(AWS_GLUE_DATA_CATALOG|AWSGLUEDATACATALOG)_",),
+        npm=("@aws-sdk/client-glue",),
+        cargo=("aws-sdk-glue",),
+        go=("github.com/aws/aws-sdk-go-v2/service/glue",),
+        maven=("software.amazon.awssdk:glue", "com.amazonaws:aws-java-sdk-glue"),
+        rubygems=("aws-sdk-glue",),
     )
 
     lists_tables_without_credentials = True

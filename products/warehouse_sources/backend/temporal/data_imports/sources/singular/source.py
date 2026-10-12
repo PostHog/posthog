@@ -68,11 +68,11 @@ def report_query(config: SingularSourceConfig) -> SingularReportQuery:
 @SourceRegistry.register
 class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]):
     codebase_detection = detect(
+        script_hosts=("web-sdk-cdn.singular.net",),
         npm=("singular-sdk", "singular-react-native"),
-        swiftpm=("github.com/singular-labs/singular-ios-sdk",),
         cocoapods=("Singular-SDK",),
         pub=("singular_flutter_sdk",),
-        script_hosts=("web-sdk-cdn.singular.net",),
+        swiftpm=("github.com/singular-labs/singular-ios-sdk",),
     )
 
     supported_versions = ("v2.0",)

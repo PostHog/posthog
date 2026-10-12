@@ -51,8 +51,8 @@ INVALID_URL_MESSAGE = (
 @SourceRegistry.register
 class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        npm=("@medusajs/medusa", "@medusajs/js-sdk", "@medusajs/framework", "@medusajs/medusa-js", "medusa-react"),
         env=("^MEDUSA_", "^NEXT_PUBLIC_MEDUSA_"),
+        npm=("@medusajs/medusa", "@medusajs/js-sdk", "@medusajs/framework", "@medusajs/medusa-js", "medusa-react"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs

@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]):
     codebase_detection = detect(
-        npm=("@rechargeapps/storefront-client",), env=("^RECHARGE_",), script_hosts=("static.rechargecdn.com",)
+        env=("^RECHARGE_",), script_hosts=("static.rechargecdn.com",), npm=("@rechargeapps/storefront-client",)
     )
 
     supported_versions = ("2021-11",)

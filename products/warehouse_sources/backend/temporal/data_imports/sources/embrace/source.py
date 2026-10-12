@@ -44,12 +44,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class EmbraceSource(ResumableSource[EmbraceSourceConfig, EmbraceResumeConfig]):
     codebase_detection = detect(
-        npm=("@embrace-io/react-native", "@embrace-io/web-sdk"),
-        maven=("io.embrace:embrace-android-sdk",),
-        swiftpm=("github.com/embrace-io/embrace-apple-sdk",),
-        cocoapods=("EmbraceIO",),
-        pub=("embrace",),
         env=("^EMBRACE_ID$", "^EMBRACE_TOKEN$"),
+        npm=("@embrace-io/react-native", "@embrace-io/web-sdk"),
+        cocoapods=("EmbraceIO",),
+        maven=("io.embrace:embrace-android-sdk",),
+        pub=("embrace",),
+        swiftpm=("github.com/embrace-io/embrace-apple-sdk",),
     )
 
     lists_tables_without_credentials = True

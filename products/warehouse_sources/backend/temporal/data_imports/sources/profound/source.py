@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]):
-    codebase_detection = detect(npm=("@profoundai/client", "next-aeo"), pypi=("profound",), env=("^PROFOUND_API_KEY$",))
+    codebase_detection = detect(env=("^PROFOUND_API_KEY$",), npm=("@profoundai/client", "next-aeo"), pypi=("profound",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Profound versions purely by URL path segment (`/v1/...`, `/v2/...`) — no version header or

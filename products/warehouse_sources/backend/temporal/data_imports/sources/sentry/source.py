@@ -47,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     codebase_detection = detect(
+        env=("^SENTRY_",),
+        script_hosts=("browser.sentry-cdn.com", "js.sentry-cdn.com"),
         npm=(
             "@sentry/node",
             "@sentry/browser",
@@ -68,11 +70,11 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             "@sentry/electron",
         ),
         pypi=("sentry-sdk", "raven"),
-        rubygems=("sentry-ruby", "sentry-rails", "sentry-sidekiq", "sentry-raven"),
-        composer=("sentry/sentry", "sentry/sentry-laravel", "sentry/sentry-symfony"),
-        hex=("sentry",),
-        go=("github.com/getsentry/sentry-go",),
         cargo=("sentry",),
+        cocoapods=("Sentry",),
+        composer=("sentry/sentry", "sentry/sentry-laravel", "sentry/sentry-symfony"),
+        go=("github.com/getsentry/sentry-go",),
+        hex=("sentry",),
         maven=(
             "io.sentry:sentry",
             "io.sentry:sentry-android",
@@ -81,11 +83,9 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             "io.sentry:sentry-spring-boot-starter-jakarta",
             "io.sentry:sentry-logback",
         ),
-        swiftpm=("github.com/getsentry/sentry-cocoa",),
-        cocoapods=("Sentry",),
         pub=("sentry", "sentry_flutter"),
-        env=("^SENTRY_",),
-        script_hosts=("browser.sentry-cdn.com", "js.sentry-cdn.com"),
+        rubygems=("sentry-ruby", "sentry-rails", "sentry-sidekiq", "sentry-raven"),
+        swiftpm=("github.com/getsentry/sentry-cocoa",),
         competes_with=(ProductKey.ERROR_TRACKING,),
     )
 

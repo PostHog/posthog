@@ -37,14 +37,14 @@ CONEKTA_API_KEYS_URL = "https://panel.conekta.com/developers/api-keys"
 @SourceRegistry.register
 class ConektaSource(ResumableSource[ConektaSourceConfig, ConektaResumeConfig]):
     codebase_detection = detect(
+        env=("^CONEKTA_",),
+        script_hosts=("cdn.conekta.io", "pay.conekta.com"),
         npm=("conekta",),
         pypi=("conekta",),
-        rubygems=("conekta",),
         composer=("conekta/conekta-php",),
         go=("github.com/conekta/conekta-go",),
         maven=("io.conekta:ct-conekta-java", "io.conekta:conekta-java"),
-        env=("^CONEKTA_",),
-        script_hosts=("cdn.conekta.io", "pay.conekta.com"),
+        rubygems=("conekta",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

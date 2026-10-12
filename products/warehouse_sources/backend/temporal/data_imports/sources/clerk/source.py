@@ -31,7 +31,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     codebase_detection = detect(
-        env=("^CLERK_SECRET_KEY$", "^NEXT_PUBLIC_CLERK_"),
+        env=(
+            "^CLERK_SECRET_KEY$",
+            "^NEXT_PUBLIC_CLERK_",
+            "^CLERK_PUBLISHABLE_KEY$",
+            "^CLERK_WEBHOOK_SIGNING_SECRET$",
+            "^CLERK_ENCRYPTION_KEY$",
+            "^VITE_CLERK_",
+            "^EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY$",
+            "^PUBLIC_CLERK_PUBLISHABLE_KEY$",
+        ),
         npm=(
             "@clerk/nextjs",
             "@clerk/clerk-react",
@@ -52,20 +61,10 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
             "@clerk/clerk-sdk-node",
         ),
         pypi=("clerk-backend-api",),
-        rubygems=("clerk-sdk-ruby",),
         go=("github.com/clerk/clerk-sdk-go",),
-        swiftpm=("github.com/clerk/clerk-ios",),
         pub=("clerk_flutter",),
-        env=(
-            "^CLERK_SECRET_KEY$",
-            "^NEXT_PUBLIC_CLERK_",
-            "^CLERK_PUBLISHABLE_KEY$",
-            "^CLERK_WEBHOOK_SIGNING_SECRET$",
-            "^CLERK_ENCRYPTION_KEY$",
-            "^VITE_CLERK_",
-            "^EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY$",
-            "^PUBLIC_CLERK_PUBLISHABLE_KEY$",
-        ),
+        rubygems=("clerk-sdk-ruby",),
+        swiftpm=("github.com/clerk/clerk-ios",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

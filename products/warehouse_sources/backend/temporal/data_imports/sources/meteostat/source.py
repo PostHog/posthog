@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConfig]):
-    codebase_detection = detect(npm=("meteostat",), pypi=("meteostat",), env=("^METEOSTAT_",))
+    codebase_detection = detect(env=("^METEOSTAT_",), npm=("meteostat",), pypi=("meteostat",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # No meaningful vendor versioning: the RapidAPI-hosted JSON API has never published a

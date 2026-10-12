@@ -43,12 +43,12 @@ _TRINO_IMPLEMENTATION = TrinoImplementation()
 @SourceRegistry.register
 class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
+        env=("^TRINO_",),
         npm=("trino-client",),
         pypi=("trino",),
-        rubygems=("trino-client",),
         go=("github.com/trinodb/trino-go-client",),
         maven=("io.trino:trino-jdbc",),
-        env=("^TRINO_",),
+        rubygems=("trino-client",),
     )
 
     api_docs_url = "https://trino.io/docs/current/client/python.html"

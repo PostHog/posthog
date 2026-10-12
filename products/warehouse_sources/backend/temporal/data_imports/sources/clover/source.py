@@ -63,9 +63,9 @@ class CloverConnection:
 @SourceRegistry.register
 class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
     codebase_detection = detect(
+        script_hosts=("checkout.clover.com",),
         npm=("remote-pay-cloud", "remote-pay-cloud-api"),
         maven=("com.clover.sdk:clover-android-sdk", "com.clover.sdk:remote-pay-android-connector"),
-        script_hosts=("checkout.clover.com",),
     )
 
     lists_tables_without_credentials = True

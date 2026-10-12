@@ -46,10 +46,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CiscoMerakiSource(ResumableSource[CiscoMerakiSourceConfig, CiscoMerakiResumeConfig]):
     codebase_detection = detect(
+        env=("^(CISCO_MERAKI|CISCOMERAKI)_", "^MERAKI_DASHBOARD_API_KEY$"),
         npm=("meraki",),
         pypi=("meraki",),
         go=("github.com/meraki/dashboard-api-go",),
-        env=("^(CISCO_MERAKI|CISCOMERAKI)_", "^MERAKI_DASHBOARD_API_KEY$"),
     )
 
     lists_tables_without_credentials = True

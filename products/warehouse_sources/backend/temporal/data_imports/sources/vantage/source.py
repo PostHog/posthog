@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class VantageSource(ResumableSource[VantageSourceConfig, VantageResumeConfig]):
     codebase_detection = detect(
-        npm=("@vantage-sh/vantage-client",), go=("github.com/vantage-sh/vantage-go",), env=("^VANTAGE_API_TOKEN$",)
+        env=("^VANTAGE_API_TOKEN$",), npm=("@vantage-sh/vantage-client",), go=("github.com/vantage-sh/vantage-go",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs

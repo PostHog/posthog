@@ -40,11 +40,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResumeConfig]):
     codebase_detection = detect(
+        env=("^(ZENDESK_SELL|ZENDESKSELL)_",),
         pypi=("basecrm",),
-        rubygems=("basecrm",),
         composer=("basecrm/basecrm-php",),
         maven=("com.getbase:basecrm-java",),
-        env=("^(ZENDESK_SELL|ZENDESKSELL)_",),
+        rubygems=("basecrm",),
     )
 
     # v2 is the terminal Core API version this source syncs (Zendesk versions its separate Search

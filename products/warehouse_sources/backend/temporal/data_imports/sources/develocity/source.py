@@ -43,9 +43,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class DevelocitySource(ResumableSource[DevelocitySourceConfig, DevelocityResumeConfig]):
     codebase_detection = detect(
+        env=("^DEVELOCITY_", "^GRADLE_ENTERPRISE_ACCESS_KEY$"),
         npm=("@gradle-tech/develocity-agent",),
         maven=("com.gradle:develocity-maven-extension",),
-        env=("^DEVELOCITY_", "^GRADLE_ENTERPRISE_ACCESS_KEY$"),
     )
 
     lists_tables_without_credentials = True

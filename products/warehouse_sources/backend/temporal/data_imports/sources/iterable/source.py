@@ -41,11 +41,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]):
     codebase_detection = detect(
+        env=("^ITERABLE_API_KEY$",),
         npm=("@iterable/web-sdk", "@iterable/react-native-sdk"),
+        cocoapods=("Iterable-iOS-SDK",),
         maven=("com.iterable:iterableapi",),
         swiftpm=("github.com/iterable/iterable-swift-sdk",),
-        cocoapods=("Iterable-iOS-SDK",),
-        env=("^ITERABLE_API_KEY$",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

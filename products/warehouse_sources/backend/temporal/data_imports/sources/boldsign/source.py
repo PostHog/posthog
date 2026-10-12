@@ -36,11 +36,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]):
     codebase_detection = detect(
+        env=("^(BOLD_SIGN|BOLDSIGN)_",),
         npm=("boldsign",),
         pypi=("boldsign",),
         composer=("boldsign/boldsign-php",),
         maven=("com.boldsign:boldsign-java",),
-        env=("^(BOLD_SIGN|BOLDSIGN)_",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

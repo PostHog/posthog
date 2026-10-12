@@ -41,12 +41,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConfig]):
     codebase_detection = detect(
-        npm=("@survicate/survicate-web-surveys-wrapper", "@survicate/react-native-survicate"),
-        swiftpm=("github.com/survicate/survicate-ios-sdk",),
-        cocoapods=("Survicate",),
-        pub=("survicate_sdk",),
         env=("^SURVICATE_",),
         script_hosts=("survey.survicate.com", "surveys-static.survicate.com"),
+        npm=("@survicate/survicate-web-surveys-wrapper", "@survicate/react-native-survicate"),
+        cocoapods=("Survicate",),
+        pub=("survicate_sdk",),
+        swiftpm=("github.com/survicate/survicate-ios-sdk",),
     )
 
     lists_tables_without_credentials = True

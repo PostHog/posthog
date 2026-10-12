@@ -42,12 +42,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig, AwsComputeOptimizerResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-compute-optimizer",),
-        rubygems=("aws-sdk-computeoptimizer",),
-        go=("github.com/aws/aws-sdk-go-v2/service/computeoptimizer",),
-        cargo=("aws-sdk-computeoptimizer",),
-        maven=("software.amazon.awssdk:computeoptimizer", "com.amazonaws:aws-java-sdk-computeoptimizer"),
         env=("^(AWS_COMPUTE_OPTIMIZER|AWSCOMPUTEOPTIMIZER)_",),
+        npm=("@aws-sdk/client-compute-optimizer",),
+        cargo=("aws-sdk-computeoptimizer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/computeoptimizer",),
+        maven=("software.amazon.awssdk:computeoptimizer", "com.amazonaws:aws-java-sdk-computeoptimizer"),
+        rubygems=("aws-sdk-computeoptimizer",),
     )
 
     lists_tables_without_credentials = True

@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SlashSource(ResumableSource[SlashSourceConfig, SlashResumeConfig]):
-    codebase_detection = detect(npm=("slash-sdk",), pypi=("slash-sdk",), env=("^SLASH_SDK_",))
+    codebase_detection = detect(env=("^SLASH_SDK_",), npm=("slash-sdk",), pypi=("slash-sdk",))
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.slash.com/changelog"

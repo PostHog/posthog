@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RetellAISource(ResumableSource[RetellAISourceConfig, RetellAIResumeConfig]):
     codebase_detection = detect(
-        npm=("retell-sdk", "retell-client-js-sdk"), pypi=("retell-sdk",), env=("^RETELL_API_KEY$",)
+        env=("^RETELL_API_KEY$",), npm=("retell-sdk", "retell-client-js-sdk"), pypi=("retell-sdk",)
     )
 
     lists_tables_without_credentials = True

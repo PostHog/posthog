@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]):
     codebase_detection = detect(
+        env=("^FRONTEGG_",),
         npm=(
             "@frontegg/react",
             "@frontegg/nextjs",
@@ -60,11 +61,10 @@ class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]
             "@frontegg/react-native",
         ),
         pypi=("frontegg",),
-        maven=("com.frontegg.sdk:android",),
-        swiftpm=("github.com/frontegg/frontegg-ios-swift",),
         cocoapods=("FronteggSwift",),
+        maven=("com.frontegg.sdk:android",),
         pub=("frontegg_flutter",),
-        env=("^FRONTEGG_",),
+        swiftpm=("github.com/frontegg/frontegg-ios-swift",),
     )
 
     lists_tables_without_credentials = True

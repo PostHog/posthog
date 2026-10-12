@@ -43,10 +43,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConfig]):
     codebase_detection = detect(
         npm=("@aws-sdk/client-config-service",),
-        rubygems=("aws-sdk-configservice",),
-        go=("github.com/aws/aws-sdk-go-v2/service/configservice",),
         cargo=("aws-sdk-config",),
+        go=("github.com/aws/aws-sdk-go-v2/service/configservice",),
         maven=("software.amazon.awssdk:config", "com.amazonaws:aws-java-sdk-config"),
+        rubygems=("aws-sdk-configservice",),
     )
 
     lists_tables_without_credentials = True

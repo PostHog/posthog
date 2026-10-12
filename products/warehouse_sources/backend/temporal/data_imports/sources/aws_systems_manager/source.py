@@ -43,12 +43,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, SystemsManagerResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-ssm",),
-        rubygems=("aws-sdk-ssm",),
-        go=("github.com/aws/aws-sdk-go-v2/service/ssm",),
-        cargo=("aws-sdk-ssm",),
-        maven=("software.amazon.awssdk:ssm", "com.amazonaws:aws-java-sdk-ssm"),
         env=("^(AWS_SYSTEMS_MANAGER|AWSSYSTEMSMANAGER)_",),
+        npm=("@aws-sdk/client-ssm",),
+        cargo=("aws-sdk-ssm",),
+        go=("github.com/aws/aws-sdk-go-v2/service/ssm",),
+        maven=("software.amazon.awssdk:ssm", "com.amazonaws:aws-java-sdk-ssm"),
+        rubygems=("aws-sdk-ssm",),
     )
 
     lists_tables_without_credentials = True

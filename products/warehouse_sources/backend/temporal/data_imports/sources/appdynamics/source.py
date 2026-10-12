@@ -42,13 +42,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResumeConfig]):
     codebase_detection = detect(
-        npm=("appdynamics", "@appdynamics/react-native-agent"),
-        pypi=("appdynamics",),
-        maven=("com.appdynamics:appdynamics-runtime",),
-        cocoapods=("AppDynamicsAgent",),
-        pub=("appdynamics_agent",),
         env=("^APPDYNAMICS_",),
         script_hosts=("cdn.appdynamics.com",),
+        npm=("appdynamics", "@appdynamics/react-native-agent"),
+        pypi=("appdynamics",),
+        cocoapods=("AppDynamicsAgent",),
+        maven=("com.appdynamics:appdynamics-runtime",),
+        pub=("appdynamics_agent",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

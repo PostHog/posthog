@@ -48,7 +48,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, WikipediaPageviewsResumeConfig]):
     codebase_detection = detect(
-        npm=("pageviews",), pypi=("mwviews",), env=("^(WIKIPEDIA_PAGEVIEWS|WIKIPEDIAPAGEVIEWS)_",)
+        env=("^(WIKIPEDIA_PAGEVIEWS|WIKIPEDIAPAGEVIEWS)_",), npm=("pageviews",), pypi=("mwviews",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

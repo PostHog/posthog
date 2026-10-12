@@ -35,11 +35,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SprigSource(ResumableSource[SprigSourceConfig, SprigResumeConfig]):
     codebase_detection = detect(
-        npm=("@sprig-technologies/sprig-browser", "react-native-userleap"),
-        maven=("com.userleap:userleap-android-sdk",),
-        cocoapods=("UserLeapKit",),
-        pub=("sprig_flutter_plugin",),
         script_hosts=("cdn.sprig.com",),
+        npm=("@sprig-technologies/sprig-browser", "react-native-userleap"),
+        cocoapods=("UserLeapKit",),
+        maven=("com.userleap:userleap-android-sdk",),
+        pub=("sprig_flutter_plugin",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

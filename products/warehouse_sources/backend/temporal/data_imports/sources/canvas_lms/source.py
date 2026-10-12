@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CanvasLmsSource(ResumableSource[CanvasLmsSourceConfig, CanvasLmsResumeConfig]):
-    codebase_detection = detect(pypi=("canvasapi",), rubygems=("canvas-api",), env=("^(CANVAS_LMS|CANVASLMS)_",))
+    codebase_detection = detect(env=("^(CANVAS_LMS|CANVASLMS)_",), pypi=("canvasapi",), rubygems=("canvas-api",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

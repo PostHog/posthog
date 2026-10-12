@@ -40,7 +40,7 @@ SUBDOMAIN_ERROR = (
 
 @SourceRegistry.register
 class KommoSource(ResumableSource[KommoSourceConfig, KommoResumeConfig]):
-    codebase_detection = detect(composer=("amocrm/amocrm-api-library",), env=("^KOMMO_",))
+    codebase_detection = detect(env=("^KOMMO_",), composer=("amocrm/amocrm-api-library",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v4",)

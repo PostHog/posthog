@@ -39,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeConfig]):
     codebase_detection = detect(
+        env=("^CLOUDINARY_", "^NEXT_PUBLIC_CLOUDINARY_"),
+        script_hosts=("upload-widget.cloudinary.com", "widget.cloudinary.com", "media-library.cloudinary.com"),
         npm=(
             "cloudinary",
             "@cloudinary/url-gen",
@@ -50,7 +52,7 @@ class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeC
             "next-cloudinary",
         ),
         pypi=("cloudinary",),
-        rubygems=("cloudinary",),
+        cocoapods=("Cloudinary",),
         composer=("cloudinary/cloudinary_php",),
         go=("github.com/cloudinary/cloudinary-go",),
         maven=(
@@ -60,11 +62,9 @@ class CloudinarySource(ResumableSource[CloudinarySourceConfig, CloudinaryResumeC
             "com.cloudinary:cloudinary-android",
             "com.cloudinary:kotlin-url-gen",
         ),
-        swiftpm=("github.com/cloudinary/cloudinary_ios",),
-        cocoapods=("Cloudinary",),
         pub=("cloudinary_url_gen", "cloudinary_flutter"),
-        env=("^CLOUDINARY_", "^NEXT_PUBLIC_CLOUDINARY_"),
-        script_hosts=("upload-widget.cloudinary.com", "widget.cloudinary.com", "media-library.cloudinary.com"),
+        rubygems=("cloudinary",),
+        swiftpm=("github.com/cloudinary/cloudinary_ios",),
     )
 
     supported_versions = ("v1_1",)

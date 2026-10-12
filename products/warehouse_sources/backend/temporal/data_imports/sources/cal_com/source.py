@@ -42,9 +42,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
     codebase_detection = detect(
-        npm=("@calcom/embed-react", "@calcom/embed-snippet", "@calcom/embed-core", "@calcom/atoms"),
         env=("^CALCOM_", "^CAL_API_KEY$"),
         script_hosts=("app.cal.com",),
+        npm=("@calcom/embed-react", "@calcom/embed-snippet", "@calcom/embed-core", "@calcom/atoms"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

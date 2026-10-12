@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SumoLogicSource(ResumableSource[SumoLogicSourceConfig, SumoLogicResumeConfig]):
-    codebase_detection = detect(pypi=("sumologic-sdk",), env=("^(SUMO_LOGIC|SUMOLOGIC)_",))
+    codebase_detection = detect(env=("^(SUMO_LOGIC|SUMOLOGIC)_",), pypi=("sumologic-sdk",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

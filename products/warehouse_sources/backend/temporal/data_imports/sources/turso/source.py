@@ -31,11 +31,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TursoSource(ResumableSource[TursoSourceConfig, TursoResumeConfig]):
     codebase_detection = detect(
+        env=("^TURSO_",),
         npm=("@libsql/client", "@tursodatabase/serverless", "@tursodatabase/api"),
         pypi=("libsql",),
-        go=("github.com/tursodatabase/libsql-client-go", "github.com/tursodatabase/go-libsql"),
         cargo=("libsql",),
-        env=("^TURSO_",),
+        go=("github.com/tursodatabase/libsql-client-go", "github.com/tursodatabase/go-libsql"),
     )
 
     lists_tables_without_credentials = True

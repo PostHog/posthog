@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
-    codebase_detection = detect(npm=("checkly", "@checkly/playwright-reporter"), env=("^CHECKLY_",))
+    codebase_detection = detect(env=("^CHECKLY_",), npm=("checkly", "@checkly/playwright-reporter"))
 
     lists_tables_without_credentials = True
     supported_versions = SUPPORTED_API_VERSIONS

@@ -34,8 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MonteCarloSource(ResumableSource[MonteCarloSourceConfig, MonteCarloResumeConfig]):
     codebase_detection = detect(
-        pypi=("pycarlo", "montecarlodata"),
         env=("^(MONTE_CARLO|MONTECARLO)_", "^MCD_DEFAULT_API_ID$", "^MCD_DEFAULT_API_TOKEN$"),
+        pypi=("pycarlo", "montecarlodata"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

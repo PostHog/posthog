@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ButtondownSource(ResumableSource[ButtondownSourceConfig, ButtondownResumeConfig]):
-    codebase_detection = detect(npm=("buttondown",), env=("^BUTTONDOWN_",))
+    codebase_detection = detect(env=("^BUTTONDOWN_",), npm=("buttondown",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-04-01",)

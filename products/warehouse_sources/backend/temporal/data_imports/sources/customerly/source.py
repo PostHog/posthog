@@ -37,10 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CustomerlySource(ResumableSource[CustomerlySourceConfig, CustomerlyResumeConfig]):
     codebase_detection = detect(
-        npm=("react-native-customerly",),
-        cocoapods=("Customerly",),
         env=("^CUSTOMERLY_",),
         script_hosts=("widget.customerly.io",),
+        npm=("react-native-customerly",),
+        cocoapods=("Customerly",),
     )
 
     api_docs_url = "https://docs.customerly.io/en/collections/5530-api"

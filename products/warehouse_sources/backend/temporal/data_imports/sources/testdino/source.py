@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TestDinoSource(ResumableSource[TestDinoSourceConfig, TestDinoResumeConfig]):
     codebase_detection = detect(
-        npm=("tdpw", "@testdino/playwright"), pypi=("testdino",), env=("^(TEST_DINO|TESTDINO)_",)
+        env=("^(TEST_DINO|TESTDINO)_",), npm=("tdpw", "@testdino/playwright"), pypi=("testdino",)
     )
 
     lists_tables_without_credentials = True

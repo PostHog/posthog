@@ -42,7 +42,7 @@ def _has_custom_query(config: UsBeaSourceConfig) -> bool:
 
 @SourceRegistry.register
 class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
-    codebase_detection = detect(pypi=("beaapi",), env=("^(US_BEA|USBEA)_",))
+    codebase_detection = detect(env=("^(US_BEA|USBEA)_",), pypi=("beaapi",))
 
     # Static endpoint catalog with no I/O in get_schemas - safe for public docs.
     lists_tables_without_credentials = True

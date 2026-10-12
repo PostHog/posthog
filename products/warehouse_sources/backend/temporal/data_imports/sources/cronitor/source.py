@@ -35,12 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]):
     codebase_detection = detect(
-        npm=("cronitor", "@cronitorio/cronitor-rum", "@cronitorio/cronitor-rum-nextjs"),
-        pypi=("cronitor",),
-        rubygems=("cronitor",),
-        composer=("cronitor/cronitor-php",),
         env=("^CRONITOR_",),
         script_hosts=("rum.cronitor.io",),
+        npm=("cronitor", "@cronitorio/cronitor-rum", "@cronitorio/cronitor-rum-nextjs"),
+        pypi=("cronitor",),
+        composer=("cronitor/cronitor-php",),
+        rubygems=("cronitor",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

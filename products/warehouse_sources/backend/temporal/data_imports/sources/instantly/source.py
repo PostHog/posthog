@@ -64,7 +64,7 @@ class InstantlySource(
     WebhookSource[InstantlySourceConfig],
 ):
     codebase_detection = detect(
-        npm=("@instantlyai/sdk", "@instantlyai/cli"), env=("^INSTANTLY_API_KEY$", "^INSTANTLY_API_BASE_URL$")
+        env=("^INSTANTLY_API_KEY$", "^INSTANTLY_API_BASE_URL$"), npm=("@instantlyai/sdk", "@instantlyai/cli")
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

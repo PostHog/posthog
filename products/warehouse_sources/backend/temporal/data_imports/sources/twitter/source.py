@@ -39,11 +39,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
     codebase_detection = detect(
+        env=("^TWITTER_",),
+        script_hosts=("platform.twitter.com",),
         npm=("@xdevplatform/xdk", "twitter-api-sdk", "twitter-api-v2"),
         pypi=("xdk", "tweepy"),
         rubygems=("twitter",),
-        env=("^TWITTER_",),
-        script_hosts=("platform.twitter.com",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -30,17 +30,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class EppoSource(SimpleSource[EppoSourceConfig]):
     codebase_detection = detect(
+        env=("^EPPO_",),
         npm=("@eppo/js-client-sdk", "@eppo/node-server-sdk", "@eppo/react-native-sdk"),
         pypi=("eppo-server-sdk",),
-        rubygems=("eppo-server-sdk",),
-        composer=("eppo/php-sdk",),
-        hex=("eppo_sdk",),
-        go=("github.com/Eppo-exp/golang-sdk",),
         cargo=("eppo",),
+        composer=("eppo/php-sdk",),
+        go=("github.com/Eppo-exp/golang-sdk",),
+        hex=("eppo_sdk",),
         maven=("cloud.eppo:eppo-server-sdk", "cloud.eppo:android-sdk"),
-        swiftpm=("github.com/eppo-exp/eppo-ios-sdk",),
         pub=("eppo",),
-        env=("^EPPO_",),
+        rubygems=("eppo-server-sdk",),
+        swiftpm=("github.com/eppo-exp/eppo-ios-sdk",),
     )
 
     # Every endpoint here is a static entry in ENDPOINTS with no I/O — safe for public docs.

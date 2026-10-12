@@ -72,11 +72,11 @@ class AttentiveSource(
     WebhookSource[AttentiveSourceConfig],
 ):
     codebase_detection = detect(
+        script_hosts=("cdn.attn.tv",),
         npm=("@attentive-mobile/attentive-react-native-sdk",),
+        cocoapods=("ATTNSDKFramework",),
         maven=("com.attentive:attentive-android-sdk",),
         swiftpm=("github.com/attentive-mobile/attentive-ios-sdk",),
-        cocoapods=("ATTNSDKFramework",),
-        script_hosts=("cdn.attn.tv",),
     )
 
     api_docs_url = "https://docs.attentive.com"

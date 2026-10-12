@@ -50,13 +50,13 @@ def _dimension_options() -> list[SourceFieldSelectConfigOption]:
 @SourceRegistry.register
 class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
     codebase_detection = detect(
-        npm=("@microsoft/clarity", "@microsoft/react-native-clarity", "react-native-clarity"),
-        maven=("com.microsoft.clarity:clarity",),
-        swiftpm=("github.com/microsoft/clarity-apps",),
-        cocoapods=("Clarity",),
-        pub=("clarity_flutter",),
         env=("^(MICROSOFT_CLARITY|MICROSOFTCLARITY)_",),
         script_hosts=("www.clarity.ms",),
+        npm=("@microsoft/clarity", "@microsoft/react-native-clarity", "react-native-clarity"),
+        cocoapods=("Clarity",),
+        maven=("com.microsoft.clarity:clarity",),
+        pub=("clarity_flutter",),
+        swiftpm=("github.com/microsoft/clarity-apps",),
     )
 
     lists_tables_without_credentials = True  # static, single endpoint — safe for public docs

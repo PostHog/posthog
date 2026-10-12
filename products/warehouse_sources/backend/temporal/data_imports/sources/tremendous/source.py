@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeConfig]):
     codebase_detection = detect(
-        npm=("tremendous",), pypi=("tremendous-python",), rubygems=("tremendous_ruby",), env=("^TREMENDOUS_",)
+        env=("^TREMENDOUS_",), npm=("tremendous",), pypi=("tremendous-python",), rubygems=("tremendous_ruby",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

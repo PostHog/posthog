@@ -35,10 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class NewsDataSource(ResumableSource[NewsDataSourceConfig, NewsDataResumeConfig]):
     codebase_detection = detect(
+        env=("^(NEWS_DATA|NEWSDATA)_",),
         npm=("newsdata-nodejs-client", "newsdataapi"),
         pypi=("newsdataapi",),
         composer=("newsdataio/newsdataapi",),
-        env=("^(NEWS_DATA|NEWSDATA)_",),
     )
 
     supported_versions = ("1",)

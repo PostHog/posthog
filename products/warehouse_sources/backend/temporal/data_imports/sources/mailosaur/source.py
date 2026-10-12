@@ -35,13 +35,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConfig]):
     codebase_detection = detect(
+        env=("^MAILOSAUR_",),
         npm=("mailosaur", "cypress-mailosaur"),
         pypi=("mailosaur",),
-        rubygems=("mailosaur",),
         composer=("mailosaur/mailosaur",),
         go=("github.com/mailosaur/mailosaur-go",),
         maven=("com.mailosaur:mailosaur-java",),
-        env=("^MAILOSAUR_",),
+        rubygems=("mailosaur",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

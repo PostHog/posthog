@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FrillSource(ResumableSource[FrillSourceConfig, FrillResumeConfig]):
-    codebase_detection = detect(npm=("@frillco/script",), script_hosts=("widget.frill.co",))
+    codebase_detection = detect(script_hosts=("widget.frill.co",), npm=("@frillco/script",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.frill.co/api/reference"

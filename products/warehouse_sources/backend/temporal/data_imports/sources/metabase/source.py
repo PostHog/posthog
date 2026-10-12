@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MetabaseSource(ResumableSource[MetabaseSourceConfig, MetabaseResumeConfig]):
-    codebase_detection = detect(npm=("@metabase/embedding-sdk-react",), env=("^METABASE_",))
+    codebase_detection = detect(env=("^METABASE_",), npm=("@metabase/embedding-sdk-react",))
 
     api_docs_url = "https://www.metabase.com/docs/latest/api"
 

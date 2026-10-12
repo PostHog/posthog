@@ -27,10 +27,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KernelSource(SimpleSource[KernelSourceConfig]):
     codebase_detection = detect(
+        env=("^KERNEL_API_KEY$", "^KERNEL_ORG_API_KEY$"),
         npm=("@onkernel/sdk",),
         pypi=("kernel",),
         go=("github.com/kernel/kernel-go-sdk",),
-        env=("^KERNEL_API_KEY$", "^KERNEL_ORG_API_KEY$"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs

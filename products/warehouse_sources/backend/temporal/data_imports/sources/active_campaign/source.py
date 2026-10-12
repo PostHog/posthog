@@ -31,10 +31,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCampaignResumeConfig]):
     codebase_detection = detect(
-        npm=("activecampaign",),
-        composer=("activecampaign/api-php",),
         env=("^ACTIVECAMPAIGN_", "^ACTIVE_CAMPAIGN_"),
         script_hosts=("prism.app-us1.com", "diffuser-cdn.app-us1.com"),
+        npm=("activecampaign",),
+        composer=("activecampaign/api-php",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -35,10 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class WindmillSource(ResumableSource[WindmillSourceConfig, WindmillResumeConfig]):
     codebase_detection = detect(
+        env=("^WM_TOKEN$", "^WM_WORKSPACE$", "^WM_BASE_URL$"),
         npm=("windmill-client", "windmill-cli"),
         pypi=("wmill", "windmill-api"),
         go=("github.com/windmill-labs/windmill-go-client",),
-        env=("^WM_TOKEN$", "^WM_WORKSPACE$", "^WM_BASE_URL$"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

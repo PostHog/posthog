@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RunPodSource(ResumableSource[RunPodSourceConfig, RunPodResumeConfig]):
     codebase_detection = detect(
-        npm=("runpod-sdk",), pypi=("runpod",), go=("github.com/runpod/go-sdk",), env=("^RUNPOD_",)
+        env=("^RUNPOD_",), npm=("runpod-sdk",), pypi=("runpod",), go=("github.com/runpod/go-sdk",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

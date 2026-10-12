@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VultrSource(SimpleSource[VultrSourceConfig]):
-    codebase_detection = detect(npm=("@vultr/vultr-node",), go=("github.com/vultr/govultr",), env=("^VULTR_",))
+    codebase_detection = detect(env=("^VULTR_",), npm=("@vultr/vultr-node",), go=("github.com/vultr/govultr",))
 
     # get_schemas is a static endpoint catalog with no I/O, so the table list is safe for public docs.
     lists_tables_without_credentials = True

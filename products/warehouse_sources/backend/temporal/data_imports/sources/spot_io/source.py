@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SpotIoSource(ResumableSource[SpotIoSourceConfig, SpotIoResumeConfig]):
     codebase_detection = detect(
-        pypi=("spotinst-sdk2",), go=("github.com/spotinst/spotinst-sdk-go",), env=("^SPOTINST_",)
+        env=("^SPOTINST_",), pypi=("spotinst-sdk2",), go=("github.com/spotinst/spotinst-sdk-go",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

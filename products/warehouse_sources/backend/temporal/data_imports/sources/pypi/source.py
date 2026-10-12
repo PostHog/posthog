@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PyPISource(SimpleSource[PyPISourceConfig]):
     codebase_detection = detect(
-        pypi=("twine",), env=("^(PY_PI|PYPI)_", "^TWINE_USERNAME$", "^TWINE_PASSWORD$", "^UV_PUBLISH_TOKEN$")
+        env=("^(PY_PI|PYPI)_", "^TWINE_USERNAME$", "^TWINE_PASSWORD$", "^UV_PUBLISH_TOKEN$"), pypi=("twine",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

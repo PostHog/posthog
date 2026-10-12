@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CodacySource(SimpleSource[CodacySourceConfig]):
     codebase_detection = detect(
-        npm=("codacy-coverage",), pypi=("codacy-coverage",), composer=("codacy/coverage",), env=("^CODACY_",)
+        env=("^CODACY_",), npm=("codacy-coverage",), pypi=("codacy-coverage",), composer=("codacy/coverage",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

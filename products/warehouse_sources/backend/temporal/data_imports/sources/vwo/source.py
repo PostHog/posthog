@@ -35,15 +35,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class VWOSource(ResumableSource[VWOSourceConfig, VWOResumeConfig]):
     codebase_detection = detect(
+        script_hosts=("dev.visualwebsiteoptimizer.com",),
         npm=("vwo-node-sdk", "vwo-fme-node-sdk", "vwo-fme-react-sdk"),
         pypi=("vwo-python-sdk", "vwo-fme-python-sdk"),
-        rubygems=("vwo-sdk", "vwo-fme-ruby-sdk"),
+        cocoapods=("VWO",),
         composer=("vwo/vwo-php-sdk", "vwo/vwo-fme-php-sdk"),
         go=("github.com/wingify/vwo-go-sdk", "github.com/wingify/vwo-fme-go-sdk"),
         maven=("com.vwo.sdk:vwo-java-sdk", "com.vwo.sdk:vwo-fme-java-sdk"),
-        cocoapods=("VWO",),
         pub=("vwo_fme_flutter_sdk",),
-        script_hosts=("dev.visualwebsiteoptimizer.com",),
+        rubygems=("vwo-sdk", "vwo-fme-ruby-sdk"),
     )
 
     supported_versions = ("v2",)

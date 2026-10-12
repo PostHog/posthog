@@ -45,7 +45,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]):
-    codebase_detection = detect(npm=("clockodo",), env=("^CLOCKODO_",))
+    codebase_detection = detect(env=("^CLOCKODO_",), npm=("clockodo",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = CLOCKODO_SUPPORTED_VERSIONS

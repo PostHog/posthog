@@ -44,10 +44,10 @@ class JfrogArtifactorySource(
     ResumableSource[JfrogArtifactorySourceConfig, JfrogArtifactoryResumeConfig], ValidateDatabaseHostMixin
 ):
     codebase_detection = detect(
+        env=("^JFROG_", "^JF_URL$", "^JF_ACCESS_TOKEN$"),
         npm=("jfrog-client-js",),
         go=("github.com/jfrog/jfrog-client-go", "github.com/jfrog/jfrog-cli"),
         maven=("org.jfrog.artifactory.client:artifactory-java-client-services",),
-        env=("^JFROG_", "^JF_URL$", "^JF_ACCESS_TOKEN$"),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

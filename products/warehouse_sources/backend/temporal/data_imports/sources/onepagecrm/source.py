@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OnepagecrmSource(ResumableSource[OnepagecrmSourceConfig, OnepagecrmResumeConfig]):
-    codebase_detection = detect(pypi=("onepagecrm",), env=("^ONEPAGECRM_",))
+    codebase_detection = detect(env=("^ONEPAGECRM_",), pypi=("onepagecrm",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

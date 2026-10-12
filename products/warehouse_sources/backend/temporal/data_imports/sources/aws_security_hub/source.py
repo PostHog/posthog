@@ -45,12 +45,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecurityHubResumeConfig]):
     codebase_detection = detect(
-        npm=("@aws-sdk/client-securityhub",),
-        rubygems=("aws-sdk-securityhub",),
-        go=("github.com/aws/aws-sdk-go-v2/service/securityhub",),
-        cargo=("aws-sdk-securityhub",),
-        maven=("software.amazon.awssdk:securityhub", "com.amazonaws:aws-java-sdk-securityhub"),
         env=("^(AWS_SECURITY_HUB|AWSSECURITYHUB)_",),
+        npm=("@aws-sdk/client-securityhub",),
+        cargo=("aws-sdk-securityhub",),
+        go=("github.com/aws/aws-sdk-go-v2/service/securityhub",),
+        maven=("software.amazon.awssdk:securityhub", "com.amazonaws:aws-java-sdk-securityhub"),
+        rubygems=("aws-sdk-securityhub",),
     )
 
     lists_tables_without_credentials = True

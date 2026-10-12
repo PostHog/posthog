@@ -41,10 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ModalSource(ResumableSource[ModalSourceConfig, ModalResumeConfig]):
     codebase_detection = detect(
+        env=("^MODAL_TOKEN_ID$", "^MODAL_TOKEN_SECRET$"),
         npm=("modal",),
         pypi=("modal",),
         go=("github.com/modal-labs/modal-client/go", "github.com/modal-labs/libmodal/modal-go"),
-        env=("^MODAL_TOKEN_ID$", "^MODAL_TOKEN_SECRET$"),
     )
 
     lists_tables_without_credentials = True

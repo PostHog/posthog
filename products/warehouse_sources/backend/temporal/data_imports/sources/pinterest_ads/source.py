@@ -53,7 +53,6 @@ def _format_permission(permission: str) -> str:
 @SourceRegistry.register
 class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        pypi=("pinterest-api-sdk",),
         env=(
             "^PINTEREST_APP_ID$",
             "^PINTEREST_APP_SECRET$",
@@ -61,6 +60,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             "^PINTEREST_REFRESH_ACCESS_TOKEN$",
         ),
         script_hosts=("s.pinimg.com",),
+        pypi=("pinterest-api-sdk",),
     )
 
     supported_versions = ("v5",)

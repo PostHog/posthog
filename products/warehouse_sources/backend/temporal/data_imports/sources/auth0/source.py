@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class Auth0Source(ResumableSource[Auth0SourceConfig, Auth0ResumeConfig]):
     codebase_detection = detect(
+        env=("^AUTH0_",),
+        script_hosts=("cdn.auth0.com",),
         npm=(
             "auth0",
             "@auth0/auth0-react",
@@ -50,21 +52,19 @@ class Auth0Source(ResumableSource[Auth0SourceConfig, Auth0ResumeConfig]):
             "passport-auth0",
         ),
         pypi=("auth0-python",),
-        rubygems=("auth0", "omniauth-auth0"),
+        cocoapods=("Auth0",),
         composer=("auth0/auth0-php", "auth0/login", "auth0/symfony", "auth0/wordpress"),
-        hex=("ueberauth_auth0",),
         go=("github.com/auth0/go-auth0", "github.com/auth0/go-jwt-middleware"),
+        hex=("ueberauth_auth0",),
         maven=(
             "com.auth0:auth0",
             "com.auth0.android:auth0",
             "com.auth0:auth0-spring-security-api",
             "com.auth0:mvc-auth-commons",
         ),
-        swiftpm=("github.com/auth0/auth0.swift",),
-        cocoapods=("Auth0",),
         pub=("auth0_flutter",),
-        env=("^AUTH0_",),
-        script_hosts=("cdn.auth0.com",),
+        rubygems=("auth0", "omniauth-auth0"),
+        swiftpm=("github.com/auth0/auth0.swift",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -41,10 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpScoutResumeConfig]):
     codebase_detection = detect(
-        npm=("@helpscout/javascript-sdk",),
-        composer=("helpscout/api",),
         env=("^(HELP_SCOUT|HELPSCOUT)_",),
         script_hosts=("beacon-v2.helpscout.net",),
+        npm=("@helpscout/javascript-sdk",),
+        composer=("helpscout/api",),
     )
 
     supported_versions = (HELP_SCOUT_API_VERSION_V2, HELP_SCOUT_API_VERSION_V3)

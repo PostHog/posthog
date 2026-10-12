@@ -50,7 +50,7 @@ def _auth_from_config(config: ShutterstockSourceConfig) -> ShutterstockAuth:
 
 @SourceRegistry.register
 class ShutterstockSource(ResumableSource[ShutterstockSourceConfig, ShutterstockResumeConfig]):
-    codebase_detection = detect(npm=("shutterstock-api",), env=("^SHUTTERSTOCK_",))
+    codebase_detection = detect(env=("^SHUTTERSTOCK_",), npm=("shutterstock-api",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
