@@ -102,7 +102,9 @@ export function buildModelShareSeries(
     return buildShareSeries(named, bucketKeys, groupOf, Infinity).sort(
         (a, b) =>
             LAB_ORDER.indexOf(seriesLab(a.label)) - LAB_ORDER.indexOf(seriesLab(b.label)) ||
-            Number(isFoldedModelsLabel(a.label)) - Number(isFoldedModelsLabel(b.label))
+            Number(isFoldedModelsLabel(a.label)) - Number(isFoldedModelsLabel(b.label)) ||
+            b.data.reduce((total, calls) => total + calls, 0) - a.data.reduce((total, calls) => total + calls, 0) ||
+            a.label.localeCompare(b.label)
     )
 }
 

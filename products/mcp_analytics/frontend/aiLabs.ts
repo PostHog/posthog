@@ -13,7 +13,7 @@ const LAB_PATTERNS: [AiLab, RegExp][] = [
         /gpt-oss|deepseek|glm|kimi|qwen|llama|mistral|minimax|gemma|nemotron|olmo|devstral|codestral|mimo|^phi/,
     ],
     ['Anthropic', /claude|opus|sonnet|haiku|fable|anthropic/],
-    ['OpenAI', /gpt|^o[1-9]|codex|openai|chatgpt/],
+    ['OpenAI', /gpt|(?:^|[^a-z0-9_])o[1-9]|codex|openai|chatgpt/],
     ['Google', /gemini|google/],
     ['xAI', /grok|xai/],
     ['Cursor', /composer/],
@@ -46,7 +46,7 @@ export function topModels(totals: Iterable<[model: string, calls: number]>): Set
     return new Set(
         [...totals]
             .filter(([model]) => model !== 'Other' && model !== UNKNOWN)
-            .sort(([, a], [, b]) => b - a)
+            .sort(([modelA, callsA], [modelB, callsB]) => callsB - callsA || modelA.localeCompare(modelB))
             .slice(0, TOP_MODEL_COUNT)
             .map(([model]) => model)
     )

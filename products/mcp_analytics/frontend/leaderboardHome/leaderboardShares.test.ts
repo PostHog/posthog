@@ -66,6 +66,19 @@ describe('leaderboardShares', () => {
         ])
     })
 
+    it('uses model names to break ties between model series in one lab', () => {
+        const rows = [row('d1', 'claude-sonnet', 1), row('d1', 'claude-opus', 1)]
+        const rowLabels = modelRowLabels(
+            rows.map(({ label }) => label),
+            new Set(rows.map(({ label }) => label))
+        )
+
+        expect(buildModelShareSeries(rows, ['d1'], rowLabels).map(({ label }) => label)).toEqual([
+            'claude-opus',
+            'claude-sonnet',
+        ])
+    })
+
     it('computes lab shares from named models only and leaves out the Other lab', () => {
         const shares = buildLabShares([
             row('d1', 'claude-sonnet-4', 6),
