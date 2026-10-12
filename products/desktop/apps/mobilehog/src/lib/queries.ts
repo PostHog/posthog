@@ -102,6 +102,19 @@ export function useTasks(search = "") {
   });
 }
 
+export function useTask(taskId: string) {
+  const session = useAuth((s) => s.session);
+  return useQuery({
+    queryKey: keys.task(taskId),
+    queryFn: () => getClient().getTask(taskId),
+    enabled: !!session && !!taskId,
+    refetchInterval: (query) => {
+      const status = (query.state.data as Task | undefined)?.latest_run?.status;
+      return status && !TERMINAL.has(status) ? 5000 : false;
+    },
+  });
+}
+
 function foundTasks(results: { data?: Task; isLoading: boolean }[]) {
   return {
     data: results.flatMap((result) => (result.data ? [result.data] : [])),
@@ -121,19 +134,6 @@ export function useTasksById(ids: readonly string[]) {
       staleTime: 60_000,
     })),
     combine: foundTasks,
-  });
-}
-
-export function useTask(taskId: string) {
-  const session = useAuth((s) => s.session);
-  return useQuery({
-    queryKey: keys.task(taskId),
-    queryFn: () => getClient().getTask(taskId),
-    enabled: !!session && !!taskId,
-    refetchInterval: (query) => {
-      const status = (query.state.data as Task | undefined)?.latest_run?.status;
-      return status && !TERMINAL.has(status) ? 5000 : false;
-    },
   });
 }
 
