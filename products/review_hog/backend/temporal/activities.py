@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -1873,6 +1874,13 @@ def _publish(input: PublishInput) -> PublishResult:
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
+def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
+    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
+    if error.retry_after is None:
+        return error
+    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1882,7 +1890,10 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
@@ -2251,7 +2262,10 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    try:
+        await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:

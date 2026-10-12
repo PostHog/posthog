@@ -59,6 +59,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
+    is_transient_github_error,
 )
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -685,7 +686,9 @@ class FinalizeStatusCommentInput:
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
-    """Rewrite the status comment with the turn's outcome: everything found vs. what was published."""
+    """Rewrite the status comment with the turn's outcome: everything found vs. what was published.
+
+    A transient GitHub error raises, so the activity's retry policy tries the edit again."""
     try:
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
@@ -715,7 +718,9 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         if redacted:
             logger.warning("Redacted %s credential-shaped string(s) from the status comment", redacted)
         _edit_and_stamp(input.team_id, report, body)
-    except Exception:
+    except Exception as error:
+        if is_transient_github_error(error):
+            raise
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 
 
