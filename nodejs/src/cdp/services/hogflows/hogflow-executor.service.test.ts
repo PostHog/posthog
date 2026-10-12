@@ -32,7 +32,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messa
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { EmailService } from '../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
-import { PushNotificationService } from '../messaging/push-notification.service'
+import { PushNotificationFetchUtils, PushNotificationService } from '../messaging/push-notification.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
@@ -50,6 +50,8 @@ jest.mock('~/common/utils/request', () => {
     }
 })
 
+type TrackedPushFetch = PushNotificationFetchUtils['trackedFetch']
+
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
     return logs.map((log) => log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms'))
@@ -62,9 +64,10 @@ describe('Hogflow Executor', () => {
     let team: Team
     let integrationId: number
     const mockFetch = jest.mocked(fetch)
-    const mockPushProviderFetch = jest.fn()
+    const mockPushProviderFetch = jest.fn<ReturnType<TrackedPushFetch>, Parameters<TrackedPushFetch>>()
 
     beforeEach(async () => {
+        mockPushProviderFetch.mockReset()
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
@@ -3070,11 +3073,12 @@ describe('Hogflow Executor', () => {
                 config: { project_id: 'test-project' },
                 sensitive_config: { access_token: 'test-access-token' },
             })
-            const fcmResponse = (status: number): Record<string, unknown> => ({
+            const fcmResponse = (status: number): Awaited<ReturnType<TrackedPushFetch>> => ({
                 fetchError: null,
                 fetchResponse: {
                     status,
                     headers: {},
+                    json: () => Promise.resolve({}),
                     text: () => Promise.resolve('{}'),
                     dump: () => Promise.resolve(),
                 },

@@ -36,3 +36,7 @@ export const EMAIL_QUEUE_PRIORITY: Record<EmailQueuePriorityClass, number> = {
 export function getEmailQueuePriorityClass(metadata: HogFunctionType['metadata']): EmailQueuePriorityClass {
     return metadata?.message_category_type === 'transactional' ? 'fast' : 'bulk'
 }
+
+export function getEmailQueuePriority(metadata: HogFunctionType['metadata']): number {
+    return EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(metadata)]
+}
