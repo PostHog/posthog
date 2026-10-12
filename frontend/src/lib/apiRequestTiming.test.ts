@@ -126,6 +126,24 @@ describe('API request resource timing attribution', () => {
         expect(timing.time_to_headers_ms).toBeUndefined()
         expect(timing.resource_ttfb_ms).toBeUndefined()
     })
+
+    it('rejects the preceding auth response when a successful retry reuses its request ID', () => {
+        entries = [resource()]
+        now = 500
+        recorder.startFetch()
+        now = 600
+        recorder.recordHeaders({
+            status: 200,
+            url: 'https://example.com/api/query/',
+            headers: new Headers({ 'X-Request-ID': REQUEST_ID }),
+        })
+        now = 700
+        const timing = recorder.finish()
+        expect(timing.request_total_ms).toBe(690)
+        expect(timing.time_to_headers_ms).toBe(590)
+        expect(timing.resource_timing_status).toBe('invalid')
+        expect(timing.resource_ttfb_ms).toBeUndefined()
+    })
 })
 
 describe('resource observation during an active request', () => {
@@ -205,6 +223,18 @@ describe('resource observation during an active request', () => {
         observer.deliver([resource(), resource()])
         now = 320
         expect(recorder.finish().resource_timing_status).toBe('ambiguous')
+    })
+
+    it('leaves ownership unknown when bounded collection could have discarded a duplicate identity', () => {
+        const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+        recorder.startFetch()
+        observer.deliver([resource(), ...Array.from({ length: 64 }, () => resource(OTHER_REQUEST_ID)), resource()])
+        recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
+        now = 320
+        const timing = recorder.finish()
+        expect(timing.resource_timing_status).toBe('overflow')
+        expect(timing.resource_ttfb_ms).toBeUndefined()
+        expect(observer.disconnect).toHaveBeenCalledTimes(1)
     })
 
     it('disconnects after a request fails before receiving an identity', () => {

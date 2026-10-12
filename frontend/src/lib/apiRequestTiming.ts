@@ -15,6 +15,7 @@ export interface ApiRequestTiming {
         | 'unavailable'
         | 'restricted'
         | 'invalid'
+        | 'overflow'
     // Pre-request includes connection setup and browser waiting; it is not a queue measurement.
     resource_pre_request_ms?: number
     resource_ttfb_ms?: number
@@ -29,13 +30,16 @@ const MAX_PENDING_RESOURCES = 32
 /** One POST attempt, with resource phases attributed only by a server-provided request ID. */
 export class ApiRequestTimingRecorder {
     private readonly startedAt: number
+    private fetchStartedAt: number
     private timing: Omit<ApiRequestTiming, 'request_total_ms' | 'resource_timing_status'> = {}
     private responseUrl?: string
     private observer?: PerformanceObserver
     private resourceEntries: PerformanceResourceTiming[] = []
+    private resourceCollectionOverflowed = false
 
     constructor(private readonly clock: Pick<Performance, 'now' | 'getEntriesByName'> = performance) {
         this.startedAt = clock.now()
+        this.fetchStartedAt = this.startedAt
         try {
             this.observer = new PerformanceObserver((list) => this.collectResources(list.getEntries()))
             // Observe only new entries: the global buffer can fill during a long-lived app session.
@@ -51,6 +55,8 @@ export class ApiRequestTimingRecorder {
         this.timing = {}
         this.responseUrl = undefined
         this.resourceEntries = []
+        this.resourceCollectionOverflowed = false
+        this.fetchStartedAt = this.clock.now()
     }
 
     recordHeaders(response: { status?: number; headers?: Headers; url?: string }): void {
@@ -106,6 +112,7 @@ export class ApiRequestTimingRecorder {
                 }
             } else {
                 if (this.resourceEntries.length === MAX_PENDING_RESOURCES) {
+                    this.resourceCollectionOverflowed = true
                     this.resourceEntries.shift()
                 }
                 this.resourceEntries.push(entry)
@@ -144,6 +151,11 @@ export class ApiRequestTimingRecorder {
             if (!timing.http_request_id) {
                 return timing
             }
+            if (this.resourceCollectionOverflowed) {
+                // Truncation may have hidden a duplicate identity; retained entries cannot prove ownership.
+                timing.resource_timing_status = 'overflow'
+                return timing
+            }
             const entries = this.observer
                 ? this.resourceEntries
                 : this.responseUrl
@@ -172,7 +184,7 @@ export class ApiRequestTimingRecorder {
             }
             const phases = [entry.startTime, entry.requestStart, entry.responseStart, entry.responseEnd, finishedAt]
             if (
-                entry.startTime < this.startedAt - 1 ||
+                entry.startTime < this.fetchStartedAt - 1 ||
                 phases.some((phase, index) => !Number.isFinite(phase) || (index > 0 && phase < phases[index - 1]))
             ) {
                 timing.resource_timing_status = 'invalid'
