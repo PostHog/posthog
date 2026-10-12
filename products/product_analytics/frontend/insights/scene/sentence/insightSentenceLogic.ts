@@ -77,6 +77,7 @@ export interface insightSentenceLogicValues {
     perUserMeasureOptions: MeasureOption[]
     propertyMeasureOptions: MeasureOption[]
     collapsedSeriesLabels: string[]
+    filtersPending: boolean
     formulaLetters: FormulaLetter[]
     formulaPending: boolean
     formulas: string[]
@@ -186,12 +187,18 @@ export interface insightSentenceLogicActions {
     duplicateSeries: (seriesIndex: number) => {
         seriesIndex: number
     }
+    filterSeries: (seriesIndex: number) => {
+        seriesIndex: number
+    }
     renameSeries: (
         seriesIndex: number,
         name: string
     ) => {
         seriesIndex: number
         name: string
+    }
+    setFiltersPending: (pending: boolean) => {
+        pending: boolean
     }
     setFormulaPending: (pending: boolean) => {
         pending: boolean
@@ -302,11 +309,13 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             name?: string
         ) => ({ seriesIndex, groupType, value, name }),
         duplicateSeries: (seriesIndex: number) => ({ seriesIndex }),
+        filterSeries: (seriesIndex: number) => ({ seriesIndex }),
         removeFilters: true,
         removeSeries: (seriesIndex: number) => ({ seriesIndex }),
         removeSeriesFilters: (seriesIndex: number) => ({ seriesIndex }),
         removeSplit: true,
         renameSeries: (seriesIndex: number, name: string) => ({ seriesIndex, name }),
+        setFiltersPending: (pending: boolean) => ({ pending }),
         setFormulaPending: (pending: boolean) => ({ pending }),
         setFormulas: (formulas: string[]) => ({ formulas }),
         setPendingFilterSeriesIndex: (seriesIndex: number | null) => ({ seriesIndex }),
@@ -340,6 +349,12 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
                 setRenamingSeriesIndex: (_, { seriesIndex }) => seriesIndex,
                 renameSeries: () => null,
                 removeSeries: () => null,
+            },
+        ],
+        filtersPending: [
+            false,
+            {
+                setFiltersPending: (_, { pending }) => pending,
             },
         ],
         formulaPending: [
@@ -417,17 +432,18 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             ],
         ],
         sentence: [
-            (s) => [s.sentenceInput, s.seriesExpanded, s.pendingFilterSeriesIndex, s.formulaPending],
+            (s) => [s.sentenceInput, s.seriesExpanded, s.pendingFilterSeriesIndex, s.filtersPending, s.formulaPending],
             (
                 sentenceInput: SentenceInput | null,
                 seriesExpanded: boolean,
                 pendingFilterSeriesIndex: number | null,
+                filtersPending: boolean,
                 formulaPending: boolean
             ): Sentence | null => {
                 if (!sentenceInput) {
                     return null
                 }
-                const options = { seriesExpanded, pendingFilterSeriesIndex, formulaPending }
+                const options = { seriesExpanded, pendingFilterSeriesIndex, filtersPending, formulaPending }
                 return sentenceInput.funnel
                     ? buildFunnelSentence(sentenceInput, options)
                     : buildSentence(sentenceInput, options)
@@ -753,6 +769,15 @@ export const insightSentenceLogic: LogicWrapper<insightSentenceLogicType> = kea<
             }
             const series = query.series.filter((_, index) => index !== seriesIndex)
             actions.updateQuerySource({ series } as QuerySourceUpdate)
+        },
+        filterSeries: ({ seriesIndex }) => {
+            const input = values.sentenceInput
+            // A filter on the only event does the same as a filter on the insight, so the insight takes it.
+            if (input && !input.funnel && input.series.length === 1 && !input.series[seriesIndex]?.filters) {
+                actions.setFiltersPending(true)
+            } else {
+                actions.setPendingFilterSeriesIndex(seriesIndex)
+            }
         },
         removeFilters: () => {
             actions.updateQuerySource({ properties: undefined })

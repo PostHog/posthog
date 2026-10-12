@@ -5,8 +5,7 @@ import { Button } from '@posthog/quill'
 
 export interface SentenceEventActionsProps {
     noun: 'event' | 'step'
-    /** Null hides the action. A filter on one event only matters once there are several events. */
-    onFilter: (() => void) | null
+    onFilter: () => void
     onRename: () => void
     onDuplicate: () => void
     onCombine: () => void
@@ -33,17 +32,10 @@ export function SentenceEventActions({
 }: SentenceEventActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1">
-            {onFilter && (
-                <Button
-                    size="sm"
-                    onMouseDown={keepFocus}
-                    onClick={onFilter}
-                    data-attr="quill-insight-event-action-filter"
-                >
-                    <IconFilter />
-                    {`Filter this ${noun}`}
-                </Button>
-            )}
+            <Button size="sm" onMouseDown={keepFocus} onClick={onFilter} data-attr="quill-insight-event-action-filter">
+                <IconFilter />
+                {`Filter this ${noun}`}
+            </Button>
             <Button size="sm" onMouseDown={keepFocus} onClick={onRename} data-attr="quill-insight-event-action-rename">
                 <IconPencil />
                 Rename

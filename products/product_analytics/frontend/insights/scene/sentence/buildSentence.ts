@@ -93,11 +93,14 @@ export interface SentenceOptions {
     seriesExpanded: boolean
     /** An event whose first filter is being chosen, so its filter word shows before a filter exists. */
     pendingFilterSeriesIndex: number | null
+    /** The first filter of the insight is being chosen, so the filter word shows before a filter exists. */
+    filtersPending: boolean
     /** A formula is being written, so the formula word shows before a formula exists. */
     formulaPending: boolean
 }
 
-const PENDING_SERIES_FILTERS: SeriesFiltersPhrase = { lead: 'where', text: 'choose a filter' }
+const PENDING_FILTERS = 'choose a filter'
+const PENDING_SERIES_FILTERS: SeriesFiltersPhrase = { lead: 'where', text: PENDING_FILTERS }
 const PENDING_FORMULA = 'write a formula'
 
 export function seriesLetter(seriesIndex: number): string {
@@ -480,12 +483,16 @@ export function partsAfterSeries(input: SentenceInput, options: SentenceOptions)
         text(splitIndex === 0 ? ', split by ' : ' and ')
         parts.push({ type: 'value', slot: 'split', text: split, splitIndex })
     })
-    if (input.filterCount) {
+    if (input.filterCount || options.filtersPending) {
         text(', with ')
         parts.push({
             type: 'value',
             slot: 'filters',
-            text: input.filterCount === 1 ? '1 filter' : `${input.filterCount} filters`,
+            text: !input.filterCount
+                ? PENDING_FILTERS
+                : input.filterCount === 1
+                  ? '1 filter'
+                  : `${input.filterCount} filters`,
         })
     }
     text(input.dateRange.lead ? `, ${input.dateRange.lead} ` : ', ')

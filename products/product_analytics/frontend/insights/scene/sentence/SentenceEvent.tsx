@@ -30,9 +30,9 @@ export function SentenceEvent({
         changeSeriesEvent,
         combineSeriesEvent,
         duplicateSeries,
+        filterSeries,
         removeSeries,
         renameSeries,
-        setPendingFilterSeriesIndex,
         setRenamingSeriesIndex,
         splitCombinedSeries,
     } = useActions(insightSentenceLogic(insightProps))
@@ -91,14 +91,10 @@ export function SentenceEvent({
                 ) : (
                     <SentenceEventActions
                         noun={isFunnel ? 'step' : 'event'}
-                        onFilter={
-                            seriesCount > 1 || isFunnel
-                                ? () => {
-                                      close()
-                                      setPendingFilterSeriesIndex(seriesIndex)
-                                  }
-                                : null
-                        }
+                        onFilter={() => {
+                            close()
+                            filterSeries(seriesIndex)
+                        }}
                         onRename={() => {
                             close()
                             setRenamingSeriesIndex(seriesIndex)
