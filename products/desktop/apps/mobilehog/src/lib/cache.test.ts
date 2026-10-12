@@ -56,9 +56,11 @@ vi.mock("@/lib/auth", () => ({
 import type { Photo } from "./attachments";
 import {
   accountStore,
+  beginSend,
   clearAccountCache,
-  clearDraft,
+  keepUnsent,
   loadDraft,
+  moveDraft,
   NEW_CHAT_DRAFT,
   saveDraft,
 } from "./cache";
@@ -115,14 +117,22 @@ describe("drafts", () => {
     expect(draftIndex()).toEqual([]);
   });
 
-  it("clears a draft and its index entry", () => {
-    saveDraft("task-1", { text: "one", photos: [] });
-    saveDraft("task-2", { text: "two", photos: [] });
-    clearDraft("task-1");
+  it("drops photos with missing fields", () => {
+    mocks.existing.add("file:///a.jpg");
+    const { name: _, ...partial } = photo("file:///a.jpg");
+    saveDraft("task-1", { text: "look", photos: [partial as Photo] });
 
-    expect(loadDraft("task-1")).toBeNull();
-    expect(loadDraft("task-2")?.text).toBe("two");
-    expect(draftIndex()).toEqual(["task-2"]);
+    expect(loadDraft("task-1")).toEqual({ text: "look", photos: [] });
+  });
+
+  it("ignores index entries that are not strings", () => {
+    accountStore(mocks.session as never).set(
+      "draft-1-index",
+      JSON.stringify([1, "task-1", null]),
+    );
+    saveDraft("task-2", { text: "two", photos: [] });
+
+    expect(draftIndex()).toEqual(["task-2", "task-1"]);
   });
 
   it("keeps only the most recent drafts", () => {
@@ -162,5 +172,87 @@ describe("drafts", () => {
     accountStore(mocks.session as never).set("draft-1-task-1", "{");
 
     expect(loadDraft("task-1")).toBeNull();
+  });
+
+  it("moves a draft and sends later saves to the new key", () => {
+    saveDraft("new-1", { text: "typed", photos: [] });
+    moveDraft("new-1", "task-1");
+
+    expect(loadDraft("task-1")?.text).toBe("typed");
+    expect(draftIndex()).toEqual(["task-1"]);
+
+    saveDraft("new-1", { text: "typed more", photos: [] });
+
+    expect(loadDraft("task-1")?.text).toBe("typed more");
+    expect(draftIndex()).toEqual(["task-1"]);
+  });
+});
+
+describe("keepUnsent", () => {
+  const unsent = { text: "sent", photos: [photo("file:///sent.jpg")] };
+
+  it("restores the unsent message into an empty draft", () => {
+    expect(keepUnsent({ text: " ", photos: [] }, unsent)).toEqual(unsent);
+  });
+
+  it("keeps what was typed since the send", () => {
+    const typed = { text: "new", photos: [photo("file:///new.jpg")] };
+
+    expect(keepUnsent(typed, unsent)).toEqual(typed);
+    expect(keepUnsent({ text: "new", photos: [] }, unsent)).toEqual({
+      text: "new",
+      photos: unsent.photos,
+    });
+  });
+});
+
+describe("sending a draft", () => {
+  it("keeps the message saved until the send goes out", () => {
+    saveDraft("task-1", { text: "hello", photos: [] });
+    const settle = beginSend("task-1", { text: "hello", photos: [] });
+
+    expect(loadDraft("task-1")).toBeNull();
+    expect(draftIndex()).toEqual(["task-1"]);
+
+    settle(true);
+
+    expect(loadDraft("task-1")).toBeNull();
+    expect(draftIndex()).toEqual([]);
+  });
+
+  it("keeps text typed during the send after it goes out", () => {
+    const settle = beginSend("task-1", { text: "hello", photos: [] });
+    saveDraft("task-1", { text: "next", photos: [] });
+    settle(true);
+
+    expect(loadDraft("task-1")?.text).toBe("next");
+  });
+
+  it("returns the message to the draft when the send fails", () => {
+    const settle = beginSend("task-1", { text: "hello", photos: [] });
+    saveDraft("task-1", { text: "  ", photos: [] });
+    settle(false);
+
+    expect(loadDraft("task-1")?.text).toBe("hello");
+  });
+
+  it("restores a send the app did not finish", async () => {
+    beginSend("task-1", { text: "hello", photos: [] });
+    vi.resetModules();
+    const relaunched = await import("./cache");
+
+    expect(relaunched.loadDraft("task-1")?.text).toBe("hello");
+    relaunched.saveDraft("task-1", { text: "", photos: [] });
+    expect(relaunched.loadDraft("task-1")).toBeNull();
+  });
+
+  it("does not write after the project changed", () => {
+    const settle = beginSend("task-1", { text: "hello", photos: [] });
+    mocks.auth.session = { ...mocks.session, projectId: 2 };
+    settle(false);
+
+    expect(loadDraft("task-1")).toBeNull();
+    mocks.auth.session = { ...mocks.session };
+    expect(loadDraft("task-1")?.text).toBe("hello");
   });
 });

@@ -12,7 +12,7 @@ import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
 import type { Photo } from "@/lib/attachments";
 import { sessionIdentity, useAuth } from "@/lib/auth";
-import { NEW_CHAT_DRAFT } from "@/lib/cache";
+import { moveDraft, NEW_CHAT_DRAFT } from "@/lib/cache";
 import {
   createAndRunTask,
   useDefaultRepository,
@@ -60,6 +60,7 @@ export default function NewChatScreen() {
       });
       if (sessionIdentity() !== identity) return;
       adopt(tempId, task);
+      moveDraft(tempId, task.id);
       invalidateTasks();
       router.replace({
         pathname: "/(drawer)/task/[id]",
