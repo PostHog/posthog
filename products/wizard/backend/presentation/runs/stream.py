@@ -1,9 +1,9 @@
-import time
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
 import orjson
 
+from posthog.api.streaming import sse_rotating_event_stream
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -25,24 +25,21 @@ def _read_run_state(team_id: int, run_id: UUID) -> bytes:
 
 
 async def wizard_run_event_stream(team_id: int, run_id: UUID) -> AsyncGenerator[bytes]:
-    started_at = time.monotonic()
     async with wizard_facade.subscribe_to_run_updates(team_id, run_id) as subscription:
+
+        async def receive(timeout: float) -> bytes | None:
+            message = await subscription.get_message(timeout=timeout)
+            if message and message.get("type") == "message":
+                return await database_sync_to_async(_read_run_state, thread_sensitive=False)(team_id, run_id)
+            return None
+
         # Subscribe before reading so changes during the read remain queued on the Redis connection.
         yield (
             b"data: " + await database_sync_to_async(_read_run_state, thread_sensitive=False)(team_id, run_id) + b"\n\n"
         )
-        last_heartbeat = time.monotonic()
-        while time.monotonic() - started_at < config.SSE_MAX_DURATION_SECONDS:
-            message = await subscription.get_message(timeout=config.SSE_POLL_TIMEOUT_SECONDS)
-            now = time.monotonic()
-            if message and message.get("type") == "message":
-                yield (
-                    b"data: "
-                    + await database_sync_to_async(_read_run_state, thread_sensitive=False)(team_id, run_id)
-                    + b"\n\n"
-                )
-                last_heartbeat = now
-            elif now - last_heartbeat >= config.SSE_HEARTBEAT_INTERVAL_SECONDS:
-                yield b": ping\n\n"
-                last_heartbeat = now
-        yield b"event: end\ndata: reconnect\n\n"
+        async for chunk in sse_rotating_event_stream(
+            receive,
+            max_duration_seconds=config.SSE_MAX_DURATION_SECONDS,
+            heartbeat_interval_seconds=config.SSE_HEARTBEAT_INTERVAL_SECONDS,
+        ):
+            yield chunk

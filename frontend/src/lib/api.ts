@@ -6898,6 +6898,7 @@ const api = {
             onError,
             onOpen,
             onClose,
+            onNoContent,
             headers,
             signal,
         }:
@@ -6913,6 +6914,10 @@ const api = {
                   /** Fires when the server cleanly closes the response body (not on errors,
                    *  not on abort). Use this to react to server-initiated stream rotation. */
                   onClose?: () => void
+                  /** Fires on a 204, which an SSE server sends to tell the client to stop reconnecting.
+                   *  The stream then resolves without reading a body. Without this handler, a 204
+                   *  goes to onError, because a 204 has no body to read. */
+                  onNoContent?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6924,6 +6929,7 @@ const api = {
                   onError: (error: any) => void
                   onOpen?: () => void
                   onClose?: () => void
+                  onNoContent?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6944,9 +6950,14 @@ const api = {
             signal: abortController.signal,
             onopen: async (response) => {
                 // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
-                // livestream endpoints so the generic stream helper stays quiet.
+                // livestream endpoints and the Django notifications stream so the
+                // generic stream helper stays quiet.
                 // Remove together with captureLivestream401Debug once root cause is known.
-                const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
+                const sseTransport = /\/(notifications|events)(?:$|\?)/.test(url)
+                    ? 'livestream'
+                    : /\/notifications\/stream\/(?:$|\?)/.test(url)
+                      ? 'django'
+                      : null
 
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After')
@@ -6954,6 +6965,9 @@ const api = {
                         onError(new RateLimitError(parseInt(retryAfter, 10)))
                         abortController.abort()
                     }
+                } else if (response.status === 204 && onNoContent) {
+                    onNoContent()
+                    abortController.abort()
                 } else if (!response.ok) {
                     const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
                     const errorData = error.data
@@ -6962,9 +6976,10 @@ const api = {
                     // Remove once root cause is known.
                     if (response.status === 401) {
                         captureLivestream401Debug(url, headers?.Authorization, errorData)
-                    } else if (isLivestreamUrl) {
+                    } else if (sseTransport) {
                         posthog.capture('livestream_sse_non_ok_non_401', {
                             url,
+                            transport: sseTransport,
                             status: response.status,
                             server_message: errorData?.message || errorData?.error,
                         })
@@ -6973,9 +6988,10 @@ const api = {
                     abortController.abort()
                 } else {
                     onOpen?.()
-                    if (isLivestreamUrl) {
+                    if (sseTransport) {
                         posthog.capture('livestream_sse_opened', {
                             url,
+                            transport: sseTransport,
                             status: response.status,
                         })
                     }

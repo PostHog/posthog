@@ -3,7 +3,16 @@ import random
 import asyncio
 import threading
 from collections import deque
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Generator, Iterable, Iterator
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+)
 from http import HTTPStatus
 
 from django.conf import settings
@@ -58,21 +67,6 @@ SSE_REJECTED_OVER_CAP_COUNTER = Counter(
     labelnames=["endpoint"],
 )
 
-# Per-process count of admitted streams: a slot is reserved under the lock
-# before the response leaves the view and released exactly once per stream,
-# so parallel admissions cannot race past the cap. The lock guards only the
-# check-and-increment and the release, never a yield or await. This counts
-# reservations; the gauge and counters above keep counting streams that
-# actually started being consumed.
-_stream_cap_lock = threading.Lock()
-_active_stream_count = 0
-
-# Slots freed by the GC backstop while the cap lock was unavailable. ``__del__``
-# can fire at any allocation point, including on a thread that already holds the
-# non-reentrant lock, so it must never block on it; ``deque.append`` is atomic,
-# and admission drains this queue under the lock.
-_deferred_slot_releases: deque[None] = deque()
-
 # Rejected clients get "come back in base + [0, jitter) seconds" so a burst that
 # hits the cap spreads its retries out instead of reconnecting in lockstep.
 _RETRY_AFTER_BASE_SECONDS = 15
@@ -91,7 +85,7 @@ def _record_stream_close(endpoint: str, outcome: str, started_at: float) -> None
 
 
 class _StreamSlotReservation:
-    """One admitted slot against the per-process stream cap.
+    """One admitted slot against a per-process stream budget.
 
     ``release`` is idempotent: both afterlives of a response call it (the
     instrumented iterator's ``finally`` when the stream ran, the response's
@@ -103,49 +97,77 @@ class _StreamSlotReservation:
     process restarts.
     """
 
-    __slots__ = ("_released",)
+    __slots__ = ("_budget", "_released")
 
-    def __init__(self) -> None:
+    def __init__(self, budget: "StreamBudget") -> None:
+        self._budget = budget
         self._released = False
 
     def release(self) -> None:
-        global _active_stream_count
-        with _stream_cap_lock:
+        budget = self._budget
+        with budget.lock:
             if self._released:
                 return
             self._released = True
-            _active_stream_count -= 1
+            budget.active_count -= 1
 
     def __del__(self) -> None:
         # GC can run while this thread holds the cap lock, so never block on it
         # here: decrement inline when the lock is free, otherwise defer to the
         # queue the next admission drains. No lock guards the flag because an
         # object being finalized has no other referents left to race with.
-        global _active_stream_count
         if self._released:
             return
-        if _stream_cap_lock.acquire(blocking=False):
+        budget = self._budget
+        if budget.lock.acquire(blocking=False):
             try:
                 self._released = True
-                _active_stream_count -= 1
+                budget.active_count -= 1
             finally:
-                _stream_cap_lock.release()
+                budget.lock.release()
         else:
             self._released = True
-            _deferred_slot_releases.append(None)
+            budget.deferred_releases.append(None)
 
 
-def _try_reserve_stream_slot() -> _StreamSlotReservation | None:
-    global _active_stream_count
-    cap = settings.SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS
-    with _stream_cap_lock:
-        while _deferred_slot_releases:
-            _deferred_slot_releases.popleft()
-            _active_stream_count -= 1
-        if cap is not None and _active_stream_count >= cap:
-            return None
-        _active_stream_count += 1
-    return _StreamSlotReservation()
+class StreamBudget:
+    """A per-process cap on concurrent SSE streams, read from the setting ``cap_setting``.
+
+    Every SSE endpoint shares one default budget. An endpoint whose streams are
+    idle for most of their life and open in every foreground tab passes its own
+    budget to ``sse_streaming_response``, so that those streams cannot use up the
+    slots that interactive streams need.
+    """
+
+    def __init__(self, cap_setting: str) -> None:
+        self._cap_setting = cap_setting
+        # Count of admitted streams: a slot is reserved under the lock before the
+        # response leaves the view and released exactly once per stream, so
+        # parallel admissions cannot race past the cap. The lock guards only the
+        # check-and-increment and the release, never a yield or await. This
+        # counts reservations; the module gauge and counters keep counting streams
+        # that actually started being consumed.
+        self.lock = threading.Lock()
+        self.active_count = 0
+        # Slots freed by the GC backstop while the lock was unavailable.
+        # ``__del__`` can fire at any allocation point, including on a thread that
+        # already holds the non-reentrant lock, so it must never block on it;
+        # ``deque.append`` is atomic, and admission drains this queue under the lock.
+        self.deferred_releases: deque[None] = deque()
+
+    def try_reserve(self) -> _StreamSlotReservation | None:
+        cap = getattr(settings, self._cap_setting)
+        with self.lock:
+            while self.deferred_releases:
+                self.deferred_releases.popleft()
+                self.active_count -= 1
+            if cap is not None and self.active_count >= cap:
+                return None
+            self.active_count += 1
+        return _StreamSlotReservation(self)
+
+
+_SHARED_STREAM_BUDGET = StreamBudget("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS")
 
 
 def _stream_cap_rejection(endpoint: str) -> HttpResponse:
@@ -315,6 +337,7 @@ def sse_streaming_response(
     endpoint: str = "unknown",
     status: int = HTTPStatus.OK,
     headers: dict[str, str] | None = None,
+    budget: StreamBudget | None = None,
 ) -> StreamingHttpResponse | HttpResponse:
     """Build a ``text/event-stream`` response for a long-lived SSE endpoint.
 
@@ -346,18 +369,19 @@ def sse_streaming_response(
     ``"wizard_session"``) used as the label on the SSE connection metrics.
 
     Admission control: when this process is already serving
-    ``SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS`` streams, the stream is not opened
-    and the client gets ``503`` with a jittered ``Retry-After``. Beware that a
-    native ``EventSource`` treats any non-200 response as fatal (readyState
-    CLOSED, no auto-reconnect) and ignores ``Retry-After``; the jittered header
-    only spreads out clients that retry at the HTTP layer, so ``EventSource``
+    ``SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS`` streams (or the cap of the
+    ``budget`` the caller passes), the stream is not opened and the client gets
+    ``503`` with a jittered ``Retry-After``. Beware that a native
+    ``EventSource`` treats any non-200 response as fatal (readyState CLOSED, no
+    auto-reconnect) and ignores ``Retry-After``; the jittered header only
+    spreads out clients that retry at the HTTP layer, so ``EventSource``
     consumers must schedule their own reconnect from ``onerror`` to recover
     from a rejection. A slot is reserved atomically before the response is
     returned, so parallel admissions cannot overshoot the cap; the slot is
     released when the stream ends, when a never-consumed response is closed,
     or by a GC backstop when the response is dropped without being closed.
     """
-    reservation = _try_reserve_stream_slot()
+    reservation = (budget or _SHARED_STREAM_BUDGET).try_reserve()
     if reservation is None:
         return _stream_cap_rejection(endpoint)
     try:
@@ -373,3 +397,38 @@ def sse_streaming_response(
         # not strand the reservation until GC gets to it.
         reservation.release()
         raise
+
+
+SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
+
+
+async def sse_rotating_event_stream(
+    receive: Callable[[float], Awaitable[bytes | None]],
+    *,
+    max_duration_seconds: float,
+    heartbeat_interval_seconds: float = SSE_HEARTBEAT_INTERVAL_SECONDS,
+) -> AsyncGenerator[bytes]:
+    """Send each payload from ``receive`` as a ``data`` frame until ``max_duration_seconds`` pass, then ``end``.
+
+    ``receive(timeout)`` waits up to ``timeout`` seconds for the next payload and
+    returns None when the time runs out. The loop passes the time left until the
+    next heartbeat or the deadline, so an idle stream wakes once per heartbeat
+    instead of once per poll. A ``: heartbeat`` comment goes out when no frame went
+    out for ``heartbeat_interval_seconds``, so proxies keep the connection open.
+
+    The client reconnects when it reads ``end``. The rotation spreads streams over
+    processes again after a deploy and limits how long one stream holds a slot.
+    """
+    started_at = time.monotonic()
+    last_write = started_at
+    while (elapsed := time.monotonic() - started_at) < max_duration_seconds:
+        idle = time.monotonic() - last_write
+        if idle >= heartbeat_interval_seconds:
+            yield b": heartbeat\n\n"
+            last_write = time.monotonic()
+            continue
+        payload = await receive(min(max_duration_seconds - elapsed, heartbeat_interval_seconds - idle))
+        if payload is not None:
+            yield b"data: " + payload + b"\n\n"
+            last_write = time.monotonic()
+    yield b"event: end\ndata: reconnect\n\n"

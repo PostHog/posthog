@@ -1,4 +1,6 @@
 import json
+import time
+import itertools
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -53,9 +55,13 @@ def test_run_stream_reads_committed_state_and_closes_subscription(team, user) ->
             assert updated["tasks"][0]["started_at"] is not None
 
             subscription.get_message.return_value = None
-            with patch.object(config, "SSE_HEARTBEAT_INTERVAL_SECONDS", 0):
-                assert await anext(stream) == b": ping\n\n"
-            with patch.object(config, "SSE_MAX_DURATION_SECONDS", 0):
+            later = time.monotonic() + config.SSE_HEARTBEAT_INTERVAL_SECONDS
+            with patch("posthog.api.streaming.time.monotonic", side_effect=itertools.count(later)):
+                assert await anext(stream) == b": heartbeat\n\n"
+            with patch(
+                "posthog.api.streaming.time.monotonic",
+                side_effect=itertools.count(later + config.SSE_MAX_DURATION_SECONDS),
+            ):
                 assert await anext(stream) == b"event: end\ndata: reconnect\n\n"
         finally:
             await stream.aclose()
