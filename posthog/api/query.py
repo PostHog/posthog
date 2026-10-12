@@ -246,7 +246,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         response = super().finalize_response(request, response, *args, **kwargs)
         if isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
             response["X-Request-ID"] = str(http_request_id)
-            response._posthog_query_request_id = http_request_id
+            # Internal marker lets CORS preserve query exposures without affecting other responses.
+            vars(response)["_posthog_query_request_id"] = http_request_id
             request_id_timing = f'request_id;desc="{http_request_id}"'
             if existing_server_timing := response.get("Server-Timing"):
                 request_id_timing = f"{existing_server_timing}, {request_id_timing}"
