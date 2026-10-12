@@ -76,7 +76,7 @@ class TestSignalSpend(BaseTest):
         ):
             reconcile_signal_spend()
             entry.refresh_from_db()
-            assert entry.needs_refresh
+            self.assertTrue(entry.needs_refresh)
             assert not SignalSpend.objects.for_team(self.team.id).get(source_id="first").needs_refresh
             for model in EmbeddingModelName:
                 rows[model.value] = [(driver, ("Example finding", json.dumps(metadata), now, [0.5]))]
@@ -85,13 +85,13 @@ class TestSignalSpend(BaseTest):
             with capture_logs() as logs:
                 reconcile_signal_spend()
             entry.refresh_from_db()
-            assert entry.needs_refresh
+            self.assertTrue(entry.needs_refresh)
             assert any(log.get("stage") == "persist_metadata" for log in logs)
             produce_scope.side_effect = None
 
             reconcile_signal_spend()
             entry.refresh_from_db()
-            assert entry.needs_refresh
+            self.assertTrue(entry.needs_refresh)
             assert producer.produce.call_count == len(EmbeddingModelName)
             for call in producer.produce.call_args_list:
                 payload = call.kwargs["data"]
@@ -107,7 +107,7 @@ class TestSignalSpend(BaseTest):
             producer.reset_mock()
             reconcile_signal_spend()
             entry.refresh_from_db()
-            assert not entry.needs_refresh
+            self.assertFalse(entry.needs_refresh)
             producer.produce.assert_not_called()
 
             def concurrent_update(**kwargs: object) -> bool:
@@ -120,7 +120,7 @@ class TestSignalSpend(BaseTest):
             ):
                 reconcile_signal_spend()
             entry.refresh_from_db()
-            assert entry.needs_refresh
+            self.assertTrue(entry.needs_refresh)
 
             if source == "generation":
                 record_llm_request("later", team_id=self.team.id, signal_id=driver, stage="report_safety_judge")
