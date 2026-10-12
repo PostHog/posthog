@@ -2612,6 +2612,7 @@ class TaskRun(models.Model):
         "sandbox_jwt_kid",
         "sandbox_connect_token",
         "sandbox_backend",
+        "failure_error_type",
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
