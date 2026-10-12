@@ -2,6 +2,7 @@ import { Button, Host, Image, Menu } from "@expo/ui/swift-ui";
 import { frame, glassEffect } from "@expo/ui/swift-ui/modifiers";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import { FlashList } from "@shopify/flash-list";
+import { useQueries } from "@tanstack/react-query";
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -26,8 +27,10 @@ import {
   RowSkeletons,
   TaskChatRow,
 } from "@/components/TaskRow";
+import { useAuth } from "@/lib/auth";
+import { getClient } from "@/lib/client";
 import { lastOpened, loadOpened } from "@/lib/openedChats";
-import { useTaskPages, useTasks, useTasksById } from "@/lib/queries";
+import { keys, useTaskPages, useTasks } from "@/lib/queries";
 import { useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -46,6 +49,28 @@ const SCOPES = [
 
 const HEADER_HEIGHT = 64;
 const LAST_OPENED_LIMIT = 8;
+
+function foundTasks(results: { data?: Task; isLoading: boolean }[]) {
+  return {
+    data: results.flatMap((result) => (result.data ? [result.data] : [])),
+    isLoading: results.some((result) => result.isLoading),
+  };
+}
+
+// Opened chats the recent page does not hold. Failed lookups (deleted tasks)
+// are left out.
+function useOpenedTasks(ids: readonly string[]) {
+  const session = useAuth((s) => s.session);
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: keys.task(id),
+      queryFn: () => getClient().getTask(id),
+      enabled: !!session,
+      staleTime: 60_000,
+    })),
+    combine: foundTasks,
+  });
+}
 
 function useDebounced(value: string, delay: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -80,7 +105,7 @@ export default function RecentsScreen() {
     const inPage = new Set(recentTasks.data.map((task) => task.id));
     return opened.slice(0, LAST_OPENED_LIMIT).filter((id) => !inPage.has(id));
   }, [recentMode, recentTasks.data, opened]);
-  const openedTasks = useTasksById(missing);
+  const openedTasks = useOpenedTasks(missing);
 
   const items = useMemo(() => {
     if (recentMode) {

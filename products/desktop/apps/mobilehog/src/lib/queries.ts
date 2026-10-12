@@ -3,7 +3,6 @@ import type { Task } from "@posthog/shared/domain-types";
 import {
   useInfiniteQuery,
   useMutation,
-  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -112,28 +111,6 @@ export function useTask(taskId: string) {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
-  });
-}
-
-function foundTasks(results: { data?: Task; isLoading: boolean }[]) {
-  return {
-    data: results.flatMap((result) => (result.data ? [result.data] : [])),
-    isLoading: results.some((result) => result.isLoading),
-  };
-}
-
-// Tasks by id, for ones the list pages do not hold. Failed lookups (deleted
-// tasks) are left out.
-export function useTasksById(ids: readonly string[]) {
-  const session = useAuth((s) => s.session);
-  return useQueries({
-    queries: ids.map((id) => ({
-      queryKey: keys.task(id),
-      queryFn: () => getClient().getTask(id),
-      enabled: !!session,
-      staleTime: 60_000,
-    })),
-    combine: foundTasks,
   });
 }
 
