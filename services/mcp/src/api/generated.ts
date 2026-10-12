@@ -94689,8 +94689,8 @@ export namespace Schemas {
       level: string | null;
       status: string | null;
       permalink: string | null;
-      shortId: string | null;
-      firstSeen: string | null;
+      short_id: string | null;
+      first_seen: string | null;
     }
 
     export interface RollbarItemSignalExtra {
