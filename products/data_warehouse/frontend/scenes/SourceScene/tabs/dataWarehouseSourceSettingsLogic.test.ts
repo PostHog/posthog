@@ -288,6 +288,36 @@ describe('sourceSettingsLogic', () => {
     })
 
     it.each([
+        { outcome: 'accepted', rejected: false, successToasts: 1, formAction: 'submitSourceConfigSuccess' },
+        { outcome: 'rejected', rejected: true, successToasts: 0, formAction: 'submitSourceConfigFailure' },
+    ])('reports a save as $outcome', async ({ rejected, successToasts, formAction }) => {
+        silenceKeaLoadersErrors()
+        const source = makeSource([makeSchema()])
+        const updateSpy = jest.spyOn(api.externalDataSources, 'update')
+        if (rejected) {
+            updateSpy.mockRejectedValue(Object.assign(new Error('Connection timed out'), { status: 400 }))
+        } else {
+            updateSpy.mockResolvedValue(source)
+        }
+        const successToastSpy = jest.spyOn(lemonToast, 'success')
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSourceConfigValue('description', 'edited description')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceConfig()
+        }).toDispatchActions([formAction])
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(successToastSpy).toHaveBeenCalledTimes(successToasts)
+        // A rejected save must keep the edits so that the person can retry.
+        expect(logic.values.sourceConfig.description).toEqual('edited description')
+    })
+
+    it.each([
         { case: 'a warning toast', connection_warning: 'Source saved, but the connection check failed.', warnings: 1 },
         { case: 'the success toast', connection_warning: null, warnings: 0 },
     ])(

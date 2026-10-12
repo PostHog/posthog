@@ -38,6 +38,7 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportSlackThread,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -49,6 +50,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
@@ -358,7 +360,7 @@ def _build_message_blocks(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK),
         }
     ]
     blocks.append({"type": "actions", "elements": action_elements})
@@ -703,6 +705,7 @@ def _deliver_route_notification(
                 integration_id=route.integration.id,
                 channel=str(posted_channel or channel_id),
                 thread_ts=str(thread_ts),
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
             )
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)

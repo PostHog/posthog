@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, type ReactNode } from 'react'
 
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
@@ -62,7 +64,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 }}
                 onDrop={(event) => {
                     const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
-                    if (pill?.dragSessionId === dragSessionId) {
+                    if (pill?.dragSessionId === dragSessionId && !event.altKey) {
                         event.preventDefault()
                         removeFieldFromShelf(pill.shelf, pill.index)
                     }
@@ -109,9 +111,22 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                             icon={<IconTableChart className="rotate-90" />}
                             emptyText="Drop dimensions here for a second grouping"
                         >
-                            {config.columns.map((field, index) => (
-                                <BIFieldPill key={field.id} shelf="columns" index={index} />
-                            ))}
+                            {[
+                                ...config.columns.map((field, index) => (
+                                    <BIFieldPill key={field.id} shelf="columns" index={index} />
+                                )),
+                                ...config.values.flatMap((value, index) =>
+                                    value.shelf === 'columns'
+                                        ? [
+                                              <BIFieldPill
+                                                  key={`${value.field.id}-${index}`}
+                                                  shelf="values"
+                                                  index={index}
+                                              />,
+                                          ]
+                                        : []
+                                ),
+                            ]}
                         </BIShelfStrip>
                         <BIShelfStrip
                             shelf="rows"
@@ -123,9 +138,28 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                                 ...config.rows.map((field, index) => (
                                     <BIFieldPill key={field.id} shelf="rows" index={index} />
                                 )),
-                                ...config.values.map((value, index) => (
-                                    <BIFieldPill key={`${value.field.id}-${index}`} shelf="values" index={index} />
-                                )),
+                                ...config.values.flatMap((value, index) =>
+                                    value.shelf !== 'columns'
+                                        ? [
+                                              <BIFieldPill
+                                                  key={`${value.field.id}-${index}`}
+                                                  shelf="values"
+                                                  index={index}
+                                              />,
+                                          ]
+                                        : []
+                                ),
+                                ...(config.values.length === 0 && (config.rows.length > 0 || config.columns.length > 0)
+                                    ? [
+                                          <LemonTag
+                                              key="count"
+                                              type="success"
+                                              title="Counts source rows in each group. Add a measure to replace this count."
+                                          >
+                                              Count of rows
+                                          </LemonTag>,
+                                      ]
+                                    : []),
                             ]}
                         </BIShelfStrip>
                         <div className="flex min-h-0 flex-1 flex-col">{children}</div>

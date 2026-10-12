@@ -18,6 +18,12 @@ PAYLOAD_VERSION = 1
 
 
 @frozen
+class SubjectKinds:
+    readable: frozenset[WarehouseSuggestionSubjectKind]
+    actionable: frozenset[WarehouseSuggestionSubjectKind]
+
+
+@frozen
 class SourceRef:
     name: str
     warehouse_table_id: UUID | None

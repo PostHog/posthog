@@ -98,6 +98,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.github_commands.backend.apps.GithubCommandsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
@@ -692,17 +693,9 @@ SPECTACULAR_SETTINGS = {
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
             # The definition site is a Django-free module, and no field builds these choices from a
-            # posthog.enums labeled enum, so no name derives. The engineering_analytics fields go
-            # through DataclassSerializer, which pairs each value with the member name, not a label.
-            # The signals entries need a member order, or a name without the Enum suffix, that no
-            # class derives.
+            # posthog.enums labeled enum, so no name derives. The signals entries need a member order,
+            # or a name without the Enum suffix, that no class derives.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
-            "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
-            "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
-            "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
-            "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
-            "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
-            "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
             "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
@@ -832,6 +825,7 @@ SPECTACULAR_SETTINGS = {
             "LogsListWidgetTypeEnum": ["logs_list"],
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
+            "CanvasAppWidgetTypeEnum": ["canvas_app"],
         }
     ),
 }
@@ -1299,8 +1293,6 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:write",
     "element:read",
     "uploaded_media:write",
-    "survey:read",
-    "survey:write",
     "field_note:read",
     "field_note:write",
 ]

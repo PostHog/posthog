@@ -11,9 +11,9 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
@@ -210,6 +210,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         when the config could not be read, and an override must still answer in that case.
         """
         return self.history_lookback
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple["RowFilterColumn", ...] | None:
+        """The columns a row filter on one schema may use, or None for every column of the table.
+
+        Override in a source whose API filters on a fixed set of fields. An empty tuple means the
+        schema accepts no row filter. Only read when `supports_row_filters` is True.
+        """
+        return None
 
     @property
     @abstractmethod

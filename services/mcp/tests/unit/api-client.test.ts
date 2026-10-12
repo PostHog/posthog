@@ -418,6 +418,60 @@ describe('ApiClient', () => {
 
             vi.unstubAllGlobals()
         })
+
+        it.each([
+            ['a seven-digit number', 1234567, 'https://example.com/api/projects/1/insights/1234567/'],
+            ['an eight-digit number', 12345678, 'https://example.com/api/projects/1/insights/12345678/'],
+            ['a seven-digit numeric string', '1234567', 'https://example.com/api/projects/1/insights/1234567/'],
+        ])('resolves %s through the retrieve endpoint only', async (_label, insightId, expectedUrl) => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 })
+            )
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch.mock.calls[0]![0]).toBe(expectedUrl)
+            expect(result.success).toBe(true)
+
+            vi.unstubAllGlobals()
+        })
+
+        it.each([
+            ['an all-digit short_id', { results: [{ id: 42, short_id: '12345678' }] }, 1],
+            ['a numeric id with no short_id match', { results: [] }, 2],
+        ])('resolves an eight-digit numeric string that is %s', async (_label, listBody, expectedCalls) => {
+            const { client, mockFetch } = setupClient()
+            mockFetch
+                .mockResolvedValueOnce(new Response(JSON.stringify(listBody), { status: 200 }))
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ id: 12345678, short_id: 'abc12345' }), { status: 200 })
+                )
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: '12345678' })
+
+            expect(mockFetch).toHaveBeenCalledTimes(expectedCalls)
+            expect(mockFetch.mock.calls[0]![0]).toContain('/api/projects/1/insights/?short_id=12345678')
+            if (expectedCalls === 2) {
+                expect(mockFetch.mock.calls[1]![0]).toBe('https://example.com/api/projects/1/insights/12345678/')
+            }
+            expect(result.success).toBe(true)
+
+            vi.unstubAllGlobals()
+        })
+
+        it('reports a missing alphanumeric short_id without a retrieve fallback', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: 'abc12345' })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(result.success).toBe(false)
+
+            vi.unstubAllGlobals()
+        })
     })
 
     describe('actors query paging', () => {
@@ -590,6 +644,20 @@ describe('ApiClient', () => {
             expect(transportError.attempts).toBe(3)
             expect(transportError.message).toContain('safe to retry')
             expect(mockFetch).toHaveBeenCalledTimes(3)
+        })
+
+        it('retries a token introspection that fails to connect', async () => {
+            const mockFetch = stubFetch(
+                networkError(),
+                new Response(JSON.stringify({ active: true, scope: 'query:read' }), { status: 200 })
+            )
+            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(client.oauth().introspect({ token: 'pha_test' }))
+
+            expect(result).toEqual({ success: true, data: { active: true, scope: 'query:read' } })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(mockFetch.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
         })
 
         it('does not repeat a write whose outcome is unknown', async () => {

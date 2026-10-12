@@ -9,6 +9,8 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
+
 const LONG_CONCLUSION_COMMENT = [
     'We shipped the test variant on qualitative feedback rather than on a measured lift.',
     'The primary metric moved by a small amount that never reached significance, and the secondary metrics disagreed with each other about the direction of the effect.',
@@ -32,6 +34,11 @@ const EXPERIMENT_STOPPED_WITH_LONG_CONCLUSION = {
     conclusion_comment: LONG_CONCLUSION_COMMENT,
 }
 
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_STOPPED_WITH_LONG_CONCLUSION,
+    resultsByMetricType(EXPERIMENT_STOPPED_WITH_LONG_CONCLUSION, { funnel: FUNNELS_METRIC_RESULT })
+)
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Experiments',
@@ -50,6 +57,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                ...RECALCULATION.get,
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_STOPPED_WITH_LONG_CONCLUSION.id}/`]:
                     EXPERIMENT_STOPPED_WITH_LONG_CONCLUSION,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
@@ -61,14 +69,11 @@ const meta: Meta = {
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
+                ...RECALCULATION.post,
+                // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURE_QUERY_RESULT]
-                    }
-
-                    return [200, FUNNELS_METRIC_RESULT]
+                    return body.query.kind === NodeKind.ExperimentExposureQuery ? [200, EXPOSURE_QUERY_RESULT] : [404]
                 },
             },
         }),
