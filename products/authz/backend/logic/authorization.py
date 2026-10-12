@@ -146,13 +146,6 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
         client.close()
 
 
-def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
-    object = object_key(resource)
-    actions = [action for action in Action if f"can_{action}" in model_relations()[object.partition(":")[0]]]
-    results = check([CheckRequest(resource=resource, action=action, subject=subject) for action in actions], context)
-    return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
-
-
 def list_resources(
     resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
 ) -> ResourceIds:

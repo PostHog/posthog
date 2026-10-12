@@ -234,25 +234,48 @@ The mirror covers project rules and dashboard category/object rules; other resou
 
 The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
 It deletes obsolete grants before writing replacements.
-Redis tracks a reconciliation revision: facade checks deny while a revision is pending or missing, and listings return an empty, incomplete result.
+Redis tracks a reconciliation revision: OpenFGA checks deny while a revision is pending or missing, and OpenFGA listings return an empty, incomplete result.
 A revision change during a check also invalidates that result.
+Legacy checks do not depend on these readiness keys.
 If retries run out, bulk writes bypass model signals, or Redis loses the readiness keys, run `sync_openfga` again.
 `QuerySet.update()`, `bulk_create()`, and `bulk_update()` do not emit Django model signals.
 
 This is a development/pilot integration, not a production authorization rollout.
 It reconciles the whole organization and scans the store to compute its tuple diff.
 Use incremental projections before enabling it broadly.
-Django permissions remain authoritative; no endpoint switches to OpenFGA in this change.
+Existing endpoints still use Django permissions until their checks move to the authorization facade.
 Post-commit task publishing is not a transactional outbox.
 Add durable change capture before using the facade as the sole authorization check.
 
-The `products.authz.backend.facade.api` query methods now call OpenFGA:
+The `products.authz.backend.facade.api` decision methods use the `authz-rebac` multivariate feature flag:
+
+| Variant         | Authoritative result           | Comparison                     |
+| --------------- | ------------------------------ | ------------------------------ |
+| `v1`            | Existing Python access control | None                           |
+| `v1-shadow-log` | Existing Python access control | OpenFGA                        |
+| `v2`            | OpenFGA                        | Existing Python access control |
+
+Missing, disabled, boolean, or unknown flag values use `v1`.
+The flag evaluates locally with the organization ID as its distinct ID and organization group key.
+Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
+Each organization in a batch gets its own evaluation; results retain the input order.
+Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
-- `permissions` returns the supported actions the user can take.
-- `list_resources` streams authorized dashboard IDs and filters them to the requested project.
+- `permissions` uses the same routed checks to return the supported actions the user can take.
+- `list_resources` returns authorized dashboard IDs scoped to the requested project.
+  Legacy mode evaluates the project's dashboards with the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
   A supplied limit returns an empty, incomplete result if exceeded.
-- `dangerous_query_relation` checks a modeled relation for debugging.
+- `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
+
+The pilot supports dashboards, dashboard categories, projects, organizations, and roles.
+It does not replace API scope checks, reauthentication, or other request-specific enforcement.
+Shadow comparisons run synchronously after the authoritative check.
+`authz_decision_comparison` logs both decisions, whether they match, the rollout mode, and the user/resource identifiers.
+`authz_resource_list_comparison` logs counts, completeness, and whether the results match, without logging the returned IDs.
+A failed comparison logs an error type and a comparison with `matches=null`; it does not change the authoritative result.
+An authoritative error propagates without falling back to the other engine.
+Optimize the legacy dashboard scan and shadow-check latency before using this path broadly.
 
 These methods require an explicit `Subject(user_id=...)`.
 Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.

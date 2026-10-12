@@ -14,6 +14,9 @@ from products.authz.backend.logic import sync_state
 
 class TestAuthorizationFailures(SimpleTestCase):
     def setUp(self) -> None:
+        flag = patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2")
+        flag.start()
+        self.addCleanup(flag.stop)
         self.organization_id = uuid4()
         self.resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization_id))
         self.subject = Subject(user_id=1)

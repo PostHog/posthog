@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from typing import overload
 from uuid import UUID
 
-from ..logic import authorization, openfga_status, synchronization
+from ..logic import authorization, openfga_status, rollout, synchronization
 from . import contracts
 from .enums import Action, Level, SubjectType
 
@@ -62,10 +62,10 @@ def check(
     if requests is not None:
         if resource is not None or action is not None or subject is not None:
             raise ValueError("Pass either a batch or a single resource, action, and subject")
-        return authorization.check(requests, context)
+        return rollout.check(requests, context)
     if resource is None or action is None:
         raise ValueError("Provide a resource and action")
-    return authorization.check([contracts.CheckRequest(resource=resource, action=action, subject=subject)], context)[0]
+    return rollout.check([contracts.CheckRequest(resource=resource, action=action, subject=subject)], context)[0]
 
 
 def permissions(
@@ -75,7 +75,7 @@ def permissions(
     context: contracts.Context | None = None,
 ) -> frozenset[Action]:
     """Return every action the subject may take on the resource."""
-    return authorization.permissions(resource, subject, context)
+    return rollout.permissions(resource, subject, context)
 
 
 def list_resources(
@@ -91,7 +91,7 @@ def list_resources(
     Apply the ids to your own query, for example `qs.filter(pk__in=result.ids)`. When `complete` is False the set
     was capped, so fail closed and return nothing.
     """
-    return authorization.list_resources(resource, action, subject, context, limit)
+    return rollout.list_resources(resource, action, subject, context, limit)
 
 
 def list_subjects(

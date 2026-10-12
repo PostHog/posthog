@@ -1,3 +1,3 @@
-from products.dashboards.backend.authorization import authorization_dashboards
+from products.dashboards.backend.authorization import LegacyDashboardAuthorization, authorization_dashboards
 
-__all__ = ["authorization_dashboards"]
+__all__ = ["LegacyDashboardAuthorization", "authorization_dashboards"]

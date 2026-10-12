@@ -45,6 +45,9 @@ class Rule:
 class TestOpenFgaDashboardMirror(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        flag = patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2")
+        flag.start()
+        self.addCleanup(flag.stop)
         client = get_openfga_client()
         try:
             store = client.create_store(CreateStoreRequest(name="dashboard-mirror-e2e"))
