@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional, cast
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import OauthIntegration
