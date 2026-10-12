@@ -1354,7 +1354,7 @@ class StamphogGitHubClient:
         """Add a label to a PR (``POST .../issues/{number}/labels``).
 
         A 404 (repo not found) or 422 (label does not exist on the repo) is swallowed, so a vendored
-        stamphog in another repo never raises over a label — e.g. ``reviewhog`` — that isn't set up
+        stamphog in another repo never raises over a label — e.g. ``posthog-review`` — that isn't set up
         there. Any other non-success raises ``StamphogGitHubError``; see ``post_verdict`` for how the
         ReviewHog handoff caller treats that as best-effort.
         """

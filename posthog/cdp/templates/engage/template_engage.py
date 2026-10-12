@@ -4,7 +4,7 @@ from copy import deepcopy
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="beta",
+    status="stable",
     free=False,
     type="destination",
     id="template-engage-so",

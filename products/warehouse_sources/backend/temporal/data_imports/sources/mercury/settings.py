@@ -1,5 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -20,7 +23,7 @@ class MercuryEndpointConfig:
     name: str
     path: str
     data_selector: str
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     # Stable datetime field used for Delta partitioning; None disables partitioning.
     partition_key: str | None = None
     # Cursor-paginated endpoints accept limit/order/start_after; /credit returns one page.
@@ -29,9 +32,34 @@ class MercuryEndpointConfig:
     timestamp_columns: tuple[str, ...] = ()
     # Server-side query param mapped from the user's incremental field, when the API has one.
     incremental_param: str | None = None
+    # Body path of the next-page cursor and the query param it is sent back in.
+    cursor_path: str = "page.nextPage"
+    cursor_param: str = "start_after"
+    page_size: int = DEFAULT_PAGE_SIZE
+    # Per-account child endpoints, fanned out over a parent account listing.
+    fanout: DependentEndpointConfig | None = None
+    # Required by the shared fan-out helper; fan-out children here have no server-side time filter.
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: str | None = None
 
 
 MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
+    "AccountStatements": MercuryEndpointConfig(
+        name="AccountStatements",
+        path="/account/{accountId}/statements",
+        data_selector="statements",
+        # Statement rows do not carry their account id, so it is copied in from the parent row.
+        primary_keys=("accountId", "id"),
+        partition_key="startDate",
+        timestamp_columns=("startDate", "endDate"),
+        fanout=DependentEndpointConfig(
+            parent_name="Accounts",
+            resolve_param="accountId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "accountId"},
+        ),
+    ),
     "Accounts": MercuryEndpointConfig(
         name="Accounts",
         path="/accounts",
@@ -78,6 +106,11 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         partition_key="createdAt",
         timestamp_columns=("createdAt", "updatedAt", "canceledAt"),
     ),
+    "Merchants": MercuryEndpointConfig(
+        name="Merchants",
+        path="/merchants",
+        data_selector="data",
+    ),
     "Recipients": MercuryEndpointConfig(
         name="Recipients",
         path="/recipients",
@@ -98,11 +131,40 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         data_selector="accounts",
         timestamp_columns=("createdAt",),
     ),
+    "TreasuryStatements": MercuryEndpointConfig(
+        name="TreasuryStatements",
+        path="/treasury/{treasuryId}/statements",
+        data_selector="statements",
+        primary_keys=("accountId", "id"),
+        partition_key="createdAt",
+        timestamp_columns=("createdAt", "updatedAt", "creationDate"),
+        fanout=DependentEndpointConfig(
+            parent_name="TreasuryAccounts",
+            resolve_param="treasuryId",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
+    "TreasuryTransactions": MercuryEndpointConfig(
+        name="TreasuryTransactions",
+        path="/treasury/{treasuryId}/transactions",
+        data_selector="transactions",
+        primary_keys=("accountId", "id"),
+        # Unlike the other list endpoints, this one pages with an integer `cursor` in the body.
+        cursor_path="cursor",
+        cursor_param="cursor",
+        fanout=DependentEndpointConfig(
+            parent_name="TreasuryAccounts",
+            resolve_param="treasuryId",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
     "Users": MercuryEndpointConfig(
         name="Users",
         path="/users",
         data_selector="users",
-        primary_key="userId",
+        primary_keys=("userId",),
     ),
 }
 

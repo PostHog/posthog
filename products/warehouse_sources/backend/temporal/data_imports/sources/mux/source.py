@@ -54,7 +54,7 @@ Create an access token under [Settings → Access Tokens](https://dashboard.mux.
 
 Grant the following read permissions:
 - **Mux Video** (read) — required for assets, live streams, uploads, playback restrictions and transcription vocabularies
-- **Mux Data** (read) — required for video views, errors and aggregate metrics (watch time, plays, viewer experience)
+- **Mux Data** (read) — required for video views, errors, aggregate metrics (watch time, plays, viewer experience), metric timeseries and breakdowns, and dimensions
 - **Mux System** (read) — required for signing keys
 """,
             iconPath="/static/services/mux.png",
@@ -105,6 +105,17 @@ Grant the following read permissions:
                 "Mux rejected the time range this sync requested as invalid. This usually means the range "
                 "reaches further back than your Mux plan keeps. Check your Mux Data retention window, or "
                 "contact PostHog support if this keeps happening."
+            ),
+            # Some Mux Data accounts reject `max_request_latency` timeseries queries with a 400 and
+            # the generic `code=bad_request` (no specific sub-code), regardless of the timeframe —
+            # every request/credential/scope here is otherwise valid, so retrying replays the same
+            # rejection. Matched on the path plus the query prefix (not just `code=bad_request`,
+            # which Mux also returns for genuinely malformed requests on other endpoints) so a 5xx/
+            # timeout for this same URL — whose message carries no query string — stays retryable.
+            "metrics/max_request_latency/timeseries?timeframe": (
+                "Mux rejected the request-latency metric sync for this account. This can happen when "
+                "the account's Mux Data plan doesn't include request-latency metrics. Contact PostHog "
+                "support if this keeps happening."
             ),
         }
 

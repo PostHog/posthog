@@ -107,7 +107,7 @@ def _build_parent_resource(
     path_format_values: Mapping[str, str],
     page_size_param: str | None,
     parent_endpoint_extra: Endpoint | None,
-    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] | None,
 ) -> EndpointResource:
     # page_size_param=None is for APIs whose list endpoints take no page-size param at all
     # (unpaginated, full-collection responses) — sending one would be an undocumented param.
@@ -308,7 +308,7 @@ def build_dependent_resource(
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
-    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,

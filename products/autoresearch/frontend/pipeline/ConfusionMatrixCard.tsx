@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { ACCURACY_CUTOFFS, PooledConfusion, percent } from '../onlinePerformance'
 import { MetricCard } from './MetricCard'
+import { SectionCard } from './SectionCard'
 
 function dateRange({ firstDate, lastDate }: PooledConfusion): string {
     const last = dayjs(lastDate).format('MMM D, YYYY')
@@ -29,11 +30,9 @@ export function ConfusionMatrixCard(): JSX.Element {
     const target = pipeline?.target_event ?? 'the target event'
 
     return (
-        <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold mb-0">
-                    Who the model flagged{confusion ? `, ${dateRange(confusion)}` : ''}
-                </h3>
+        <SectionCard
+            title={`Who the model flagged${confusion ? `, ${dateRange(confusion)}` : ''}`}
+            actions={
                 <LemonSegmentedButton
                     size="small"
                     value={accuracyCutoff}
@@ -41,7 +40,8 @@ export function ConfusionMatrixCard(): JSX.Element {
                     options={ACCURACY_CUTOFFS.map(({ key, label }) => ({ value: key, label }))}
                     data-attr="autoresearch-model-accuracy-cutoff"
                 />
-            </div>
+            }
+        >
             {!confusion ? (
                 <p className="text-sm text-muted mb-0">
                     Precision and recall start from the next checked date. Dates checked before that have no counts.
@@ -98,6 +98,6 @@ export function ConfusionMatrixCard(): JSX.Element {
                     )}
                 </>
             )}
-        </section>
+        </SectionCard>
     )
 }

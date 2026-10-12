@@ -644,7 +644,15 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = ["posthog", "products.access_control", "products.error_tracking"]
+depends_on = [
+    "ee",
+    "posthog",
+    "products.access_control",
+    "products.dashboards",
+    "products.error_tracking",
+    "products.exports",
+    "products.tasks",
+]
 layer = "modules"
 
 [[interfaces]]
@@ -805,6 +813,8 @@ depends_on = [
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    # Facade-only: scanner dashboards are created and looked up through the dashboards facade.
+    "products.dashboards",
     "products.event_definitions",
     "products.experiments",
     "products.exports",
@@ -1061,7 +1071,10 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.cdp",
+    "products.early_access_features",
+    "products.error_tracking",
     "products.feature_flags",
+    "products.surveys",
     "products.messaging",
     "products.notifications",
     # Facade-only: the Run scout action's endpoint starts a scout run through
@@ -1682,4 +1695,19 @@ expose = [
 ]
 from = [
     "products.warehouse_suggestions",
+]
+
+[[modules]]
+path = "products.github_commands"
+# Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
+# dispatch into these products.
+depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.github_commands",
 ]

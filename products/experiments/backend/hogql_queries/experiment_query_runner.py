@@ -1,13 +1,10 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
-from typing import Any, Optional
-
-from django.db.models import Q
+from typing import Optional
 
 import structlog
 import posthoganalytics
-from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -39,16 +36,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    TtlSchedule,
     ensure_precomputed,
-    parse_ttl_schedule,
 )
-from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import (
     conversion_window_to_seconds,
@@ -58,18 +51,23 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
 )
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_actors_query import build_experiment_actors_query
 from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
-    resolve_exposure_config_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
-    has_activation_config,
-    resolve_filter_test_accounts,
+)
+from products.experiments.backend.hogql_queries.precompute_policy import (
+    BLOCKING_PRECOMPUTE_SKIP_REASONS,
+    METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS,
+    ensure_exposures_precomputed,
+    experiment_precompute_ttl_schedule,
+    team_precompute_skip_reason,
 )
 from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
@@ -88,196 +86,8 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 
 logger = structlog.get_logger(__name__)
 
-# Variable TTL for experiment exposure lazy computation. Days 2-4 stay
-# recomputable (18h, just under the ~24h warmer cadence) so the daily warmer
-# folds in late-arriving exposure events before a window freezes. Freezing too
-# early keeps a stale first_exposure_time and undercounts the metric window.
-DEFAULT_EXPOSURE_TTL_SECONDS = {
-    "0d": 15 * 60,  # 15 min
-    "1d": 60 * 60,  # 1 hour
-    "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
-    "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
-}
-
-# Cap on merged precompute job width. Without it, the frozen band (everything
-# older than 4 days, one uniform TTL) merges into a single INSERT, so a cold or
-# TTL-expired long-running experiment scans hundreds of days in one query. For
-# high-volume teams that deterministically exceeds the per-query bytes-to-read
-# cap or the 600s timeout and can never succeed. Seven days keeps the worst
-# observed per-day scan rates comfortably under both limits, while creating far
-# fewer jobs (and fewer rows per user to re-aggregate at read time) than daily
-# chunks. Completed chunks persist, so a wide backfill converges across runs
-# instead of failing atomically on every attempt.
-PRECOMPUTE_MAX_WINDOW_DAYS = 7
-
-# Spread frozen chunk expiries so an experiment's history does not expire all at once
-# (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
-# per day for a months-long experiment; a larger value would only keep data on disk longer.
-PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
-
-# Upper bound on how far past the experiment end a metric-events build may scan.
-# retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
-# window would stretch the precompute horizon into thousands of daily jobs before the
-# executor's timeout check. Past the cap the metric falls back to the direct scan.
-METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
-
-
-def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
-    return parse_ttl_schedule(
-        DEFAULT_EXPOSURE_TTL_SECONDS,
-        team_timezone,
-        max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
-        default_ttl_jitter_seconds=PRECOMPUTE_TTL_JITTER_SECONDS,
-    )
-
-
-# Minimum experiment runtime before auto-enabling precomputation. The
-# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
-# entire current-day result, so for very young experiments freshly arriving
-# exposures stay invisible until that TTL elapses. The gate scopes that
-# trade-off to experiments where most of the data is already in past
-# (frozen) windows. Bypassed by an explicit PrecomputationMode.PRECOMPUTED
-# query override.
-#
-# Why 12h: it covers the workday in which users launch experiments. Users
-# refresh the results page most often then, so the 15-min cache lag is most
-# noticeable. After that, refreshes drop off and the cost saving from
-# precomputation matters more than the freshness gap. 12h is also short enough
-# that experiments hit the precomputed (fast) path on day two.
-MIN_PRECOMPUTATION_DURATION_SECONDS = 12 * 60 * 60  # 12 hours
-
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
-
-
-def experiment_has_min_runtime_for_precomputation(
-    start_date: Optional[datetime],
-    end_date: Optional[datetime],
-) -> bool:
-    """Return True when the experiment has been running for at least
-    MIN_PRECOMPUTATION_DURATION_SECONDS.
-
-    For running experiments, elapsed time is measured against now. For
-    completed experiments (end_date in the past), the actual run length is
-    used. A future end_date (planned end) is ignored so we don't credit
-    runtime that hasn't happened yet.
-
-    This is elapsed *runtime*, which is a different concept from the analysis
-    window. It clamps to min(now, end_date), which is the opposite of
-    experiment_window_end: there a future end_date wins for the query window,
-    because no events exist after now. Keep the two rules separate, and do not
-    fold this into the window primitive.
-    """
-    if start_date is None:
-        return False
-    now = datetime.now(UTC)
-    effective_end = end_date if (end_date is not None and end_date <= now) else now
-    return (effective_end - start_date).total_seconds() >= MIN_PRECOMPUTATION_DURATION_SECONDS
-
-
-def _collect_cohort_ids(obj: Any) -> set[int]:
-    """Cohort IDs referenced anywhere in a filter/criteria/metric JSON structure."""
-    ids: set[int] = set()
-    if isinstance(obj, dict):
-        if obj.get("type") in ("cohort", "static-cohort", "precalculated-cohort"):
-            value = obj.get("value")
-            if isinstance(value, int | str):
-                try:
-                    ids.add(int(value))
-                except ValueError:
-                    pass
-        for nested in obj.values():
-            ids |= _collect_cohort_ids(nested)
-    elif isinstance(obj, list):
-        for item in obj:
-            ids |= _collect_cohort_ids(item)
-    return ids
-
-
-def has_uncalculated_cohorts(team: Team, *filter_sources: Any) -> bool:
-    """True when any cohort referenced in the given filter structures hasn't finished its
-    first materialization (dynamic: no completed version; static: initial population running).
-
-    A query against such a cohort reads its partially-inserted membership. The query succeeds
-    but undercounts, with a skew that depends on insertion order. A precompute build in that
-    state freezes the torn snapshot for the frozen-band TTL, so precompute must wait until the
-    first calculation lands. A cohort with a completed version is safe even mid-recalculation,
-    because reads pin the last complete version. Cohorts recalculate frequently, so a gate on
-    is_calculating would disable precompute almost permanently.
-    """
-    ids: set[int] = set()
-    for source in filter_sources:
-        if source is None:
-            continue
-        if isinstance(source, BaseModel):
-            source = source.model_dump()
-        ids |= _collect_cohort_ids(source)
-    if not ids:
-        return False
-    return Cohort.objects.filter(
-        Q(is_static=False, version__isnull=True) | Q(is_static=True, is_calculating=True),
-        team__project_id=team.project_id,
-        pk__in=ids,
-        deleted=False,
-    ).exists()
-
-
-# Reasons that mean "do not precompute". The other PrecomputeSkipReason members explain a
-# direct-path query that precompute was attempted for, so they must not gate the bool.
-BLOCKING_PRECOMPUTE_SKIP_REASONS = frozenset(
-    {
-        PrecomputeSkipReason.OVERRIDE_DIRECT,
-        PrecomputeSkipReason.TEAM_DISABLED,
-        PrecomputeSkipReason.MIN_RUNTIME,
-        PrecomputeSkipReason.ACTIVATION_CONFIG,
-        PrecomputeSkipReason.COHORT_NOT_CALCULATED,
-    }
-)
-
-
-def team_precompute_skip_reason(
-    team: Team,
-    config: TeamExperimentsConfig,
-    experiment: Experiment,
-    exposure_criteria: Any,
-    *cohort_filter_sources: Any,
-) -> Optional[PrecomputeSkipReason]:
-    """The precompute gates that apply to every experiment query, shared by both runners."""
-    if not config.experiment_precomputation_enabled:
-        return PrecomputeSkipReason.TEAM_DISABLED
-    if not experiment_has_min_runtime_for_precomputation(experiment.start_date, experiment.end_date):
-        return PrecomputeSkipReason.MIN_RUNTIME
-    # Activation-mode exposures can't be cached per day: the flag→activation ordering
-    # crosses bucket boundaries.
-    if has_activation_config(exposure_criteria):
-        return PrecomputeSkipReason.ACTIVATION_CONFIG
-    if has_uncalculated_cohorts(team, exposure_criteria, *cohort_filter_sources):
-        return PrecomputeSkipReason.COHORT_NOT_CALCULATED
-    return None
-
-
-def ensure_exposures_precomputed(
-    team: Team,
-    builder: ExperimentQueryBuilder,
-    time_range_start: datetime,
-    time_range_end: datetime,
-) -> LazyComputationResult:
-    query_string, placeholders = builder.get_exposure_query_for_precomputation()
-
-    return ensure_precomputed(
-        team=team,
-        insert_query=query_string,
-        time_range_start=time_range_start,
-        time_range_end=time_range_end,
-        ttl_seconds=experiment_precompute_ttl_schedule(team.timezone),
-        table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
-        placeholders=placeholders,
-        sentinel_placeholders={"experiment_date_to"},
-        end_is_data_horizon=True,
-        # High-volume teams' builds OOM even at capped window widths; spilling the
-        # GROUP BY to disk degrades gracefully instead of failing the build.
-        spill_to_disk=True,
-    )
 
 
 class ExperimentResultsCacheMixin:
@@ -854,122 +664,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return variants + variants_missing
 
     def to_actors_query(self) -> ast.SelectQuery:
-        """
-        Actors query for a funnel metric. It includes exposure as step 0, so it applies
-        the same temporal filtering as the main experiment query, and its counts match
-        the funnel chart. It returns the individual users for one step and variant,
-        optionally with matched recordings, instead of aggregate statistics.
-        """
-        if self.actors_query is None:
-            raise ValidationError("actors_query must be set before calling to_actors_query()")
-
-        if not isinstance(self.metric, ExperimentFunnelMetric):
-            raise ValidationError("Actors query only supported for funnel experiment metrics")
-
-        funnel_step = self.actors_query.funnelStep
-        if funnel_step is None:
-            raise ValidationError("funnelStep is required for experiment actors query")
-
-        num_metric_steps = len(self.metric.series)
-
-        # funnelStep=-1 is a valid drop-off: "exposed but never reached the first metric step".
-        # step_reached is 0-indexed with exposure as step 0, so the WHERE clause resolves it to
-        # step_reached == 0, which selects the exposed users who did not validly enter the funnel.
-        if funnel_step < 0:
-            max_drop_off = -(num_metric_steps + 1)
-            if funnel_step < max_drop_off:
-                raise ValidationError(
-                    f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                    f"Valid drop-off steps: -1 (exposed, did not reach first metric step) to {max_drop_off}."
-                )
-
-        if funnel_step > num_metric_steps:
-            raise ValidationError(
-                f"Invalid conversion step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                f"Valid conversion steps: 0 (exposure step) to {num_metric_steps}."
-            )
-
-        from posthog.schema import ActionsNode, ExperimentEventExposureConfig
-
-        exposure_config: ExperimentEventExposureConfig | ActionsNode
-        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
-        if self.actors_query.exposureConfig is not None:
-            # An explicit override replaces the whole exposure definition, including any
-            # stored activation event.
-            exposure_config = resolve_exposure_config_for_builder(
-                self.actors_query.exposureConfig, self.team, self.experiment.start_date
-            )
-        else:
-            # Same resolution as the main experiment query, so the actor list matches the counts.
-            exposure_params = get_exposure_config_params_for_builder(
-                self.experiment.exposure_criteria, self.team, self.experiment.start_date
-            )
-            exposure_config = exposure_params.exposure_config
-            activation_config = exposure_params.activation_config
-
-        if self.actors_query.multipleVariantHandling is not None:
-            multiple_variant_handling = self.actors_query.multipleVariantHandling
-        else:
-            multiple_variant_handling = self.multiple_variant_handling
-
-        if self.actors_query.featureFlagKey:
-            feature_flag_key = self.actors_query.featureFlagKey
-        else:
-            feature_flag_key = self.feature_flag_key
-
-        # Import builder here to avoid circular dependencies
-        from products.experiments.backend.hogql_queries.experiment_funnel_actors_query_builder import (
-            ExperimentFunnelActorsQueryBuilder,
-        )
-
-        funnel_step_breakdown_raw = self.actors_query.funnelStepBreakdown
-        if funnel_step_breakdown_raw is None:
-            funnel_step_breakdown: str | int | float = ""
-        elif isinstance(funnel_step_breakdown_raw, list):
-            funnel_step_breakdown = funnel_step_breakdown_raw[0] if funnel_step_breakdown_raw else ""
-        else:
-            funnel_step_breakdown = funnel_step_breakdown_raw
-
-        metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
-        tag_queries(
-            product=Product.EXPERIMENTS,
-            experiment_query_surface="actors",
-            # No sub-queries here, but tag for a consistent group id per top-level query.
-            experiment_query_group_id=uuid.uuid4(),
-            experiment_exposures_path="direct_scan",
-            experiment_metric_events_path="not_applicable",
-            experiment_id=self.experiment.id,
-            experiment_name=self.experiment.name,
-            experiment_feature_flag_key=feature_flag_key,
-            experiment_metric_uuid=self.metric.uuid,
-            experiment_metric_name=metric_name,
-            experiment_actors_query_step=funnel_step,
-            experiment_actors_query_variant=str(funnel_step_breakdown) if funnel_step_breakdown else "",
-            experiment_actors_query_includes_recordings=self.actors_query.includeRecordings or False,
-        )
-
-        builder = ExperimentFunnelActorsQueryBuilder(
-            team=self.team,
-            feature_flag_key=feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=resolve_filter_test_accounts(self.experiment.exposure_criteria),
-            multiple_variant_handling=multiple_variant_handling,
-            variants=self.variants,
-            date_range_query=self.date_range_query,
-            entity_key=self.entity_key,
-            metric=self.metric,
-            funnel_step=funnel_step,
-            funnel_step_breakdown=funnel_step_breakdown,
-            include_recordings=self.actors_query.includeRecordings or False,
-            activation_config=activation_config,
-        )
-
-        # Step 0 is the exposure step: return everyone exposed to the variant,
-        # without funnel evaluation.
-        if funnel_step == 0:
-            return builder.build_exposure_actors_query()
-
-        return builder.build_actors_query()
+        return build_experiment_actors_query(self)
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")
