@@ -28,7 +28,7 @@ export const NARROW_SIDEBAR_WIDTH = 5;
 export const HEADER_GAP = 1;
 
 // The same brand stripes phrocs draws in its header (tools/phrocs/internal/palette).
-const BRAND_STRIPES = ["#1D4AFF", "#F04438", "#F7A501", "#151515"];
+export const BRAND_STRIPES = ["#1D4AFF", "#F04438", "#F7A501", "#151515"];
 
 const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
   // PostHog orange.

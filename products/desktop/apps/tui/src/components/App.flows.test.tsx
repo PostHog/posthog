@@ -526,6 +526,10 @@ describe("App flows", () => {
     try {
       await vi.waitFor(() => expect(plain()).toContain("Sign in to PostHog"));
       expect(loadPrefs().welcomed).toBe(true);
+      // The welcome stands alone: no sidebar or chat header until the flow ends.
+      expect(plain()).toContain("Welcome to PostHog");
+      expect(plain()).not.toContain("All chats");
+      expect(plain()).not.toContain("New chat");
       mouse.emit("keys", "\r");
       await vi.waitFor(() => expect(login).toHaveBeenCalledWith("us"));
       await vi.waitFor(() =>
@@ -555,6 +559,7 @@ describe("App flows", () => {
       await vi.waitFor(() =>
         expect(plain().slice(-1200)).toContain("• Anthropic subscription"),
       );
+      expect(plain().slice(-1200)).toContain("All chats");
     } finally {
       process.env.PATH = path;
       instance.unmount();

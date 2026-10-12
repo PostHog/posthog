@@ -21,6 +21,7 @@ import {
   loadClaudeToken,
   saveClaudeToken,
 } from "../claudeToken";
+import type { WelcomeStep } from "../components/Welcome";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import {
@@ -28,6 +29,7 @@ import {
   assignTask,
   expandPane,
   findPane,
+  focusPane,
   type LayoutState,
   newChatIn,
   optimizeWorkspace,
@@ -56,6 +58,8 @@ export interface Send {
   undelivered: (paneId: string, taskId: string, at: number) => void;
   // A first run's sign-in sheet, which goes on to ask who pays once signed in.
   welcome: (paneId: string) => void;
+  // Where the first run's welcome is; null once it is done or dismissed.
+  welcomeStep: WelcomeStep | null;
 }
 
 // The server's clock can run a little behind this machine's.
@@ -112,6 +116,7 @@ export function useSend({
     paneId: string,
     sheet: Sheet,
     choose: (index: number, text?: string) => void,
+    dismiss?: () => void,
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
@@ -155,11 +160,27 @@ export function useSend({
   const latestLayout = useRef(layout);
   latestLayout.current = layout;
 
+  // The first run's welcome: its sheets report where it is, and the last one, or an Esc, ends it.
+  // It starts from the first render, so the app's chrome never shows before the welcome does.
+  const firstRun = chats === undefined && !loadPrefs().welcomed;
+  const [welcomeStep, setWelcomeStep] = useState<WelcomeStep | null>(
+    firstRun ? "signIn" : null,
+  );
+  const welcoming = useRef(firstRun);
+  const welcomeAt = (step: WelcomeStep): void => {
+    if (welcoming.current) setWelcomeStep(step);
+  };
+  const endWelcome = (): void => {
+    welcoming.current = false;
+    setWelcomeStep(null);
+  };
+
   const openLoginSheet = (
     paneId: string,
     description: string,
     then?: (paneId: string) => void,
   ): void => {
+    welcomeAt("signIn");
     openModal(
       paneId,
       {
@@ -171,15 +192,20 @@ export function useSend({
       (index) => {
         const region = REGIONS[index];
         showNotice("Finish signing in with your browser…");
+        welcomeAt("signingIn");
         login(region.id, () => {}).then(
           () => {
             flashNotice(`Signed in to ${region.label}`);
             then?.(activeWorkspace(latestLayout.current).focusedPaneId);
           },
-          (error: unknown) =>
-            flashNotice(`Sign-in failed: ${messageOf(error)}`),
+          (error: unknown) => {
+            flashNotice(`Sign-in failed: ${messageOf(error)}`);
+            // A welcome asks again, so a failed browser sign-in is not its end.
+            if (welcoming.current) openLoginSheet(paneId, description, then);
+          },
         );
       },
+      endWelcome,
     );
   };
 
@@ -198,7 +224,9 @@ export function useSend({
       } catch (saveError) {
         flashNotice(`Couldn't save: ${messageOf(saveError)}`);
       }
+      endWelcome();
     };
+    welcomeAt("token");
     openModal(
       paneId,
       claudeTokenSheet(draft, error, run !== undefined),
@@ -217,26 +245,34 @@ export function useSend({
           return openClaudeTokenSheet(paneId, token, TOKEN_HINT);
         save(token);
       },
+      endWelcome,
     );
   };
 
   const openBillingSheet = (paneId: string): void => {
     const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
-    openModal(paneId, billingSheet(loadPrefs().billing), (index) => {
-      const billing = BILLINGS[index];
-      const blocker = billingBlocker(billing, {
-        chatgptAccount: chatgptAccount(),
-        claudeToken: loadClaudeToken() !== null,
-      });
-      if (billing === "anthropic" && blocker)
-        return openClaudeTokenSheet(paneId, "", null);
-      if (blocker) {
-        openSettings();
-        return flashNotice(blocker, here);
-      }
-      savePrefs({ billing });
-      flashNotice(billingNotice(billing), here);
-    });
+    welcomeAt("billing");
+    openModal(
+      paneId,
+      billingSheet(loadPrefs().billing),
+      (index) => {
+        const billing = BILLINGS[index];
+        const blocker = billingBlocker(billing, {
+          chatgptAccount: chatgptAccount(),
+          claudeToken: loadClaudeToken() !== null,
+        });
+        if (billing === "anthropic" && blocker)
+          return openClaudeTokenSheet(paneId, "", null);
+        endWelcome();
+        if (blocker) {
+          openSettings();
+          return flashNotice(blocker, here);
+        }
+        savePrefs({ billing });
+        flashNotice(billingNotice(billing), here);
+      },
+      endWelcome,
+    );
   };
 
   // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
@@ -591,6 +627,9 @@ export function useSend({
   const welcome = (paneId: string): void => {
     savePrefs({ welcomed: true });
     track("welcomed");
+    welcoming.current = true;
+    // The welcome's sheets take the keys of this pane.
+    setLayout((current) => focusPane(current, paneId));
     openLoginSheet(
       paneId,
       "Pick the PostHog you sign in to. Your chats run on it.",
@@ -598,5 +637,5 @@ export function useSend({
     );
   };
 
-  return { onSubmit, pending, reopening, undelivered, welcome };
+  return { onSubmit, pending, reopening, undelivered, welcome, welcomeStep };
 }
