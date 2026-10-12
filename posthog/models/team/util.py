@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.apps import apps
-from django.db import connections, transaction
+from django.db import connections
 
 import structlog
 
@@ -13,6 +13,7 @@ from posthog.models.async_migration import is_async_migration_complete
 
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.facade.api import delete_event_properties_for_team
 
 logger = structlog.get_logger(__name__)
 
@@ -155,33 +156,11 @@ def _delete_event_properties_for_teams(
 ) -> None:
     """Batch-delete the teams' event properties before the Team cascade, which would delete them in one statement.
 
-    Each batch resumes the (team_id, property) index walk after the last (property, id) it deleted, so no batch
-    reads the index entries of rows that earlier batches deleted. ``should_stop`` is checked before each batch.
+    ``should_stop`` is checked before each batch.
     """
-    table = apps.get_model("event_definitions", "EventProperty")._meta.db_table
-    # The table name comes from the model, never from input, so interpolating it is safe.
-    select_batch = (
-        f'SELECT id, property, ctid::text FROM "{table}" WHERE team_id = %s AND (property, id) > (%s, %s) '
-        "ORDER BY property, id LIMIT %s"
-    )
-    # The ctid finds each row without a primary key lookup. The id and team_id checks skip a row that an update
-    # moved after the select, and the Team cascade deletes such a row later.
-    delete_batch = f'DELETE FROM "{table}" WHERE ctid = ANY(%s::tid[]) AND id = ANY(%s) AND team_id = %s'
-
     for team_id in team_ids:
-        last_property, last_id = "", 0
-        while True:
-            if should_stop is not None and should_stop():
-                raise TeamPurgeStopped(f"The event property purge of team {team_id} stopped before it finished")
-            with transaction.atomic(using="default"), connections["default"].cursor() as cursor:
-                cursor.execute(select_batch, [team_id, last_property, last_id, batch_size])
-                rows = cursor.fetchall()
-                if rows:
-                    cursor.execute(delete_batch, [[row[2] for row in rows], [row[0] for row in rows], team_id])
-            if len(rows) < batch_size:
-                break
-            last_id, last_property = rows[-1][0], rows[-1][1]
-            time.sleep(0.1)
+        if not delete_event_properties_for_team(team_id, should_stop=should_stop, batch_size=batch_size):
+            raise TeamPurgeStopped(f"The event property purge of team {team_id} stopped before it finished")
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
