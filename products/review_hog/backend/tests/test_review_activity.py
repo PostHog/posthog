@@ -19,9 +19,9 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
-    REVIEW_HOG_FINDING_MARKER,
     FLASH_LENS_MAX_CHUNKS,
     FLASH_LENSES,
+    REVIEW_HOG_FINDING_MARKER,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     ReviewArm,
@@ -36,8 +36,8 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
-from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     CoordinatorReviewInput,
@@ -47,8 +47,8 @@ from products.review_hog.backend.temporal.activities import (
     SandboxStageInput,
     SelectPerspectivesInput,
     _current_pr_comments,
-    dedup_activity,
     coordinator_review_activity,
+    dedup_activity,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,

@@ -1501,29 +1501,27 @@ def _coordinator_units(input: CoordinatorReviewInput, done: set[tuple[int, int]]
     """The review units of this turn that have no persisted result yet, each with its full session prompt."""
     units: list[CoordinatorUnit] = []
     if (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID) not in done:
-        main_prompt = _prepare_single_agent_prompt(input, SINGLE_AGENT_CHUNK_ID, False)
         units.append(
             CoordinatorUnit(
                 task_name=f"main_{SINGLE_AGENT_CHUNK_ID}",
                 pass_number=SINGLE_AGENT_PASS_NUMBER,
                 chunk_id=SINGLE_AGENT_CHUNK_ID,
                 source=SINGLE_AGENT_SOURCE,
-                prompt=f"{load_core_prompt()}\n\n{main_prompt}",
+                prompt=_prepare_single_agent_prompt(input, SINGLE_AGENT_CHUNK_ID, False, load_core_prompt()),
             )
         )
     for name, lens in FLASH_LENSES.items():
-        system_prompt = load_prompt_file(lens_prompt_path(lens.prompt_file))
+        guidelines = load_prompt_file(lens_prompt_path(lens.prompt_file))
         for chunk_id in range(1, input.lens_chunk_count + 1):
             if (lens.pass_number, chunk_id) in done:
                 continue
-            lens_prompt = _prepare_single_agent_prompt(input, chunk_id, True)
             units.append(
                 CoordinatorUnit(
                     task_name=f"{name.replace('-', '_')}_{chunk_id}",
                     pass_number=lens.pass_number,
                     chunk_id=chunk_id,
                     source=lens.source,
-                    prompt=f"{system_prompt}\n\n{lens_prompt}",
+                    prompt=_prepare_single_agent_prompt(input, chunk_id, True, guidelines),
                 )
             )
     return units
