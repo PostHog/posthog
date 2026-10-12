@@ -306,8 +306,8 @@ export interface inboxReportDetailLogicValues {
     expandedTaskIds: string[]
     feedbackNoteDraft: string
     feedbackNoteSent: boolean
-    feedbackSentNote: string | null
     feedbackNoteSubmitting: boolean
+    feedbackSentNote: string | null
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
