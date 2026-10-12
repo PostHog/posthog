@@ -162,7 +162,7 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.exports.backend.facade.api import delete_insight_subscriptions
+from products.exports.backend.facade.api import delete_insight_subscriptions, insight_has_active_subscription
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -875,7 +875,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Shared links execute without access checks, so an edit that adds a table
         # the editor can't run must not reach a publicly shared surface.
-        # Unshared insights save without any access query.
+        # The same holds for an insight that a subscription delivers.
+        # Other insights save without any access query.
         new_query = validated_data.get("query")
         if (
             isinstance(new_query, dict)
@@ -883,14 +884,17 @@ class InsightSerializer(InsightBasicSerializer):
             and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
             and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and is_publicly_shared(instance)
+            and (
+                is_publicly_shared(instance)
+                or insight_has_active_subscription(team_id=instance.team_id, insight_id=instance.id)
+            )
         ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
-                    f"Can't save this query: you don't have access to {blocked_list}, "
-                    "and this insight is publicly shared."
+                    f"Can't save this query: you don't have access to {blocked_list}, and this insight is "
+                    "publicly shared or delivered by a subscription."
                 )
 
         with transaction.atomic():
