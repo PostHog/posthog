@@ -237,10 +237,8 @@ impl DataType {
         }
     }
 
-    /// Pipeline this event flows to, if any. Heatmaps, ingestion warnings,
-    /// and snapshots have their own dedicated topics and consumers; they
-    /// don't share Redis-backed restriction config with any other pipeline,
-    /// so they're not subject to `EventRestrictionService` lookups.
+    /// Restriction pipeline this event is looked up under, if any. Snapshots
+    /// have none here: the recordings endpoint looks them up itself.
     ///
     /// `AiEvents` maps to the `ai` restriction pipeline: an event on the AI
     /// lane is governed by ai-scoped restrictions, the same slice the
@@ -251,7 +249,9 @@ impl DataType {
             Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
             Self::AiEvents => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
-            Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
+            Self::HeatmapMain => Some(Pipeline::Heatmaps),
+            Self::ClientIngestionWarning => Some(Pipeline::ClientWarnings),
+            Self::SnapshotMain => None,
         }
     }
 }

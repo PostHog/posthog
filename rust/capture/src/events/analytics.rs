@@ -433,9 +433,8 @@ async fn process_events_inner(
     // pipelines its host capture deployment serves; the pipeline argument
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
-    // on the way to the error tracking topic, and vice versa. Data types
-    // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
-    // through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
+    // on the way to the error tracking topic, and vice versa. Snapshots have
+    // no pipeline here and flow through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
     // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
     // win over the lane, redirect_to_topic beats the AI topic in the sink,
     // force_overflow keeps it on the AI lane) -- mirroring v1.

@@ -29,7 +29,9 @@ impl Destination {
             }
             Self::AiMain | Self::AiOverflow => Some(Pipeline::Ai),
             Self::ErrorTrackingMain => Some(Pipeline::ErrorTracking),
-            Self::HeatmapsMain | Self::ClientWarningsMain | Self::Dlq | Self::Custom(_) => None,
+            Self::HeatmapsMain => Some(Pipeline::Heatmaps),
+            Self::ClientWarningsMain => Some(Pipeline::ClientWarnings),
+            Self::Dlq | Self::Custom(_) => None,
         }
     }
 
@@ -104,8 +106,8 @@ mod destination_tests {
     #[case(Destination::AiMain, Some(Pipeline::Ai))]
     #[case(Destination::AiOverflow, Some(Pipeline::Ai))]
     #[case(Destination::ErrorTrackingMain, Some(Pipeline::ErrorTracking))]
-    #[case(Destination::HeatmapsMain, None)]
-    #[case(Destination::ClientWarningsMain, None)]
+    #[case(Destination::HeatmapsMain, Some(Pipeline::Heatmaps))]
+    #[case(Destination::ClientWarningsMain, Some(Pipeline::ClientWarnings))]
     #[case(Destination::Dlq, None)]
     #[case(Destination::Custom("admin_topic".into()), None)]
     fn pipeline_classifies_every_destination(

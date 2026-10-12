@@ -847,9 +847,8 @@ async fn apply_restrictions(
         // Derive the pipeline from the destination so each event is matched
         // against the correct restriction slice (Analytics vs ErrorTracking
         // vs Ai) — an event diverted to the AI lane is governed by ai-scoped
-        // restrictions, not analytics ones. `pipeline() == None` for heatmaps
-        // / ingestion warnings → they pass through unrestricted, exactly as
-        // v0 does (v0 derives the same mapping from `DataType::pipeline`).
+        // restrictions, not analytics ones. v0 derives the same mapping from
+        // `DataType::pipeline`.
         let Some(pipeline) = event.destination.pipeline() else {
             continue;
         };
@@ -2481,16 +2480,11 @@ mod tests {
         );
     }
 
-    // --- restrictions bypass pipeline-less events ---
-    // Events whose name maps to DataType::pipeline() == None (heatmaps,
-    // ingestion warnings) pass through unrestricted regardless of what
-    // restrictions are configured.
-
     #[rstest::rstest]
     #[case("$$heatmap", Destination::HeatmapsMain)]
     #[case("$$client_ingestion_warning", Destination::ClientWarningsMain)]
     #[tokio::test]
-    async fn restrictions_skip_pipeline_less_events(
+    async fn analytics_restrictions_skip_heatmaps_and_warnings(
         #[case] event_name: &str,
         #[case] expected_dest: Destination,
     ) {

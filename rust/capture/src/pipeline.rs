@@ -204,12 +204,9 @@ pub fn resolve(
         }
         // Single-lane pipelines: capture has no overflow topic for warnings,
         // heatmaps, or error tracking, so `Lane::Overflow` is never resolved
-        // for them. Error tracking is the only one of the three that can
-        // actually carry overflow intent — an error-tracking-scoped
-        // ForceOverflow restriction stamps `force_overflow` on an exception
-        // event — and the stamp is deliberately ignored here; the event
-        // publishes to main. Warnings and heatmaps flow through event
-        // restrictions unrestricted (no restriction pipeline covers them).
+        // for them. A ForceOverflow restriction scoped to one of these
+        // pipelines stamps `force_overflow` on the event, and the stamp is
+        // deliberately ignored here; the event publishes to main.
         DataType::ClientIngestionWarning => AddressDecision::lane(
             Pipeline::Warnings,
             Lane::Main,
