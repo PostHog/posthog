@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
@@ -11,6 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, JsonValue, ValidationError
 
 from products.tasks.backend.facade.api import record_run_failure_cause
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
@@ -103,6 +104,7 @@ class MultiTurnSession:
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
+        files: Sequence[SessionFile] = (),
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -147,6 +149,7 @@ class MultiTurnSession:
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
+            files=files,
         )
         # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
         salvageable = True
@@ -226,6 +229,7 @@ class MultiTurnSession:
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
+        files: Sequence[SessionFile] = (),
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -241,6 +245,10 @@ class MultiTurnSession:
         `mcp_gateway_server_ids` narrows the run's mounts to the listed gateway servers
         regardless of grant scope (a scout's per-scout selection). None leaves them
         unfiltered; an empty list mounts nothing.
+
+        `files` go into the sandbox before the first turn, and the first prompt lists
+        their paths. Use them for text too long for the agent to pass on itself, such as
+        the task of a sub-agent.
         """
         task, task_run = await create_task_and_trigger(
             prompt,
@@ -260,6 +268,7 @@ class MultiTurnSession:
             origin_key=origin_key,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
+            files=files,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.

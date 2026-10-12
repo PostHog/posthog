@@ -62,6 +62,7 @@ class TestRecordTurnMarker(BaseTest):
         report_id: str | None = None,
         review_mode: str = REVIEW_MODE_FULL,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        coordinator: bool = False,
     ) -> ReviewHogMarker:
         return record_turn_marker(
             team_id=team_id or self.team.id,
@@ -72,10 +73,13 @@ class TestRecordTurnMarker(BaseTest):
             review_mode=review_mode,
             flash_reasoning_effort="medium",
             review_design=review_design,
+            coordinator=coordinator,
         )
 
-    def _record_single_agent(self, run_index: int) -> ReviewHogMarker:
-        return self._record(run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT)
+    def _record_single_agent(self, run_index: int, coordinator: bool = False) -> ReviewHogMarker:
+        return self._record(
+            run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT, coordinator=coordinator
+        )
 
     def _edit_single_agent_prompt(self, prompt_file: str) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -102,6 +106,15 @@ class TestRecordTurnMarker(BaseTest):
 
         assert original.version == "reviewhog-flash-2-2"
         assert changed.fingerprint != original.fingerprint
+
+    def test_the_coordinator_prompt_splits_only_coordinated_cohorts(self) -> None:
+        separate = self._record_single_agent(run_index=1)
+        coordinated = self._record_single_agent(run_index=2, coordinator=True)
+        self._edit_single_agent_prompt("coordinator.md")
+
+        assert coordinated.fingerprint != separate.fingerprint
+        assert self._record_single_agent(run_index=3).fingerprint == separate.fingerprint
+        assert self._record_single_agent(run_index=4, coordinator=True).fingerprint != coordinated.fingerprint
 
     @parameterized.expand(
         [

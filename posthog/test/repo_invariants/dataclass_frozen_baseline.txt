@@ -1417,7 +1417,7 @@
 3 ee/clickhouse/views/test/test_clickhouse_trends.py
 3 posthog/api/app_metrics2.py
 3 posthog/api/test/rust_integration/conftest.py
-3 posthog/cdp/internal_events.py
+3 products/cdp/backend/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
 3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py
