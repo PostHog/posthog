@@ -15,7 +15,11 @@ from products.review_hog.backend.facade.review_status_types import HeadReviewSta
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
-from products.review_hog.backend.reviewer.persistence import load_turn_findings
+from products.review_hog.backend.reviewer.persistence import (
+    load_chunk_set,
+    load_turn_findings,
+    reviewed_pipeline_chunk_ids,
+)
 from products.review_hog.backend.reviewer.progress import (
     RUN_OUTCOME_FAILED,
     RUN_STAGE_REVIEW,
@@ -23,6 +27,7 @@ from products.review_hog.backend.reviewer.progress import (
     in_progress_report_ids,
     run_outcome_markers,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import turn_review_mode
 from products.review_hog.backend.temporal.client import queued_review_heads
 from products.review_hog.backend.temporal.types import review_pr_workflow_id
@@ -110,6 +115,30 @@ class HeadReviewStatusLookup:
             turns[marker.run_index] = _Turn(marker=marker, started_at=row["created_at"])
         return turns
 
+    def _skipped_paths(self, turn: _Turn | None) -> tuple[str, ...]:
+        """The files the turn left out, plus the files of every pipeline chunk that no review unit finished.
+
+        The fan-out fails a turn only when most of its units fail, so a turn can complete with a chunk unread.
+        """
+        if turn is None:
+            return ()
+        skipped = list(turn.marker.skipped_paths or ())
+        # A single-agent turn fails when its main session fails, and that session reviews the whole diff.
+        if turn.marker.fingerprint_inputs.get("review_design") == REVIEW_DESIGN_SINGLE_AGENT:
+            return tuple(skipped)
+        chunks = load_chunk_set(team_id=self.team_id, report_id=self.report_id, head_sha=self.head_sha)
+        # Without the chunking the gaps are unknown, so the turn keeps only the files it left out.
+        if chunks is None:
+            return tuple(skipped)
+        reviewed = reviewed_pipeline_chunk_ids(team_id=self.team_id, report_id=self.report_id, head_sha=self.head_sha)
+        for chunk in chunks.chunks:
+            if chunk.chunk_id in reviewed:
+                continue
+            for file in chunk.files:
+                if file.filename not in skipped:
+                    skipped.append(file.filename)
+        return tuple(skipped)
+
     def _finished(self) -> HeadReviewStatus | None:
         report = self.report
         if report is None:
@@ -162,7 +191,7 @@ class HeadReviewStatusLookup:
             published=posted(run_index),
             base_branch=(turn.marker.base_branch or "") if turn is not None else "",
             base_sha=(turn.marker.base_sha or "") if turn is not None else "",
-            skipped_paths=tuple(turn.marker.skipped_paths or ()) if turn is not None else (),
+            skipped_paths=self._skipped_paths(turn),
         )
 
     def status(self) -> HeadReviewStatus | None:

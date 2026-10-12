@@ -16,8 +16,15 @@ from products.review_hog.backend.reviewer.artefact_content import (
     TurnMarkerArtefact,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.constants import (
+    BLIND_SPOT_PASS_NUMBER,
+    FLASH_ARM,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.review_hog.backend.temporal.client import QueuedReviewHeads
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -237,3 +244,34 @@ class TestHeadReviewStatus(BaseTest):
             ) == (ReviewEvidenceState.COMPLETED, "PostHog Review", "Standard", "main", "b" * 40, ("pnpm-lock.yaml",))
         else:
             assert evidence is None
+
+    @parameterized.expand(
+        [
+            ("every_unit_of_a_chunk_failed", [(1, 1)], ("pnpm-lock.yaml", "c.py", "d.py")),
+            ("only_the_blind_spot_read_a_chunk", [(1, 1), (BLIND_SPOT_PASS_NUMBER, 2)], ("pnpm-lock.yaml",)),
+        ]
+    )
+    def test_deep_turn_reports_chunks_no_unit_read_as_skipped(
+        self, _name: str, results: list[tuple[int, int]], expected_skipped: tuple[str, ...]
+    ) -> None:
+        report = self._completed_turn(REVIEW_MODE_FULL)
+        chunks = ChunksList(
+            chunks=[
+                Chunk(chunk_id=1, files=[FileInfo(filename="a.py"), FileInfo(filename="b.py")]),
+                Chunk(chunk_id=2, files=[FileInfo(filename="c.py"), FileInfo(filename="d.py")]),
+            ]
+        )
+        persist_chunk_set(team_id=self.team.id, report_id=str(report.id), head_sha=HEAD, chunks=chunks)
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            head_sha=HEAD,
+            results={unit: IssuesReview() for unit in results},
+            review_arm=FLASH_ARM,
+        )
+
+        with patch(_QUEUE, return_value=QueuedReviewHeads()):
+            status = HeadReviewStatusLookup(self.team.id, REPOSITORY, 5, HEAD).status()
+
+        assert status is not None
+        assert (status.state, status.skipped_paths) == (HeadReviewState.COMPLETED, expected_skipped)

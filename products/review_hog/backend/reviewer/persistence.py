@@ -439,6 +439,21 @@ def load_perspective_results(
     return out
 
 
+def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:
+    """The pipeline chunks at this head that at least one review unit finished, a perspective or the blind spot.
+
+    Any arm counts, because the question is whether a reviewer read the chunk at all.
+    """
+    chunk_ids: set[int] = set()
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            chunk_ids.add(content.chunk_id)
+    return chunk_ids
+
+
 def persist_pr_snapshot(
     *,
     team_id: int,
