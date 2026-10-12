@@ -88,7 +88,7 @@ It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'hori
 - `config.labelPosition: 'start'` (default) puts the label left of the bar and the value right of it. The label column sizes to its content up to 40% of the width and truncates past that. The value column sizes to its content, and the bar column takes the rest.
 - `config.labelPosition: 'top'` puts the label and the value on one line above the bar. Use it for long labels such as URL paths, or for narrow lists, because the bar and the label get the full width. The label line sits on top of the chart, so the tooltip shows only over the bar and its track.
 - Each row is `config.rowHeight` tall (default 28, or 40 for `'top'`) and each bar is `config.barHeight` thick (default 12, or 8 for `'top'`). The chart takes its height from the rows, so it does not need a parent with a fixed height.
-- The tooltip uses `hitArea: 'band'`, so a row reports its tooltip anywhere along its track. It shows the row label and the formatted value.
+- The tooltip uses `hitArea: 'band'`, so a row reports its tooltip anywhere along its track. It shows the row label and the formatted value. A `tooltip` render prop replaces it, and `seriesData[0].series.meta` is the `meta` of the hovered row.
 - A non-zero row stays at least 4px long, so a row with a tiny share still shows next to the largest row.
 
 ## BoxPlot

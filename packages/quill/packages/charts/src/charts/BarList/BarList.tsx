@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import type { BarChartConfig, ChartTheme, Series } from '../../core/types'
+import type { BarChartConfig, ChartTheme, Series, TooltipContext } from '../../core/types'
 import { percentage } from '../../utils/format'
 import { BarChart } from '../BarChart/BarChart'
 import { partValue } from '../ProportionBar/proportion-bar-data'
@@ -44,6 +44,8 @@ export interface BarListProps<Meta = unknown> {
     /** Content of a row's label cell, for example an icon and a link. Defaults to the series label.
      *  The cell is a flex row that truncates, so wrap long text in a `truncate` element. */
     renderLabel?: (series: Series<Meta>) => React.ReactNode
+    /** Replaces the default tooltip. `ctx.seriesData[0].series.meta` is the `meta` of the hovered row. */
+    tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     /** `data-attr` applied to the chart wrapper. */
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
@@ -80,6 +82,7 @@ function BarListInner<Meta = unknown>({
     total,
     valueFormatter = defaultValueFormatter,
     renderLabel,
+    tooltip,
     dataAttr,
     onError,
 }: BarListProps<Meta>): React.ReactElement | null {
@@ -114,7 +117,7 @@ function BarListInner<Meta = unknown>({
                 key: BAR_SERIES_KEY,
                 label: '',
                 data: rows.map((row) => row.value),
-                bars: rows.map((row) => ({ color: row.series.color })),
+                bars: rows.map((row) => ({ color: row.series.color, meta: row.series.meta })),
             },
         ],
         [rows]
@@ -180,6 +183,7 @@ function BarListInner<Meta = unknown>({
                     labels={labels}
                     theme={theme}
                     config={barConfig}
+                    tooltip={tooltip}
                     dataAttr={dataAttr}
                     onError={onError}
                 />

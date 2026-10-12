@@ -8,10 +8,10 @@ const THEME: ChartTheme = { colors: ['#22d3ee', '#f14f58', '#a78bfa', '#fbbf24']
 
 // The excluded row draws no band, so `a`, `b` and `c` split the 400px mock rect into three rows.
 const ROWS: Series[] = [
-    { key: 'a', label: 'Row a', data: [600] },
-    { key: 'excluded', label: 'Excluded row', data: [50], visibility: { excluded: true } },
-    { key: 'b', label: 'Row b', data: [100] },
-    { key: 'c', label: 'Row c', data: [100] },
+    { key: 'a', label: 'Row a', data: [600], meta: { id: 'a' } },
+    { key: 'excluded', label: 'Excluded row', data: [50], meta: { id: 'excluded' }, visibility: { excluded: true } },
+    { key: 'b', label: 'Row b', data: [100], meta: { id: 'b' } },
+    { key: 'c', label: 'Row c', data: [100], meta: { id: 'c' } },
 ]
 const INSIDE_B = { clientX: mockRect.width / 2, clientY: mockRect.height / 2 }
 
@@ -30,5 +30,14 @@ describe('BarList', () => {
         expect(within(tooltip).getByText('Row b')).toBeTruthy()
         expect(within(tooltip).getByText('100')).toBeTruthy()
         expect(screen.getAllByText((_, el) => el?.textContent === valueText)).toHaveLength(2)
+    })
+
+    it('hands a custom tooltip the meta of the hovered row', async () => {
+        const { chart } = renderHogChart(<BarList series={ROWS} theme={THEME} tooltip={() => <span>custom</span>} />)
+
+        await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
+        const tooltip = await chart.waitForTooltip()
+
+        expect(tooltip.seriesData[0].series.meta).toEqual({ id: 'b' })
     })
 })
