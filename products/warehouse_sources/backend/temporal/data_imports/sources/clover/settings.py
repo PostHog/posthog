@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -17,7 +19,7 @@ PAGE_SIZE = 1000
 FILTER_WINDOW_MS = 89 * 24 * 60 * 60 * 1000
 
 
-@dataclass
+@frozen
 class CloverEndpointConfig:
     name: str
     path: str

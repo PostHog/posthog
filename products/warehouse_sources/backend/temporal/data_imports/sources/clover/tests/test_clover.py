@@ -58,7 +58,7 @@ def http_responses(responses: list[Response]) -> Iterator[list[PreparedRequest]]
 def manager(state: dict[str, Any] | None = None) -> mock.MagicMock:
     result = mock.MagicMock()
     result.can_resume.return_value = state is not None
-    result.load_state.return_value = CloverResumeConfig(state) if state is not None else None
+    result.load_state.return_value = CloverResumeConfig(paginator_state=state) if state is not None else None
     return result
 
 

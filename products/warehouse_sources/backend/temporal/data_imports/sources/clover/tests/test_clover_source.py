@@ -154,7 +154,7 @@ class TestCloverSource(SimpleTestCase):
     def test_manager_serializes_the_resume_data_class(self) -> None:
         resume_manager = self.source.get_resumable_source_manager(inputs())
         self.assertIsInstance(resume_manager, ResumableSourceManager)
-        state = CloverResumeConfig({"resource_state": {"offset": 1000}, "end_ms": 2000})
+        state = CloverResumeConfig(paginator_state={"resource_state": {"offset": 1000}, "end_ms": 2000})
         self.assertEqual(resume_manager._load_json(resume_manager._dump_json(state)), state)
 
     @mock.patch(NOW_PATCH, return_value=1000)

@@ -7,6 +7,8 @@ from typing import Any
 from requests import Session
 from requests.exceptions import RequestException
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.clover.settings import (
     CLOVER_ENDPOINTS,
     CLOVER_REGION_HOSTS,
@@ -36,7 +38,7 @@ PROBE_READ_TIMEOUT_SECONDS = 15
 REQUEST_HEADERS = {"Accept": "application/json", "User-Agent": "PostHog/1.0"}
 
 
-@dataclasses.dataclass
+@frozen
 class CloverResumeConfig:
     paginator_state: dict[str, Any]
 
@@ -208,9 +210,22 @@ def clover_source(
                 "allow_redirects": False,
                 "request_timeout": (CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
             }
+            first_window = True
             while start_ms <= end_ms:
                 window_end = min(start_ms + FILTER_WINDOW_MS - 1, end_ms)
                 window = (start_ms, window_end) if parent.history_field else None
+                if not first_window:
+                    # Stage each later window's start before its rows, so no save has to follow a yield.
+                    resumable_source_manager.save_state(
+                        CloverResumeConfig(
+                            paginator_state={
+                                "window_start_ms": start_ms,
+                                "end_ms": end_ms,
+                                "resource_state": None,
+                                "completed": False,
+                            }
+                        )
+                    )
                 params = dict(parent.params)
                 if window is not None:
                     # Clover can limit unfiltered history to 90 days, so backfills also need date windows.
@@ -268,7 +283,7 @@ def clover_source(
                     )
                     for page in resource:
                         yield [_normalize_row(row, config, window) for row in page]
-                    save_checkpoint(None)
+                        resumable_source_manager.safe_point()
                 else:
                     endpoint_config = _endpoint(config, path)
                     endpoint_config["params"] = params
@@ -294,10 +309,22 @@ def clover_source(
                     )
                     for page in resource:
                         yield [_normalize_row(row, config, window) for row in page]
+                        resumable_source_manager.safe_point()
                 if window is None:
                     break
                 start_ms = window_end + 1
                 resource_state = None
+                first_window = False
+        resumable_source_manager.save_state(
+            CloverResumeConfig(
+                paginator_state={
+                    "window_start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "resource_state": None,
+                    "completed": True,
+                }
+            )
+        )
 
     return SourceResponse(
         name=endpoint,
