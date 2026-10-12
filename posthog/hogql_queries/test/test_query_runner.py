@@ -67,7 +67,7 @@ from posthog.hogql.query_stats import get_active, record
 from posthog.api.services.query import _run_query_runner
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
 from posthog.event_usage import EventSource
@@ -910,17 +910,29 @@ class TestQueryRunner(BaseTest):
             ),
             mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
         ):
-            runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
-            )
-            fresh_props = report.call_args.args[1]
-            runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
-            )
-            hit_props = report.call_args.args[1]
+            with tags_context(client_query_id="fresh-request"):
+                runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
+                )
+                fresh_props = report.call_args.args[1]
+            with tags_context(client_query_id="cached-request"):
+                runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
+                )
+                hit_props = report.call_args.args[1]
+            with tags_context(client_query_id=None):
+                runner_class(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
+                )
+                untagged_props = report.call_args.args[1]
 
         assert fresh_props["cache_hit"] is False
         assert hit_props["cache_hit"] is True
+        assert fresh_props["client_query_id"] == "fresh-request"
+        assert hit_props["client_query_id"] == "cached-request"
+        assert untagged_props["client_query_id"] is None
+        assert fresh_props["query_id"] is hit_props["query_id"] is None
+        assert fresh_props["cache_key"] == hit_props["cache_key"] == untagged_props["cache_key"]
         assert fresh_props["warehouse_tables_referenced"] == []
         assert hit_props["warehouse_tables_referenced"] is None
         assert fresh_props["saved_queries_referenced"] == []
@@ -987,13 +999,18 @@ class TestQueryRunner(BaseTest):
             failing = mock.patch.object(QueryCache, "store_result", side_effect=error_class("cache store failed"))
         else:
             failing = mock.patch.object(runner, "_serve_query_scan", side_effect=error_class("scan serve failed"))
-        with failing, mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+        with (
+            failing,
+            tags_context(client_query_id="failed-request"),
+            mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
+        ):
             with self.assertRaises(error_class):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert [call.args[0] for call in report.call_args_list] == ["query execution failed"]
         props = report.call_args.args[1]
         assert props["failed_in"] == failed_in
+        assert props["client_query_id"] == "failed-request"
         assert (props["outcome"], props["error_category"]) == ("failed", error_category)
         assert props["error_type"] == error_class.__name__
         assert props["cache_key"] == runner.get_cache_key()

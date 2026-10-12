@@ -333,6 +333,7 @@ class QueryRun:
     # and None dropped, tags removed), so the events can be queried by what was asked.
     query: dict[str, Any]
     query_id: Optional[str]
+    client_query_id: Optional[str]
     execution_mode: ExecutionMode
     query_type: str
     insight_id: Optional[int]
@@ -351,6 +352,7 @@ class QueryRun:
             "runtime_hash": self.query_identity.runtime_hash,
             "hash_version": QUERY_HASH_VERSION,
             "query_id": self.query_id,
+            "client_query_id": self.client_query_id,
             "commit": get_git_commit_short(),
             "insight_id": self.insight_id,
             "dashboard_id": self.dashboard_id,
@@ -2412,6 +2414,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_identity=self._query_identity,
                 query=self._query_for_events,
                 query_id=self.query_id,
+                client_query_id=get_query_tag_value("client_query_id"),
                 execution_mode=execution_mode,
                 query_type=query_type,
                 insight_id=insight_id,
