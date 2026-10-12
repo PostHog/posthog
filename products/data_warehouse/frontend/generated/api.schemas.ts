@@ -3544,6 +3544,9 @@ export interface CredentialApi {
  * * `Userback` - Userback
  * * `Rewardful` - Rewardful
  * * `Tracklution` - Tracklution
+ * * `StackAdapt` - StackAdapt
+ * * `CheckHQ` - CheckHQ
+ * * `RainforestPay` - RainforestPay
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4925,6 +4928,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Userback: 'Userback',
     Rewardful: 'Rewardful',
     Tracklution: 'Tracklution',
+    StackAdapt: 'StackAdapt',
+    CheckHQ: 'CheckHQ',
+    RainforestPay: 'RainforestPay',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
