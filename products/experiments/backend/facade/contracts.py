@@ -243,3 +243,14 @@ class MetricCalculationKeys:
     inline: dict[str, str]
     # By saved-metric link id.
     saved: dict[int, str]
+
+
+@frozen
+class DailyMetricCalculation:
+    """One metric that the daily timeseries calculation computes for an experiment."""
+
+    experiment_id: int
+    team_id: int
+    metric_uuid: str
+    # The key that files the metric's daily result.
+    calculation_key: str

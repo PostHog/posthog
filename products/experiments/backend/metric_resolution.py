@@ -106,7 +106,7 @@ def is_scheduled_metric(metric: dict[str, Any] | None) -> bool:
     return bool(metric and metric.get("uuid") and metric.get("metric_type") in METRIC_BUILDERS)
 
 
-def _get_effective_inline_metrics(experiment: Experiment) -> list[EffectiveExperimentMetric]:
+def get_effective_inline_metrics(experiment: Experiment) -> list[EffectiveExperimentMetric]:
     """Inline primary metrics, then inline secondary metrics. Metrics without a uuid cannot be addressed
     and are skipped. Reads no rows."""
     sections: tuple[tuple[MetricRole, list | None], ...] = (
@@ -164,7 +164,7 @@ def get_effective_experiment_metrics(experiment: Experiment) -> list[EffectiveEx
 
     Callers apply their own eligibility, for example `is_scheduled_metric` or `is_daily_timeseries_metric`.
     """
-    return _get_effective_inline_metrics(experiment) + _get_effective_saved_metrics(experiment)
+    return get_effective_inline_metrics(experiment) + _get_effective_saved_metrics(experiment)
 
 
 def get_metrics_for_calculation(experiment: Experiment) -> list[EffectiveExperimentMetric]:
