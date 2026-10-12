@@ -19,14 +19,14 @@ Keys are managed at `POST /api/projects/:id/project_secret_api_keys` (label + sc
 
 Several viewsets already accept PSAKs. Copy the one closest to your case:
 
-| Viewset | Route (under `/api/projects/:id/`) | Required scopes | `psak_allowed_actions` |
-| --- | --- | --- | --- |
-| Endpoints (`products/endpoints/backend/presentation/views/api.py`) | `endpoints/` | `endpoint:read` | `run` |
-| Experiments (`products/experiments/backend/presentation/views.py`) | `experiments/` | `experiment:read` | `list`, `retrieve` |
-| Feature flags (`products/feature_flags/backend/api/feature_flag.py`) | `feature_flags/` | `feature_flag:read` | `remote_config` |
-| Loops (`products/tasks/backend/presentation/views/loops.py`) | `loops/` | `loop:write`, `loop:read` | `trigger`, `runs` |
-| Offline experiments (`products/ai_observability/backend/api/offline_experiments.py`) | `ai_observability/offline_experiments/` | `offline_evaluation_ingestion:write` | `create`, `upload`, `complete`, `fail` |
-| Replay Vision scan requests (`products/replay_vision/backend/api/observation_requests.py`) | `vision/requests/` | `replay_scanner:write` **and** `session_recording:read` on every action | `create`, `retrieve` |
+| Viewset                                                                                    | Route (under `/api/projects/:id/`)      | Required scopes                                                         | `psak_allowed_actions`                 |
+| ------------------------------------------------------------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------- |
+| Endpoints (`products/endpoints/backend/presentation/views/api.py`)                         | `endpoints/`                            | `endpoint:read`                                                         | `run`                                  |
+| Experiments (`products/experiments/backend/presentation/views.py`)                         | `experiments/`                          | `experiment:read`                                                       | `list`, `retrieve`                     |
+| Feature flags (`products/feature_flags/backend/api/feature_flag.py`)                       | `feature_flags/`                        | `feature_flag:read`                                                     | `remote_config`                        |
+| Loops (`products/tasks/backend/presentation/views/loops.py`)                               | `loops/`                                | `loop:write`, `loop:read`                                               | `trigger`, `runs`                      |
+| Offline experiments (`products/ai_observability/backend/api/offline_experiments.py`)       | `ai_observability/offline_experiments/` | `offline_evaluation_ingestion:write`                                    | `create`, `upload`, `complete`, `fail` |
+| Replay Vision scan requests (`products/replay_vision/backend/api/observation_requests.py`) | `vision/requests/`                      | `replay_scanner:write` **and** `session_recording:read` on every action | `create`, `retrieve`                   |
 
 Customer analytics and conversations external APIs also accept PSAKs (`account:*`, `support_ticket:read`) through their own URL patterns.
 
