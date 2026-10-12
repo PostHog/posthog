@@ -200,13 +200,20 @@ class TestValidateManifest(SimpleTestCase):
         }
         validate_manifest(manifest)
 
-    @parameterized.expand([("json", ["not", "an", "object"]), ("params", ["nope"])])
-    def test_rejects_non_object_params_or_json(self, field, value):
+    @parameterized.expand(
+        [
+            ("json", ["not", "an", "object"], "resources[0].endpoint.json"),
+            ("params", ["nope"], "resources[0].endpoint.params"),
+            ("headers", 5, "client.headers"),
+        ]
+    )
+    def test_rejects_non_object_params_json_or_headers(self, field, value, expected_location):
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"][field] = value
+        container = manifest["client"] if field == "headers" else manifest["resources"][0]["endpoint"]
+        container[field] = value
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
-        assert field in str(ctx.exception)
+        assert expected_location in str(ctx.exception)
 
     @parameterized.expand(
         [
