@@ -12,7 +12,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import {
@@ -28,7 +27,6 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
@@ -41,7 +39,6 @@ import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsL
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
-import { manageFingerprintsLogic } from '../../components/FingerprintPreview/manageFingerprintsLogic'
 import { ManageFingerprintsModal } from '../../components/FingerprintPreview/ManageFingerprintsModal'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
@@ -75,29 +72,25 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
     // Named to match the sibling 'viewed recordings from experiment' / 'from feature flag' events, so
     // all three cross-product entry points compare in one breakdown.
-    const openRecordings = useCallback(
-        (source: 'header' | 'menubar'): void => {
-            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, ui_source: source })
-            newInternalTab(
-                urls.replay(ReplayTabs.Home, {
-                    ...getIssueReplayDateRange(
-                        issue?.first_seen,
-                        lastSeen,
-                        selectedEvent?.timestamp ?? initialEventTimestamp
-                    ),
-                    filter_group: getIssueReplayFilterGroup(issueId),
-                })
-            )
-        },
-        [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp]
-    )
+    const openRecordings = useCallback((): void => {
+        posthog.capture('viewed recordings from error tracking', { issue_id: issueId, ui_source: 'header' })
+        newInternalTab(
+            urls.replay(ReplayTabs.Home, {
+                ...getIssueReplayDateRange(
+                    issue?.first_seen,
+                    lastSeen,
+                    selectedEvent?.timestamp ?? initialEventTimestamp
+                ),
+                filter_group: getIssueReplayFilterGroup(issueId),
+            })
+        )
+    }, [issueId, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
     // Prefill a Replay vision scanner scoped to this issue and open the wizard on its review-and-create
     // overview. The overview blocks creation when no recordings match, so a sessionless issue can't
@@ -147,32 +140,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
-                                {sceneMenuBarEnabled && (
-                                    <SceneMenuBar>
-                                        <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
-                                            <SceneMenuBarFileItems dataAttrKey="issue" />
-                                            {hasIssueSplitting && <ManageFingerprintsMenuItem issueId={issueId} />}
-                                        </SceneMenuBarMenu>
-                                        <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
-                                            <SceneMenuBarItem
-                                                onClick={() => openRecordings('menubar')}
-                                                data-attr="issue-menubar-view-recordings"
-                                            >
-                                                <IconRewindPlay />
-                                                View recordings
-                                            </SceneMenuBarItem>
-                                            {issue.name && (
-                                                <SceneMenuBarItem
-                                                    onClick={setUpVisionScanner}
-                                                    data-attr="issue-menubar-scan-with-vision"
-                                                >
-                                                    <IconSparkles className="text-ai" />
-                                                    Set up a scanner to watch these
-                                                </SceneMenuBarItem>
-                                            )}
-                                        </SceneMenuBarMenu>
-                                    </SceneMenuBar>
-                                )}
                                 <SceneTitleSection
                                     canEdit
                                     name={issue.name ?? undefined}
@@ -210,7 +177,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                     <ButtonGroup>
                                                         <Button
                                                             variant="outline"
-                                                            onClick={() => openRecordings('header')}
+                                                            onClick={openRecordings}
                                                             data-attr="error-tracking-issue-view-recordings"
                                                         >
                                                             View recordings
@@ -245,7 +212,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 ) : (
                                                     <Button
                                                         variant="outline"
-                                                        onClick={() => openRecordings('header')}
+                                                        onClick={openRecordings}
                                                         data-attr="error-tracking-issue-view-recordings"
                                                     >
                                                         View recordings
@@ -397,14 +364,5 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
         </div>
-    )
-}
-
-function ManageFingerprintsMenuItem({ issueId }: { issueId: string }): JSX.Element {
-    const { openManage } = useActions(manageFingerprintsLogic({ issueId }))
-    return (
-        <SceneMenuBarItem onClick={openManage} data-attr="issue-menubar-fingerprints">
-            Manage fingerprints
-        </SceneMenuBarItem>
     )
 }
