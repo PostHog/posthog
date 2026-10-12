@@ -3050,22 +3050,26 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         ),
     conditions: zod
         .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersCreateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(taggersCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe('Percentage of matching events to apply this condition to'),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe('Property filters that scope when this condition fires'),
+                })
+                .describe(
+                    'Base for a stored condition set: {id, rollout_percentage, properties}.\n\nDRF reads `partial` from the root serializer, so on a PATCH a nested set skips its required\n`id` check. Generate a missing id here, or the stored set has no id and every later read fails.'
+                )
         )
         .optional()
         .describe('Conditions that scope when the tagger runs'),
@@ -3190,22 +3194,26 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
         ),
     conditions: zod
         .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersUpdateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersUpdateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersUpdateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersUpdateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(taggersUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(taggersUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(taggersUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(taggersUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe('Percentage of matching events to apply this condition to'),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe('Property filters that scope when this condition fires'),
+                })
+                .describe(
+                    'Base for a stored condition set: {id, rollout_percentage, properties}.\n\nDRF reads `partial` from the root serializer, so on a PATCH a nested set skips its required\n`id` check. Generate a missing id here, or the stored set has no id and every later read fails.'
+                )
         )
         .optional()
         .describe('Conditions that scope when the tagger runs'),
@@ -3332,22 +3340,26 @@ export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     conditions: zod
         .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersPartialUpdateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersPartialUpdateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersPartialUpdateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersPartialUpdateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(taggersPartialUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(taggersPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(taggersPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(taggersPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe('Percentage of matching events to apply this condition to'),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe('Property filters that scope when this condition fires'),
+                })
+                .describe(
+                    'Base for a stored condition set: {id, rollout_percentage, properties}.\n\nDRF reads `partial` from the root serializer, so on a PATCH a nested set skips its required\n`id` check. Generate a missing id here, or the stored set has no id and every later read fails.'
+                )
         )
         .optional()
         .describe('Conditions that scope when the tagger runs'),

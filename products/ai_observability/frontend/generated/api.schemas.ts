@@ -4434,6 +4434,12 @@ export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
 
 export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
 
+/**
+ * Base for a stored condition set: {id, rollout_percentage, properties}.
+ *
+ * DRF reads `partial` from the root serializer, so on a PATCH a nested set skips its required
+ * `id` check. Generate a missing id here, or the stored set has no id and every later read fails.
+ */
 export interface TaggerConditionApi {
     /**
      * Stable identifier for this condition
