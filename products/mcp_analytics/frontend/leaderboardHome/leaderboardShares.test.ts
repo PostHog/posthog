@@ -11,6 +11,7 @@ import {
     buildShareSeries,
     hasKnownLabels,
     leadingLabs,
+    modelRowsFromBuckets,
     toReliabilityRows,
     topFacetRows,
     type ReliabilityRow,
@@ -76,6 +77,15 @@ describe('leaderboardShares', () => {
         expect(buildModelShareSeries(rows, ['d1'], rowLabels).map(({ label }) => label)).toEqual([
             'claude-opus',
             'claude-sonnet',
+        ])
+    })
+
+    it('builds model totals from the same bucketed rows as the time chart', () => {
+        expect(
+            modelRowsFromBuckets([row('d1', 'claude-sonnet', 2), row('d2', 'claude-sonnet', 3), row('d2', 'gpt-6', 4)])
+        ).toEqual([
+            { model: 'claude-sonnet', total_calls: 5 },
+            { model: 'gpt-6', total_calls: 4 },
         ])
     })
 

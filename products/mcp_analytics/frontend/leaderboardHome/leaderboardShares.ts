@@ -1,7 +1,7 @@
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
 import { foldedModelLabel, isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, seriesLab } from '../aiLabs'
-import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
+import { type HarnessRow, type ModelRow, type ToolRow } from '../mcpDashboardOverviewLogic'
 
 export interface BucketedFacetRow {
     bucket: string
@@ -106,6 +106,14 @@ export function buildModelShareSeries(
             b.data.reduce((total, calls) => total + calls, 0) - a.data.reduce((total, calls) => total + calls, 0) ||
             a.label.localeCompare(b.label)
     )
+}
+
+export function modelRowsFromBuckets(rows: BucketedFacetRow[]): ModelRow[] {
+    const callsByModel = new Map<string, number>()
+    for (const row of rows) {
+        callsByModel.set(row.label, (callsByModel.get(row.label) ?? 0) + row.calls)
+    }
+    return [...callsByModel].map(([model, total_calls]) => ({ model, total_calls }))
 }
 
 // Shares are of calls from models that name themselves, so a lab's share is not diluted by "Unknown".

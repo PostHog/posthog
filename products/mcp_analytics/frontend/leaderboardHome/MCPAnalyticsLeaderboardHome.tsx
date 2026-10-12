@@ -66,6 +66,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         leaderboardLoading,
         scoreboardMetric,
         scoreboardShares,
+        leaderboardModelRows,
         modelSeries,
         pageModels,
         modelRowLabelMap,
@@ -172,7 +173,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         </Card>
                     ) : (
                         <ModelBarChart
-                            rows={modelRows}
+                            rows={leaderboardModelRows}
                             theme={theme}
                             filters={queryFilters}
                             colorOf={modelColorOf}

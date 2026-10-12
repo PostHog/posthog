@@ -16,6 +16,7 @@ import {
     buildLabShares,
     buildLabUserShares,
     buildModelShareSeries,
+    modelRowsFromBuckets,
     buildReliabilitySeries,
     buildShareSeries,
     type LabShare,
@@ -156,6 +157,7 @@ export interface mcpLeaderboardHomeLogicValues {
     facetsLoading: boolean
     labSeries: ShareSeries[]
     labShares: LabShare[]
+    leaderboardModelRows: ModelRow[]
     leaderboardLoading: boolean
     modelRowLabelMap: Map<string, string>
     modelSeries: ShareSeries[]
@@ -351,6 +353,13 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
             (facets: LeaderboardFacets, bucketKeys: string[], modelRowLabelMap: Map<string, string>): ShareSeries[] =>
                 buildModelShareSeries(facets.model, bucketKeys, modelRowLabelMap),
         ],
+        leaderboardModelRows: [
+            (s) => [s.facets, s.modelRows],
+            (facets: LeaderboardFacets, modelRows: ModelRow[]): ModelRow[] =>
+                facets.failedFacets.includes('model') || facets.model.length === 0
+                    ? modelRows
+                    : modelRowsFromBuckets(facets.model),
+        ],
         labSeries: [
             (s) => [s.facets, s.bucketKeys],
             (facets: LeaderboardFacets, bucketKeys: string[]): ShareSeries[] =>
@@ -362,7 +371,7 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                 ),
         ],
         pageModels: [
-            (s) => [s.modelRows, s.modelSeries, s.modelRowLabelMap],
+            (s) => [s.leaderboardModelRows, s.modelSeries, s.modelRowLabelMap],
             (modelRows: ModelRow[], modelSeries: ShareSeries[], modelRowLabelMap: Map<string, string>): string[] => [
                 ...modelSeries.map((series) => series.label),
                 ...summarizeModelBreakdown(modelRows, modelRowLabelMap).rankedModels.map((row) => row.model),
