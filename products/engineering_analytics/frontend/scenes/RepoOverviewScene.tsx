@@ -102,7 +102,7 @@ export function RepoOverviewScene(): JSX.Element {
                     <div className="@container">
                         <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
                             <WindowComparisonCard
-                                title="CI pass rate"
+                                title="CI pass rate, all branches"
                                 value={overview?.success_rate}
                                 previousValue={overview?.success_rate_prev}
                                 formatValue={(value) => percent(value, 1)}
@@ -110,7 +110,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 deltaUnit="pt"
                                 deltaPrecision={1}
                                 loading={overviewPending}
-                                tooltip="Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded."
+                                tooltip={`Runs on every branch, including pull requests, not only ${overviewDefaultBranch}. Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded.`}
                                 emptyText="No CI runs reached a pass-or-fail result in the window."
                             />
 
