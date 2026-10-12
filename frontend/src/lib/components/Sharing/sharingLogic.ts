@@ -518,7 +518,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 allowFullScreen: true,
                 src: embedLink,
                 key: iframeKey,
-                sandbox: 'allow-scripts allow-same-origin allow-popups',
+                sandbox: 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox',
             }),
         ],
 

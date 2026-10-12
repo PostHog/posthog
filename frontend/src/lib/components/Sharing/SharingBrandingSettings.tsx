@@ -90,7 +90,13 @@ export function SharingBrandingSettings({ logicProps }: SharingBrandingSettingsP
                         size="small"
                         icon={<IconTrash />}
                         onClick={() => setSharingSettingsValue('brandLogoMediaId', null)}
-                        disabledReason={sharingConfigurationLoading ? 'Saving…' : undefined}
+                        disabledReason={
+                            uploading
+                                ? 'Wait for the new logo to finish uploading'
+                                : sharingConfigurationLoading
+                                  ? 'Saving…'
+                                  : undefined
+                        }
                         data-attr="sharing-brand-logo-remove"
                     >
                         Remove logo

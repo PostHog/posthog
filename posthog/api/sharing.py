@@ -363,8 +363,13 @@ class SharePasswordCreateSerializer(serializers.Serializer):
 
 
 def _is_http_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    try:
+        parsed = urlparse(value)
+        # Reading .port validates it, and raises for a non-numeric or out-of-range port
+        _ = parsed.port
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
 
 
 class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):

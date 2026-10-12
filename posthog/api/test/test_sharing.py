@@ -1175,6 +1175,8 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             ("malformed_logo", "malformed", None, status.HTTP_400_BAD_REQUEST),
             ("https_link", "own", "https://example.com", status.HTTP_200_OK),
             ("javascript_link", "own", "javascript:alert(1)", status.HTTP_400_BAD_REQUEST),
+            ("malformed_ipv6_link", "own", "https://[", status.HTTP_400_BAD_REQUEST),
+            ("invalid_port_link", "own", "https://example.com:invalid", status.HTTP_400_BAD_REQUEST),
         ]
     )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
