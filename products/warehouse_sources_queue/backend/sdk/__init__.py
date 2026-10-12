@@ -33,6 +33,11 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     ConsumerMetrics,
     make_consumer_metrics,
 )
+from products.warehouse_sources_queue.backend.core.scheduler_state import (
+    DecisionRecord,
+    DueSchedule,
+    SchedulerStateTable,
+)
 from products.warehouse_sources_queue.backend.sdk.jobs import (
     Fail,
     FollowerSpec,
@@ -60,6 +65,8 @@ __all__ = [
     "BatchConsumerConfig",
     "BatchQueue",
     "ConsumerMetrics",
+    "DecisionRecord",
+    "DueSchedule",
     "Fail",
     "FollowerSpec",
     "GenericJobAdapter",
@@ -75,6 +82,7 @@ __all__ = [
     "PermanentBatchApplyError",
     "Retry",
     "RunActivitySummary",
+    "SchedulerStateTable",
     "Success",
     "latest_status_lateral",
     "make_consumer_metrics",

@@ -41,6 +41,9 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingHead,
+  RankingModelResult,
+  RankingScoreArtefact,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -77,6 +80,8 @@ import type {
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
+  WorkClaimArtefact,
+  WorkReleaseArtefact,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
@@ -398,10 +403,17 @@ export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
   reasoning_effort: null,
 };
 
+/** The signed-in user's defaults for new tasks. Null means never set. */
+export interface TaskDefaults {
+  start_in_plan_mode: boolean | null;
+  auto_publish_cloud_runs: boolean | null;
+}
+
 /** What the signed-in user has stored for this project, and what it resolves to. */
 export interface MyTaskRunConfig {
   preferences: TaskRunPreferences;
   resolved: TaskRunDefaults;
+  taskDefaults: TaskDefaults;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1361,7 +1373,10 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1703,6 +1718,134 @@ function normalizeNoteArtefact(
   };
 }
 
+function normalizeWorkClaimArtefact(
+  value: Record<string, unknown>,
+): WorkClaimArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  return {
+    id,
+    type: "work_claim",
+    ...artefactBase(value),
+    content: { display_name: optionalString(value.content.display_name) },
+  };
+}
+
+function normalizeWorkReleaseArtefact(
+  value: Record<string, unknown>,
+): WorkReleaseArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const reason = value.content.reason;
+  if (reason !== "released" && reason !== "taken_over") return null;
+  return {
+    id,
+    type: "work_release",
+    ...artefactBase(value),
+    content: { reason },
+  };
+}
+
+/** Reads the stored lift first. Otherwise mirrors `head_lifts` in `ranking/model_contract.py`. */
+function rankingHeadLift(
+  stored: unknown,
+  probability: number,
+  threshold: number | undefined,
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return threshold !== undefined && threshold > 0
+    ? probability / threshold
+    : null;
+}
+
+function compareRankingHeads(a: RankingHead, b: RankingHead): number {
+  if (a.lift !== null && b.lift !== null) return b.lift - a.lift;
+  if (a.lift !== null || b.lift !== null) return a.lift === null ? 1 : -1;
+  return b.probability - a.probability;
+}
+
+function normalizeRankingModelResult(
+  key: string,
+  value: unknown,
+): RankingModelResult | null {
+  if (!isObjectRecord(value)) return null;
+  const status = value.status;
+  if (status !== "scored" && status !== "skipped") return null;
+  // Mirrors `readable_head_names` in `ranking/model_contract.py`.
+  const metadataHeads =
+    isObjectRecord(value.metadata) && Array.isArray(value.metadata.heads)
+      ? value.metadata.heads
+      : [];
+  const readable = new Set(
+    metadataHeads
+      .filter((entry) => isObjectRecord(entry) && entry.readable === true)
+      .map((entry) => String((entry as Record<string, unknown>).head)),
+  );
+  // Mirrors `classification_thresholds` in `ranking/model_contract.py`.
+  const thresholds = new Map<string, number>();
+  for (const entry of metadataHeads) {
+    if (
+      isObjectRecord(entry) &&
+      typeof entry.refit_classification_threshold === "number"
+    ) {
+      thresholds.set(String(entry.head), entry.refit_classification_threshold);
+    }
+  }
+  const lifts = isObjectRecord(value.lifts) ? value.lifts : {};
+  const scores = isObjectRecord(value.scores) ? value.scores : {};
+  const heads = Object.entries(scores)
+    .filter(
+      (entry): entry is [string, number] =>
+        typeof entry[1] === "number" && Number.isFinite(entry[1]),
+    )
+    .map(([name, probability]) => ({
+      name,
+      probability,
+      lift: rankingHeadLift(lifts[name], probability, thresholds.get(name)),
+      readable: readable.has(name),
+    }))
+    .sort(compareRankingHeads);
+  return {
+    key,
+    roles: Array.isArray(value.roles)
+      ? value.roles.filter((role): role is string => typeof role === "string")
+      : [],
+    status,
+    skip_reason: optionalString(value.skip_reason),
+    heads,
+  };
+}
+
+/** Null when the content does not parse or `served_key` is missing from `results`. */
+function normalizeRankingScoreArtefact(
+  value: Record<string, unknown>,
+): RankingScoreArtefact | null {
+  const id = optionalString(value.id);
+  if (!id || !isObjectRecord(value.content)) return null;
+  const c = value.content;
+  const servedKey = optionalString(c.served_key);
+  if (!servedKey || !isObjectRecord(c.results)) return null;
+  const models = Object.entries(c.results).map(([key, result]) =>
+    normalizeRankingModelResult(key, result),
+  );
+  const served = models.find((model) => model?.key === servedKey);
+  if (!served) return null;
+  return {
+    id,
+    type: "ranking_score",
+    ...artefactBase(value),
+    content: {
+      scored_at: optionalString(c.scored_at),
+      manifest_version: optionalString(c.manifest_version),
+      served,
+      challengers: models.filter(
+        (model): model is RankingModelResult =>
+          !!model && model.key !== servedKey,
+      ),
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1802,6 +1945,21 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "work_claim") {
+    return (
+      normalizeWorkClaimArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "work_release") {
+    return (
+      normalizeWorkReleaseArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
+  if (dispatchType === "ranking_score") {
+    return (
+      normalizeRankingScoreArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);
@@ -2440,6 +2598,42 @@ export class PostHogAPIClient {
     ).preferences;
   }
 
+  /** The signed-in user's personal instructions for cloud runs in this project. Empty when unset. */
+  async getMyAgentInstructions(projectId: number): Promise<string> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      agent_instructions?: string | null;
+    };
+    return payload.agent_instructions ?? "";
+  }
+
+  /** Replace the signed-in user's personal instructions for cloud runs in this project. */
+  async setMyAgentInstructions(
+    projectId: number,
+    instructions: string,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/agent_instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ agent_instructions: instructions }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions update failed: ${response.status}`);
+    }
+  }
+
   private async taskRunConfigRequest(
     method: "get" | "post",
     urlPath: string,
@@ -2457,6 +2651,7 @@ export class PostHogAPIClient {
     const payload = (await response.json()) as {
       ai_run_preferences?: Partial<TaskRunPreferences> | null;
       resolved_ai_run_defaults?: TaskRunDefaults | null;
+      task_defaults?: Partial<TaskDefaults> | null;
     };
     return {
       // The API stores a cleared preference as `{}`, so read each field rather than
@@ -2468,7 +2663,29 @@ export class PostHogAPIClient {
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
       },
       resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+      taskDefaults: {
+        start_in_plan_mode: payload.task_defaults?.start_in_plan_mode ?? null,
+        auto_publish_cloud_runs:
+          payload.task_defaults?.auto_publish_cloud_runs ?? null,
+      },
     };
+  }
+
+  /** Save some of the signed-in user's task defaults. Fields left out keep their value. */
+  async setMyTaskDefaults(
+    projectId: number,
+    changes: Partial<Record<keyof TaskDefaults, boolean>>,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/task_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(changes) },
+    });
+    if (!response.ok) {
+      throw new Error(`Task defaults update failed: ${response.status}`);
+    }
   }
 
   async listSignalSourceConfigs(

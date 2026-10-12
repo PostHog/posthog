@@ -1,6 +1,7 @@
 import { create } from '@bufbuild/protobuf'
-import { Code, ConnectError, type ServiceImpl, createRouterTransport } from '@connectrpc/connect'
+import { Code, ConnectError, type ServiceImpl, createClient, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
+import * as http2 from 'node:http2'
 
 import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import { ConsistencyLevel } from '~/common/generated/personhog/personhog/types/v1/common_pb'
@@ -23,6 +24,8 @@ import type {
 
 import {
     PersonHogClient,
+    type PersonHogClientConfig,
+    createPersonhogTransport,
     parseRolloutTeamIds,
     resolveConsistencyHeader,
     resolvePersonRoutingKey,
@@ -146,6 +149,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),
+    ensurePersonVersionFloors: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),
@@ -1270,5 +1274,75 @@ describe('PersonHogClient', () => {
                 expect(result[0].last_seen_at).toBeNull()
             })
         })
+    })
+})
+
+describe('PersonHogClient HTTP/2 windows', () => {
+    const NODE_DEFAULT_WINDOW = 65_535
+
+    async function observeAdvertisedWindows(
+        windows: Pick<PersonHogClientConfig, 'initialStreamWindowBytes' | 'initialConnectionWindowBytes'>,
+        expectedConnection: number
+    ): Promise<{ stream: number; connection: number }> {
+        const server = http2.createServer()
+        const sessions: http2.ServerHttp2Session[] = []
+        let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+        const observed = new Promise<{ stream: number; connection: number }>((resolve, reject) => {
+            deadlineTimer = setTimeout(() => reject(new Error('no stream reached the server')), 4_000)
+            server.on('session', (session) => {
+                sessions.push(session)
+                session.on('stream', (stream) => {
+                    stream.respond(
+                        { ':status': 200, 'content-type': 'application/grpc', 'grpc-status': '12' },
+                        { endStream: true }
+                    )
+                    const deadline = Date.now() + 2_000
+                    const poll = (): void => {
+                        if (session.state.remoteWindowSize === expectedConnection || Date.now() > deadline) {
+                            resolve({
+                                stream: session.remoteSettings.initialWindowSize ?? -1,
+                                connection: session.state.remoteWindowSize ?? -1,
+                            })
+                        } else {
+                            setImmediate(poll)
+                        }
+                    }
+                    poll()
+                })
+                session.on('error', reject)
+            })
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const address = server.address() as { port: number }
+        const { transport, stateMonitor } = createPersonhogTransport({
+            addr: `127.0.0.1:${address.port}`,
+            timeoutMs: 2_000,
+            ...windows,
+        })
+        try {
+            await createClient(PersonHogService, transport)
+                .getPerson({ teamId: 1n, personId: 1n })
+                .catch(() => undefined)
+            return await observed
+        } finally {
+            clearTimeout(deadlineTimer)
+            stateMonitor.close()
+            for (const session of sessions) {
+                session.destroy()
+            }
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    }
+
+    it.each([
+        ['defaults', {}, NODE_DEFAULT_WINDOW, NODE_DEFAULT_WINDOW],
+        [
+            'configured',
+            { initialStreamWindowBytes: 4 * 1024 * 1024, initialConnectionWindowBytes: 8 * 1024 * 1024 },
+            4 * 1024 * 1024,
+            8 * 1024 * 1024,
+        ],
+    ])('advertises the %s windows to the server', async (_label, windows, stream, connection) => {
+        await expect(observeAdvertisedWindows(windows, connection)).resolves.toEqual({ stream, connection })
     })
 })

@@ -62,6 +62,9 @@ _RUN_EVIDENCE = """
         runner,
         nodeid,
         run_id,
+        ci_engine,
+        workflow_run_key,
+        head_sha,
         argMax(owner_team, job_at) AS owner_team,
         anyIf(selector, selector != '') AS selector,
         anyIf(pr_number, pr_number != '') AS pr_number,
@@ -79,6 +82,9 @@ _RUN_EVIDENCE = """
             runner,
             nodeid,
             run_id,
+            ci_engine,
+            workflow_run_key,
+            head_sha,
             argMax(owner_team, trial_at) AS owner_team,
             anyIf(selector, selector != '') AS selector,
             anyIf(pr_number, pr_number != '') AS pr_number,
@@ -98,6 +104,9 @@ _RUN_EVIDENCE = """
                 runner,
                 nodeid,
                 run_id,
+            ci_engine,
+            workflow_run_key,
+            head_sha,
                 job_key,
                 argMax(owner_team, span_timestamp) AS owner_team,
                 anyIf(selector, selector != '') AS selector,
@@ -110,14 +119,14 @@ _RUN_EVIDENCE = """
                 max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
                 max(span_timestamp) AS trial_at
             FROM (__SPAN_SCAN__)
-            WHERE NOT has({setup_break_run_attempts}, (run_id, toString(attempt)))
-                AND NOT has({setup_break_job_attempts}, (run_id, toString(attempt), job_key))
-            GROUP BY runner, nodeid, run_id, job_key, attempt
+            WHERE NOT has({setup_break_run_attempts}, (ci_engine, workflow_run_key, toString(attempt)))
+                AND NOT has({setup_break_job_attempts}, (ci_engine, workflow_run_key, toString(attempt), job_key))
+            GROUP BY runner, nodeid, ci_engine, workflow_run_key, head_sha, run_id, job_key, attempt
         )
-        GROUP BY runner, nodeid, run_id, job_key
+        GROUP BY runner, nodeid, ci_engine, workflow_run_key, head_sha, run_id, job_key
         HAVING job_failed OR job_recovered OR job_quarantined
     )
-    GROUP BY runner, nodeid, run_id
+    GROUP BY runner, nodeid, ci_engine, workflow_run_key, head_sha, run_id
     -- The scan admits re-run passes so they can pair with a failure above; unpaired they are not
     -- evidence, and a pass-only row would surface as an all-zero test everywhere downstream.
     HAVING failed_in_run OR recovered_in_run OR quarantined_in_run
@@ -138,30 +147,32 @@ _LEGACY_JOB_KEY = "legacy"
 # CI stamps every attribute the rules below read, and the warehouse is the side of the pair the
 # emitter cannot write, so both must agree before any evidence is dropped.
 _SETUP_BREAK_CANDIDATES = """
-    SELECT run_id, attempt
+    SELECT ci_engine, workflow_run_key, attempt
     FROM (__SPAN_SCAN__)
     WHERE outcome = 'error'
-    GROUP BY run_id, attempt
+    GROUP BY ci_engine, workflow_run_key, attempt
     HAVING uniq(job_key) >= {setup_break_min_jobs}
         OR uniqIf(owner_team, owner_team != {unowned_team}) >= {setup_break_min_teams}
 """
 
 _SETUP_BREAK_JOB_CANDIDATES = """
-    SELECT run_id, attempt, job_key
+    SELECT ci_engine, workflow_run_key, attempt, job_key
     FROM (__SPAN_SCAN__)
     WHERE outcome IN ('failed', 'error')
         AND job_key != {legacy_job_key}
-    GROUP BY run_id, attempt, job_key
+    GROUP BY ci_engine, workflow_run_key, attempt, job_key
     HAVING uniq(nodeid) >= {setup_break_min_job_failures}
 """
 
 # One failed job is enough for a job attempt: the jobs a run fans out over fail one at a time, and a
 # shard that broke is one of them. A run attempt claims many jobs broke, so GitHub has to show as many.
 _FAILED_JOB_COUNTS = """
-    SELECT toString(run_id) AS run_id, run_attempt, uniqIf(name, conclusion = 'failure') AS failed_jobs
+    SELECT ci_engine,
+        if(native_workflow_run_id IN {candidate_workflow_keys}, native_workflow_run_id, toString(run_id)) AS workflow_run_key,
+        run_attempt, uniqIf(name, conclusion = 'failure') AS failed_jobs
     FROM __JOBS_SOURCE__
-    WHERE run_id IN {candidate_run_ids}
-    GROUP BY run_id, run_attempt
+    WHERE run_id IN {candidate_run_ids} OR native_workflow_run_id IN {candidate_workflow_keys}
+    GROUP BY ci_engine, workflow_run_key, run_attempt
 """
 
 
@@ -210,6 +221,10 @@ _SCAN_TEMPLATE = """
         -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an
         -- unstamped span from merging every execution of its test into one phantom run.
         coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
+        coalesce(resource_attributes['ci.engine'], '') AS ci_engine,
+        coalesce(resource_attributes['ci.sha'], '') AS head_sha,
+        -- A Depot parent can contain several workflows; without their native IDs do not pair retries.
+        coalesce(nullIf(resource_attributes['ci.native_workflow_run_id'], ''), if(ci_engine = 'depot_ci', trace_id, run_id)) AS workflow_run_key,
         ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,
         coalesce(nullIf(attributes['test.job_key'], ''), {legacy_job_key}) AS job_key,
         timestamp AS span_timestamp,
@@ -263,8 +278,8 @@ def scan_placeholders(
 class SetupBreaks:
     """The CI setup breaks a window holds, keyed the way ``run_evidence()`` excludes them."""
 
-    run_attempts: tuple[tuple[str, int], ...]
-    job_attempts: tuple[tuple[str, int, str], ...]
+    run_attempts: tuple[tuple[str, str, int], ...]
+    job_attempts: tuple[tuple[str, str, int, str], ...]
 
 
 def _attempt_array(attempts: Sequence[tuple[str | int, ...]]) -> ast.Array:
@@ -298,8 +313,8 @@ def query_setup_breaks(
     )
     span_scan = _scan(bounded=date_to is not None)
     run_candidates = [
-        (str(run_id), int(attempt))
-        for run_id, attempt in _rows(
+        (str(ci_engine), str(workflow_key), int(attempt))
+        for ci_engine, workflow_key, attempt in _rows(
             curated,
             _SETUP_BREAK_CANDIDATES.replace("__SPAN_SCAN__", span_scan),
             query_type="engineering_analytics.setup_break_run_candidates",
@@ -308,8 +323,8 @@ def query_setup_breaks(
         )
     ]
     job_candidates = [
-        (str(run_id), int(attempt), str(job_key))
-        for run_id, attempt, job_key in _rows(
+        (str(ci_engine), str(workflow_key), int(attempt), str(job_key))
+        for ci_engine, workflow_key, attempt, job_key in _rows(
             curated,
             _SETUP_BREAK_JOB_CANDIDATES.replace("__SPAN_SCAN__", span_scan),
             query_type="engineering_analytics.setup_break_job_candidates",
@@ -319,24 +334,33 @@ def query_setup_breaks(
     ]
     # An unstamped span falls back to its trace ID, which names no GitHub run.
     candidate_run_ids = sorted(
-        {int(run_id) for run_id, _attempt in run_candidates if run_id.isdigit()}
-        | {int(run_id) for run_id, _attempt, _job in job_candidates if run_id.isdigit()}
+        {int(workflow_key) for _engine, workflow_key, _attempt in run_candidates if workflow_key.isdigit()}
+        | {int(workflow_key) for _engine, workflow_key, _attempt, _job in job_candidates if workflow_key.isdigit()}
     )
-    if not candidate_run_ids:
+    candidate_workflow_keys = sorted({candidate[1] for candidate in (*run_candidates, *job_candidates)})
+    if not candidate_workflow_keys:
         return SetupBreaks(run_attempts=(), job_attempts=())
 
     failed_jobs_by_attempt = {
-        (str(run_id), int(attempt)): int(failed_jobs)
-        for run_id, attempt, failed_jobs in _rows(
+        (str(ci_engine), str(workflow_key), int(attempt)): int(failed_jobs)
+        for ci_engine, workflow_key, attempt, failed_jobs in _rows(
             curated,
             _FAILED_JOB_COUNTS.replace("__JOBS_SOURCE__", jobs_source),
             query_type="engineering_analytics.setup_break_failed_jobs",
             placeholders={
                 "candidate_run_ids": ast.Constant(value=candidate_run_ids),
+                "candidate_workflow_keys": ast.Constant(value=candidate_workflow_keys),
                 "job_created_floor": job_created_floor_constant(scan_from if scan_from is not None else date_from),
             },
         )
     }
+    # Untagged history can use warehouse proof only where the workflow key names one engine.
+    engines_by_workflow: dict[str, set[str]] = {}
+    for engine, workflow_key, _attempt in failed_jobs_by_attempt:
+        engines_by_workflow.setdefault(workflow_key, set()).add(engine)
+    for (_engine, workflow_key, attempt), failures in list(failed_jobs_by_attempt.items()):
+        if len(engines_by_workflow[workflow_key]) == 1:
+            failed_jobs_by_attempt[("", workflow_key, attempt)] = failures
     return SetupBreaks(
         run_attempts=tuple(
             sorted(
@@ -344,11 +368,7 @@ def query_setup_breaks(
             )
         ),
         job_attempts=tuple(
-            sorted(
-                candidate
-                for candidate in job_candidates
-                if failed_jobs_by_attempt.get((candidate[0], candidate[1]), 0) >= 1
-            )
+            sorted(candidate for candidate in job_candidates if failed_jobs_by_attempt.get(candidate[:3], 0) >= 1)
         ),
     )
 
@@ -378,6 +398,7 @@ def rerun_recovered_job_attempts(*, scan_from: str) -> str:
           AND lower(resource_attributes['ci.repository']) = lower({{repository}})
           AND timestamp >= ({scan_from})
           AND attributes['test.outcome'] = 'rerun_passed'
+          AND coalesce(resource_attributes['ci.engine'], 'github_actions') = 'github_actions'
           AND notEmpty(coalesce(attributes['test.runner_name'], ''))
     """
 

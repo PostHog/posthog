@@ -33,6 +33,9 @@ const TABS_REQUIRING_A_TEAM = [
  */
 export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks]
 
+/** The tabs a canvas scene shows instead of the general ones, in order. */
+export const CANVAS_SIDE_PANEL_TABS = [SidePanelTab.CanvasChat, SidePanelTab.CanvasBlocks, SidePanelTab.CanvasTimeline]
+
 /**
  * Closes the panel when the context it described goes away — a tab like activity logs or access
  * control left open after navigating elsewhere would otherwise stay up showing stale content and
@@ -106,7 +109,7 @@ export interface sidePanelLogicMeta {
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
             isAccessControlSettings: boolean
         ) => SidePanelTab[]
-        visibleTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
+        visibleTabs: (enabledTabs: SidePanelTab[], sceneSidePanelContext: SidePanelSceneContext) => SidePanelTab[]
     }
 }
 
@@ -167,6 +170,17 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
                 isAccessControlSettings: boolean
             ) => {
+                if (sceneSidePanelContext.canvas_id && currentTeam) {
+                    // Support stays openable from the help menu, but the canvas tabs take the bar.
+                    return [
+                        ...CANVAS_SIDE_PANEL_TABS.filter(
+                            (tab) => tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks
+                        ),
+                        SidePanelTab.Exports,
+                        ...(isCloudOrDev ? [SidePanelTab.Support] : []),
+                    ]
+                }
+
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -218,10 +232,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs],
-            (enabledTabs: SidePanelTab[]): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.sceneSidePanelContext],
+            (enabledTabs: SidePanelTab[], sceneSidePanelContext: SidePanelSceneContext): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
-                const hiddenTabs: SidePanelTab[] = [SidePanelTab.Exports]
+                const hiddenTabs: SidePanelTab[] = sceneSidePanelContext.canvas_id
+                    ? [SidePanelTab.Exports, SidePanelTab.Support]
+                    : [SidePanelTab.Exports]
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],

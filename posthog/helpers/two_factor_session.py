@@ -247,6 +247,17 @@ def normalize_verification_code(value: str) -> str:
     return CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
 
 
+# Authenticator apps show 6 digits, while StaticToken.random_token() backup codes are 8 base32
+# characters, so the shape of a 2FA login token is enough to tell which device it is for.
+TOTP_TOKEN_RE = re.compile(r"[0-9]{6}")
+
+
+def is_backup_code_attempt(token: object) -> bool:
+    """Whether a 2FA login token is checked against the backup codes rather than the authenticator.
+    Each device then keeps its own throttle, so a locked authenticator does not lock the backup codes."""
+    return isinstance(token, str) and bool(token) and not TOTP_TOKEN_RE.fullmatch(token)
+
+
 # Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"

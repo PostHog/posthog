@@ -4,18 +4,21 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
-    LemonModal,
     LemonSelect,
     LemonTable,
     LemonTableColumn,
     LemonTableColumns,
     LemonTag,
-    LemonTextArea,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -28,16 +31,8 @@ import {
     aiObservabilityScoreDefinitionsLogic,
     SCORE_DEFINITIONS_PER_PAGE,
 } from './aiObservabilityScoreDefinitionsLogic'
-import { scoreDefinitionModalLogic } from './scoreDefinitionModalLogic'
-import {
-    CATEGORICAL_SELECTION_MODE_OPTIONS,
-    formatKindLabel,
-    formatNumericInputValue,
-    getIntegerInputValue,
-    getNumericInputValue,
-    type CategoricalSelectionMode,
-    type ScoreDefinitionModalMode,
-} from './scoreDefinitionModalUtils'
+import { ScoreDefinitionActions } from './ScoreDefinitionActions'
+import { formatKindLabel } from './scoreDefinitionModalUtils'
 
 const KIND_OPTIONS: { label: string; value: ScoreDefinitionKind | '' }[] = [
     { label: 'All kinds', value: '' },
@@ -54,26 +49,21 @@ const ARCHIVED_OPTIONS: { label: string; value: '' | 'false' | 'true' }[] = [
 
 export function AIObservabilityScoreDefinitions(): JSX.Element {
     const logic = useMountedLogic(aiObservabilityScoreDefinitionsLogic())
-    const { setFilters, openModal, closeModal, toggleArchive } = useActions(logic)
+    const { setFilters, toggleArchive, loadScoreDefinitions } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showHistory =
+        !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] &&
+        !getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityOfflineScorerHistory })
     const {
         scoreDefinitions,
         scoreDefinitionsLoading,
+        scoreDefinitionsError,
         sorting,
         pagination,
         filters,
         scoreDefinitionCountLabel,
-        modalMode,
-        selectedDefinition,
         isArchivingDefinition,
     } = useValues(logic)
-    const modalProps =
-        modalMode === null || (modalMode !== 'create' && selectedDefinition === null)
-            ? null
-            : {
-                  mode: modalMode,
-                  scoreDefinition: selectedDefinition,
-              }
-
     const columns: LemonTableColumns<ScoreDefinition> = [
         {
             title: 'Name',
@@ -83,9 +73,13 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             render: function renderName(_, scoreDefinition) {
                 return (
                     <div className="space-y-1">
-                        <div className="font-semibold">{scoreDefinition.name}</div>
+                        <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 truncate">
+                            <Link to={urls.aiObservabilityScorer(scoreDefinition.id)}>{scoreDefinition.name}</Link>
+                        </div>
                         {scoreDefinition.description ? (
-                            <div className="max-w-xl truncate text-muted-alt">{scoreDefinition.description}</div>
+                            <div className="max-w-64 @max-[50rem]/scorers:max-w-32 truncate text-muted-alt">
+                                {scoreDefinition.description}
+                            </div>
                         ) : (
                             <div className="text-muted">No description</div>
                         )}
@@ -105,8 +99,18 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Version',
             dataIndex: 'current_version',
             key: 'current_version',
-            render: function renderVersion(version) {
-                return <span className="font-mono text-xs">v{String(version)}</span>
+            render: function renderVersion(version, scoreDefinition) {
+                return scoreDefinition.current_version_id ? (
+                    <CopyToClipboardInline
+                        description="scorer version ID"
+                        explicitValue={scoreDefinition.current_version_id}
+                        tooltipMessage="Copy exact version ID"
+                    >
+                        <span className="font-mono text-xs">v{String(version)}</span>
+                    </CopyToClipboardInline>
+                ) : (
+                    <span className="font-mono text-xs">v{String(version)}</span>
+                )
             },
         },
         {
@@ -121,59 +125,30 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 )
             },
         },
-        updatedAtColumn<ScoreDefinition>() as LemonTableColumn<ScoreDefinition, keyof ScoreDefinition | undefined>,
+        {
+            ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
+                ScoreDefinition,
+                keyof ScoreDefinition | undefined
+            >),
+            className: '@max-[50rem]/scorers:hidden',
+        },
         {
             width: 0,
             render: function renderActions(_, scoreDefinition) {
                 return (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <More
-                            overlay={
-                                <>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => openModal('metadata', scoreDefinition)}
-                                        data-attr="llma-scorer-edit-metadata"
-                                    >
-                                        Edit metadata
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => openModal('config', scoreDefinition)}
-                                        data-attr="llma-scorer-edit-config"
-                                    >
-                                        Edit config
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => openModal('duplicate', scoreDefinition)}
-                                        data-attr="llma-scorer-duplicate"
-                                    >
-                                        Duplicate
-                                    </LemonButton>
-                                    <LemonButton
-                                        status={scoreDefinition.archived ? 'default' : 'danger'}
-                                        fullWidth
-                                        onClick={() => toggleArchive(scoreDefinition)}
-                                        disabled={isArchivingDefinition(scoreDefinition.id)}
-                                        data-attr="llma-scorer-archive-toggle"
-                                    >
-                                        {scoreDefinition.archived ? 'Unarchive' : 'Archive'}
-                                    </LemonButton>
-                                </>
-                            }
-                        />
-                    </AccessControlAction>
+                    <ScoreDefinitionActions
+                        definition={scoreDefinition}
+                        archiving={isArchivingDefinition(scoreDefinition.id)}
+                        showHistory={showHistory}
+                        toggleArchive={toggleArchive}
+                    />
                 )
             },
         },
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 @container/scorers">
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 mb-4 border-b justify-between">
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonInput
@@ -207,7 +182,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={() => openModal('create')}
+                            to={urls.aiObservabilityScorer('new')}
                             data-attr="llma-scorers-create-button"
                         >
                             New scorer
@@ -216,268 +191,34 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 </div>
             </div>
 
-            <LemonTable
-                loading={scoreDefinitionsLoading}
-                columns={columns}
-                dataSource={scoreDefinitions.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                onSort={(newSorting) =>
-                    setFilters({
-                        order_by: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={SCORE_DEFINITIONS_PER_PAGE}
-                nouns={['scorer', 'scorers']}
-            />
-
-            {modalProps && (
-                <ScoreDefinitionModal
-                    mode={modalProps.mode}
-                    scoreDefinition={modalProps.scoreDefinition}
-                    onClose={closeModal}
+            {scoreDefinitionsError && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => loadScoreDefinitions(false) }}
+                >
+                    Could not load scorers. Try again.
+                </LemonBanner>
+            )}
+            {!scoreDefinitionsError && (
+                <LemonTable
+                    loading={scoreDefinitionsLoading}
+                    columns={columns}
+                    dataSource={scoreDefinitions.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setFilters({
+                            order_by: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={SCORE_DEFINITIONS_PER_PAGE}
+                    nouns={['scorer', 'scorers']}
                 />
             )}
         </div>
-    )
-}
-
-function ScoreDefinitionModal({
-    mode,
-    scoreDefinition,
-    onClose,
-}: {
-    mode: ScoreDefinitionModalMode
-    scoreDefinition: ScoreDefinition | null
-    onClose: () => void
-}): JSX.Element {
-    const logic = useMountedLogic(scoreDefinitionModalLogic({ mode, scoreDefinition }))
-    const { submit, setDraftField, updateOptionLabel, addOption, removeOption } = useActions(logic)
-    const { draft, isCreateMode, isMetadataMode, isConfigMode, title, submitting } = useValues(logic)
-
-    return (
-        <LemonModal isOpen onClose={onClose} simple maxWidth="42rem">
-            <LemonModalHeader>
-                <h3>{title}</h3>
-            </LemonModalHeader>
-
-            <LemonModalContent className="space-y-4">
-                {isConfigMode && scoreDefinition ? (
-                    <LemonBanner type="info">
-                        Saving these config changes creates version v{scoreDefinition.current_version + 1}. Previous
-                        versions remain preserved.
-                    </LemonBanner>
-                ) : null}
-
-                {!isConfigMode ? (
-                    <>
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium">Name</label>
-                            <LemonInput
-                                value={draft.name}
-                                onChange={(value) => setDraftField('name', value)}
-                                data-attr="llma-scorer-name-input"
-                            />
-                        </div>
-
-                        {isCreateMode ? (
-                            <>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Kind</label>
-                                    <LemonSelect<ScoreDefinitionKind>
-                                        value={draft.kind}
-                                        onChange={(value) =>
-                                            setDraftField('kind', (value as ScoreDefinitionKind) || 'categorical')
-                                        }
-                                        options={
-                                            KIND_OPTIONS.filter((option) => option.value !== '') as {
-                                                label: string
-                                                value: ScoreDefinitionKind
-                                            }[]
-                                        }
-                                        data-attr="llma-scorer-kind-select"
-                                    />
-                                </div>
-                            </>
-                        ) : scoreDefinition ? (
-                            <div className="space-y-1">
-                                <div className="text-sm font-medium">Kind</div>
-                                <div>{formatKindLabel(scoreDefinition.kind)}</div>
-                            </div>
-                        ) : null}
-
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium">Description</label>
-                            <LemonTextArea
-                                value={draft.description}
-                                onChange={(value) => setDraftField('description', value)}
-                                data-attr="llma-scorer-description-input"
-                            />
-                        </div>
-                    </>
-                ) : null}
-
-                {!isMetadataMode ? (
-                    <>
-                        {draft.kind === 'categorical' ? (
-                            <div className="space-y-3">
-                                <div className="grid gap-4 sm:grid-cols-3">
-                                    <div className="space-y-1">
-                                        <label className="text-sm font-medium">Selection mode</label>
-                                        <LemonSelect<CategoricalSelectionMode>
-                                            value={draft.selectionMode}
-                                            onChange={(value) =>
-                                                setDraftField(
-                                                    'selectionMode',
-                                                    (value as CategoricalSelectionMode) || 'single'
-                                                )
-                                            }
-                                            options={CATEGORICAL_SELECTION_MODE_OPTIONS}
-                                            data-attr="llma-scorer-selection-mode"
-                                        />
-                                    </div>
-
-                                    {draft.selectionMode === 'multiple' ? (
-                                        <>
-                                            <div className="space-y-1">
-                                                <label className="text-sm font-medium">Min selections</label>
-                                                <LemonInput
-                                                    type="number"
-                                                    value={getIntegerInputValue(draft.categoricalMinSelections)}
-                                                    onChange={(value) =>
-                                                        setDraftField(
-                                                            'categoricalMinSelections',
-                                                            formatNumericInputValue(value)
-                                                        )
-                                                    }
-                                                />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-sm font-medium">Max selections</label>
-                                                <LemonInput
-                                                    type="number"
-                                                    value={getIntegerInputValue(draft.categoricalMaxSelections)}
-                                                    onChange={(value) =>
-                                                        setDraftField(
-                                                            'categoricalMaxSelections',
-                                                            formatNumericInputValue(value)
-                                                        )
-                                                    }
-                                                />
-                                            </div>
-                                        </>
-                                    ) : null}
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <div className="text-sm font-medium">Options</div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={addOption}
-                                        data-attr="llma-scorer-add-option"
-                                    >
-                                        Add option
-                                    </LemonButton>
-                                </div>
-                                <div className="text-xs text-muted-alt">
-                                    Enter the labels people should choose from. Internal option IDs are generated
-                                    automatically.
-                                </div>
-                                {draft.options.map((option, index) => (
-                                    <div key={`${index}-${option.key}`} className="grid gap-2 sm:grid-cols-[1fr,auto]">
-                                        <LemonInput
-                                            placeholder="Option label"
-                                            value={option.label}
-                                            onChange={(value) => updateOptionLabel(index, value)}
-                                        />
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            onClick={() => removeOption(index)}
-                                            disabledReason={
-                                                draft.options.length <= 1 ? 'Keep at least one option' : undefined
-                                            }
-                                            data-attr="llma-scorer-remove-option"
-                                        >
-                                            Remove
-                                        </LemonButton>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : null}
-
-                        {draft.kind === 'numeric' ? (
-                            <div className="grid gap-4 sm:grid-cols-3">
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Min</label>
-                                    <LemonInput
-                                        type="number"
-                                        value={getNumericInputValue(draft.numericMin)}
-                                        onChange={(value) =>
-                                            setDraftField('numericMin', formatNumericInputValue(value))
-                                        }
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Max</label>
-                                    <LemonInput
-                                        type="number"
-                                        value={getNumericInputValue(draft.numericMax)}
-                                        onChange={(value) =>
-                                            setDraftField('numericMax', formatNumericInputValue(value))
-                                        }
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Increment</label>
-                                    <LemonInput
-                                        type="number"
-                                        value={getNumericInputValue(draft.numericStep)}
-                                        onChange={(value) =>
-                                            setDraftField('numericStep', formatNumericInputValue(value))
-                                        }
-                                    />
-                                    <div className="text-xs text-muted-alt">
-                                        Optional amount the score should increase by, for example 1 or 0.5.
-                                    </div>
-                                </div>
-                            </div>
-                        ) : null}
-
-                        {draft.kind === 'boolean' ? (
-                            <div className="grid gap-4 sm:grid-cols-2">
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">True label</label>
-                                    <LemonInput
-                                        value={draft.trueLabel}
-                                        onChange={(value) => setDraftField('trueLabel', value)}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">False label</label>
-                                    <LemonInput
-                                        value={draft.falseLabel}
-                                        onChange={(value) => setDraftField('falseLabel', value)}
-                                    />
-                                </div>
-                            </div>
-                        ) : null}
-                    </>
-                ) : null}
-            </LemonModalContent>
-
-            <LemonModalFooter>
-                <LemonButton type="secondary" onClick={onClose} data-attr="llma-scorer-cancel">
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" onClick={() => submit()} loading={submitting} data-attr="llma-scorer-save">
-                    {isConfigMode ? 'Create version' : 'Save'}
-                </LemonButton>
-            </LemonModalFooter>
-        </LemonModal>
     )
 }

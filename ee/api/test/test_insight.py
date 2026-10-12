@@ -375,9 +375,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self._require_access_control()
         self._set_project_default_member_access()
         # create insight and dashboard separately with default user
-        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
-            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        dashboard_restricted = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
+        dashboard_restricted_id = dashboard_restricted.id
 
         insight_id, response_data = self.dashboard_api.create_insight(data={"name": "starts un-restricted dashboard"})
 
@@ -408,9 +411,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     ) -> None:
         self._require_access_control()
         self._set_project_default_member_access()
-        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
-            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        dashboard_restricted = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
+        dashboard_restricted_id = dashboard_restricted.id
 
         user_without_permissions = User.objects.create_and_join(
             organization=self.organization,
@@ -430,9 +436,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
     def test_admin_user_can_create_an_insight_on_a_restricted_dashboard(self) -> None:
         self._require_access_control()
         self._set_project_default_member_access()
-        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
-            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        dashboard_restricted = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
+        dashboard_restricted_id = dashboard_restricted.id
 
         self.client.force_login(self.user)
         self.dashboard_api.create_insight(
@@ -621,9 +630,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         self._require_access_control()
         self._set_project_default_member_access()
         # create a restricted dashboard with the default user (who has edit permission)
-        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
-            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        dashboard_restricted = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
+        dashboard_restricted_id = dashboard_restricted.id
 
         # create an insight on that dashboard
         insight_id, _ = self.dashboard_api.create_insight(

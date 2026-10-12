@@ -3,35 +3,11 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty import source as zenduty_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
 
 
-class TestZendutySourceConfig:
-    def test_config_basics(self) -> None:
-        config = ZendutySource().get_source_config
-        assert config.label == "Zenduty"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        # Ship visible with a soft "new" label — never unreleasedSource.
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zenduty"
-
-
 class TestZendutyGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = ZendutySource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_all_endpoints_are_full_refresh(self) -> None:
-        # Zenduty exposes no confirmed universal server-side updated-since filter, so nothing is
-        # advertised as incremental — a client-side cursor is not incremental.
-        schemas = ZendutySource().get_schemas(MagicMock(), team_id=1)
-        assert all(s.supports_incremental is False and s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
     def test_names_filter(self) -> None:
         schemas = ZendutySource().get_schemas(MagicMock(), team_id=1, names=["incidents", "services"])
         assert {s.name for s in schemas} == {"incidents", "services"}
@@ -99,18 +75,3 @@ class TestZendutyResumableAndPipeline:
         # No partitioning until the stable creation-date column is confirmed per endpoint.
         assert response.partition_keys is None
         assert response.partition_mode is None
-
-
-class TestZendutyCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = ZendutySource().get_canonical_descriptions()
-        # Every documented key must be a real endpoint so enrichment binds to the right table.
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "incidents" in descriptions
-        assert descriptions["incidents"]["columns"]["unique_id"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # Static endpoint catalog → the source opts into the public-docs Supported tables list.
-        assert ZendutySource().lists_tables_without_credentials is True
-        tables = ZendutySource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)

@@ -74,7 +74,8 @@ class FakeRedis {
         return entry.value
     }
 
-    async set(key: string, value: string, ...args: (string | number)[]): Promise<'OK'> {
+    async set(key: string, value: string, ...args: (string | number)[]): Promise<string | null> {
+        const previous = await this.get(key)
         let ttl: number | null = null
         let nx = false
         for (let i = 0; i < args.length; i++) {
@@ -99,7 +100,7 @@ class FakeRedis {
             value,
             expireAt: ttl !== null ? Date.now() + ttl * 1000 : null,
         })
-        return 'OK'
+        return args.includes('GET') ? previous : 'OK'
     }
 
     // Real ioredis returns null when SET NX fails. Override for that contract.
@@ -196,7 +197,7 @@ FakeRedis.prototype.set = async function (
     key: string,
     value: string,
     ...args: (string | number)[]
-): Promise<'OK' | null> {
+): Promise<string | null> {
     let nx = false
     for (const arg of args) {
         if (typeof arg === 'string' && arg.toUpperCase() === 'NX') {
@@ -1581,8 +1582,13 @@ describe('ingest-handler', () => {
             }
         )
 
-        it('sets agent active and fires heartbeat for a session/update event', async () => {
-            const fired: { kind: string }[] = []
+        it.each([
+            { type: 'notification', notification: { method: 'session/update' } },
+            ...['assistant_message_chunk', 'assistant_thought_chunk', 'tool_call_started', 'tool_call_updated'].map(
+                (type) => ({ type: 'pi_event', event: { type } })
+            ),
+        ])('reports new activity across consecutive turns for %j', async (event) => {
+            const fired: { kind: string; activity_started?: boolean }[] = []
             const originalFetch = global.fetch
             global.fetch = vi.fn(async (_, init) => {
                 fired.push(JSON.parse(String((init as RequestInit).body)))
@@ -1590,12 +1596,23 @@ describe('ingest-handler', () => {
             }) as typeof fetch
 
             const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
-            const event = { type: 'notification', notification: { method: 'session/update' } }
             await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
-
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+            expect(await redisStream.getAgentActive()).toBe(true)
+            await heartbeatWorkflowIfNeeded(
+                redisStream,
+                RUN_ID,
+                { type: 'pi_event', event: { type: 'turn_completed' } },
+                TASK_ID,
+                TEAM_ID,
+                'tok',
+                config
+            )
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
             expect(await redisStream.getAgentActive()).toBe(true)
             await new Promise((r) => setTimeout(r, 0))
-            expect(fired.some((f) => f.kind === 'heartbeat')).toBe(true)
+            expect(fired.filter((f) => f.kind === 'heartbeat').map((f) => f.activity_started)).toEqual([true, true])
 
             global.fetch = originalFetch
         })

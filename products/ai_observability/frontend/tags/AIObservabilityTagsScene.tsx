@@ -338,7 +338,7 @@ export function AIObservabilityTagsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Tags"
+                name="Taggers"
                 description="Set up taggers to automatically add custom tags to your AI generations."
                 resourceType={{ type: 'llm_tags' }}
                 actions={

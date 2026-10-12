@@ -16,10 +16,12 @@ from products.replay_vision.backend.search_suggestions import (
     stale_team_candidates,
 )
 from products.replay_vision.backend.temporal.constants import (
+    LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT,
     SEARCH_SUGGESTIONS_MAX_PER_DAY,
     SEARCH_SUGGESTIONS_MAX_PER_RUN,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.search_suggestions_types import RefreshScannerSuggestionsInputs
 
 
@@ -31,8 +33,9 @@ def list_stale_search_suggestions_activity() -> list[RefreshScannerSuggestionsIn
     remaining = min(SEARCH_SUGGESTIONS_MAX_PER_RUN, SEARCH_SUGGESTIONS_MAX_PER_DAY - model_calls_today())
     if remaining <= 0:
         return []
-    teams = [RefreshScannerSuggestionsInputs(team_id=team_id) for team_id in stale_team_candidates(remaining // 4)]
-    rows = stale_suggestion_candidates(remaining - len(teams)).values_list("id", "team_id")
+    with bounded_queries(LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT):
+        teams = [RefreshScannerSuggestionsInputs(team_id=team_id) for team_id in stale_team_candidates(remaining // 4)]
+        rows = list(stale_suggestion_candidates(remaining - len(teams)).values_list("id", "team_id"))
     return teams + [RefreshScannerSuggestionsInputs(scanner_id=sid, team_id=team_id) for sid, team_id in rows]
 
 

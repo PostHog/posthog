@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -29,7 +29,6 @@ vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
     filterValidEntries: vi.fn().mockReturnValue([]),
     loadManifestFromArchive: vi.fn().mockReturnValue({ resources: [] }),
-    clearResourceCache: vi.fn(),
 }))
 
 vi.mock('@/resources', () => ({
@@ -38,18 +37,21 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
-import { trackToolCall } from '@/hono/analytics'
+import { ApiClient } from '@/api/client'
+import { trackExecuteSqlGeneration, trackToolCall, trackToolSpan } from '@/hono/analytics'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import {
+    MCPToolResultError,
     PostHogApiError,
     PostHogRateLimitError,
     PostHogValidationError,
     ToolInputValidationError,
     wrapError,
 } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import { URI_MAP } from '@/resources/ui-apps.generated'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 
@@ -100,11 +102,94 @@ describe('ToolExecutor metrics', () => {
         mockToolDurationStartTimer.mockClear()
         mockToolErrorsInc.mockClear()
         mockTrackToolCall.mockClear()
+        vi.mocked(trackExecuteSqlGeneration).mockClear()
+        vi.mocked(trackToolSpan).mockClear()
 
         catalog = new ToolCatalog()
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        vi.restoreAllMocks()
+    })
+
+    it.each([
+        { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'internal' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'internal' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'validation' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
+        { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
+        { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
+        { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
+    ])(
+        'classifies backend result errors without capturing caller content: %j',
+        async ({ tool, useSingleExec, type }) => {
+            const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const state = makeToolExecutorState(tools, { useSingleExec, suppressAnalytics: false })
+            state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
+            const content = 'Tool failed: private caller query. You may retry with adjusted inputs.'
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue(
+                    new Response(
+                        JSON.stringify({
+                            success: false,
+                            content,
+                            error_type: type,
+                            error_code: type === 'validation' ? 'unknown_identifier' : undefined,
+                        })
+                    )
+                )
+            )
+            const args = { query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' } }
+            const result = await executor.handleToolCall(
+                useSingleExec
+                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(args)}` } }
+                    : { name: tool, arguments: args },
+                state
+            )
+
+            expect(result).toMatchObject({
+                isError: true,
+                content: [{ type: 'text', text: `Error: [${tool}]: ${content}` }],
+            })
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
+            expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
+            const properties = trackToolCallExtras(tool)
+            expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
+            if (type === 'validation') {
+                expect(properties?.$mcp_error_code).toBe('unknown_identifier')
+            } else {
+                expect(properties).not.toHaveProperty('$mcp_error_code')
+            }
+            expect(JSON.stringify(properties)).not.toContain('private caller query')
+            const errorMetadata = {
+                isError: true,
+                errorMessage: `Tool failed: ${type}`,
+            }
+            expect(trackToolSpan).toHaveBeenCalledWith(
+                tool,
+                expect.objectContaining({
+                    distinctId: state.distinctId,
+                    requestContext: state.requestContext,
+                    suppressAnalytics: false,
+                }),
+                expect.objectContaining(errorMetadata)
+            )
+            if (tool === 'execute-sql') {
+                expect(trackExecuteSqlGeneration).toHaveBeenCalledOnce()
+                expect(vi.mocked(trackExecuteSqlGeneration).mock.calls[0]?.[3]).toMatchObject(errorMetadata)
+            }
+        }
+    )
 
     describe('direct tool calls', () => {
         it('records success counter and duration timer', async () => {
@@ -153,7 +238,7 @@ describe('ToolExecutor metrics', () => {
             // property exists for.
             expect(trackToolCallExtras('fail-tool')).toMatchObject({
                 $mcp_error_type: 'internal',
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['experimentId'],
             })
         })
 
@@ -214,6 +299,47 @@ describe('ToolExecutor metrics', () => {
             })
             // The detail body echoes caller input, so it must never ride along.
             expect(JSON.stringify(extras)).not.toContain("'from' property")
+        })
+
+        // A tool that fails inside PostHog's backend answers with an error type and, when the
+        // backend knows it, the leaf failure name. Without the name every such failure reads
+        // as one `internal` or `validation` bucket.
+        it.each([
+            ['a code from the backend', 'unknown_identifier', 'unknown_identifier'],
+            ['a code with control characters', 'bad\ncode ', 'badcode'],
+        ])('stamps $mcp_error_code for an MCPToolResultError with %s', async (_label, errorCode, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new MCPToolResultError('Tool failed', 'validation', errorCode)
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: expected,
+            })
+        })
+
+        it('omits $mcp_error_code for an MCPToolResultError without a code', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new MCPToolResultError('Tool failed', 'internal')
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
+            expect(extras).not.toHaveProperty('$mcp_error_code')
         })
 
         it.each([
@@ -449,7 +575,7 @@ describe('ToolExecutor metrics', () => {
             expect(call[1]).toBe(0)
             expect(trackToolCallExtras('strict-tool')).toMatchObject({
                 $mcp_error_type: 'validation',
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['requiredField'],
                 // `:undefined` is the received type — the param was absent, not
                 // mistyped, which is what separates an alias slip from a coercion bug.
                 $mcp_validation_fields: ['required_field:invalid_type:undefined'],
@@ -531,7 +657,7 @@ describe('ToolExecutor metrics', () => {
             )
 
             const extras = trackToolCallExtras('strict-tool')
-            expect(extras).toMatchObject({ $mcp_input_keys: ['[redacted]'] })
+            expect(extras).toMatchObject({ $mcp_input_keys: ['requiredField'] })
             expect(extras).not.toHaveProperty('$mcp_input_aliases_used')
         })
 
@@ -763,7 +889,7 @@ describe('ToolExecutor metrics', () => {
             expect(call?.[1]).toBe(0)
             expect(call?.[2]).toBe(true)
             expect(call?.[4]).toMatchObject({
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['cmd'],
                 $mcp_error_type: 'validation',
             })
             expect(call?.[4]).not.toHaveProperty('$mcp_exec_verb')
@@ -945,7 +1071,7 @@ describe('ToolExecutor metrics', () => {
             expect(call?.[1]).toBe(0)
             expect(call?.[2]).toBe(true)
             expect(call?.[4]).toMatchObject({
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['toolName'],
                 $mcp_error_type: 'validation',
             })
         })

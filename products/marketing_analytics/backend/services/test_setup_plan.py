@@ -315,6 +315,22 @@ class TestInvariants(SetupPlanTestCase):
 
 class TestRanking(SetupPlanTestCase):
     @pytest.mark.asyncio
+    async def test_connect_suggestions_rank_by_paid_event_volume(self) -> None:
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[
+                _integration("google_ads", "GoogleAds", status="events_only", matched=700, unmatched=500, paid=1),
+                _integration("meta_ads", "MetaAds", status="events_only", matched=100, paid=17),
+            ],
+            overall_status="degraded",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        connects = [s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE]
+        assert [s.id for s in connects] == ["connect_source:meta_ads", "connect_source:google_ads"]
+
+    @pytest.mark.asyncio
     async def test_unblocking_action_outranks_a_higher_volume_one(self):
         # Connecting the platform unblocks the goal-flag work, so it must come first
         # even though the goal suggestion carries far more event volume.
@@ -645,17 +661,24 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
     @parameterized.expand(
         [
             ("exact_utm_source_match_only", 0, 700, 700),
-            ("both_kinds_of_match", 500, 700, 1200),
+            ("mixed_paid_and_organic", 500, 700, 17),
+            ("single_paid_event", 500, 700, 1),
+            ("formatted_paid_count", 800, 1600, 1250),
         ]
     )
     @pytest.mark.asyncio
-    async def test_connect_suggestion_counts_every_event_carrying_the_utm_source(
-        self, _name, unmatched, matched, expected
-    ):
+    async def test_connect_suggestion_counts_only_events_with_paid_evidence(
+        self, _name: str, unmatched: int, matched: int, paid: int
+    ) -> None:
         self.diagnostic = MarketingDiagnosticResponse(
             integrations=[
                 _integration(
-                    "pinterest_ads", "PinterestAds", status="events_only", unmatched=unmatched, matched=matched, paid=1
+                    "pinterest_ads",
+                    "PinterestAds",
+                    status="events_only",
+                    unmatched=unmatched,
+                    matched=matched,
+                    paid=paid,
                 )
             ],
             overall_status="degraded",
@@ -665,8 +688,12 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
         plan = await get_setup_plan(self.team)
 
         connect = next(s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE)
-        assert connect.event_volume == expected
-        assert f"{expected:,} events" in connect.evidence
+        assert connect.event_volume == paid
+        event_label = "event" if paid == 1 else "events"
+        assert connect.evidence == (
+            f"Detected {paid:,} {event_label} with paid attribution signals for Pinterest Ads in the last 7 days. "
+            "Connect the platform to add spend data."
+        )
 
     @pytest.mark.asyncio
     async def test_healthy_integration_produces_nothing(self):

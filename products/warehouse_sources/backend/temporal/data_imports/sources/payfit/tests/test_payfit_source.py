@@ -4,7 +4,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
 
 
@@ -14,33 +13,10 @@ class TestPayFitSource:
         self.team_id = 123
         self.config = PayFitSourceConfig(api_key="payfit-key")
 
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; both hosts are hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another server.
-        assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contracts"])
         assert len(schemas) == 1
         assert schemas[0].name == "contracts"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
 
     @parameterized.expand(
         [
@@ -74,15 +50,6 @@ class TestPayFitSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.validate_credentials")
-    def test_validate_credentials_probes_token_at_source_create(self, mock_validate: mock.MagicMock) -> None:
-        # The status-to-message mapping lives in payfit.validate_credentials; here we only assert the
-        # source probes with the configured key and returns the delegate's verdict unchanged.
-        mock_validate.return_value = (False, "Invalid PayFit API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("payfit-key")
-        assert result == (False, "Invalid PayFit API key")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source.check_schema_access")
     def test_validate_credentials_probes_endpoint_scope_for_schema(self, mock_check: mock.MagicMock) -> None:

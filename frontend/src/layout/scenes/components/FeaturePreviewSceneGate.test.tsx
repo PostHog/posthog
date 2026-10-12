@@ -58,7 +58,11 @@ jest.mock('./SceneContent', () => ({
 }))
 
 jest.mock('./SceneTitleSection', () => ({
-    SceneTitleSection: ({ name }: { name: string }) => <div data-attr="scene-title-section">{name}</div>,
+    SceneTitleSection: ({ name, sceneId }: { name: string; sceneId?: string | null }) => (
+        <div data-attr="scene-title-section" data-scene-id={sceneId}>
+            {name}
+        </div>
+    ),
 }))
 
 const mockedUseValues = useValues as jest.Mock
@@ -388,7 +392,7 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Customer analytics')
         })
 
-        test('config sceneId overrides the active scene for the title, so a flag-hidden route is not titled "Not found"', () => {
+        test('config sceneId overrides the active scene for the title and its release stage, so a flag-hidden route is not titled "Not found"', () => {
             setupMocks({ activeSceneId: 'Error404' })
 
             render(
@@ -398,6 +402,7 @@ describe('FeaturePreviewSceneGate', () => {
             )
 
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Metrics')
+            expect(screen.getByTestId('scene-title-section')).toHaveAttribute('data-scene-id', 'Metrics')
             expect(screen.queryByText('Not found')).not.toBeInTheDocument()
         })
 

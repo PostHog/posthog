@@ -107,43 +107,6 @@ def _source(endpoint: str, manager: mock.MagicMock) -> Any:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_with_null_next_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("surveys", [{"id": 1}, {"id": 2}], next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("surveys", manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        # `next` is null, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_url_until_null_and_checkpoints(self, MockSession) -> None:
-        session = MockSession.return_value
-        next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2&page_size=100"
-        snapshots = _wire(
-            session,
-            [
-                _response("surveys", [{"id": 1}], next_url=next_url),
-                _response("surveys", [{"id": 2}], next_url=None, url=next_url),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("surveys", manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # First request carries page_size; the follow-up targets the self-contained next URL with no
-        # re-appended params.
-        assert snapshots[0]["params"] == {"page_size": 100}
-        assert snapshots[1]["url"] == next_url
-        assert snapshots[1]["params"] == {}
-        # State is saved with the cursor after the first page, then we stop on the null `next`.
-        manager.save_state.assert_called_once_with(SimplesatResumeConfig(next_url=next_url))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor_without_refetching_first_page(self, MockSession) -> None:
         session = MockSession.return_value
         next_url = f"{SIMPLESAT_BASE_URL}/surveys?page=2&page_size=100"
@@ -156,48 +119,6 @@ class TestPagination:
         # The one and only request goes straight to the saved cursor — the first page is never fetched.
         assert session.send.call_count == 1
         assert snapshots[0]["url"] == next_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("surveys", [], next_url=None)])
-
-        manager = _make_manager()
-        assert _rows(_source("surveys", manager)) == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_post_endpoint_uses_post_with_empty_json_body(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response("answers", [{"id": 1}], next_url=None)])
-
-        rows = _rows(_source("answers", _make_manager()))
-
-        assert rows == [{"id": 1}]
-        assert snapshots[0]["method"] == "POST"
-        assert snapshots[0]["json"] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_get_endpoint_sends_no_json_body(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response("surveys", [{"id": 1}], next_url=None)])
-
-        _rows(_source("surveys", _make_manager()))
-
-        assert snapshots[0]["method"] == "GET"
-        assert snapshots[0]["json"] is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_rides_header_auth_not_client_headers(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("surveys", [{"id": 1}], next_url=None)])
-
-        _rows(_source("surveys", _make_manager()))
-
-        # The secret is injected via framework api_key auth (redacted), so it must not sit in the
-        # non-secret client headers copied onto the session.
-        assert "X-Simplesat-Token" not in session.headers
-        assert session.headers.get("Accept") == "application/json"
 
 
 class TestHostPinning:

@@ -14,7 +14,7 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
+import { ExternalDataSource, HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -33,6 +33,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
     RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+    TwitterAds: FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
     OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
@@ -52,6 +53,31 @@ export function getEnabledNativeMarketingSources(
         }
         return true
     })
+}
+
+export function getEnabledNativeMarketingSourcesInDisplayOrder(
+    featureFlags: Partial<Record<FeatureFlagKey, boolean | string>>
+): readonly NativeMarketingSource[] {
+    const sourceOrder: NativeMarketingSource[] = [
+        'GoogleAds',
+        'MetaAds',
+        'BingAds',
+        'LinkedinAds',
+        'TikTokAds',
+        'RedditAds',
+        'PinterestAds',
+        'SnapchatAds',
+        'OpenAIAds',
+        'AppleSearchAds',
+        'AmazonAds',
+        'RoktAds',
+        'TwitterAds',
+    ]
+    return [...getEnabledNativeMarketingSources(featureFlags)].sort(
+        (left, right) =>
+            (sourceOrder.includes(left) ? sourceOrder.indexOf(left) : sourceOrder.length) -
+            (sourceOrder.includes(right) ? sourceOrder.indexOf(right) : sourceOrder.length)
+    )
 }
 
 export const MAX_ITEMS_TO_SHOW = 3
@@ -75,6 +101,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     PinterestAds: 'Pinterest Ads',
     AmazonAds: 'Amazon Ads',
     RoktAds: 'Rokt Ads',
+    TwitterAds: 'X Ads',
     AppleSearchAds: 'Apple Ads',
     OpenAIAds: 'OpenAI Ads',
 }
@@ -386,6 +413,30 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             }
             if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
+    TwitterAds: {
+        idField: 'entity_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'billed_charge_local_micro',
+            costNeedsDivision: true,
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency',
+            currencyTimestampColumn: 'date',
+            missingCurrencyMessage: 'X Ads currency is missing. Fully resync campaign_stats, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
         },
@@ -813,9 +864,14 @@ export function createMarketingTile(
         return null
     }
 
-    const table = source.tables.find(
-        (t) => extractSchemaName(t.name, sourceType) === integrationConfig.statsTableName.toLowerCase()
-    )
+    const table = findSchemaByFieldName(
+        source.tables.map((table) => ({
+            name: (table.schema?.name ?? extractSchemaName(table.name, sourceType)).toLowerCase(),
+            table,
+        })),
+        integrationConfig.statsTableName.toLowerCase(),
+        sourceType
+    )?.table
     if (!table) {
         return null
     }
@@ -838,8 +894,12 @@ export function createMarketingTile(
         }
     }
 
-    if (sourceType === 'AmazonAds') {
-        if (!['campaign_id', 'date', 'cost', 'impressions', 'clicks'].every((field) => field in table.fields)) {
+    if (sourceType === 'AmazonAds' || sourceType === 'TwitterAds') {
+        const requiredFields =
+            sourceType === 'AmazonAds'
+                ? ['campaign_id', 'date', 'cost', 'impressions', 'clicks']
+                : ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks']
+        if (!requiredFields.every((field) => field in table.fields)) {
             return null
         }
         const monetaryColumn =
@@ -847,7 +907,8 @@ export function createMarketingTile(
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
             tileColumnSelection === 'cost_per_reported_conversion'
-        if (monetaryColumn && !('campaign_budget_currency_code' in table.fields)) {
+        const currencyColumn = sourceType === 'AmazonAds' ? 'campaign_budget_currency_code' : 'currency'
+        if (monetaryColumn && !(currencyColumn in table.fields)) {
             return null
         }
     }
@@ -1007,9 +1068,45 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
     })
 }
 
-/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+/** The stored filter is whatever an older build of this page wrote, so keep only the fields we still read.
  * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
 export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
     const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
-    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
+    const includeNonIntegrated = (stored as IntegrationFilter | null | undefined)?.includeNonIntegrated
+    return {
+        integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [],
+        ...(typeof includeNonIntegrated === 'boolean' ? { includeNonIntegrated } : {}),
+    }
+}
+
+export function nativeSourceConnectionStatus(source: ExternalDataSource): {
+    status: 'Connected' | 'Syncing' | 'Needs attention'
+    detail: string
+} {
+    const fields = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+    if (!fields) {
+        return { status: 'Needs attention', detail: 'Open setup to check this connection.' }
+    }
+    const schemas = fields.map((field) => findSchemaByFieldName(source.schemas, field, source.source_type))
+    if (!schemas.every((schema) => schema?.should_sync)) {
+        return { status: 'Needs attention', detail: 'Open setup to enable the required tables for this connection.' }
+    }
+    if (['Billing limits', 'Billing limit too low'].includes(source.status)) {
+        return {
+            status: 'Needs attention',
+            detail: 'The import reached a billing limit. Open setup to review the limit.',
+        }
+    }
+    if (schemas.some((schema) => ['Paused', 'Cancelled'].includes(schema?.status ?? ''))) {
+        return { status: 'Needs attention', detail: 'The import is paused or canceled. Open setup to resume it.' }
+    }
+    if (source.status === 'Failed' || schemas.some((schema) => schema?.status === 'Failed')) {
+        return { status: 'Needs attention', detail: 'The import failed. Open setup to check this connection.' }
+    }
+    if (schemas.every((schema) => schema?.last_synced_at)) {
+        return { status: 'Connected', detail: 'Spend data is ready.' }
+    }
+    return source.status === 'Running'
+        ? { status: 'Syncing', detail: 'Your first import is running. Spend data will appear when it finishes.' }
+        : { status: 'Connected', detail: 'Waiting for the first sync to finish.' }
 }

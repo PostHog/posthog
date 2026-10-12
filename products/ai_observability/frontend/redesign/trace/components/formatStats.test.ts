@@ -1,4 +1,4 @@
-import { NodeStats } from '../types'
+import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 import {
     compactStatParts,
     formatCacheTokens,
@@ -51,7 +51,7 @@ describe('formatStats', () => {
         expect(formatCacheTokens(readTokens, writeTokens)).toBe(expected)
     })
 
-    const unknownStats: NodeStats = {
+    const unknownStats: TraceNodeStatsApi = {
         costUsd: null,
         inputTokens: null,
         outputTokens: null,
@@ -60,7 +60,7 @@ describe('formatStats', () => {
         latencyMs: null,
     }
 
-    it.each<[string, Partial<NodeStats>, string[]]>([
+    it.each<[string, Partial<TraceNodeStatsApi>, string[]]>([
         ['latency only', { latencyMs: 90 }, ['90ms']],
         [
             'zero cost with cache reads and writes',
@@ -72,7 +72,7 @@ describe('formatStats', () => {
         expect(statParts({ ...unknownStats, ...stats })).toEqual(expected)
     })
 
-    it.each<[string, Partial<NodeStats>, string[]]>([
+    it.each<[string, Partial<TraceNodeStatsApi>, string[]]>([
         ['both token sides', { inputTokens: 10, outputTokens: 5, cacheReadTokens: 8 }, ['15 tok']],
         ['only input tokens', { inputTokens: 10 }, ['10 tok']],
         ['only output tokens', { outputTokens: 5, latencyMs: 420 }, ['420ms', '5 tok']],

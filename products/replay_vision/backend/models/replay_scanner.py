@@ -41,10 +41,19 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
         exposure = RecordingsQueryExperimentExposureFilter(
             experiment_id=targeting["experiment_id"],
             variant=targeting.get("variant") or None,
+            variants=targeting.get("variants") or None,
         )
     # Shallow copy replacing only the one field: the caller's query is left untouched, and the
     # unrelated nested filters are shared by reference rather than deep-copied since nothing mutates them.
     return query.model_copy(update={"experiment_exposure": exposure})
+
+
+def config_experiment_scope(scanner_config: "dict | None") -> dict | None:
+    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None."""
+    config = scanner_config if isinstance(scanner_config, dict) else {}
+    if config.get("experiment_id") is None:
+        return None
+    return {"experiment_id": config["experiment_id"], "variants": config.get("variants")}
 
 
 class ScannerType(models.TextChoices):
@@ -52,6 +61,7 @@ class ScannerType(models.TextChoices):
     CLASSIFIER = "classifier", "Classifier"
     SCORER = "scorer", "Scorer"
     SUMMARIZER = "summarizer", "Summarizer"
+    EXPERIMENT = "experiment", "Experiment"
 
 
 class SamplingMode(models.TextChoices):
@@ -86,6 +96,14 @@ class ScannerOrigin(models.TextChoices):
     # Minted from a config passed inline to a one-off scan (see `inline_scan.py`). Never swept,
     # never listed, not editable, and reaped once it has nothing to show.
     INLINE = "inline", "Inline"
+
+
+class PromptValence(models.TextChoices):
+    """Whether the answer a monitor or scorer looks for is good or bad news for the team."""
+
+    GOOD = "good", "Good"
+    BAD = "bad", "Bad"
+    NEUTRAL = "neutral", "Neutral"
 
 
 def prompt_fingerprint(prompt: str) -> str:
@@ -131,6 +149,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         blank=True,
         default="",
         help_text="Free-form description for the scanner management UI. Not used by the model.",
+    )
+    goal = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The goal the creator typed or picked when an AI draft built this scanner, kept as written. Null for scanners built any other way.",
     )
 
     scanner_type = models.CharField(max_length=32, choices=ScannerType.choices)
@@ -234,20 +257,14 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
-    # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning
-    # never reads it.
+    # keys, so the experiment association isn't recoverable from it. Version-tracked, and every scan
+    # and estimate derives its exposure filter from it through `targeted_recordings_query`. Legacy:
+    # the experiment scanner type keeps its targeting in `scanner_config` instead (see
+    # `experiment_scope`).
     experiment_targeting = models.JSONField(
         null=True,
         blank=True,
         help_text="The experiment this scanner's targeting watches, if any.",
-    )
-
-    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
-    # ratings, not the scanner's behavior.
-    feedback_themes = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
     )
 
     estimated_monthly_observations = models.PositiveIntegerField(
@@ -283,8 +300,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
     )
 
-    # Written with the prompt by every path that sets one, see `prompt_questions`. Not version-tracked: it
-    # restates the prompt and changes nothing about how the scanner scans.
+    # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
+    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",
@@ -297,6 +314,16 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         default="",
         db_default="",
         help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
+    )
+    # Condensed in the same model call as `prompt_question`, so `prompt_question_source` dates it too.
+    prompt_valence = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_default="",
+        choices=PromptValence.choices,
+        help_text="Whether a yes or a high score is good or bad news, judged by AI from the prompt. Empty when "
+        "not judged: the scanner type has no direction, or the model was unavailable.",
     )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
@@ -319,7 +346,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     admission_budget_used = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts, in-flight reservations, and running evaluations.",
+        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts and in-flight reservations.",
     )
     admission_budget_refreshed_at = models.DateTimeField(
         null=True,
@@ -453,7 +480,17 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                     if changed:
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
-                    if changed & self._ESTIMATE_FIELDS:
+                    estimate_stale = bool(changed & self._ESTIMATE_FIELDS)
+                    if (
+                        not estimate_stale
+                        and "scanner_config" in changed
+                        and self.scanner_type == ScannerType.EXPERIMENT
+                    ):
+                        # The experiment type keeps its targeting in scanner_config, so a scope
+                        # change there moves the estimate the way an experiment_targeting change
+                        # does; a prompt-only config edit does not.
+                        estimate_stale = old.experiment_scope() != self.experiment_scope()
+                    if estimate_stale:
                         # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
                         self.estimate_attempted_at = None
@@ -481,15 +518,26 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
 
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
 
+    def experiment_scope(self) -> dict | None:
+        """The experiment this scanner watches, wherever it is stored.
+
+        The experiment scanner type keeps `experiment_id` and `variants` in `scanner_config`; the
+        other types use the legacy `experiment_targeting` column. Both stores are access-checked on
+        write and redacted on read, so this is the one place code may read a scanner's experiment.
+        """
+        if self.scanner_type == ScannerType.EXPERIMENT:
+            return config_experiment_scope(self.scanner_config)
+        return self.experiment_targeting
+
     def targeted_recordings_query(self) -> "RecordingsQuery":
         """The query every scan and estimate must run: the persisted filter plus the exposure
-        filter derived from `experiment_targeting`.
+        filter derived from `experiment_scope()`.
 
         Derived here rather than persisted into `query` so the experiment can only ever enter
-        through `experiment_targeting`, the field the API access-checks on write and redacts on
-        read. The serializer rejects `experiment_exposure` inside `query` for the same reason.
+        through the access-checked scope stores (see `experiment_scope`). The serializer rejects
+        `experiment_exposure` inside `query` for the same reason.
         """
-        return apply_experiment_targeting(self.recordings_query(), self.experiment_targeting)
+        return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

@@ -19,12 +19,13 @@ import { AccountViewContentTypeEnumApi, AccountViewMarkdownNodeTypeEnumApi } fro
 export interface AccountViewComponentInstance {
     nodeId: string
     kind: AccountViewComponentKind
+    span: number
     title?: string
     config?: AccountViewTileConfig
 }
 
 export function createAccountViewComponentInstance(kind: AccountViewComponentKind): AccountViewComponentInstance {
-    return { nodeId: uuidv4(), kind }
+    return { nodeId: uuidv4(), kind, span: 12 }
 }
 
 export function parseAccountViewContent(content: AccountViewContentApi): AccountViewComponentInstance[] {
@@ -35,6 +36,7 @@ export function parseAccountViewContent(content: AccountViewContentApi): Account
         }
         const definition = getAccountViewComponentByTag(node.tagName)
         const nodeId = node.props.nodeId
+        const span = node.props.span
         const title = node.props.title
         const config = node.props.config
         if (!definition || typeof nodeId !== 'string') {
@@ -44,6 +46,7 @@ export function parseAccountViewContent(content: AccountViewContentApi): Account
             {
                 nodeId,
                 kind: definition.kind,
+                span: typeof span === 'number' && Number.isInteger(span) && span >= 1 && span <= 12 ? span : 12,
                 title: typeof title === 'string' && title.trim() ? title : undefined,
                 config:
                     config && typeof config === 'object' && !Array.isArray(config)
@@ -65,6 +68,7 @@ export function createAccountViewContent(components: AccountViewComponentInstanc
                 tagName: getTagName(component.kind),
                 props: {
                     nodeId: component.nodeId,
+                    ...(component.span === 12 ? {} : { span: component.span }),
                     ...(component.title ? { title: component.title } : {}),
                     ...(component.config ? { config: component.config as NotebookPropValue } : {}),
                 },

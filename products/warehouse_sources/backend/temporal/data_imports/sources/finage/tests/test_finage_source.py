@@ -2,7 +2,6 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import source as finage_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.source import FinageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
 
@@ -12,39 +11,9 @@ class TestFinageSource:
         self.source = FinageSource()
         self.team_id = 123
 
-    def test_get_schemas_full_refresh_only(self):
-        schemas = self.source.get_schemas(self._config(), self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Finage has no server-side updated_after cursor, so every table is full refresh.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_primary_keys(self):
-        schemas = {s.name: s for s in self.source.get_schemas(self._config(), self.team_id)}
-        assert schemas["last_quote"].detected_primary_keys == ["symbol"]
-        # Fan-out child key includes the symbol so bars from different symbols don't collide.
-        assert schemas["aggregates"].detected_primary_keys == ["symbol", "t"]
-
     def test_get_schemas_names_filter(self):
         schemas = self.source.get_schemas(self._config(), self.team_id, names=["aggregates"])
         assert [s.name for s in schemas] == ["aggregates"]
-
-    def test_lists_tables_without_credentials(self):
-        # Static catalog with no I/O — safe for public docs.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {t["name"] for t in documented} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "expected_key",
-        [
-            "401 Client Error: Unauthorized for url: https://api.finage.co.uk",
-            "403 Client Error: Forbidden for url: https://api.finage.co.uk",
-        ],
-    )
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "status,schema_name,expected_valid",

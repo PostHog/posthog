@@ -13,8 +13,9 @@ facade, so it reaches the service only through ``_service()``, which imports it 
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
-``facade/temporal.py``; the pipeline internals the warehouse writers reuse live in
-``facade/pipeline.py``. Neither may be imported from here.
+``facade/temporal.py``. The destination clients the warehouse writers reuse live in
+``facade/destinations/``, and the stream transformers in ``facade/pipeline.py``. None of
+those may be imported from here.
 """
 
 import datetime as dt
@@ -29,7 +30,11 @@ from django.db.models.functions import Coalesce
 
 import structlog
 
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend import destination_tests
 from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.filters import validate_batch_export_filters
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     BatchExport,
@@ -50,8 +55,10 @@ __all__ = [
     "backfill_batch_export",
     "count_batch_exports_for_teams",
     "create_batch_export",
+    "create_workflows_backfill_export",
     "delete_batch_export",
     "delete_batch_exports_for_teams",
+    "describe_destination_test",
     "get_batch_export_by_name",
     "get_latest_completed_run",
     "get_latest_run",
@@ -62,6 +69,7 @@ __all__ = [
     "list_batch_exports_using_integration",
     "list_latest_failed_runs",
     "list_supported_intervals",
+    "run_destination_test_step",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -130,6 +138,15 @@ def _to_detail(batch_export: BatchExport) -> contracts.BatchExportDetail:
         exclude_events=tuple(config.get("exclude_events") or ()),
         include_events=tuple(config.get("include_events") or ()),
     )
+
+
+def _to_destination_test_step(
+    step: destination_tests.base.DestinationTestStep,
+) -> contracts.DestinationTestStep:
+    result = None
+    if step.result is not None:
+        result = contracts.DestinationTestStepResult(status=str(step.result.status), message=step.result.message)
+    return contracts.DestinationTestStep(name=step.name, description=step.description, result=result)
 
 
 def _to_backfill_summary(backfill: BatchExportBackfill) -> contracts.BatchExportBackfillSummary:
@@ -320,6 +337,20 @@ def get_latest_completed_run(export_id: UUID, team_id: int) -> contracts.BatchEx
     return _to_run_summary(run) if run is not None else None
 
 
+def _schedule_and_save(batch_export: BatchExport) -> None:
+    """Create the Temporal schedule of a new export, then save the export and its destination."""
+    service = _service()
+
+    # Schedule first, then the rows, which is the order every caller uses today. It trades one
+    # failure for the other: a failed save leaves an orphaned schedule, where the reverse order
+    # would leave a row pointing at no schedule. Neither is compensated yet.
+    service.sync_batch_export(batch_export, created=True)
+
+    with transaction.atomic():
+        batch_export.destination.save()
+        batch_export.save()
+
+
 def create_batch_export(
     team_id: int,
     *,
@@ -331,28 +362,48 @@ def create_batch_export(
     end_at: dt.datetime | None = None,
 ) -> contracts.BatchExportDetail:
     """Create a batch export, its destination, and the Temporal schedule that drives it."""
-    service = _service()
-
-    destination = BatchExportDestination(type=destination_type, config=dict(destination_config))
     batch_export = BatchExport(
         team_id=team_id,
-        destination=destination,
+        destination=BatchExportDestination(type=destination_type, config=dict(destination_config)),
         name=name,
         interval=interval,
         paused=paused,
         end_at=end_at,
     )
-
-    # Schedule first, then the rows, which is the order every caller uses today. It trades one
-    # failure for the other: a failed save leaves an orphaned schedule, where the reverse order
-    # would leave a row pointing at no schedule. Neither is compensated yet.
-    service.sync_batch_export(batch_export, created=True)
-
-    with transaction.atomic():
-        destination.save()
-        batch_export.save()
-
+    _schedule_and_save(batch_export)
     return _to_detail(batch_export)
+
+
+def create_workflows_backfill_export(
+    team_id: int,
+    *,
+    hog_function_id: UUID,
+    name: str,
+    event_filters: list[dict[str, object]] | None,
+    last_modified_by_id: int,
+) -> contracts.BatchExportRef:
+    """Create the paused, hourly export that backfills events into a hog function.
+
+    Raises ``contracts.InvalidBatchExportFilters`` when ``event_filters`` fail the checks the
+    batch export API applies.
+    """
+    validate_batch_export_filters(event_filters)
+
+    batch_export = BatchExport(
+        team_id=team_id,
+        destination=BatchExportDestination(
+            type=BatchExportDestination.Destination.WORKFLOWS,
+            config={"hog_function_id": str(hog_function_id)},
+        ),
+        name=name,
+        model=BatchExport.Model.EVENTS,
+        interval="hour",
+        paused=True,
+        filters=event_filters,
+        last_modified_by_id=last_modified_by_id,
+    )
+    _schedule_and_save(batch_export)
+    return _to_ref(batch_export)
 
 
 def delete_batch_export(export_id: UUID, team_id: int) -> None:
@@ -377,3 +428,39 @@ def backfill_batch_export(
 def list_supported_intervals() -> tuple[str, ...]:
     """Return the intervals a batch export may be scheduled on."""
     return tuple(interval for interval, _ in BATCH_EXPORT_INTERVALS)
+
+
+def describe_destination_test(destination_type: str) -> contracts.DestinationTest:
+    """Return the steps of a destination's connection test, with no step run."""
+    destination_test = destination_tests.get_destination_test(destination=destination_type)
+    return contracts.DestinationTest(steps=tuple(_to_destination_test_step(step) for step in destination_test.steps))
+
+
+def run_destination_test_step(
+    team_id: int,
+    *,
+    destination_type: str,
+    config: Mapping[str, object],
+    integration_id: int | None,
+    step: int,
+) -> contracts.DestinationTestStep:
+    """Run one step of a destination's connection test, and return that step with its result.
+
+    ``config`` is a destination config that already passed validation. The step reaches the
+    destination over the network. When the destination authenticates through an integration,
+    the integration's config and secrets override any key of the same name in ``config``.
+    """
+    destination_test = destination_tests.get_destination_test(destination=destination_type)
+
+    test_configuration = dict(config)
+    if integration_id is not None:
+        integration = Integration.objects.get(id=integration_id, team_id=team_id)
+        test_configuration = {
+            **test_configuration,
+            **integration.config,
+            **integration.sensitive_config,
+            "integration": integration,
+        }
+
+    destination_test.configure(**test_configuration)
+    return _to_destination_test_step(destination_test.run_step(step))

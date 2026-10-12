@@ -240,7 +240,7 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(
+    def app_request(
         cls,
         endpoint: str,
         method: str = "GET",
@@ -285,13 +285,23 @@ class GitHubIntegrationBase:
         # gating them under an installation budget would be wrong — but volume telemetry still counts.
         return github_request(
             method,
-            f"https://api.github.com/app/{endpoint}",
+            f"https://api.github.com/{endpoint.lstrip('/')}",
             source=_OBSERVABILITY_SOURCE,
             headers={"Authorization": f"Bearer {jwt_token}"},
             timeout=timeout,
             # requests omits the body entirely when json is None
             json=json_body,
         )
+
+    @classmethod
+    def client_request(
+        cls,
+        endpoint: str,
+        method: str = "GET",
+        timeout: float | None = 10,
+        json_body: dict[str, Any] | None = None,
+    ) -> requests.Response:
+        return cls.app_request(f"app/{endpoint}", method=method, timeout=timeout, json_body=json_body)
 
     # --- App installation lifecycle (uninstall) ---
 
@@ -1411,6 +1421,8 @@ class GitHubIntegrationBase:
         that must know whether one specific person lands checks here first.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or "/" in login or ".." in login:
+            return {"success": False, "error": "Unsafe repository or login for an assignee check"}
 
         response = self._installation_authenticated_get(
             f"https://api.github.com/repos/{repo_path}/assignees/{login}",

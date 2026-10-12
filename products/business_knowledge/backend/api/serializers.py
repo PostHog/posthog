@@ -354,10 +354,7 @@ class CreateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
     )
     url = serializers.URLField(
         max_length=2048,
-        help_text=(
-            "Public HTTP(S) URL to fetch. Private / internal hosts are rejected. "
-            "Stage 2a fetches this URL once at create time; Stage 5 will refresh it on a schedule."
-        ),
+        help_text="Public HTTP(S) URL to fetch. Private or internal hosts are rejected.",
     )
     refresh_interval = serializers.ChoiceField(
         choices=RefreshInterval.choices,

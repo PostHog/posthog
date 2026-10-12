@@ -22,7 +22,6 @@ import {
     Breadcrumb,
     FeatureFlagBasicType,
     FeatureFlagFilters,
-    FeatureFlagType,
     ProductTour,
     ProductTourBannerConfig,
     ProductTourContent,
@@ -35,7 +34,7 @@ import { prepareStepsForRender } from './editor/generateStepHtml'
 import { isAnnouncement, productToursLogic } from './productToursLogic'
 import { getUpdatedStepOrderHistory, hasIncompleteTargeting, resolveStepTranslation } from './stepUtils'
 
-export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
+export const DEFAULT_TARGETING_FILTERS: FeatureFlagFilters = {
     ...NEW_FLAG.filters,
     groups: [{ ...NEW_FLAG.filters.groups[0], rollout_percentage: 100 }],
 }

@@ -58,7 +58,9 @@ export interface PatchedDAGApi {
 
 export interface EdgeApi {
     readonly id: string
+    /** ID of the upstream node. */
     readonly source_id: string
+    /** ID of the downstream node. */
     readonly target_id: string
     dag: string
     readonly dag_name: string
@@ -79,7 +81,9 @@ export interface PaginatedEdgeListApi {
 
 export interface PatchedEdgeApi {
     readonly id?: string
+    /** ID of the upstream node. */
     readonly source_id?: string
+    /** ID of the downstream node. */
     readonly target_id?: string
     dag?: string
     readonly dag_name?: string

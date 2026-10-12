@@ -86,7 +86,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
     }
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-2">
             <LemonSelect
                 value={utcHourFromTimeString(times[0]).toString()}
                 onChange={(value) => handleTimeChange(0, value)}
@@ -97,7 +97,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
             />
             {allowSecondTime &&
                 (times.length > 1 ? (
-                    <>
+                    <div className="flex items-center gap-1">
                         <LemonSelect
                             value={utcHourFromTimeString(times[1]).toString()}
                             onChange={(value) => handleTimeChange(1, value)}
@@ -113,7 +113,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
                             tooltip="Remove second time"
                             data-attr="team-experiment-remove-second-recalculation-time"
                         />
-                    </>
+                    </div>
                 ) : (
                     <LemonButton
                         type="tertiary"

@@ -20,6 +20,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.models import Organization, Team
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import describe_schedule
 
 from products.data_warehouse.backend.logic.data_load.service import (
     CDC_DEFAULT_INTERVAL,
@@ -35,6 +36,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     get_discover_schemas_schedule,
     get_sync_schedule,
     is_cdc_extraction_schedule_paused,
+    pause_cdc_extraction_schedule,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
     trigger_cdc_extraction_schedule,
@@ -464,6 +466,34 @@ def test_sync_cdc_refuses_a_schedule_for_a_source_type_without_cdc(source_type: 
     # interval for as long as the source lives.
     connect_mock.assert_not_called()
     delete_mock.assert_called_once_with(_get_cdc_extraction_schedule_id(str(source.id)))
+
+
+@pytest.mark.parametrize("paused", [True, False])
+@pytest.mark.parametrize("via_bulk", [False, True])
+def test_a_cadence_sync_leaves_the_capture_schedule_pause_as_it_was(temporal, paused: bool, via_bulk: bool) -> None:
+    team = _sync_team()
+    source = _make_source(team)
+    schema = _make_schema(team, source, sync_type=ExternalDataSchema.SyncType.CDC)
+    schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
+    sync_cdc_extraction_schedule(source, create=True, trigger_immediately=False)
+    try:
+        if paused:
+            pause_cdc_extraction_schedule(str(source.id))
+        note_before = describe_schedule(temporal, schedule_id).schedule.state.note
+
+        schema.sync_frequency_interval = dt.timedelta(hours=1)
+        schema.save(update_fields=["sync_frequency_interval"])
+        if via_bulk:
+            assert bulk_sync_cdc_extraction_schedules([(source, dt.timedelta(hours=1))]) == []
+        else:
+            sync_cdc_extraction_schedule(source)
+
+        schedule = describe_schedule(temporal, schedule_id).schedule
+        assert schedule.spec.intervals[0].every == dt.timedelta(hours=1)
+        assert schedule.state.paused is paused
+        assert schedule.state.note == note_before
+    finally:
+        delete_temporal_schedule(temporal, schedule_id)
 
 
 # --- bulk_update_external_data_job_schedules (update-only; missing => skipped) ---

@@ -1,6 +1,6 @@
 import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useEffect, useId, useMemo } from 'react'
+import { useId, useLayoutEffect, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
@@ -8,6 +8,7 @@ import { DataModelingEdge, DataModelingNode } from '~/types'
 import { ElkDirection } from './autolayout'
 import { initialLineageGraphLayout, lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageVariant } from './LineageNode'
+import { useNodesMeasured } from './useNodesMeasured'
 
 export interface LineageGraphLoadingProps {
     center?: Pick<DataModelingNode, 'name' | 'type'>
@@ -55,15 +56,17 @@ function loadingGraph(
         }
     }
 
+    const hasUpstream = center.type !== 'table'
+
     return {
         centerNodeId,
         nodes: [
-            node(upstreamId, 'Loading upstream...', 'table'),
+            ...(hasUpstream ? [node(upstreamId, 'Loading upstream...', 'table')] : []),
             node(centerNodeId, center.name, center.type),
             node(downstreamId, 'Loading downstream...', 'view'),
         ],
         edges: [
-            edge(`${idPrefix}-upstream-edge`, upstreamId, centerNodeId),
+            ...(hasUpstream ? [edge(`${idPrefix}-upstream-edge`, upstreamId, centerNodeId)] : []),
             edge(`${idPrefix}-downstream-edge`, centerNodeId, downstreamId),
         ],
     }
@@ -76,6 +79,7 @@ export function LineageGraphLoading({
     variant,
 }: LineageGraphLoadingProps): JSX.Element {
     const { fitView, viewportInitialized } = useReactFlow()
+    const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
     const idPrefix = useMemo(() => `lineage-loading-${reactId.replaceAll(':', '')}`, [reactId])
@@ -101,8 +105,8 @@ export function LineageGraphLoading({
         [fitViewOptions]
     )
 
-    useEffect(() => {
-        if (viewportInitialized) {
+    useLayoutEffect(() => {
+        if (viewportInitialized && nodesMeasured) {
             void fitView({
                 ...loadingFitViewOptions,
                 nodes: displayedLayout.nodes,
@@ -110,22 +114,28 @@ export function LineageGraphLoading({
                 duration: 0,
             })
         }
-    }, [displayedLayout, fitView, loadingFitViewOptions, viewportInitialized])
+    }, [displayedLayout, fitView, loadingFitViewOptions, nodesMeasured, viewportInitialized])
 
-    const nodes = displayedLayout.nodes.map((node) => ({
-        ...node,
-        data: {
-            ...node.data,
-            state: {
-                loading: node.id === graph.centerNodeId && center ? ('focus' as const) : ('placeholder' as const),
-            },
-            callbacks: {},
-        },
-    }))
-    const edges = displayedLayout.edges.map((edge) => ({
-        ...edge,
-        className: 'opacity-50',
-    }))
+    // Rebuilding these arrays on every render hands react-flow new node objects, which drops the
+    // sizes it measured and makes it lay the skeleton out again.
+    const nodes = useMemo(
+        () =>
+            displayedLayout.nodes.map((node) => ({
+                ...node,
+                data: {
+                    ...node.data,
+                    state: {
+                        loading: node.id === graph.centerNodeId ? ('focus' as const) : ('placeholder' as const),
+                    },
+                    callbacks: {},
+                },
+            })),
+        [displayedLayout.nodes, graph.centerNodeId]
+    )
+    const edges = useMemo(
+        () => displayedLayout.edges.map((edge) => ({ ...edge, className: 'opacity-50' })),
+        [displayedLayout.edges]
+    )
 
     return (
         <>
@@ -142,8 +152,6 @@ export function LineageGraphLoading({
                 nodesConnectable={false}
                 nodesFocusable={false}
                 elementsSelectable={false}
-                fitView
-                fitViewOptions={loadingFitViewOptions}
                 minZoom={0.1}
                 maxZoom={1}
                 zoomOnScroll={false}

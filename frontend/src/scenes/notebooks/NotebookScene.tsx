@@ -22,6 +22,7 @@ import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
 import {
     NotebookExpandButton,
+    NotebookJupyterModeButton,
     NotebookKernelInfoButton,
     NotebookVariablesButton,
     NotebookPresence,
@@ -154,6 +155,11 @@ export function NotebookScene(): JSX.Element {
                                 size="small"
                                 onBeforeShowKernelInfo={() => setIsMarkdownSourceOpen(false)}
                             />
+                        </BindLogic>
+                    )}
+                    {!sceneMenuBarEnabled && (
+                        <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                            <NotebookJupyterModeButton type="secondary" size="small" />
                         </BindLogic>
                     )}
                     {!sceneMenuBarEnabled && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}

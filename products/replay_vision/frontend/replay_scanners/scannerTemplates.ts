@@ -18,6 +18,9 @@ interface BaseTemplate {
     name: string
     description: string
     icon: ScannerTemplateIcon
+    // What the goal-based flow drafts from when someone clicks this template's starter, in place of a typed goal.
+    goal: string
+    goal_question: string
     scanner_name: string
     scanner_description: string
 }
@@ -48,6 +51,8 @@ export type ScannerTemplate = MonitorTemplate | SummarizerTemplate | ClassifierT
 export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     {
         key: 'dead_end',
+        goal: 'Find sessions where people get stuck on a page with no clear next step',
+        goal_question: 'Where do people get stuck?',
         name: 'Dead ends',
         description: 'Detect sessions where the user gets stuck on a page with no clear path forward.',
         icon: 'warning',
@@ -60,6 +65,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'session_summary',
+        goal: 'Summarize what people do in each session and where they run into trouble',
+        goal_question: 'What happens in each session?',
         name: 'Session summary',
         description: 'Generate a short narrative of what the user actually did in the session.',
         icon: 'notebook',
@@ -73,6 +80,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'user_intent',
+        goal: 'Find out what people are trying to do when they visit',
+        goal_question: 'What are people trying to do?',
         name: 'User intent',
         description: 'Classify the session by what the user appeared to be trying to do.',
         icon: 'target',
@@ -87,6 +96,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'frustration_score',
+        goal: 'Find out where people get frustrated and how badly',
+        goal_question: 'Where do people get frustrated?',
         name: 'Frustration score',
         description: 'Score how much friction or frustration the user appeared to experience.',
         icon: 'thumbs-down',
@@ -100,6 +111,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'session_outcome',
+        goal: 'Find out whether people finish what they came to do, give up, or hit an error',
+        goal_question: 'Do people finish what they came to do?',
         name: 'Session outcome',
         description: 'Categorize each session by what actually happened: task completed, abandoned, errored, etc.',
         icon: 'check',
@@ -139,7 +152,6 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         updated_at: dayjs().toISOString(),
         created_by: null,
         estimated_monthly_observations: null,
-        feedback_themes: null,
         // The server writes this on the first save.
         prompt_question: '',
         estimated_monthly_credits: null,

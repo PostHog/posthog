@@ -44,13 +44,22 @@ export function useTaskPages(search: string, archived: boolean) {
   const scope = archived ? "archived" : "active";
   return useInfiniteQuery({
     queryKey: search
-      ? [...keys.tasks, "pages", scope, "search", search]
-      : [...keys.tasks, "pages", scope],
+      ? [
+          ...keys.tasks,
+          "created-by",
+          session?.userId,
+          "pages",
+          scope,
+          "search",
+          search,
+        ]
+      : [...keys.tasks, "created-by", session?.userId, "pages", scope],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const page = await getClient().getTasksPage({
         basic: true,
         archived,
+        createdBy: session?.userId,
         search: search || undefined,
         ordering: "-last_activity_at",
         limit: PAGE_SIZE,
@@ -69,11 +78,14 @@ export function useTaskPages(search: string, archived: boolean) {
 export function useTasks(search = "") {
   const session = useAuth((s) => s.session);
   return useQuery({
-    queryKey: search ? [...keys.tasks, "search", search] : keys.tasks,
+    queryKey: search
+      ? [...keys.tasks, "created-by", session?.userId, "search", search]
+      : [...keys.tasks, "created-by", session?.userId],
     queryFn: async () =>
       visibleTasks(
         await getClient().getTasks({
           basic: true,
+          createdBy: session?.userId,
           search: search || undefined,
         }),
       ),

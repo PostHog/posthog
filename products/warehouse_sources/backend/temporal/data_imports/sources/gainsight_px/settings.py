@@ -73,8 +73,8 @@ class GainsightPxEndpointConfig:
     # don't rewrite every sync. `None` for resources the API returns without a creation timestamp.
     partition_key: str | None = None
     page_size: int = SCROLL_PAGE_SIZE
-    # Only the `/events/*` streams expose a server-side date filter; the entity endpoints have no
-    # "updated since" filter and stay full refresh.
+    # Only the `/events/*` streams and survey responses expose a server-side date filter; the entity
+    # endpoints have no "updated since" filter and stay full refresh.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
@@ -164,6 +164,45 @@ GAINSIGHT_PX_ENDPOINTS: dict[str, GainsightPxEndpointConfig] = {
         name="feature_match_events",
         path="/events/feature_match",
         data_key="featureMatchEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "segment_match_events": GainsightPxEndpointConfig(
+        name="segment_match_events",
+        path="/events/segment_match",
+        # The vendor spec wraps segment matches under the same key as feature matches.
+        data_key="featureMatchEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "custom_events": GainsightPxEndpointConfig(
+        name="custom_events",
+        path="/events/custom",
+        data_key="customEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    "identify_events": GainsightPxEndpointConfig(
+        name="identify_events",
+        path="/events/identify",
+        data_key="identifyEvents",
+        pagination="scroll",
+        primary_keys=["eventId"],
+        partition_key=EVENT_DATE_FIELD,
+        incremental_fields=EVENT_INCREMENTAL_FIELDS,
+    ),
+    # Survey responses are engagement view events filtered to survey content, so they take the same
+    # date window filter and scroll pagination as the `/events/*` streams.
+    "survey_responses": GainsightPxEndpointConfig(
+        name="survey_responses",
+        path="/survey/responses",
+        data_key="results",
         pagination="scroll",
         primary_keys=["eventId"],
         partition_key=EVENT_DATE_FIELD,

@@ -70,6 +70,13 @@ export const DesktopFeedbackCreateBody = /* @__PURE__ */ zod.object({
     image_2: zod.instanceof(File).optional().describe('Second image that the user attached.'),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysCreateBodyNameMax = 400
 
 export const surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -933,6 +940,13 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysUpdateBodyNameMax = 400
 
 export const surveysUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -1796,6 +1810,13 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysPartialUpdateBodyNameMax = 400
 
 export const surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -2769,6 +2790,13 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysGenerateTranslationsCreateBodyOverwriteDefault = false
 
 export const SurveysGenerateTranslationsCreateBody = /* @__PURE__ */ zod.object({
@@ -3011,6 +3039,13 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
         .describe('When true, bypass cached summaries and regenerate. Defaults to false.'),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysSummaryHeadlineCreateBodyNameMax = 400
 
 export const surveysSummaryHeadlineCreateBodyResponsesLimitMin = 0

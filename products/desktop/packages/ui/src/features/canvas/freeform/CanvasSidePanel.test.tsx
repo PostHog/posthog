@@ -42,7 +42,6 @@ describe("CanvasSidePanel", () => {
       <CanvasSidePanel
         chatTaskId="task-1"
         commentTaskId="task-1"
-        commentsEnabled
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
         channelId="channel-1"
@@ -67,7 +66,6 @@ describe("CanvasSidePanel", () => {
     useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
     const props = {
       commentTaskId: "task-1",
-      commentsEnabled: true,
       interactive,
       onMinimize: vi.fn(),
       dashboardId: "canvas-1",
@@ -107,7 +105,6 @@ describe("CanvasSidePanel", () => {
       <CanvasSidePanel
         chatTaskId={null}
         commentTaskId={commentTaskId}
-        commentsEnabled
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
         channelId="channel-1"
@@ -126,33 +123,5 @@ describe("CanvasSidePanel", () => {
       "true",
     );
     expect(screen.getByTestId("task-comments")).toHaveTextContent(expected);
-  });
-
-  it("disables comments when they are off for the canvas", () => {
-    useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
-
-    render(
-      <CanvasSidePanel
-        chatTaskId="task-1"
-        commentTaskId={null}
-        commentsEnabled={false}
-        onMinimize={vi.fn()}
-        dashboardId="canvas-1"
-        channelId="channel-1"
-        channelName="General"
-        name="Launch canvas"
-        displayedVersionId="version-2"
-        liveVersionId="version-2"
-        onAskAgent={vi.fn()}
-        commentVersionLabel={(versionId) => versionId}
-        onCommentOpen={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByLabelText("Comments")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    expect(screen.queryByTestId("task-comments")).not.toBeInTheDocument();
   });
 });

@@ -5,7 +5,7 @@ import { IconWarning, IconWrench } from '@posthog/icons'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { Activity } from '../ActivityPrimitives'
-import type { ActivityStatus } from '../ActivityPrimitives'
+import type { ActivityStatus } from '../activityTypes'
 import { VirtualizedThread } from '../VirtualizedThread'
 import { resolveToolCallStatus } from './toolContentUtils'
 

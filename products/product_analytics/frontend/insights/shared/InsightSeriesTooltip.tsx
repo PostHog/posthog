@@ -65,6 +65,8 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
+    /** Append a total row that sums the series at the hovered point (stacked bars). */
+    showTotal?: boolean
     /** Override the default "click to view X" footer, for charts whose click goes somewhere other than persons. */
     footerOverride?: React.ReactNode
 }
@@ -233,6 +235,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
+    showTotal,
     footerOverride,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -394,6 +397,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             {...context}
             sortedByValue={sortedByValue}
             hideZeroRows={hideZeroRows}
+            showTotal={showTotal}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}
             labelRenderer={labelRenderer}

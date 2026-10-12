@@ -255,10 +255,9 @@ class TestDockerSandboxUnit:
     def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             (tmp_path / file_name).touch()
-        (tmp_path / "patches").mkdir()
         (tmp_path / "scripts").mkdir()
         (tmp_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
             package_path = tmp_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -272,10 +271,9 @@ class TestDockerSandboxUnit:
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             monorepo_path.mkdir(exist_ok=True)
             (monorepo_path / file_name).touch()
-        (monorepo_path / "patches").mkdir()
         (monorepo_path / "scripts").mkdir()
         (monorepo_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
             package_path = monorepo_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -305,6 +303,7 @@ class TestDockerSandboxUnit:
             name="test-sandbox",
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables={
+                "LLM_GATEWAY_URL": "http://localhost:13308",
                 "POSTHOG_API_URL": "http://localhost:8000",
                 "POSTHOG_PROJECT_ID": "1",
             },
@@ -317,6 +316,7 @@ class TestDockerSandboxUnit:
         docker_args = docker_run_call[0][0]
 
         env_args = " ".join(docker_args)
+        assert "LLM_GATEWAY_URL=http://host.docker.internal:13308" in env_args
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
 

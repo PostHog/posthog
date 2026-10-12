@@ -49,6 +49,9 @@ def _order_identified_first(
 # The replica's row budget when a request leaves max_rows at 0.
 DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
 
+# The replica's cap on keys per version floor request.
+VERSION_RPC_MAX_KEYS = 250
+
 
 class FakePersonHogClient:
     """In-memory fake that implements the same interface as PersonHogClient.
@@ -89,7 +92,7 @@ class FakePersonHogClient:
         # keyed by (cohort_id, person_id) -> True
         self._cohort_members: dict[tuple[int, int], bool] = {}
 
-        # synthetic ids for persons created by split_person
+        # synthetic ids for persons created by split_person and ensure_person_version_floors
         self._next_split_person_id = 1_000_000_000
 
         # monotonic counter for distinct ID row IDs
@@ -114,8 +117,6 @@ class FakePersonHogClient:
         is_deleted: bool = False,
         tombstoned_distinct_ids: list[str] | None = None,
     ) -> person_pb2.Person:
-        # Unlike the replica, the fake returns tombstoned persons on reads, so tests can inspect
-        # what a delete left in place.
         person = person_pb2.Person(
             id=person_id,
             uuid=uuid,
@@ -134,6 +135,8 @@ class FakePersonHogClient:
             self._persons_by_uuid[(team_id, uuid)] = person
         for did in distinct_ids or []:
             self._persons_by_distinct_id[(team_id, did)] = person
+            # A re-added mapping is live again, as a revival upsert makes it in the replica.
+            self._tombstoned_distinct_ids.discard((team_id, did))
             self._distinct_ids.setdefault((team_id, person_id), []).append(
                 person_pb2.DistinctIdWithVersion(distinct_id=did, version=(distinct_id_versions or {}).get(did, 0))
             )
@@ -207,9 +210,28 @@ class FakePersonHogClient:
     def close(self) -> None:
         pass
 
+    # Reads mirror the replica, which filters tombstoned persons and mappings out of every person
+    # lookup. The tombstone RPCs below read the internal dicts, so they still see the tombstones.
+    @staticmethod
+    def _live(person: person_pb2.Person | None) -> person_pb2.Person | None:
+        return None if person is None or person.is_deleted else person
+
+    def _live_by_distinct_id(self, team_id: int, distinct_id: str) -> person_pb2.Person | None:
+        if (team_id, distinct_id) in self._tombstoned_distinct_ids:
+            return None
+        return self._live(self._persons_by_distinct_id.get((team_id, distinct_id)))
+
+    def stored_person(self, team_id: int, uuid: str) -> person_pb2.Person | None:
+        """The stored row, tombstoned or not, for tests that check what a delete left in place."""
+        return self._persons_by_uuid.get((team_id, uuid))
+
+    def stored_person_by_distinct_id(self, team_id: int, distinct_id: str) -> person_pb2.Person | None:
+        """The person a stored mapping points at, tombstoned or not."""
+        return self._persons_by_distinct_id.get((team_id, distinct_id))
+
     def get_person(self, request: person_pb2.GetPersonRequest) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person", request))
-        person = self._persons_by_id.get((request.team_id, request.person_id))
+        person = self._live(self._persons_by_id.get((request.team_id, request.person_id)))
         return person_pb2.GetPersonResponse(person=person)
 
     def get_persons(self, request: person_pb2.GetPersonsRequest) -> person_pb2.PersonsResponse:
@@ -217,7 +239,7 @@ class FakePersonHogClient:
         found = []
         missing = []
         for pid in request.person_ids:
-            person = self._persons_by_id.get((request.team_id, pid))
+            person = self._live(self._persons_by_id.get((request.team_id, pid)))
             if person:
                 found.append(person)
             else:
@@ -226,7 +248,7 @@ class FakePersonHogClient:
 
     def get_person_by_uuid(self, request: person_pb2.GetPersonByUuidRequest) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person_by_uuid", request))
-        person = self._persons_by_uuid.get((request.team_id, request.uuid))
+        person = self._live(self._persons_by_uuid.get((request.team_id, request.uuid)))
         return person_pb2.GetPersonResponse(person=person)
 
     def get_persons_by_uuids(self, request: person_pb2.GetPersonsByUuidsRequest) -> person_pb2.PersonsResponse:
@@ -234,7 +256,7 @@ class FakePersonHogClient:
         found = []
         missing_ids: list[int] = []
         for uuid in request.uuids:
-            person = self._persons_by_uuid.get((request.team_id, uuid))
+            person = self._live(self._persons_by_uuid.get((request.team_id, uuid)))
             if person:
                 found.append(person)
         return person_pb2.PersonsResponse(persons=found, missing_ids=missing_ids)
@@ -243,7 +265,7 @@ class FakePersonHogClient:
         self, request: person_pb2.GetPersonByDistinctIdRequest
     ) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person_by_distinct_id", request))
-        person = self._persons_by_distinct_id.get((request.team_id, request.distinct_id))
+        person = self._live_by_distinct_id(request.team_id, request.distinct_id)
         return person_pb2.GetPersonResponse(person=person)
 
     def get_persons_by_distinct_ids_in_team(
@@ -252,7 +274,7 @@ class FakePersonHogClient:
         self.calls.append(_Call("get_persons_by_distinct_ids_in_team", request))
         results = []
         for did in request.distinct_ids:
-            person = self._persons_by_distinct_id.get((request.team_id, did))
+            person = self._live_by_distinct_id(request.team_id, did)
             if person:
                 results.append(person_pb2.PersonWithDistinctIds(distinct_id=did, person=person))
         return person_pb2.PersonsByDistinctIdsInTeamResponse(results=results)
@@ -624,15 +646,14 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
-        tombstone = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
-        response = person_pb2.DeletePersonsResponse(tombstoned=tombstone)
+        if request.mode == person_pb2.DELETE_PERSONS_MODE_HARD:
+            raise ValueError("DELETE_PERSONS_MODE_HARD is not supported")
+        if request.mode not in (person_pb2.DELETE_PERSONS_MODE_UNSPECIFIED, person_pb2.DELETE_PERSONS_MODE_TOMBSTONE):
+            raise ValueError(f"Unknown DeletePersonsMode {request.mode}")
+        response = person_pb2.DeletePersonsResponse(tombstoned=True)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
-                continue
-            if not tombstone:
-                response.deleted_count += 1
-                self._remove_person(request.team_id, person)
                 continue
             tombstoned = response.tombstones.add(person_uuid=person.uuid)
             if person.is_deleted:
@@ -723,15 +744,25 @@ class FakePersonHogClient:
         # Mirrors the server, in person id order: a tombstoned person whose distinct ids fit the
         # leftover budget goes whole unless one is live (blocked); the first that does not fit
         # gives up as many as the leftover allows and stays pending; the rest stay pending untouched.
-        response = person_pb2.DeleteTombstonedPersonsResponse()
+        if request.person_uuids and request.bounded_persons:
+            raise ValueError("Set either person_uuids or bounded_persons, not both")
+        response = person_pb2.DeleteTombstonedPersonsResponse(version_guard_applied=bool(request.bounded_persons))
         budget = max(1, min(request.max_rows or DELETE_TOMBSTONED_DEFAULT_ROWS, self.tombstoned_delete_max_rows))
+        bounds: dict[str, int] = {}
+        for bounded in request.bounded_persons:
+            if bounded.max_version < 0:
+                raise ValueError("max_version must not be negative")
+            bounds[bounded.person_uuid] = min(bounds.get(bounded.person_uuid, bounded.max_version), bounded.max_version)
         candidates: list[tuple[str, person_pb2.Person]] = []
-        for uuid in dict.fromkeys(request.person_uuids):
+        for uuid in dict.fromkeys([*request.person_uuids, *bounds]):
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
                 continue
             if not person.is_deleted:
                 response.skipped_live_count += 1
+                continue
+            if request.bounded_persons and person.version > bounds[uuid]:
+                response.skipped_version_count += 1
                 continue
             candidates.append((uuid, person))
         candidates.sort(key=lambda candidate: candidate[1].id)
@@ -877,6 +908,59 @@ class FakePersonHogClient:
 
         person.version = request.min_version
         return person_pb2.SetPersonVersionFloorResponse(updated=True)
+
+    # ── Version floors ─────
+
+    @staticmethod
+    def _check_version_rpc_batch(keys: list[str]) -> None:
+        """Mirror the server's INVALID_ARGUMENT checks."""
+        if len(keys) > VERSION_RPC_MAX_KEYS:
+            raise ValueError(f"Maximum {VERSION_RPC_MAX_KEYS} keys per request")
+        if len(set(keys)) != len(keys):
+            raise ValueError("Duplicate key in request")
+
+    def _insert_person_tombstone(self, team_id: int, uuid: str, version: int) -> person_pb2.Person:
+        self._next_split_person_id += 1
+        return self.add_person(
+            team_id=team_id,
+            person_id=self._next_split_person_id,
+            uuid=uuid,
+            version=version,
+            is_deleted=True,
+            created_at=int(time.time() * 1000),
+        )
+
+    @staticmethod
+    def _floor_outcome(is_deleted: bool, version: int, min_version: int) -> person_pb2.VersionFloorOutcome:
+        if not is_deleted:
+            return person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        if version < min_version:
+            return person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        return person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+
+    def ensure_person_version_floors(
+        self, request: person_pb2.EnsurePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> person_pb2.EnsurePersonVersionFloorsResponse:
+        self.calls.append(_Call("ensure_person_version_floors", request))
+        self._check_version_rpc_batch([f.person_uuid for f in request.floors])
+        if any(f.min_version < 0 for f in request.floors):
+            raise ValueError("min_version must not be negative")
+        response = person_pb2.EnsurePersonVersionFloorsResponse()
+        for floor in request.floors:
+            person = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
+            if person is None:
+                self._insert_person_tombstone(request.team_id, floor.person_uuid, floor.min_version)
+                response.results.add(
+                    person_uuid=floor.person_uuid,
+                    outcome=person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED,
+                    version=floor.min_version,
+                )
+                continue
+            outcome = self._floor_outcome(person.is_deleted, person.version, floor.min_version)
+            if person.is_deleted:
+                person.version = max(person.version, floor.min_version)
+            response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
+        return response
 
     # ── Assertion helpers ────────────────────────────────────────────
 

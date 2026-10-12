@@ -25,6 +25,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import DashboardFilter, EndpointRunRequest, HogQLVariable, PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -310,6 +311,7 @@ class EndpointQueryStrategy(abc.ABC):
 
     supports_pagination: ClassVar[bool] = False
     supports_ducklake: ClassVar[bool] = False
+    materialized_limit_context: ClassVar[LimitContext | None] = None
 
     def __init__(self, endpoint: Endpoint, version: EndpointVersion, team: Team):
         self.endpoint = endpoint
@@ -609,6 +611,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
     """
 
     BREAKDOWN_SUPPORTED_QUERY_TYPES: ClassVar[frozenset[str]] = BREAKDOWN_SUPPORTED_QUERY_TYPES
+    materialized_limit_context = LimitContext.SAVED_QUERY
     # Query types with a materialized-response transformer
     INSIGHT_TRANSFORM_TYPES: ClassVar[set[str]] = {"TrendsQuery", "LifecycleQuery", "RetentionQuery"}
 

@@ -12,7 +12,7 @@ TypeScript consumers. After editing, run ``hogli build:projections`` and commit
 the regenerated files:
 
 - ``products/desktop/packages/core/src/inbox/objectKinds.generated.ts``
-- ``products/desktop/packages/shared/src/objectTagKinds.generated.ts``
+- ``packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts``
 - ``frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts``
 
 Python consumers import this module directly.
@@ -43,6 +43,7 @@ class ObjectKindSpec:
     block: bool = False
     # The tag body is the object id itself rather than a label (hogql: the SQL).
     id_is_body: bool = False
+    url_aliases: tuple[str, ...] = ()
 
 
 OBJECT_KINDS: dict[str, ObjectKindSpec] = {
@@ -51,6 +52,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         source="Product analytics",
         path_template="/insights/{id}",
         block=True,
+        url_aliases=("/i/{id}",),
     ),
     "hogql": ObjectKindSpec(
         kind_label="SQL query",
@@ -58,6 +60,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         path_template="/sql?open_query={id}",
         block=True,
         id_is_body=True,
+        url_aliases=("/insights/new#q={query}",),
     ),
     "dashboard": ObjectKindSpec(
         kind_label="Dashboard",
@@ -74,6 +77,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         source="Session replay",
         path_template="/replay/{id}",
         block=True,
+        url_aliases=("/replay/home?sessionRecordingId={id}",),
     ),
     "flag": ObjectKindSpec(
         kind_label="Feature flag",
@@ -144,6 +148,10 @@ OBJECT_KIND_ALIASES: dict[str, str] = {
     "feature_flag": "flag",
     "sql": "hogql",
 }
+
+RESERVED_URL_IDS: tuple[str, ...] = ("new", "home", "playlists", "settings", "configuration", "options")
+
+APP_HOST_ALIASES: dict[str, str] = {"app.posthog.com": "us.posthog.com"}
 
 # Rendering fallback for a tag whose kind nobody registered.
 FALLBACK_OBJECT_KIND = ObjectKindSpec(kind_label="Evidence", source="PostHog")

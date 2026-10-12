@@ -132,6 +132,85 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('trusted relay sender', () => {
+        it('normalizes and saves the relay sender for one channel', async () => {
+            const config = {
+                id: 'email-config',
+                from_email: 'support@example.com',
+                trusted_relay_sender: '',
+                domain_verified: true,
+                is_default: true,
+            } as any
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [config] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/set-trusted-relay': async ({ request }) => {
+                        expect(await request.json()).toEqual({
+                            config_id: 'email-config',
+                            trusted_relay_sender: 'relay@example.com',
+                        })
+                        return [200, { ok: true }]
+                    },
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setTrustedRelaySenderDraft('email-config', ' Relay@Example.COM ')
+            logic.actions.saveTrustedRelaySender('email-config')
+
+            expect(logic.values.trustedRelaySavingConfigId).toBe('email-config')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.emailConfigs[0].trusted_relay_sender).toBe('relay@example.com')
+            expect(logic.values.trustedRelaySenderDrafts['email-config']).toBe('relay@example.com')
+            expect(logic.values.trustedRelaySavingConfigId).toBeNull()
+        })
+
+        it('shows the backend validation reason and resets saving state', async () => {
+            const errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': {
+                        configs: [
+                            {
+                                id: 'email-config',
+                                from_email: 'support@example.com',
+                                trusted_relay_sender: '',
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/set-trusted-relay': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'Enter a valid email address.',
+                            attr: 'trusted_relay_sender',
+                        },
+                    ],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setTrustedRelaySenderDraft('email-config', 'not-an-email')
+            logic.actions.saveTrustedRelaySender('email-config')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith('Enter a valid email address.')
+            expect(logic.values.trustedRelaySavingConfigId).toBeNull()
+            errorToastSpy.mockRestore()
+        })
+    })
+
     describe('aiResolutionChannels selector', () => {
         it('drops flag-gated channels that are no longer available', async () => {
             initKeaTests(true, {

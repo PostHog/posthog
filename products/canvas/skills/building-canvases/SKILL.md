@@ -81,12 +81,13 @@ Params need React components. A plain HTML canvas has no params.
 
 1. Put each panel in its own component. The component takes these values as props, with defaults.
 2. Spread `editable(name, props, params)` from `@posthog/canvas-sdk` on the root element of the component. `name` is the component name. `params` maps each prop name to its field.
-3. Use the component with literal props, for example `<SignupFunnel title="Signup" windowDays={14} />`. The editor writes changes into these props, so do not compute them inline.
+3. Use the component with literal props, for example `<SignupFunnel blockId="b-k3m9x2" title="Signup" windowDays={14} />`. The editor writes changes into these props, so do not compute them inline.
+4. Give each use a unique `blockId` prop, for example `<SignupFunnel blockId="b-k3m9x2" … />`, so a person can point the agent at one card. Use only letters, digits, `_`, `-`, `.`, and `:`, or the editor ignores the ID. In a list, build it from a stable key of the item: ``blockId={`kpi-${item.id}`}``.
 
 ```tsx
 import { editable } from '@posthog/canvas-sdk'
 
-export function SignupFunnel(props: { title?: string; steps?: string[]; windowDays?: number }) {
+export function SignupFunnel(props: { blockId?: string; title?: string; steps?: string[]; windowDays?: number }) {
   const { title = 'Signup funnel', steps = ['$pageview', 'signed_up'], windowDays = 14 } = props
   return (
     <Card

@@ -46,6 +46,23 @@ describe('lineageSearch', () => {
         expect(traverseLineage('orders', maps, 'both').has('sessions')).toBe(false)
     })
 
+    it('walks a broad cyclic graph without visiting nodes twice', () => {
+        const branches = Array.from({ length: 100 }, (_, index) => node(`branch-${index}`, `branch-${index}`))
+        const nodes = [node('root', 'root'), ...branches, node('terminal', 'terminal')]
+        const edges = [
+            ...branches.flatMap((branch) => [edge('root', branch.id), edge(branch.id, 'terminal')]),
+            edge('terminal', 'root'),
+        ]
+
+        const reached = traverseLineage('root', buildAdjacencyMaps(edges), 'downstream')
+        expect(reached).toEqual(new Set(nodes.map(({ id }) => id)))
+
+        const ordered = orderedNodesForLineageSearch(nodes, edges, parseLineageSearch('root+'))
+        expect(ordered).toHaveLength(nodes.length)
+        expect(ordered?.[0].id).toEqual('root')
+        expect(ordered?.at(-1)?.id).toEqual('terminal')
+    })
+
     it('anchors on the exact name over a longer one that contains it', () => {
         const nodes = [node('1', 'orders_daily'), node('2', 'orders'), node('3', 'stripe_orders_raw')]
         expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')

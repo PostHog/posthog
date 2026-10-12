@@ -1,6 +1,8 @@
 import time
+import datetime as dt
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -261,6 +263,36 @@ class TestLivenessActivityInboundInterceptor:
             3,
         )
         assert tracker.get_running_activities() == []
+
+    async def test_records_each_heartbeat_of_the_running_activity(self):
+        tracker = LivenessTracker()
+        heartbeats_seen: list[tuple[float | None, float]] = []
+        outbound = MagicMock()
+        next_interceptor = AsyncMock()
+        next_interceptor.init = MagicMock(side_effect=lambda wrapped: setattr(next_interceptor, "outbound", wrapped))
+
+        async def execute(_input):
+            with time_machine.travel(dt.datetime(2026, 1, 1, 0, 5, tzinfo=dt.UTC), tick=False):
+                next_interceptor.outbound.heartbeat("details")
+                [running] = tracker.get_running_activities()
+                heartbeats_seen.append((running.last_heartbeat_at, running.max_heartbeat_gap))
+
+        next_interceptor.execute_activity.side_effect = execute
+        interceptor = _LivenessActivityInboundInterceptor(next_interceptor)
+        interceptor._tracker = tracker
+        interceptor.init(outbound)
+
+        info = MagicMock(activity_type="cdc_extract_activity", workflow_type="cdc-extraction", is_local=False)
+        info.heartbeat_timeout = dt.timedelta(minutes=10)
+        with (
+            time_machine.travel(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), tick=False),
+            patch("posthog.temporal.common.liveness_tracker.activity.in_activity", return_value=True),
+            patch("posthog.temporal.common.liveness_tracker.activity.info", return_value=info),
+        ):
+            await interceptor.execute_activity(MagicMock(spec=ExecuteActivityInput))
+
+        outbound.heartbeat.assert_called_once_with("details")
+        assert heartbeats_seen == [(dt.datetime(2026, 1, 1, 0, 5, tzinfo=dt.UTC).timestamp(), 300.0)]
 
 
 @pytest.mark.asyncio

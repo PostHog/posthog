@@ -82,6 +82,19 @@ INSTATUS_ENDPOINTS: dict[str, InstatusEndpointConfig] = {
         path="/v1/{page_id}/audience-groups",
         primary_key=["page_id", "id"],
     ),
+    "outages": InstatusEndpointConfig(
+        name="outages",
+        path="/v1/{page_id}/outages",
+        primary_key=["page_id", "id"],
+        # An outage's `from` can be edited after creation, so partition on createdAt instead.
+        partition_key="createdAt",
+    ),
+    "generic_notices": InstatusEndpointConfig(
+        name="generic_notices",
+        path="/v1/{page_id}/generic-notices",
+        primary_key=["page_id", "id"],
+        partition_key="createdAt",
+    ),
 }
 
 ENDPOINTS = tuple(INSTATUS_ENDPOINTS.keys())

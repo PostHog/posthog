@@ -9,6 +9,7 @@
     "prebuild": "expo prebuild",
     "prebuild:clean": "expo prebuild --clean",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "clean": "node ../../scripts/rimraf.mjs .turbo .expo"
@@ -46,6 +47,7 @@
     "expo-crypto": "~57.0.1",
     "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",
+    "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.3",
     "expo-haptics": "~57.0.3",
@@ -78,7 +80,8 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^4.1.8"
   },
   "private": true
 }

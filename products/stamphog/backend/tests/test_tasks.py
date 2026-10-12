@@ -1302,27 +1302,32 @@ def _approved_run(team_id: int) -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "same_diff,expect_retained",
-    [(True, True), (False, False)],
-    ids=["identical_diff_retains", "changed_diff_dismisses"],
+    "same_diff,clean_base_merge,expect_retained",
+    [(True, False, True), (False, False, False), (False, True, True)],
+    ids=["identical_diff_retains", "changed_diff_dismisses", "clean_base_merge_retains"],
 )
-def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, same_diff, expect_retained):
+def test_push_retains_the_approval_only_when_the_diff_is_identical(
+    team, repo_config, same_diff, clean_base_merge, expect_retained
+):
     # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
     # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
     # is content that the approval no longer covers, and that case keeps the stale-approval
-    # invariant intact.
+    # invariant intact, unless the push is a proven clean merge of the base branch.
     #
     # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
-    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}", team.id)
+    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}-{clean_base_merge}", team.id)
     _approved_run(team.id)
 
-    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+    with (
+        patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
+        patch("products.stamphog.backend.tasks.tasks.base_merge_is_clean", return_value=clean_base_merge),
+    ):
         mock_execute = _run_task(
             _pr_payload(action="synchronize", head_sha="sha-2"),
-            f"delivery-retention-push-{same_diff}",
+            f"delivery-retention-push-{same_diff}-{clean_base_merge}",
             team.id,
             compare_diffs=[_APPROVED, current_diff],
         )

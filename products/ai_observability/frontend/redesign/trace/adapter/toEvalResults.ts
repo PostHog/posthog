@@ -2,11 +2,12 @@ import { urls } from 'scenes/urls'
 
 import { EvaluationResultDisplayOptions, getEvaluationResultDisplay } from '../../../components/EvaluationResultTag'
 import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
-import { EvalOutcome, EvalResult, EvalTarget, TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalOutcome, EvalResult, EvalTarget } from '../types'
 
 export interface EvalResultsContext {
     /** Every node of the trace, root first, to resolve and name what each run targets. */
-    tree: TraceTreeNode[]
+    tree: TraceNodeApi[]
     viewedNodeId: string
     evaluations: EvaluationConfig[]
     detectorEvaluationIds: string[]
@@ -37,12 +38,12 @@ function outcomeOf(run: EvaluationRun, tagType: string | undefined): EvalOutcome
     return tagType === 'none' ? 'unrated' : 'inconclusive'
 }
 
-function flatten(nodes: TraceTreeNode[]): TraceTreeNode[] {
+function flatten(nodes: TraceNodeApi[]): TraceNodeApi[] {
     return nodes.flatMap((node) => [node, ...flatten(node.children)])
 }
 
 // Two steps can share a name, such as two calls to the same model, so repeated names get their position.
-function nodeLabels(tree: TraceTreeNode[]): Map<string, string> {
+function nodeLabels(tree: TraceNodeApi[]): Map<string, string> {
     const nodes = flatten(tree)
     const totals = new Map<string, number>()
     nodes.forEach((node) => totals.set(node.name, (totals.get(node.name) ?? 0) + 1))

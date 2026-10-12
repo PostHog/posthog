@@ -11,7 +11,7 @@ import {
     CohortType,
     FeatureFlagGroupType,
     FilterLogicalOperator,
-    FeatureFlagType,
+    FeatureFlagFilters,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -38,7 +38,7 @@ const cohortFilter: CohortPropertyFilter = {
     cohort_name: 'Power Users',
 }
 
-function buildFilters(): FeatureFlagType['filters'] {
+function buildFilters(): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
         properties: [cohortFilter],
         rollout_percentage: 100,

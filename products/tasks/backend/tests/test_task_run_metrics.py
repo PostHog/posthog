@@ -7,7 +7,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build
+from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build, observe_sandbox_deadline
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
@@ -33,6 +33,16 @@ class TestCustomImageBuildMetrics:
     @patch("products.tasks.backend.metrics.CUSTOM_IMAGE_BUILD_TOTAL.labels", side_effect=RuntimeError("boom"))
     def test_counter_failure_does_not_escape(self, _mock_labels: MagicMock) -> None:
         observe_custom_image_build("succeeded")
+
+
+class TestSandboxDeadlineMetrics:
+    def test_turn_open_reason_is_preserved(self) -> None:
+        labels = {"outcome": "snapshot_only", "reason": "turn_open", "origin_product": "workflow"}
+        before = _sample_value("posthog_tasks_sandbox_deadline_total", labels)
+
+        observe_sandbox_deadline(dict[str, object](labels))
+
+        assert _sample_value("posthog_tasks_sandbox_deadline_total", labels) == before + 1
 
 
 class TestTaskRunMetrics(TestCase):

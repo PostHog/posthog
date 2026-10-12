@@ -39,7 +39,12 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import type { FlagEvaluationsModeEnumApi, OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
+import type {
+    FlagEvaluationsModeEnumApi,
+    OrganizationMemberNoticeApi,
+    OrganizationTeamBasicApi,
+    OrganizationNotificationLockApi,
+} from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -83,6 +88,7 @@ import { QueryContext } from '~/queries/types'
 
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
+import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -95,7 +101,10 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentFeatureFlagInputApi,
+    ExperimentHealthApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -104,6 +113,7 @@ import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.s
 import type {
     ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
+    RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -344,6 +354,7 @@ export enum AccessControlResourceType {
     WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
+    BusinessKnowledge = 'business_knowledge',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
     ReplayScanner = 'replay_scanner',
@@ -487,6 +498,7 @@ export interface NotificationSettings {
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
+    task_comments_slack_dm?: boolean
 }
 
 export interface WebAnalyticsDigestMetricChange {
@@ -599,10 +611,11 @@ interface OrganizationMetadata {
 }
 
 export interface OrganizationType extends OrganizationBasicType {
+    membership_joined_at?: string | null
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[]
+    teams: (TeamBasicType & Partial<Pick<OrganizationTeamBasicApi, 'project_group'>>)[]
     projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
@@ -619,6 +632,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
     read_only_mcp_access?: boolean
+    member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -882,6 +896,7 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     group_types: GroupType[]
     primary_dashboard: number | null // Dashboard shown on the project homepage
+    home_tab_dashboard: number | null // Dashboard shown on the product analytics Home tab
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
@@ -931,6 +946,10 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    default_email_integration_id?: number | null
+    // Null on either disables the marketing frequency cap.
+    marketing_frequency_cap_max_messages?: number | null
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -1129,9 +1148,8 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
-    Comments = 'comments',
-    Templates = 'templates',
     Settings = 'settings',
+    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -1508,6 +1526,7 @@ export type SessionRecordingSnapshotParams = {
 export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
+    replay_proxy_token?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
@@ -1635,6 +1654,7 @@ export interface RecordingUniversalFilters {
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
     recommended_only?: boolean
+    event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
      * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
@@ -1767,9 +1787,11 @@ export interface PersonListParams {
 export type SearchableEntity =
     | 'action'
     | 'cohort'
+    | 'data_warehouse_view'
     | 'insight'
     | 'dashboard'
     | 'early_access_feature'
+    | 'endpoint'
     | 'event_definition'
     | 'experiment'
     | 'feature_flag'
@@ -1874,7 +1896,7 @@ export interface CohortGroupType {
     name?: string
 }
 
-// Synced with `posthog/models/property.py`
+// Synced with `posthog/models/property/property.py`
 export interface CohortCriteriaType {
     id: string // Criteria filter id
     key: string
@@ -2081,6 +2103,8 @@ export interface SessionRecordingPlaylistType {
     /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
     is_synthetic?: boolean
     _create_in_folder?: string | null
+    /** Write-only. */
+    creation_method?: 'new' | 'pin' | 'duplicate'
 }
 
 export interface SavedSessionRecordingPlaylistsFilters {
@@ -2395,6 +2419,8 @@ export interface BillingProductV2Type {
     included_with_main_product?: boolean
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
+    // Billing refuses a customer billing limit for this product and returns no limit for it.
+    no_billing_limit?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -2492,6 +2518,7 @@ export interface BillingType {
         email?: string
         name?: string
     }
+    billing_managed_by_partner?: { partner_name: string } | null
 }
 
 export interface ClaimedCouponInfo {
@@ -2594,7 +2621,11 @@ export interface DashboardTile extends Tileable {
     filters_overrides?: TileFilters
     show_description?: boolean | null
     transparent_background?: boolean | null
+    group_key?: string | null
+    badge?: TileBadge | null
 }
+
+export type TileBadge = 'winner' | 'cheeky-hog'
 
 export type DashboardWidgetType = 'insight' | 'text' | 'button_tile' | 'widget'
 
@@ -2789,6 +2820,7 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+        group_titles?: Record<string, string>
     }
 }
 
@@ -3118,6 +3150,7 @@ export enum ChartDisplayType {
     Metric = 'Metric',
     ActionsPie = 'ActionsPie',
     ActionsDonut = 'ActionsDonut',
+    ActionsProportionBar = 'ActionsProportionBar',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
@@ -3138,6 +3171,7 @@ export type BreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
+    | 'element'
     | 'group'
     | 'session'
     | 'hogql'
@@ -3161,6 +3195,7 @@ export enum InsightType {
     SQL = 'SQL',
     HOG = 'HOG',
     WEB_ANALYTICS = 'WEB_ANALYTICS',
+    METRICS = 'METRICS',
 }
 
 export enum PathType {
@@ -3640,7 +3675,6 @@ export interface FunnelConversionWindow {
     funnelWindowInterval?: number
 }
 
-// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
     Second = 'second',
     Minute = 'minute',
@@ -3765,6 +3799,17 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
+    /**
+     * The project the insight comes from, when a page shows insights from several projects. Its
+     * charts then show that project's annotations, read-only, in that project's time zone.
+     */
+    sourceProject?: InsightSourceProject
+}
+
+export interface InsightSourceProject {
+    id: number
+    /** Unknown until the page has loaded the project, and the chart uses the current project's time zone until then. */
+    timezone?: string
 }
 
 export interface SetInsightOptions {
@@ -4447,7 +4492,9 @@ export enum FeatureFlagBucketingIdentifier {
     DEVICE_ID = 'device_id',
 }
 
+/** Config version 1: release conditions, variants and payloads. Stored without a `version` key. */
 export interface FeatureFlagFilters {
+    version?: 1
     groups: FeatureFlagGroupType[]
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
@@ -4462,13 +4509,94 @@ export interface FeatureFlagFilters {
     super_groups?: FeatureFlagGroupType[] | null
 }
 
+/**
+ * Declares the v1 keys absent on other versions, so optional reads compile on the union and return undefined for them.
+ * Narrow with `isV1FeatureFlagConfig` to use the v1 shape.
+ */
+interface WithoutFeatureFlagFiltersKeys {
+    groups?: never
+    multivariate?: never
+    payloads?: never
+    early_exit?: never
+    feature_enrollment?: never
+    holdout?: never
+    holdout_groups?: never
+    super_groups?: never
+}
+
+export type FeatureFlagRulesV2ReturnType = 'boolean' | 'string' | 'number' | 'object'
+
+interface FeatureFlagRulesV2RuleBase {
+    id: string
+    targeting: { properties: AnyPropertyFilter[] }
+    description?: string
+    metadata?: Record<string, unknown>
+    value: JsonType
+}
+
+interface FeatureFlagRulesV2RolloutFields {
+    rollout_percentage: number
+    on_rollout_miss: 'continue' | 'return_default'
+    assignment_algorithm: string
+    seed: string
+    assign_by?: 'person'
+}
+
+export interface FeatureFlagRulesV2TargetedReleaseRule extends FeatureFlagRulesV2RuleBase {
+    rule_type: 'targeted_release'
+}
+
+export interface FeatureFlagRulesV2PercentageRolloutRule
+    extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
+    rule_type: 'percentage_rollout'
+}
+
+export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
+    rule_type: 'experiment'
+    experiment_id: number
+    paused: boolean
+    variants: { key: string; weight: number; value: JsonType }[]
+    holdout?: { id: number; seed: string; exclusion_percentage: number }
+}
+
+export type FeatureFlagRulesV2Rule =
+    | FeatureFlagRulesV2TargetedReleaseRule
+    | FeatureFlagRulesV2PercentageRolloutRule
+    | FeatureFlagRulesV2ExperimentRule
+
+/** Config version 2: an ordered rule list. Read-only in this frontend; the API returns it under `filters` unchanged. */
+export interface FeatureFlagRulesV2Config extends WithoutFeatureFlagFiltersKeys {
+    version: 2
+    return_type: FeatureFlagRulesV2ReturnType
+    default_value: JsonType | null
+    rules: FeatureFlagRulesV2Rule[]
+    aggregation_group_type_index?: integer | null
+}
+
+export interface FeatureFlagUnsupportedConfig extends WithoutFeatureFlagFiltersKeys {
+    version: number
+    aggregation_group_type_index?: never
+}
+
+/** A rule while the editor drafts it: a new rule has no `id` until the server assigns one, and no draft holds a `seed`. */
+export type FeatureFlagRulesV2DraftRule =
+    | (Omit<FeatureFlagRulesV2TargetedReleaseRule, 'id'> & { id?: string })
+    | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string })
+
+export interface FeatureFlagRulesV2DraftConfig extends Omit<FeatureFlagRulesV2Config, 'rules'> {
+    rules: FeatureFlagRulesV2DraftRule[]
+}
+
+/** What the API stores under a flag's `filters`, discriminated by `version` (absent means 1). */
+export type FeatureFlagConfig = FeatureFlagFilters | FeatureFlagRulesV2Config | FeatureFlagUnsupportedConfig
+
 export interface FeatureFlagBasicType {
     id: number
     team_id: TeamType['id']
     key: string
     /* The description field (the name is a misnomer because of its legacy). */
     name: string
-    filters: FeatureFlagFilters
+    filters: FeatureFlagConfig
     deleted: boolean
     active: boolean
     ensure_experience_continuity: boolean | null
@@ -4503,12 +4631,14 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_used_in_replay_settings?: boolean
 }
 
+export type FeatureFlagWithV1Config = FeatureFlagType & { filters: FeatureFlagFilters }
+
 export interface OrganizationFeatureFlag {
     flag_id: number | null
     team_id: number | null
     created_by: UserBasicType | null
     created_at: string | null
-    filters: FeatureFlagFilters
+    filters: FeatureFlagConfig
     active: boolean
     evaluations_7d?: number | null
 }
@@ -4522,7 +4652,7 @@ export interface OrganizationFeatureFlagRow {
     // (already on the row). created_by/created_at are omitted: the grid never renders them, and
     // serializing created_by would force a per-row join.
     active: boolean
-    filters: FeatureFlagFilters
+    filters: FeatureFlagConfig
 }
 
 export interface OrganizationFeatureFlagKeysResponse {
@@ -4630,7 +4760,7 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
-// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
+// Keep in sync with products/feature_flags/backend/models/scheduled_change.py RecurrenceInterval
 export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',
@@ -4751,8 +4881,8 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
-    /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
-    ai_gateway_url?: string | null
+    /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
+    webmcp_available?: boolean
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -4815,6 +4945,7 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '0'
     | '1'
     | '2'
     | '3'
@@ -4833,6 +4964,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
+    | 'minus'
     | 'delete'
     | 'atsign'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
@@ -4990,15 +5122,6 @@ export interface Group {
     notebook: string | null
 }
 
-export interface UserInterviewType {
-    id: string
-    created_by: UserBasicType
-    created_at: string
-    transcript: string
-    summary: string
-    interviewee_emails: string[]
-}
-
 export enum ExperimentConclusion {
     Won = 'won',
     Lost = 'lost',
@@ -5085,6 +5208,8 @@ export interface Experiment {
     is_legacy?: boolean
     /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
+    /** Server-computed health check findings. Null for people without the health findings flag, absent on locally-constructed experiments. */
+    health?: ExperimentHealthApi | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5220,6 +5345,7 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
@@ -5633,19 +5759,21 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'apns',
+    'apple-ads',
     'postgresql',
     'aws-s3',
     'aws-redshift',
     's3-compatible',
     'snowflake',
     'youtube-analytics',
+    'twitter-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 
 // Canonical bot scopes PostHog requests during the Slack OAuth install flow. Single source of
 // truth for both the frontend (app-manifest snippet + IntegrationView scope-mismatch banner)
-// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration.py, via posthog/schema.py).
+// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration/oauth.py, via posthog/schema.py).
 // Widening this list will surface the "Required scopes are missing" banner for any workspace
 // authorized before the change.
 //
@@ -5684,7 +5812,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // Nothing is pending Slack app-directory review right now, so there is no in-review list.
 // To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
 // enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration.py) and `useSlackRequiredScopes` append it on
+// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
 // DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
 // The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
 // `hogli build:schema` fails on it.
@@ -6078,6 +6206,7 @@ export enum ActivityScope {
     GENERATED_WIDGET = 'GeneratedWidget',
     CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
+    CROSS_PROJECT_DASHBOARD = 'CrossProjectDashboard',
     REPLAY = 'Replay',
     REPLAY_SCANNER = 'ReplayScanner',
     VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
@@ -6099,7 +6228,6 @@ export enum ActivityScope {
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     DATA_QUALITY_CHECK = 'DataQualityCheck',
-    USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
     EVALUATION = 'Evaluation',
@@ -6120,6 +6248,9 @@ export enum ActivityScope {
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
     STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
+    REVIEW_REPOSITORY = 'ReviewRepository',
+    REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
+    REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
 }
 
 export type CommentType = {
@@ -6251,7 +6382,7 @@ export interface DataWarehouseSavedQuery {
     /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
      * for example on its first run or after the query changes. */
     is_incremental?: boolean
-    /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
+    /** Engine → suspension details */
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
     created_at?: string
@@ -6409,6 +6540,7 @@ export interface ExternalDataSource {
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    connection_warning?: string | null
 }
 
 export interface ExternalDataSourceApiVersionDeprecation {
@@ -6614,6 +6746,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
      */
     row_filters?: RowFilter[] | null
+    /** Columns a row filter may use; null means any column in `available_columns`. */
+    row_filter_columns?: readonly RowFilterColumnApi[] | null
     /** User-managed vendor API version override; null syncs on the source's pinned version */
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
@@ -6891,8 +7025,6 @@ export type DataWarehouseSyncInterval =
 export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
-    // User provided data for the export. This is the data that the user
-    // provides when creating the export.
     id: string
     team_id: number
     name: string
@@ -6906,6 +7038,8 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    hogql_query?: BatchExportApi['hogql_query']
+    hogql_modifiers?: BatchExportApi['hogql_modifiers']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
@@ -7168,6 +7302,10 @@ export enum SidePanelTab {
     /** Access detail for one member or role. Opened programmatically from access control settings. */
     AccessDetail = 'access-detail',
     Info = 'info',
+    // A canvas scene replaces the general tabs with its own panel tabs.
+    CanvasChat = 'canvas-chat',
+    CanvasBlocks = 'canvas-blocks',
+    CanvasTimeline = 'canvas-timeline',
 }
 
 export interface ProductPricingTierSubrows {
@@ -7312,6 +7450,7 @@ export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
 
 export type CyclotronJobFilterPropertyFilter =
     | EventPropertyFilter
+    | EventMetadataPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter
@@ -7395,6 +7534,8 @@ export type HogFunctionConfigurationContextId =
     | 'batch-export-alerts'
     | 'billing-alerts'
     | 'replay-vision-alerts'
+    | 'data-warehouse-alerts'
+    | 'replay-vision-requests'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7416,6 +7557,11 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-firing'
     | 'health-check-resolved'
     | 'batch-export-run-failed'
+    | 'data-warehouse-sync-failed'
+    | 'data-warehouse-sync-recovered'
+    | 'data-warehouse-sync-completed'
+    | 'data-warehouse-billing-limit-reached'
+    | 'replay-vision-request-completed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -7757,6 +7903,8 @@ export type FileSystemIconColor = [string] | [string, string]
 
 export interface FileSystemType {
     href?: (ref: string) => string
+    // The product's own list page, which Library opens for this type instead of its generic table
+    listHref?: () => string
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled
@@ -7883,19 +8031,6 @@ export interface EmailSenderDomainStatus {
               priority?: number
           }
     )[]
-}
-
-// Representation of a `Link` model in our backend
-export type LinkType = {
-    id: string
-    redirect_url: string
-    short_link_domain: string
-    short_code: string
-    description?: string
-    created_by: UserBasicType
-    created_at: string
-    updated_at: string
-    _create_in_folder?: string | null
 }
 
 export interface DataWarehouseSourceRowCount {

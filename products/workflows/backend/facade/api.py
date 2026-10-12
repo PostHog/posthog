@@ -15,10 +15,19 @@ from products.workflows.backend.facade.contracts import (
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
+    WorkflowAccessDenied,
     WorkflowActivitySummary,
+    WorkflowArchived,
+    WorkflowNotFound,
     WorkflowSummary,
+    WorkflowTaskDailyLimits,
 )
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.services.batch_jobs import create_batch_job
+from products.workflows.backend.services.default_email_sender import (
+    clear_default_email_sender,
+    set_default_email_sender_if_unset,
+)
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -39,31 +48,25 @@ from products.workflows.backend.utils.email_sending_tiers import (
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 __all__ = [
+    "WorkflowAccessDenied",
+    "WorkflowArchived",
+    "WorkflowNotFound",
     "MIN_EMAIL_SENDING_TIER",
+    "clear_default_email_sender",
     "compute_next_occurrences",
+    "create_batch_job",
     "ensure_workflows_config",
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_hog_flows_referencing_template_input_keys",
     "max_email_sending_tier",
+    "set_default_email_sender_if_unset",
     "set_email_sending_tier",
     "suspend_email_sending",
     "unsuspend_email_sending",
     "validate_rrule",
 ]
-
-
-class WorkflowNotFound(Exception):
-    pass
-
-
-class WorkflowAccessDenied(Exception):
-    pass
-
-
-class WorkflowArchived(Exception):
-    pass
 
 
 def search_workflows(
@@ -134,6 +137,24 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         raise WorkflowNotFound() from None
 
 
+def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
+    return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
+
+
+def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowTaskDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowTaskDailyLimits(
+        per_workflow=config.workflow_task_rate_limit_per_day,
+        per_team=config.workflow_task_team_rate_limit_per_day,
+    )
+
+
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """The inbound GitHub App webhook enters workflows here, so its consumer needs no internal import."""
     # Deferred to keep the Kafka producer off the facade import path.
@@ -148,45 +169,6 @@ def accept_ses_event(delivery: WebhookDelivery) -> None:
     from products.workflows.backend.services.ses_tenant_events import handle_ses_tenant_event  # noqa: PLC0415
 
     handle_ses_tenant_event(delivery)
-
-
-def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabled: bool) -> str:
-    """Flip a workflow between ``active`` and ``draft`` as ``user_id`` and return the new status.
-
-    The same transition the lifecycle API tools make (enable is ``active``, disable is
-    ``draft``); the scheduler fires only active workflows, so a disabled one stops at its
-    next occurrence and keeps its schedule for when it is enabled again. Archived workflows
-    are left alone. The user must hold editor access to the workflow, as in the API.
-    """
-    from posthog.models.user import User  # noqa: PLC0415 — keeps the user model off the facade import path
-
-    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 - heavy DRF import
-        HogFlowSerializer,
-    )
-
-    hog_flow = HogFlow.objects.select_related("team").filter(team_id=team_id, id=workflow_id).first()
-    if hog_flow is None:
-        raise WorkflowNotFound()
-    if hog_flow.status == HogFlow.State.ARCHIVED:
-        raise WorkflowArchived()
-    user = User.objects.get(id=user_id)
-    if not UserAccessControl(user=user, team=hog_flow.team).check_access_level_for_object(hog_flow, "editor"):
-        raise WorkflowAccessDenied()
-    target = HogFlow.State.ACTIVE if enabled else HogFlow.State.DRAFT
-    if hog_flow.status != target:
-        if enabled:
-            serializer = HogFlowSerializer(
-                hog_flow,
-                data={"status": target},
-                partial=True,
-                context={"team_id": team_id, "get_team": lambda: hog_flow.team},
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-        else:
-            hog_flow.status = target
-            hog_flow.save(update_fields=["status", "updated_at"])
-    return str(hog_flow.status)
 
 
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:

@@ -110,11 +110,13 @@ export function ScoutRunBoxes({
             {newestFirst.map(({ run, outcome, expensive, tooltip }) => {
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
                 const boxTooltip = run.task_url ? `${tooltip} · open task run` : tooltip
-                const label = <span className="sr-only">Run {boxTooltip}</span>
+                // The label is an attribute, not an `sr-only` child: the roster renders a strip per
+                // scout, so one more node per box adds thousands of nodes to a large fleet.
+                const label = `Run ${boxTooltip}`
                 const column = (
                     <>
                         {expensive ? <span className={MARKER_CLASS} /> : null}
-                        <span className={boxClass}>{label}</span>
+                        <span className={boxClass} role="img" aria-label={label} />
                     </>
                 )
                 // The whole column links, not only the box, because the tooltip spans the column

@@ -7,7 +7,9 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
@@ -26,9 +28,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/frontend/CrossProjectDashboardsList'
+import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsTableContainer } from './DashboardsTable'
+import { NewDashboardMenu } from './NewDashboardMenu'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -42,6 +47,9 @@ export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
+    const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
@@ -50,6 +58,7 @@ export function Dashboards(): JSX.Element {
             label: 'All dashboards',
         },
         { key: DashboardsTab.Yours, label: 'My dashboards' },
+        ...(crossProjectEnabled ? [{ key: DashboardsTab.CrossProject, label: 'Cross-project dashboards' }] : []),
     ]
 
     return (
@@ -58,7 +67,7 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <LemonModal
-                title="Dashboard templates"
+                title="Manage templates"
                 isOpen={templatesModalOpen}
                 onClose={() =>
                     router.actions.push(urls.dashboards(), {
@@ -82,7 +91,9 @@ export function Dashboards(): JSX.Element {
                     type: sceneConfigurations[Scene.Dashboards].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
+                    crossProjectTabOpen ? (
+                        <NewCrossProjectDashboardButton />
+                    ) : (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -101,18 +112,19 @@ export function Dashboards(): JSX.Element {
                                     type="primary"
                                     sideAction={{
                                         icon: <IconChevronDown />,
-                                        tooltip: 'View dashboard templates',
-                                        'aria-label': 'View dashboard templates',
-                                        'data-attr': 'view-dashboard-templates',
-                                        onClick: () =>
-                                            router.actions.push(urls.dashboards(), { ...searchParams, templates: '1' }),
+                                        'aria-label': 'More dashboard options',
+                                        'data-attr': 'new-dashboard-dropdown',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: <NewDashboardMenu />,
+                                        },
                                     }}
                                 >
                                     New dashboard
                                 </LemonButton>
                             </Shortcut>
                         </AccessControlAction>
-                    </>
+                    )
                 }
             />
             <LemonTabs
@@ -124,7 +136,13 @@ export function Dashboards(): JSX.Element {
                 sceneInset
             />
 
-            <div>{dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}</div>
+            {crossProjectTabOpen ? (
+                <CrossProjectDashboardsList />
+            ) : (
+                <div>
+                    {dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}
+                </div>
+            )}
         </SceneContent>
     )
 }

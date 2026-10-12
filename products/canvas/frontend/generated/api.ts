@@ -24,6 +24,7 @@ import type {
     CanvasConnectorCallResultApi,
     CanvasConnectorsResponseApi,
     CanvasCreateApi,
+    CanvasDraftApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
     CanvasLayoutPatchApi,
@@ -52,14 +53,12 @@ import type {
     CanvasesCommentsListParams,
     CanvasesCommentsRetrieveParams,
     CanvasesConnectorsRetrieveParams,
-    CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
     CanvasesStateValueRetrieveParams,
     CanvasesVersionsRetrieveParams,
-    PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
     PaginatedCanvasVersionListApi,
     PatchedCanvasUpdateApi,
@@ -376,20 +375,8 @@ export const canvasesDraftCreate = async (
     })
 }
 
-export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string, params?: CanvasesDraftsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/canvases/${id}/drafts/?${stringifiedParams}`
-        : `/api/projects/${projectId}/canvases/${id}/drafts/`
+export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/drafts/`
 }
 
 /**
@@ -401,10 +388,9 @@ export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string, para
 export const canvasesDraftsRetrieve = async (
     projectId: string,
     id: string,
-    params?: CanvasesDraftsRetrieveParams,
     options?: RequestInit
-): Promise<PaginatedCanvasDraftListApi> => {
-    return apiMutator<PaginatedCanvasDraftListApi>(getCanvasesDraftsRetrieveUrl(projectId, id, params), {
+): Promise<CanvasDraftApi[]> => {
+    return apiMutator<CanvasDraftApi[]>(getCanvasesDraftsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

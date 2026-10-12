@@ -153,7 +153,7 @@ const CHECK_COLUMNS: LemonTableColumns<DataQualityOverviewCheckApi> = [
         key: 'subject',
         render: (_, check) =>
             check.subject_node_id ? (
-                <Link to={urls.nodeDetail(check.subject_node_id, 'tests')}>{check.subject_name}</Link>
+                <Link to={urls.nodeDetail(check.subject_node_id, 'data-quality')}>{check.subject_name}</Link>
             ) : (
                 check.subject_name
             ),

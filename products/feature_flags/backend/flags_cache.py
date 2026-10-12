@@ -72,12 +72,16 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
-from products.feature_flags.backend.facade.config import detect_config_format
-from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    UnsupportedConfig,
+    decode_config,
+    detect_config_format,
+)
+from products.feature_flags.backend.facade.references import FlagReferences, references
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
-from products.feature_flags.backend.types import FlagProperty
 
 logger = structlog.get_logger(__name__)
 
@@ -102,15 +106,17 @@ def _is_unevaluable(flag_data: dict[str, Any]) -> bool:
     return not flag_data.get("active", True) or flag_data.get("deleted", False)
 
 
-def _parse_dependency_ids(properties: list[FlagProperty]) -> set[int]:
-    """The integer flag ids the flag-reference properties name; any other ``key`` is skipped."""
-    dep_ids: set[int] = set()
-    for prop in properties:
-        try:
-            dep_ids.add(int(prop["key"]))
-        except (ValueError, KeyError, TypeError):
-            continue
-    return dep_ids
+def _evaluated_references(flag_data: dict[str, Any]) -> FlagReferences:
+    """The references of a serialized flag the matcher reads, and none for an unevaluable
+    flag, whose filters it skips.
+
+    Only flags that passed ``_omit_unsupported_flags`` are serialized, so the document is
+    a readable config version 1 or a supported v2 document.
+    """
+    if _is_unevaluable(flag_data):
+        return FlagReferences()
+    config = decode_config(flag_data.get("filters", {}))
+    return FlagReferences() if isinstance(config, UnsupportedConfig) else references(config)
 
 
 def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
@@ -118,19 +124,9 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     Extract direct flag dependency IDs from a serialized flag's filters.
 
     Inactive/deleted flags return empty deps before their filters are read, to
-    match Rust's extract_dependencies behavior. Only flags that passed
-    ``_omit_unsupported_flags`` are serialized, so every other document here is a
-    readable config version 1 or a supported v2 document, which has no dependencies.
+    match Rust's extract_dependencies behavior. A ``key`` that is not an integer id is skipped.
     """
-    if not _reads_v1_conditions(flag_data):
-        return set()
-    return _parse_dependency_ids(flag_dependency_properties(flag_data.get("filters", {})))
-
-
-def _reads_v1_conditions(flag_data: dict[str, Any]) -> bool:
-    """Whether a serialized flag's release conditions are read: evaluable, and a v1
-    document (a kept v2 document has no cohort or flag references)."""
-    return not _is_unevaluable(flag_data) and detect_config_format(flag_data.get("filters", {})).kind == "v1"
+    return set(_evaluated_references(flag_data).flag_ids)
 
 
 def _validates_v2(filters: Mapping[str, Any]) -> bool:
@@ -161,25 +157,26 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     cache cannot carry the row.
 
     A non-object document and an unsupported discriminator are rejected whatever the
-    row's lifecycle. A v2 document is carried verbatim, with no dependencies, only when
-    the row is active and ``_validates_v2`` admits it. Any other v2 row is rejected, so an
-    inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
-    not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
-    conditions cannot be read is rejected instead of failing the team.
+    row's lifecycle. A v2 document is carried verbatim only when the row is active and
+    ``_validates_v2`` admits it. Any other v2 row is rejected, so an inactive v2 row is
+    never blanked into a v1-shaped entry. An unevaluable v1 object is not read, since
+    ``_blank_inactive_filters`` empties it; an evaluable one whose conditions cannot be
+    read is rejected instead of failing the team.
     """
     filters = flag.filters
     if not isinstance(filters, Mapping):
         return None
     kind = detect_config_format(filters).kind
     if kind == "v2":
-        return set() if flag.active and not flag.deleted and _validates_v2(filters) else None
-    if kind != "v1":
+        if not (flag.active and not flag.deleted and _validates_v2(filters)):
+            return None
+    elif kind != "v1":
         return None
-    if not flag.active or flag.deleted:
+    elif not flag.active or flag.deleted:
         return set()
     try:
-        return _parse_dependency_ids(flag_dependency_properties(filters))
-    except (AttributeError, TypeError):
+        return set(references(decode_config(filters)).flag_ids)
+    except (AttributeError, TypeError, ConfigFormatError):
         return None
 
 
@@ -257,9 +254,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if not _reads_v1_conditions(flag):
-            continue
-        cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
+        cohort_ids.update(_evaluated_references(flag).cohort_ids)
     return cohort_ids
 
 

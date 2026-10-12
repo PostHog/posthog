@@ -21,13 +21,15 @@ rules:
           - metavariable-regex:
                 metavariable: $HEADER
                 regex: (?i)^["']?content-security-policy(-report-only)?["']?$
-          # Three documents sandbox untrusted HTML, so each carries a policy of its own rather than
-          # the app policy. Each exception names the policy it allows, not the file, so a fourth
-          # document in the same file trips the rule, and a change to one of these three policies
+          # Four documents sandbox untrusted HTML, so each carries a policy of its own rather than
+          # the app policy. Each exception names the policy it allows, not the file, so a fifth
+          # document in the same file trips the rule, and a change to one of these four policies
           # trips it too. Each exception also pins the enforced header name, because the `sandbox`
-          # directive these three documents rely on has no effect when a browser gets the policy as
+          # directive these four documents rely on has no effect when a browser gets the policy as
           # `Content-Security-Policy-Report-Only`. Adding an exception needs a team-security review.
           - pattern-not: $RESPONSE["Content-Security-Policy"] = artifact_csp(...)
+          # The draft canvas policy is server-defined and requires team-security review.
+          - pattern-not: $RESPONSE["Content-Security-Policy"] = _canvas_sandbox_document_csp(...)
           - pattern-not: $RESPONSE["Content-Security-Policy"] = _public_survey_csp(...)
           - pattern-not: >-
                 $RESPONSE["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src https:

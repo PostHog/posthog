@@ -12,6 +12,8 @@ import type {
     BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
+    BusinessKnowledgeRepositoriesFileRetrieveParams,
+    BusinessKnowledgeRepositoriesSearchParams,
     BusinessKnowledgeSettingsApi,
     BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
@@ -31,6 +33,11 @@ import type {
     PatchedUpdateTextSourceApi,
     PlaygroundChatApi,
     PlaygroundChatListApi,
+    RepositoryConnectApi,
+    RepositoryConnectionApi,
+    RepositoryFileApi,
+    RepositorySearchResponseApi,
+    RepositorySelectionApi,
     SandboxQuestionApi,
     SandboxRunApi,
     SandboxRunStartedApi,
@@ -348,6 +355,152 @@ export const businessKnowledgePlaygroundChatsAskCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sandboxQuestionApi),
+    })
+}
+
+export const getBusinessKnowledgeRepositoriesConnectCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/repositories/connect/`
+}
+
+/**
+ * Stores the installation for this environment. Switching installations clears the selected repositories.
+ * @summary Connect a GitHub installation to business knowledge
+ */
+export const businessKnowledgeRepositoriesConnectCreate = async (
+    projectId: string,
+    repositoryConnectApi: RepositoryConnectApi,
+    options?: RequestInit
+): Promise<RepositoryConnectionApi> => {
+    return apiMutator<RepositoryConnectionApi>(getBusinessKnowledgeRepositoriesConnectCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(repositoryConnectApi),
+    })
+}
+
+export const getBusinessKnowledgeRepositoriesDisconnectCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/repositories/disconnect/`
+}
+
+/**
+ * Clears the installation and the selected repositories for this environment.
+ * @summary Disconnect GitHub from business knowledge
+ */
+export const businessKnowledgeRepositoriesDisconnectCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RepositoryConnectionApi> => {
+    return apiMutator<RepositoryConnectionApi>(getBusinessKnowledgeRepositoriesDisconnectCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getBusinessKnowledgeRepositoriesFileRetrieveUrl = (
+    projectId: string,
+    params: BusinessKnowledgeRepositoriesFileRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/repositories/file/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/repositories/file/`
+}
+
+/**
+ * Reads one file whose path is in the cached file list, at the cached commit. The path must come from the repository search.
+ * @summary Read a file from a selected GitHub repository
+ */
+export const businessKnowledgeRepositoriesFileRetrieve = async (
+    projectId: string,
+    params: BusinessKnowledgeRepositoriesFileRetrieveParams,
+    options?: RequestInit
+): Promise<RepositoryFileApi> => {
+    return apiMutator<RepositoryFileApi>(getBusinessKnowledgeRepositoriesFileRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeRepositoriesSearchUrl = (
+    projectId: string,
+    params: BusinessKnowledgeRepositoriesSearchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/repositories/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/repositories/search/`
+}
+
+/**
+ * Matches file paths and README text in the cached default-branch file list. Pass file names or identifiers, then read a file. Does not search file contents.
+ * @summary Search selected GitHub repositories
+ */
+export const businessKnowledgeRepositoriesSearch = async (
+    projectId: string,
+    params: BusinessKnowledgeRepositoriesSearchParams,
+    options?: RequestInit
+): Promise<RepositorySearchResponseApi> => {
+    return apiMutator<RepositorySearchResponseApi>(getBusinessKnowledgeRepositoriesSearchUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeRepositoriesSelectionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/repositories/selection/`
+}
+
+/**
+ * Every name must be a repository the connected installation can see. Names are stored lowercased.
+ * @summary Replace the repositories business knowledge can read
+ */
+export const businessKnowledgeRepositoriesSelectionCreate = async (
+    projectId: string,
+    repositorySelectionApi: RepositorySelectionApi,
+    options?: RequestInit
+): Promise<RepositoryConnectionApi> => {
+    return apiMutator<RepositoryConnectionApi>(getBusinessKnowledgeRepositoriesSelectionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(repositorySelectionApi),
+    })
+}
+
+export const getBusinessKnowledgeRepositoriesStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/repositories/status/`
+}
+
+/**
+ * The GitHub installation and the repositories this environment allows business knowledge to read.
+ * @summary Get the GitHub repositories connected to business knowledge
+ */
+export const businessKnowledgeRepositoriesStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RepositoryConnectionApi> => {
+    return apiMutator<RepositoryConnectionApi>(getBusinessKnowledgeRepositoriesStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

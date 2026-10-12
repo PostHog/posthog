@@ -13,6 +13,29 @@ use uuid::Uuid;
 pub mod common;
 #[path = "test_rules_v2_evaluation/corpus.rs"]
 mod corpus;
+#[path = "test_rules_v2_evaluation/wire.rs"]
+mod wire;
+
+/// `wire::validate_v3` accepts every wire fixture case marked `valid` and fails every other
+/// case at the layer its `expected_failure.layer` declares.
+#[test]
+fn vendored_response_fixtures_agree_with_the_validator() {
+    let fixtures = corpus::load("fixtures/wire/responses.json");
+    let (mut valid, mut invalid) = (0, 0);
+    for case in fixtures["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let verdict = wire::validate_v3(&wire::fixture_case(&fixtures, case));
+        if case["expected"] == "valid" {
+            assert_eq!(verdict, Ok(()), "{id}");
+            valid += 1;
+        } else {
+            let (layer, detail) = verdict.expect_err(id);
+            assert_eq!(layer, case["expected_failure"]["layer"], "{id}: {detail}");
+            invalid += 1;
+        }
+    }
+    assert_eq!((valid, invalid), (25, 125));
+}
 
 #[test]
 fn pinned_evaluation_artifact_subset_is_intact() {
@@ -21,7 +44,7 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     assert_eq!(revision.len(), 40);
     assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
     assert_eq!(source["release_status"], "released");
-    assert_eq!(source["source_release"], "1.8.0");
+    assert_eq!(source["source_release"], "1.13.1");
     let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),
@@ -51,41 +74,51 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     }
     let manifest = corpus::load("manifest.json");
     assert_eq!(manifest["contract"]["version"], source["contract_version"]);
-    assert_eq!(
-        manifest["v2_boolean_evaluation"]["version"],
-        source["v2_boolean_evaluation_version"]
-    );
-    let cases = corpus::cases();
-    let ids: Vec<_> = cases.iter().map(|case| case["id"].clone()).collect();
-    let artifact = manifest["artifacts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|artifact| artifact["path"] == "corpus/v2_boolean_evaluation.json")
-        .unwrap();
-    assert_eq!(json!(ids), artifact["case_ids"]);
-    assert_eq!(
-        ids.iter()
-            .map(Value::to_string)
-            .collect::<BTreeSet<_>>()
-            .len(),
-        ids.len()
-    );
     let mut counts = BTreeMap::new();
-    for case in &cases {
-        *counts.entry(case["family"].as_str().unwrap()).or_insert(0) += 1;
+    for (component, cases) in [
+        ("v2_boolean_evaluation", corpus::cases()),
+        ("v2_value_evaluation", corpus::value_cases()),
+    ] {
+        assert_eq!(
+            manifest[component]["version"],
+            source[format!("{component}_version")]
+        );
+        let ids: Vec<_> = cases.iter().map(|case| case["id"].clone()).collect();
+        let artifact = manifest["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|artifact| artifact["path"] == format!("corpus/{component}.json"))
+            .unwrap();
+        assert_eq!(json!(ids), artifact["case_ids"]);
+        assert_eq!(
+            ids.iter()
+                .map(Value::to_string)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            ids.len()
+        );
+        for case in &cases {
+            *counts
+                .entry((component, case["family"].as_str().unwrap().to_owned()))
+                .or_insert(0) += 1;
+        }
     }
+    let family = |component, family: &str, count| ((component, family.to_owned()), count);
     assert_eq!(
         counts,
         BTreeMap::from([
-            ("ordering", 18),
-            ("properties", 67),
-            ("context", 8),
-            ("errors", 6),
-            ("hashing", 21),
-            ("white_box", 10),
-            ("eligibility", 3),
-            ("parser", 2),
+            family("v2_boolean_evaluation", "ordering", 18),
+            family("v2_boolean_evaluation", "properties", 67),
+            family("v2_boolean_evaluation", "context", 8),
+            family("v2_boolean_evaluation", "errors", 6),
+            family("v2_boolean_evaluation", "hashing", 21),
+            family("v2_boolean_evaluation", "white_box", 10),
+            family("v2_boolean_evaluation", "eligibility", 3),
+            family("v2_boolean_evaluation", "parser", 2),
+            family("v2_value_evaluation", "ordering", 27),
+            family("v2_value_evaluation", "values", 11),
+            family("v2_value_evaluation", "parser", 11),
         ])
     );
 }
@@ -94,11 +127,11 @@ fn pinned_evaluation_artifact_subset_is_intact() {
 fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
     let mut executed = 0;
     let mut rejected = 0;
-    for case in corpus::cases() {
+    for case in corpus::cases().into_iter().chain(corpus::value_cases()) {
         let id = case["id"].as_str().unwrap();
         match case["family"].as_str().unwrap() {
             "white_box" | "eligibility" => continue,
-            "ordering" | "properties" | "context" | "errors" | "hashing" | "parser" => {}
+            "ordering" | "properties" | "context" | "errors" | "hashing" | "values" | "parser" => {}
             other => panic!("unhandled family: {other}"),
         }
         let flag = corpus::read(&case);
@@ -171,7 +204,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120, 2));
+    assert_eq!((executed, rejected), (120 + 38, 2 + 11));
 }
 
 #[tokio::test]
@@ -386,7 +419,8 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
 #[tokio::test]
 async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
     use feature_flags::api::types::{
-        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, LegacyFlagsResponse,
+        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, FlagsResponseV3,
+        LegacyFlagsResponse,
     };
     use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
     use feature_flags::flags::flag_matching::FeatureFlagMatcher;
@@ -402,7 +436,7 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         None,
     ));
     let (mut projected, mut direct, mut skipped) = (0, 0, 0);
-    for case in corpus::cases() {
+    for case in corpus::cases().into_iter().chain(corpus::value_cases()) {
         let id = case["id"].as_str().unwrap();
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
@@ -431,7 +465,18 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         .with_now(context.now);
         let expected = &case["expected"];
         let failed = expected["status"] != "success";
-        let enabled = expected["value"].as_bool().unwrap_or(false);
+        let legacy = case.get("legacy").cloned().unwrap_or_else(|| {
+            let enabled = expected["value"].as_bool().unwrap_or(false);
+            json!({"enabled": enabled, "variant": null, "value": enabled, "payload": null})
+        });
+        let enabled = legacy["enabled"].as_bool().unwrap();
+        let variant = legacy["variant"].as_str().map(str::to_owned);
+        let payload = Some(&legacy["payload"]).filter(|payload| !payload.is_null());
+        let decoded = |payload: &Option<Value>| {
+            payload
+                .as_ref()
+                .map(|p| serde_json::from_str::<Value>(p.as_str().unwrap()).unwrap())
+        };
         let reason = match expected["reason"].as_str() {
             Some("targeting_match") => "condition_match",
             Some("rollout_miss") => "out_of_rollout_bound",
@@ -453,7 +498,11 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                         (enabled, reason.to_string(), rule_index.map(|i| i as usize)),
                         "{id}"
                     );
-                    assert_eq!((outcome.variant, outcome.payload), (None, None), "{id}");
+                    assert_eq!(
+                        (outcome.variant, decoded(&outcome.payload).as_ref()),
+                        (variant, payload),
+                        "{id}"
+                    );
                 }
                 Err(error) => {
                     assert!(failed, "{id}");
@@ -495,9 +544,9 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 details.failed,
                 details.enabled,
                 &details.variant,
-                &details.metadata.payload
+                decoded(&details.metadata.payload).as_ref()
             ),
-            (failed, enabled, &None, &None),
+            (failed, enabled, &variant, payload),
             "{id}"
         );
         assert_eq!(response.errors_while_computing_flags, failed, "{id}");
@@ -518,13 +567,14 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         }
         let wire = serde_json::to_value(&response).unwrap();
         let reparse = || serde_json::from_value::<FlagsResponse>(wire.clone()).unwrap();
-        let legacy = LegacyFlagsResponse::from_response(reparse());
+        let map_value: FlagValue = serde_json::from_value(legacy["value"].clone()).unwrap();
+        let flags_v1 = LegacyFlagsResponse::from_response(reparse());
+        assert_eq!(flags_v1.feature_flags[&key], map_value, "{id}");
         assert_eq!(
-            legacy.feature_flags[&key],
-            FlagValue::Boolean(enabled),
+            decoded(&flags_v1.feature_flag_payloads.get(&key).cloned()).as_ref(),
+            payload,
             "{id}"
         );
-        assert!(legacy.feature_flag_payloads.is_empty(), "{id}");
         assert_eq!(
             DecideV1Response::from_response(reparse())
                 .feature_flags
@@ -536,10 +586,43 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             DecideV2Response::from_response(reparse())
                 .feature_flags
                 .get(&key),
-            enabled.then_some(FlagValue::Boolean(true)).as_ref(),
+            enabled.then_some(map_value).as_ref(),
             "{id}"
         );
+        let v3 = serde_json::to_value(FlagsResponseV3::from_response(response)).unwrap();
+        wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{id}: {error:?}"));
+        let record = &v3["flags"][&key];
+        assert_eq!(record["metadata"]["config_version"], 2, "{id}");
+        assert_eq!(record.get("enabled"), None, "{id}");
+        if failed {
+            assert_eq!(
+                (
+                    &record["value"],
+                    &record["reason"]["code"],
+                    &record["failed"]
+                ),
+                (&Value::Null, &json!("error"), &json!(true)),
+                "{id}"
+            );
+        } else {
+            assert_eq!(record["value"], expected["value"], "{id}");
+            assert_eq!(record["reason"]["code"], expected["reason"], "{id}");
+            assert_eq!(
+                record["reason"]["condition_index"], expected["rule"]["index"],
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_id"),
+                expected["rule"].get("id"),
+                "{id}"
+            );
+            assert_eq!(
+                record["metadata"].get("rule_type"),
+                expected["rule"].get("rule_type"),
+                "{id}"
+            );
+        }
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (114, 8, 13));
+    assert_eq!((projected, direct, skipped), (114 + 49, 8, 13));
 }

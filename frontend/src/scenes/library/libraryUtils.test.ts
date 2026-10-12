@@ -1,6 +1,21 @@
-import { libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
+import {
+    isLibraryType,
+    libraryListHref,
+    libraryObjectHref,
+    libraryObjectName,
+    libraryTypeForPath,
+} from './libraryUtils'
 
 describe('libraryUtils', () => {
+    test.each([
+        ['insight', true],
+        ['feature_flag', true],
+        ['dashboard', false],
+        ['notebook', false],
+        ['task', false],
+    ])('lists %s in Library: %s', (type, listed) => {
+        expect(isLibraryType(type as string)).toBe(listed)
+    })
     test.each([
         ['Unfiled/Insights/Checkout funnel', 'Checkout funnel'],
         ['Unfiled/Insights/Signups a\\/b test', 'Signups a/b test'],
@@ -23,12 +38,26 @@ describe('libraryUtils', () => {
         ['/workflows/abc/workflow', 'workflows'],
         ['/replay/playlists/abc', 'session_recording_playlist'],
         ['/feature_flags', 'feature_flag'],
-        ['/dashboard', 'dashboard'],
+        ['/dashboard', null],
         ['/data-management/actions', 'action'],
         ['/feature_flags/templates', null],
         ['/workflows/library/templates/new', null],
         ['/notebooks/abc', null],
     ])('finds the object type of %s', (path, type) => {
         expect(libraryTypeForPath(path)).toBe(type)
+    })
+
+    test.each([
+        ['feature_flag', '/feature_flags'],
+        ['insight', '/insights'],
+        ['cohort', '/cohorts'],
+        ['session_recording_playlist', '/replay/playlists'],
+        ['not_a_type', null],
+    ])('opens the list page of %s', (type, href) => {
+        const listHref = libraryListHref(type)
+        expect(listHref).toBe(href)
+        if (listHref) {
+            expect(libraryTypeForPath(listHref)).toBe(type)
+        }
     })
 })

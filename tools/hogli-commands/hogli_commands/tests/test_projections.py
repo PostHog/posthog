@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import click
-from hogli_commands.projections import Projection, ProjectionRunner
+from hogli_commands.projections import OutputFormatter, Projection, ProjectionRunner
 
 RENDERER = """
 def render():
@@ -20,9 +20,24 @@ PROJECTION = Projection(
 )
 
 
-def _runner(tmp_path: Path, renderer: str = RENDERER, projection: Projection = PROJECTION) -> ProjectionRunner:
+class UnchangedFormatter(OutputFormatter):
+    def format(self, path: str, text: str) -> str:
+        return text
+
+
+class MarkingFormatter(OutputFormatter):
+    def format(self, path: str, text: str) -> str:
+        return f"// formatted\n{text}"
+
+
+def _runner(
+    tmp_path: Path,
+    renderer: str = RENDERER,
+    projection: Projection = PROJECTION,
+    formatter: type[OutputFormatter] = UnchangedFormatter,
+) -> ProjectionRunner:
     (tmp_path / projection.renderer).write_text(renderer)
-    return ProjectionRunner(tmp_path, [projection])
+    return ProjectionRunner(tmp_path, [projection], formatter(tmp_path))
 
 
 class TestProjectionRunner:
@@ -55,6 +70,17 @@ class TestProjectionRunner:
         assert runner.write(PROJECTION) == ["out/first.generated.ts", "out/second.json"]
         assert runner.stale(PROJECTION) == []
         assert runner.write(PROJECTION) == []
+
+    def test_formatted_output_is_what_gets_compared_and_written(self, tmp_path: Path) -> None:
+        runner = _runner(tmp_path, formatter=MarkingFormatter)
+        (tmp_path / "out").mkdir()
+        (tmp_path / "out/first.generated.ts").write_text("first\n")
+        (tmp_path / "out/second.json").write_text("// formatted\n{}")
+
+        assert runner.stale(PROJECTION) == ["out/first.generated.ts"]
+
+        runner.write(PROJECTION)
+        assert (tmp_path / "out/first.generated.ts").read_text() == "// formatted\nfirst\n"
 
     def test_renderer_outputs_must_match_the_registry(self, tmp_path: Path) -> None:
         undeclared = RENDERER.replace('"out/second.json": "{}"', '"out/other.json": "{}"')

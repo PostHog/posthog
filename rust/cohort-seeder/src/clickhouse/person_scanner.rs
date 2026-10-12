@@ -40,7 +40,7 @@ impl PersonScanner {
         Self { client }
     }
 
-    /// Stream the run's live person ids in ClickHouse order, keeping the first id of every new
+    /// Stream the run's person ids in ClickHouse order, keeping the first id of every new
     /// chunk as a range boundary — memory is bounded by the chunk-count ceiling, never the table
     /// size. When the ceiling saturates, the final unbounded range absorbs the remainder and the
     /// scan stops early rather than failing a run over a column-width constraint.

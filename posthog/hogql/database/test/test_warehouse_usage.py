@@ -114,7 +114,7 @@ class TestWarehouseUsage(BaseTest):
             patch("posthog.hogql.query.sync_execute", return_value=([], [("label", "Nullable(String)")])),
         ):
             response = execute_hogql_query(
-                "SELECT label FROM (SELECT __preview_promptJev(id, 'Refund?') AS label FROM stripe_table_1 LIMIT 10)",
+                "SELECT label FROM (SELECT jev(id, 'Refund?') AS label FROM stripe_table_1 LIMIT 10)",
                 self.team,
                 user=self.user,
             )

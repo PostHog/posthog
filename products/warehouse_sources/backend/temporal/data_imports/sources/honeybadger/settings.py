@@ -1,20 +1,33 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class HoneybadgerEndpointConfig:
     name: str
-    # Path template under the v2 base URL; `{project_id}` / `{fault_id}` are filled in by the fan-out.
+    # Path template under the v2 base URL; `{project_id}` / `{fault_id}` / `{site_id}` are filled in by the fan-out.
     path: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Incremental field name -> query param that server-side filters on it (Unix timestamp).
     incremental_params: dict[str, str] = field(default_factory=dict)
     default_incremental_field: str | None = None
+    # Incremental field name -> query param on the fan-out parent list that the watermark also bounds.
+    parent_incremental_params: dict[str, str] = field(default_factory=dict)
+    # Fan-out parent field -> column injected into each child row.
+    parent_fields: dict[str, str] = field(default_factory=dict)
     partition_key: str | None = None  # Stable creation-time field; never a mutating timestamp
-    fan_out_over_faults: bool = False  # Two-level fan-out: projects -> faults -> {endpoint}
+    # Two-level fan-out: projects -> {parent} -> {endpoint}
+    fan_out_parent: Literal["faults", "sites", "alarms"] | None = None
+    # False for endpoints that return a bare JSON array with no `limit` / `links.next` paging.
+    paginated: bool = True
+    # Key of the row array in a wrapped response.
+    data_selector: str = "results"
+    # Response is `[epoch_seconds, count]` pairs instead of objects.
+    time_series: bool = False
+    query_params: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
 
 
@@ -61,8 +74,9 @@ HONEYBADGER_ENDPOINTS: dict[str, HoneybadgerEndpointConfig] = {
         incremental_fields=[_created_at_field],
         incremental_params={"created_at": "created_after"},
         default_incremental_field="created_at",
+        parent_incremental_params={"created_at": "occurred_after"},
         partition_key="created_at",
-        fan_out_over_faults=True,
+        fan_out_parent="faults",
         # One request per fault minimum against a 360 req/hour quota — opt-in only.
         should_sync_default=False,
     ),
@@ -82,6 +96,103 @@ HONEYBADGER_ENDPOINTS: dict[str, HoneybadgerEndpointConfig] = {
         primary_keys=["project_id", "id"],
         # The sites (uptime checks) list has no server-side timestamp filter.
         incremental_fields=[],
+    ),
+    "environments": HoneybadgerEndpointConfig(
+        name="environments",
+        path="/projects/{project_id}/environments",
+        primary_keys=["project_id", "id"],
+        incremental_fields=[],
+        partition_key="created_at",
+    ),
+    "occurrences": HoneybadgerEndpointConfig(
+        name="occurrences",
+        path="/projects/{project_id}/occurrences",
+        primary_keys=["project_id", "bucket_start"],
+        # The API only serves a rolling window of buckets with no time filter; `month` returns
+        # the most recent month in one-day buckets.
+        incremental_fields=[],
+        partition_key="bucket_start",
+        paginated=False,
+        time_series=True,
+        query_params={"period": "month"},
+    ),
+    "affected_users": HoneybadgerEndpointConfig(
+        name="affected_users",
+        path="/projects/{project_id}/faults/{fault_id}/affected_users",
+        primary_keys=["project_id", "fault_id", "user"],
+        # The endpoint has no time filter, but a fault's affected users only change when it gets
+        # a new notice, so the fault's last notice time bounds the fault enumeration instead.
+        incremental_fields=[
+            {
+                "label": "fault_last_notice_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "fault_last_notice_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        default_incremental_field="fault_last_notice_at",
+        parent_incremental_params={"fault_last_notice_at": "occurred_after"},
+        parent_fields={"last_notice_at": "fault_last_notice_at"},
+        fan_out_parent="faults",
+        paginated=False,
+        # One request per fault against a 360 req/hour quota — opt-in only.
+        should_sync_default=False,
+    ),
+    "outages": HoneybadgerEndpointConfig(
+        name="outages",
+        path="/projects/{project_id}/sites/{site_id}/outages",
+        # Outages have no id of their own.
+        primary_keys=["project_id", "site_id", "created_at"],
+        incremental_fields=[_created_at_field],
+        incremental_params={"created_at": "created_after"},
+        default_incremental_field="created_at",
+        partition_key="created_at",
+        fan_out_parent="sites",
+    ),
+    "uptime_checks": HoneybadgerEndpointConfig(
+        name="uptime_checks",
+        path="/projects/{project_id}/sites/{site_id}/uptime_checks",
+        # Individual check results have no id; a site is checked once per location per run.
+        primary_keys=["project_id", "site_id", "created_at", "location"],
+        incremental_fields=[_created_at_field],
+        incremental_params={"created_at": "created_after"},
+        default_incremental_field="created_at",
+        partition_key="created_at",
+        fan_out_parent="sites",
+        # A site checked every minute from every location produces thousands of rows a day,
+        # 25 per request against a 360 req/hour quota — opt-in only.
+        should_sync_default=False,
+    ),
+    "comments": HoneybadgerEndpointConfig(
+        name="comments",
+        path="/projects/{project_id}/faults/{fault_id}/comments",
+        primary_keys=["project_id", "fault_id", "id"],
+        # The comments list has no server-side timestamp filter, and new comments don't move the
+        # fault's last notice time, so neither the child nor the fault listing can be bounded.
+        incremental_fields=[],
+        partition_key="created_at",
+        fan_out_parent="faults",
+        # One request per fault against a 360 req/hour quota — opt-in only.
+        should_sync_default=False,
+    ),
+    "check_ins": HoneybadgerEndpointConfig(
+        name="check_ins",
+        path="/projects/{project_id}/check_ins",
+        primary_keys=["project_id", "id"],
+        # Check-ins are monitor definitions plus current state, with no timestamp filter.
+        incremental_fields=[],
+    ),
+    "alarm_history": HoneybadgerEndpointConfig(
+        name="alarm_history",
+        path="/projects/{project_id}/alarms/{alarm_id}/history",
+        primary_keys=["project_id", "alarm_id", "id"],
+        # The history list has no server-side timestamp filter.
+        incremental_fields=[],
+        partition_key="created_at",
+        fan_out_parent="alarms",
+        data_selector="triggers",
+        # Alarms are part of Honeybadger Insights, which not every account uses — opt-in only.
+        should_sync_default=False,
     ),
 }
 

@@ -5,13 +5,14 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -56,6 +57,13 @@ class HatchetResumeConfig:
     # offset points at).
     offset: int
     since: str | None = None
+
+
+@frozen
+class HatchetPage:
+    offset: int
+    rows: list[Any]
+    is_last_page: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -224,7 +232,13 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
+) -> Any:
     response = session.get(url, headers=headers, timeout=60)
 
     # 429 and transient 5xx are retryable; auth/permission errors below are not.
@@ -237,6 +251,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         raise HatchetHostNotAllowedError(
             f"Hatchet API returned an unexpected redirect: status={response.status_code}, url={url}"
         )
+
+    if allow_not_found and response.status_code == 404:
+        return None
 
     if not response.ok:
         logger.error(f"Hatchet API error: status={response.status_code}, body={response.text}, url={url}")
@@ -354,6 +371,46 @@ def get_rows(
     # The window actually in use (after any resume override); re-saved state pins this same window.
     effective_since = params.get("since")
 
+    for page in _iter_pages(session, connection, path, params, offset, config, headers, logger):
+        rows = (
+            _iter_fan_out_rows(session, connection, page.rows, config.fan_out_path, config, headers, logger)
+            if config.fan_out_path
+            else (_normalize_row(item) for item in page.rows)
+        )
+        for row in rows:
+            batcher.batch(row)
+            if batcher.should_yield():
+                yield batcher.get_table()
+                # Save state AFTER yielding so a crash re-reads this page rather than skipping it.
+                if not page.is_last_page:
+                    resumable_source_manager.save_state(HatchetResumeConfig(offset=page.offset, since=effective_since))
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
+def _extract_rows(data: Any, config: HatchetEndpointConfig) -> list[Any]:
+    # List endpoints wrap results as `{"rows": [...]}`, but some (e.g. event keys) return a bare
+    # top-level array; take that directly so those endpoints don't silently sync zero rows.
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        rows = data.get(config.response_data_path) or []
+        return rows if isinstance(rows, list) else []
+    return []
+
+
+def _iter_pages(
+    session: requests.Session,
+    connection: HatchetConnection,
+    path: str,
+    params: dict[str, Any],
+    offset: int,
+    config: HatchetEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[HatchetPage]:
+    """Yield each non-empty page of an offset-paginated list."""
     while True:
         # Checkpoint the offset of the page we're about to read. The batcher accumulates across
         # pages and only flushes at its size threshold, so on resume we re-read from this page and
@@ -363,16 +420,9 @@ def get_rows(
         url = _build_url(connection.base_url, path, page_params)
         data = _fetch_page(session, url, headers, logger)
 
-        # List endpoints wrap results as `{"rows": [...]}`, but some (e.g. event keys) return a bare
-        # top-level array; take that directly so those endpoints don't silently sync zero rows.
-        if isinstance(data, list):
-            rows = data
-        elif isinstance(data, dict):
-            rows = data.get(config.response_data_path, [])
-        else:
-            rows = []
-        if not isinstance(rows, list) or not rows:
-            break
+        rows = _extract_rows(data, config)
+        if not rows:
+            return
 
         # A short page is the last page; a full page can still be the last if pagination says so.
         is_last_page = len(rows) < config.page_size
@@ -383,20 +433,42 @@ def get_rows(
             if isinstance(current_page, int) and isinstance(num_pages, int) and current_page >= num_pages:
                 is_last_page = True
 
-        for item in rows:
-            batcher.batch(_normalize_row(item))
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save state AFTER yielding so a crash re-reads this page rather than skipping it.
-                if not is_last_page:
-                    resumable_source_manager.save_state(HatchetResumeConfig(offset=page_offset, since=effective_since))
+        yield HatchetPage(offset=page_offset, rows=rows, is_last_page=is_last_page)
 
         if is_last_page:
-            break
+            return
         offset = page_offset + config.page_size
 
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+
+def _iter_fan_out_rows(
+    session: requests.Session,
+    connection: HatchetConnection,
+    parent_runs: list[Any],
+    fan_out_path: str,
+    config: HatchetEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """Fetch the per-run child rows for one page of parent workflow runs."""
+    for parent in parent_runs:
+        run = _normalize_row(parent)
+        run_id = run.get("id")
+        if not run_id:
+            continue
+
+        child_path = fan_out_path.format(workflow_run=quote(str(run_id), safe=""))
+        data = _fetch_page(
+            session, _build_url(connection.base_url, child_path, {}), headers, logger, allow_not_found=True
+        )
+        # The run was listed but has since aged out of retention; skip it rather than fail the sync.
+        if data is None:
+            continue
+
+        for item in _extract_rows(data, config):
+            row = _normalize_row(item)
+            row["workflow_run_id"] = run_id
+            row["workflow_run_created_at"] = run.get("created_at")
+            yield row
 
 
 def hatchet_source(

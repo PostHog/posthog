@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { IconDocument, IconSearch } from '@posthog/icons'
+import { IconDocument, IconGithub, IconSearch } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -36,7 +36,9 @@ export const PlaygroundTurn = memo(function PlaygroundTurn({ id, question, turn 
                         subtitle={label.subtitle}
                         status="completed"
                         icon={
-                            search.tool === SandboxToolNameEnumApi.BusinessKnowledgeDocumentsSearch ? (
+                            search.tool === SandboxToolNameEnumApi.BusinessKnowledgeRepositoriesSearch ? (
+                                <IconGithub />
+                            ) : search.tool === SandboxToolNameEnumApi.BusinessKnowledgeDocumentsSearch ? (
                                 <IconSearch />
                             ) : (
                                 <IconDocument />

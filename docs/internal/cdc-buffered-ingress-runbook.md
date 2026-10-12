@@ -58,6 +58,11 @@ A reset from slot-invalidation recovery marks the key `awaiting_slot` until the 
 Recovery clears the flag once the slot is back, and so does any read that succeeds, so a failure right after the recreation cannot leave the table waiting for good.
 A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
 They then start a capture run right away, and recreate the capture schedule if it is gone, so the reset does not wait for the next tick. A source that is marked broken, or whose capture is paused after a non-retryable error, is left alone: Repair CDC or resuming capture restarts it.
+A table edit or a sync frequency change rewrites the capture schedule too, and it keeps the pause, so it does not restart capture on such a source either.
+A table edit leaves the table's own schedule as it is while a broken marker holds the source's tables for Repair CDC: turning the table's sync on does not unpause it, and a frequency change keeps whatever pause the schedule has.
+Self-managed critical lag and a billing stop that kept the slot do not pause table schedules, so an edit under those markers leaves them running.
+While a repair holds the source's lock, an edit gets no such hold, because the repair has already listed the tables it will resume.
+Once slot-invalidation recovery has recreated the slot, it removes the markers of the lost slot (`auto_dropped_critical_lag`, `slot_missing`, `publication_missing`), so its tables stop reading as halted. A failed recreation keeps them.
 Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
 The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
@@ -67,11 +72,14 @@ A table whose data was deleted is still streaming but not seeded; its next sync 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the
 floor — the lowest position any of the schema's tables holds — or when it sits exactly at the floor
-and predates a listing by a run that went on to complete every table it writes. The floor alone is
+and a run that went on to complete every table it writes already read it. The floor alone is
 not enough at its own boundary: capture flushes a transaction bigger than its budget across several
 files that all carry that transaction's commit position, so a file at the floor may be the unread
 tail of one. A completed listing is what proves otherwise. For a `both` run, both jobs have to have
 completed, or a file could be deleted while the history table still owed it.
+Each listing records the name and ETag of the files at its highest position, and a file that still
+carries a recorded ETag holds exactly what that run read, so the next run deletes it. A file the
+listing did not record goes once its mtime predates the listing by a clock-skew margin.
 
 **A lane resumes from its own table.** A failed run can leave one table holding rows the other does
 not, so each reads back the highest commit position it holds. The merge lane drops only what is
@@ -129,10 +137,9 @@ columns reports no position on that run, since none of its files carries the sta
 residual buffer is merged once more and billed once; the next write lands with the statistic and the
 position reads normally from then on.
 
-**A run stands down while any delivery for the schema is still in the queue**: a previous attempt
-of this same job, or a batch the retired legacy lane queued before its source was converted. Either
-would write alongside whatever this run reads, and on the append lane that is a second copy of the
-same history. Two scheduled runs cannot overlap on their
+**A run stands down while any delivery for the schema is still in the queue**: a batch that a
+previous attempt of this same job left there. It would write alongside whatever this run reads, and
+on the append lane that is a second copy of the same history. Two scheduled runs cannot overlap on their
 own: the v3 pipeline lock is held from the start of the workflow until the loader completes the
 job. The window is a retried activity, which runs under the lock its own workflow already holds,
 and a lock takeover, which hands the lock to a new job while the old one's batches are still
@@ -140,31 +147,12 @@ queued. The run returns an empty response, which no-ops the tick and keeps the s
 listed, so nothing is read, nothing is deleted, and the tick never counts as proof that a file was
 consumed. The next scheduled run picks the buffer up once the queue has drained.
 
-## Leftover legacy state
+## The `legacy_lane_retired` marker
 
-Capture used to deliver some tables' changes itself, on what is now the retired legacy lane.
-That lane paused each such table's schedule while it streamed, held a snapshotting table's changes as deferred runs in `sync_type_config["cdc_deferred_runs"]`, marked its source `cdc_ingest_mode: legacy`, and created job rows of its own.
-Capture converts that state before every read (`cdc/legacy_conversion.py`), so nothing needs doing by hand:
-
-- **A source still marked legacy** has every CDC table's buffer emptied, since it holds only copies of changes the legacy lane already delivered.
-  Each table is stamped `cdc_legacy_converted_at`, because it is current as of the conversion: without the stamp, its first sync would find no run that ever listed the buffer, take the buffer for expired, and re-snapshot the table (see "Buffer expiry — no partial recovery").
-  Each syncing table's schedule is rebuilt unpaused, because it is now the table's consumer.
-  A table set slower than its source's fastest table is sped up to it (`cdc_legacy_table_frequency_raised`), because that is how often the legacy lane delivered its changes.
-  The source is then marked `cdc_ingest_mode: buffered`, last, so a failure repeats the whole conversion on the next run.
-  Legacy batches still in the load queue land first, because the consumer stands down while any are in flight.
-  Until then, a scheduled run of one of its tables, such as one a sync frequency change unpaused, no-ops the tick (`cdc_buffered_waiting_for_legacy_conversion`), because reading those copies would load them a second time.
-- **A table with deferred runs** snapshots again in the buffer, through the same pending reset a resync hands to capture (`cdc_legacy_deferred_runs_handed_to_reset`).
-  Nothing merges deferred runs anymore, so the reset pauses the table's schedule and cancels its running sync, and waits while either can still hand over (`cdc_reset_waits_for_running_sync`).
-  Then it resets the table, drops the deferred runs, empties its buffer, and starts the new snapshot.
-  Capture gives the table no buffered snapshot of its own before that, because the old sync could hand over into it without the deferred changes.
-- **A job row a legacy capture run left Running** is failed once it is 30 minutes old and has no batches in the queue.
-
-A rebuilt schedule is skipped where the pause is deliberate: the schema's status is `Paused`, an admin-triggered run holds it, the schema is halted and waits for Repair CDC, a pending reset holds it, or it has no sync frequency.
-Every step logs (`cdc_legacy_source_converted`, `cdc_legacy_deferred_runs_handed_to_reset`, `cdc_stranded_capture_jobs_closed`); once none of them appears across the fleet, the module can go.
-
-A source whose slot is gone does not capture at all, so it converts only after Repair CDC, which already resets every table and marks the source buffered.
-
-`cdc_ingest_mode` must survive every API write. A PATCH that dropped it would make capture read the source as legacy and empty its unconsumed buffer.
+A few sources carry `cdc_broken` with the reason `legacy_lane_retired`.
+Their capture had stopped before every table's changes went through the buffer, and the marker was set by hand so that Repair CDC is their only way back.
+No code sets that reason.
+Repair CDC clears it like any other marker.
 
 ## When a schedule stops firing
 
@@ -257,6 +245,13 @@ same positions with differently-shaped files. Before its first write per schema,
 file that reaches the position it restarted from (`end_seq >= restart_seq`), because it is about to
 re-emit all of those positions.
 
+A worker that shuts down does not kill the attempt.
+Capture stops at the next page boundary, after the slot has advanced past every change in the buffer, and records the run as completed.
+If backlog is left and a retry remains, it raises `WorkerShuttingDownError` so Temporal continues the read on another worker.
+That retry starts at the first unread change, so it has no files to remove.
+On the last attempt it returns instead, and the next scheduled run reads the backlog.
+The log line is `cdc_read_stopped_for_worker_shutdown`.
+
 One file can straddle that position. A micro-flush is cut per event, so it can carry the head of a
 transaction; the slot then advances only to the previous transaction's end, and the retry re-reads
 the straddled transaction from its first row. That file holds settled positions the WAL no longer
@@ -300,11 +295,9 @@ towards usage: the `_cdc` table for `cdc_only`, and the consolidated table for `
 `both`. So `both` bills the same as `consolidated`, and keeping a history table alongside the merged
 one costs nothing extra.
 
-The retired legacy lane wrote the two tables from two `ExternalDataJob` rows and counted each event
-twice, so a `both` source's synced-row count roughly halved when it moved to the buffer.
-
 **The merge lane re-bills the rows at its position until the file holding them is deleted.** It
 keeps every row at its position deliberately, since dropping one would lose a later event for the
-same key at that same commit, and a kept row is a staged row. That is one transaction's rows, for
-the tick or two until the completed-listing proof clears the file. The history lane matches those
-rows by content and bills none of them.
+same key at that same commit, and a kept row is a staged row. That happens only when the file
+changed after the last completed listing recorded it, or that listing never saw it; otherwise the
+next run deletes the file before reading it. The history lane matches those rows by content and
+bills none of them.

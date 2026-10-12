@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_resolution
@@ -58,18 +59,20 @@ class ReviewResolutionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     handled identically at run time): the bar the resolution stage applies to each unresolved
     review thread ("worth implementing" / "safe to implement unattended"). The skill itself is
     team-level; this surface only controls **which one** applies when the stage runs on the
-    requesting user's PRs. Visibility is per-user: the menu shows the canonical plus the customs
-    the requesting user authored — a teammate's custom is neither listed nor selectable
+    requesting user's PRs. Visibility is per-user: the menu shows the canonicals (the default
+    criteria and its fix profiles) plus the customs the requesting user authored — a teammate's custom is neither listed nor selectable
     (`visible_skill_names`). Like validators (and unlike perspectives), a run applies exactly one,
     so this is a single-active selection: `list` shows the visible skills with the user's active
-    one flagged (the canonical auto-seeds active on first read); `partial_update` selects one by
-    skill name, flipping the user's others off in the same call. There is always a default (the
-    canonical), so no minimum floor is needed.
+    one flagged (only the default canonical auto-seeds active on first read; a fix profile is active
+    only once selected); `partial_update` selects one by skill name, flipping the user's others off
+    in the same call. There is always a default (the default canonical), so no minimum floor is needed.
     """
 
     # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_analytics RBAC
     # gate must apply — INTERNAL short-circuits AccessControlPermission before it checks anything.
     scope_object = "llm_skill"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewSkillConfig.objects.unscoped()
     serializer_class = ReviewResolutionConfigSerializer

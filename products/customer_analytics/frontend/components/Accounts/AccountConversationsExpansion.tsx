@@ -247,6 +247,22 @@ function LatestActivity({ conversation }: { conversation: AccountConversation })
     )
 }
 
+// Synced emails and support messages are stored as Markdown, with links folded in as `[label](url)` or `<url>`.
+function ConversationMessageContent({ content }: { content: string }): JSX.Element {
+    return (
+        <LemonMarkdown
+            className="break-words text-sm"
+            lowKeyHeadings
+            disableImages="all"
+            disableDocsRedirect
+            disableMentions
+            wrapCode
+        >
+            {content}
+        </LemonMarkdown>
+    )
+}
+
 function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): JSX.Element {
     const outgoing = message.direction === 'outbound'
     return (
@@ -259,7 +275,7 @@ function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): J
                     <Person name={message.sender.name || message.sender.email} email={message.sender.email} />
                     <ActivityTimestamp time={message.sent_at} />
                 </div>
-                <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+                <ConversationMessageContent content={message.content} />
             </LemonCard>
         </div>
     )
@@ -290,7 +306,7 @@ function SupportMessage({ message }: { message: AccountSupportTicketMessageApi }
                     </span>
                     <ActivityTimestamp time={message.created_at} />
                 </div>
-                <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+                <ConversationMessageContent content={message.content} />
             </LemonCard>
         </div>
     )
@@ -434,12 +450,16 @@ function conversationTitle(conversation: AccountConversation): string {
     return periodLabel(conversation.summary)
 }
 
+function markdownLinksToText(markdown: string): string {
+    return markdown.replace(/\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*\)/g, '$1').replace(/<(https?:\/\/[^>\s]+)>/g, '$1')
+}
+
 function conversationPreview(conversation: AccountConversation): string {
     if (conversation.source === 'email') {
-        return conversation.email.preview
+        return markdownLinksToText(conversation.email.preview)
     }
     if (conversation.source === 'support') {
-        return conversation.ticket.last_message_text ?? ''
+        return markdownLinksToText(conversation.ticket.last_message_text ?? '')
     }
     return conversation.summary.content
         .replace(/[#*_`>[\]]/g, '')

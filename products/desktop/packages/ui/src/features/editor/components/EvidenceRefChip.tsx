@@ -2,7 +2,6 @@ import { Popover } from "@base-ui/react/popover";
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { isPostHogObjectKind } from "@posthog/core/message-editor/content";
 import { Button } from "@posthog/quill";
-import { getCloudUrlFromRegion } from "@posthog/shared";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,7 +13,6 @@ import {
   useState,
 } from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
-import { useAuthStateValue } from "../../../features/auth/store";
 import { useDraftStore } from "../../../features/message-editor/draftStore";
 import { usePanelLayoutStore } from "../../../features/panels/panelLayoutStore";
 import { useSessionTaskId } from "../../../features/sessions/useSessionTaskId";
@@ -38,6 +36,7 @@ import {
   trackEvidencePreviewShown,
 } from "../evidencePreviewAnalytics";
 import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
+import { usePostHogLinkContext } from "../usePostHogLinkContext";
 
 /**
  * Inline evidence reference inside an agent message, authored as a
@@ -363,14 +362,15 @@ function EvidenceHoverCardLoader({
   const shownTrackedRef = useRef(false);
   const kind = target.kind;
   const id = target.id;
+  const referenceSource = target.href ? "link" : "tag";
   useEffect(() => {
     if (shownTrackedRef.current) return;
     shownTrackedRef.current = true;
     const cached =
       queryClient.getQueryState(evidencePreviewQueryKey({ kind, id }))
         ?.status === "success";
-    trackEvidencePreviewShown(kind, cached);
-  }, [queryClient, kind, id]);
+    trackEvidencePreviewShown(kind, cached, referenceSource);
+  }, [queryClient, kind, id, referenceSource]);
   const query = useAuthenticatedQuery(
     evidencePreviewQueryKey(target),
     (apiClient) => fetchEvidencePreviewTimed(apiClient, target, "hover"),
@@ -416,11 +416,10 @@ function EvidenceHoverCardLoader({
 
 /** PostHog web URL for a reference in the current project, when it has one. */
 export function useEvidenceUrl(kind: string, id: string): string | null {
-  const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const links = usePostHogLinkContext();
   const path = evidenceWebPath(kind, id);
-  if (!path || !cloudRegion || !projectId) return null;
-  return `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`;
+  if (!path || !links) return null;
+  return `${links.appUrl}/project/${links.projectId}${path}`;
 }
 
 interface EvidenceRefChipProps {
@@ -450,7 +449,8 @@ function EvidenceRefChipContent({
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
-  const url = useEvidenceUrl(target.kind, target.id);
+  const canonicalUrl = useEvidenceUrl(target.kind, target.id);
+  const url = target.href ?? canonicalUrl;
   const taskId = useSessionTaskId();
   const objectKind = isPostHogObjectKind(target.kind) ? target.kind : null;
   const [open, setOpen] = useState(false);

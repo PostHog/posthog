@@ -228,13 +228,23 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
+/**
+ * Drops flag-gated filter settings the current user cannot see, so a persisted filter (a saved filter,
+ * a URL, a collection) cannot keep applying a setting after its flag is turned off.
+ */
 export const getEffectiveRecordingFilters = (
     filters: RecordingUniversalFilters,
     featureFlags: FeatureFlagsSet
-): RecordingUniversalFilters =>
-    featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test'
-        ? filters
-        : { ...filters, recommended_only: false }
+): RecordingUniversalFilters => {
+    let effective = filters
+    if (featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test') {
+        effective = { ...effective, recommended_only: false }
+    }
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE] && effective.event_match_scope !== undefined) {
+        effective = { ...effective, event_match_scope: undefined }
+    }
+    return effective
+}
 
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
@@ -457,6 +467,11 @@ function combineLegacyRecordingFilters(
 
 // TODO if we're just appending pages... can we avoid this in-memory sorting?
 // it's fast to sort an already sorted list but would be nice to avoid it
+export type RecordingSort = {
+    order: NonNullable<RecordingUniversalFilters['order']>
+    order_direction: NonNullable<RecordingUniversalFilters['order_direction']>
+}
+
 function sortRecordings(
     recordings: SessionRecordingType[],
     order: RecordingsQuery['order'] | 'duration' = 'start_time',
@@ -472,7 +487,10 @@ function sortRecordings(
         const incomparable = orderA === undefined || orderB === undefined
         const left_greater = order_direction === 'DESC' ? -1 : 1
         const right_greater = order_direction === 'DESC' ? 1 : -1
-        return incomparable ? 0 : orderA > orderB ? left_greater : right_greater
+        if (incomparable || orderA === orderB) {
+            return 0
+        }
+        return orderA > orderB ? left_greater : right_greater
     })
 }
 
@@ -591,6 +609,8 @@ export interface sessionRecordingsPlaylistLogicValues {
     addToCollectionSearch: string
     allowEventPropertyExpansion: boolean
     allowHogQLFilters: boolean
+    canFilterByRelevance: boolean
+    canSortByRelevance: boolean
     collectionsForBulkAdd: SavedSessionRecordingPlaylistsResult
     collectionsForBulkAddLoading: boolean
     deleteConfirmationText: string
@@ -606,6 +626,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
     isScopedByCaller: boolean
+    listSort: RecordingSort
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -906,7 +927,10 @@ export interface sessionRecordingsPlaylistLogicMeta {
         logicProps: (arg: any) => SessionRecordingPlaylistLogicProps
         allowEventPropertyExpansion: (featureFlags: FeatureFlagsSet) => boolean
         exposureSkipExperimentId: (filters: RecordingUniversalFilters) => number | undefined
-        matchingEventsMatchType: (filters: RecordingUniversalFilters) => MatchingEventsMatchType
+        matchingEventsMatchType: (
+            filters: RecordingUniversalFilters,
+            featureFlags: FeatureFlagsSet
+        ) => MatchingEventsMatchType
         activeSessionRecordingId: (
             selectedRecordingId: string | null,
             recordings: SessionRecordingType[],
@@ -949,9 +973,13 @@ export interface sessionRecordingsPlaylistLogicMeta {
             selectedRecordingId: string | null,
             filters: RecordingUniversalFilters
         ) => SessionRecordingType[]
+        canSortByRelevance: (featureFlags: FeatureFlagsSet, arg: any) => boolean
+        canFilterByRelevance: (featureFlags: FeatureFlagsSet, arg: any) => boolean
+        listSort: (filters: RecordingUniversalFilters, arg: any) => RecordingSort
         visiblePinnedRecordings: (
             pinnedRecordings: SessionRecordingType[],
-            deletedRecordingIds: Set<string>
+            deletedRecordingIds: Set<string>,
+            listSort: RecordingSort
         ) => SessionRecordingType[]
         recordings: (
             visiblePinnedRecordings: SessionRecordingType[],
@@ -1568,14 +1596,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setFeatureFlags: () => {
-                if (!values.filters.recommended_only) {
+                if (values.filters.recommended_only) {
+                    if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
+                        actions.loadSessionRecordings()
+                    } else {
+                        // The flag decides this one, so it is not a viewer edit.
+                        actions.setFilters({ recommended_only: false }, false)
+                    }
                     return
                 }
-                if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
+                if (values.filters.event_match_scope === 'recording') {
                     actions.loadSessionRecordings()
-                } else {
-                    // The flag decides this one, so it is not a viewer edit.
-                    actions.setFilters({ recommended_only: false }, false)
                 }
             },
             loadAllRecordings: () => {
@@ -1968,6 +1999,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const newPlaylist = await createPlaylist({
                     name: values.newCollectionName,
                     type: 'collection',
+                    creation_method: 'new',
                 })
 
                 if (newPlaylist) {
@@ -2066,11 +2098,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         matchingEventsMatchType: [
-            (s) => [s.filters],
-            (filters: RecordingUniversalFilters): MatchingEventsMatchType => {
-                if (!filters) {
+            (s) => [s.filters, s.featureFlags],
+            (storedFilters: RecordingUniversalFilters, featureFlags: FeatureFlagsSet): MatchingEventsMatchType => {
+                if (!storedFilters) {
                     return { matchType: 'none' }
                 }
+                const filters = getEffectiveRecordingFilters(storedFilters, featureFlags)
 
                 const filterValues = filtersFromUniversalFilterGroups(filters)
 
@@ -2093,6 +2126,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (!hasEvents && !hasEventsProperties) {
                     return { matchType: 'none' }
+                }
+
+                if (filters.event_match_scope === 'recording') {
+                    return { matchType: 'backend', filters }
                 }
 
                 if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === eventFilters.length) {
@@ -2311,13 +2348,43 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         // pinnedRecordings is a lazyLoader so we can't add filtering there directly
-        visiblePinnedRecordings: [
-            (s) => [s.pinnedRecordings, s.deletedRecordingIds],
-            (pinnedRecordings: SessionRecordingType[], deletedRecordingIds: Set<string>): SessionRecordingType[] => {
-                if (deletedRecordingIds.size === 0) {
-                    return pinnedRecordings
+        canSortByRelevance: [
+            (s) => [s.featureFlags, (_, props) => props.onlyPinned],
+            (featureFlags: FeatureFlagsSet, onlyPinned?: boolean): boolean =>
+                !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE] && !onlyPinned,
+        ],
+
+        canFilterByRelevance: [
+            (s) => [s.featureFlags, (_, props) => props.onlyPinned],
+            (featureFlags: FeatureFlagsSet, onlyPinned?: boolean): boolean =>
+                featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test' && !onlyPinned,
+        ],
+
+        listSort: [
+            (s) => [s.filters, (_, props) => props.onlyPinned],
+            (filters: RecordingUniversalFilters, onlyPinned?: boolean): RecordingSort => {
+                if (onlyPinned && filters.order === 'surfacing_score') {
+                    return { order: DEFAULT_RECORDING_FILTERS_ORDER_BY, order_direction: 'DESC' }
                 }
-                return pinnedRecordings.filter((r) => !deletedRecordingIds.has(r.id))
+                return {
+                    order: filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    order_direction: filters.order_direction || 'DESC',
+                }
+            },
+        ],
+
+        visiblePinnedRecordings: [
+            (s) => [s.pinnedRecordings, s.deletedRecordingIds, s.listSort],
+            (
+                pinnedRecordings: SessionRecordingType[],
+                deletedRecordingIds: Set<string>,
+                listSort: RecordingSort
+            ): SessionRecordingType[] => {
+                return sortRecordings(
+                    pinnedRecordings.filter((r) => !deletedRecordingIds.has(r.id)),
+                    listSort.order,
+                    listSort.order_direction
+                )
             },
         ],
 

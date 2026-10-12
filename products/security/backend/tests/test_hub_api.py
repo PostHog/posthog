@@ -12,7 +12,6 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import User
-from posthog.workos_radar import add_radar_bypass_email, remove_radar_bypass_email
 
 SECRET = "in-us"
 SETTINGS = {"SECURITY_HUB_REGION": "us", "SECURITY_HUB_INBOUND_JWT_SECRETS": [SECRET]}
@@ -98,16 +97,6 @@ class TestHubApi(BaseTest):
     def test_count_refuses_other_types(self) -> None:
         response = self.post("count-accounts", {"target_type": "ip", "target_value": "1.2.3.4"}, "accounts:count")
         assert response.status_code == 400
-
-    def test_radar_export(self) -> None:
-        add_radar_bypass_email("Partner@Example.org")
-        self.addCleanup(remove_radar_bypass_email, "Partner@Example.org")
-        assert self.post("radar-bypass-export", {}, "radar_bypass:export").json() == {"emails": ["partner@example.org"]}
-        assert self.post("radar-bypass-export", {}, "rules:sync_now").status_code == 403
-
-    @patch("products.security.backend.presentation.hub_api.radar_bypasses", side_effect=RuntimeError("redis down"))
-    def test_radar_export_answers_503_when_redis_is_unreachable(self, _bypasses: MagicMock) -> None:
-        assert self.post("radar-bypass-export", {}, "radar_bypass:export").status_code == 503
 
     @patch("products.security.backend.presentation.hub_api.start_sync_now")
     def test_sync_now(self, start: MagicMock) -> None:

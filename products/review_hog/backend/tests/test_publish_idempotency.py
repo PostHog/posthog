@@ -1,16 +1,22 @@
 from collections.abc import Callable, Iterator
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
+
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import message_prefix_for_mode
+from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
@@ -21,7 +27,7 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_already_posted,
     _review_marker,
 )
-from products.review_hog.backend.temporal.activities import PublishInput, _publish
+from products.review_hog.backend.temporal.activities import PublishInput, _publish, publish_review_activity
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
 # snapshot load are patched there; the installation auth is still resolved in the activity wrapper.
@@ -29,14 +35,17 @@ _PUBLISH = "products.review_hog.backend.reviewer.tools.publish_review.publish_re
 _SNAPSHOT = "products.review_hog.backend.reviewer.tools.publish_review.load_pr_snapshot"
 _AUTH = "products.review_hog.backend.temporal.activities._installation_auth"
 _PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_api_get_paginated"
+_ACTIVITIES = "products.review_hog.backend.temporal.activities"
 
 
-def _paginated(items: list[dict[str, Any]], *, boom: bool = False) -> Callable[..., Iterator[dict[str, Any]]]:
+def _paginated(
+    items: list[dict[str, Any]], *, boom: bool = False, status: int = 500
+) -> Callable[..., Iterator[dict[str, Any]]]:
     """A github_api_get_paginated stand-in yielding `items` (or failing the readback with `boom`)."""
 
     def fake(path: str, **kwargs: Any) -> Iterator[dict[str, Any]]:
         if boom:
-            raise GitHubAPIError("readback failed", status=500)
+            raise GitHubAPIError("readback failed", status=status)
         return iter(items)
 
     return fake
@@ -70,19 +79,32 @@ def test_review_already_posted_detects_our_own_markered_review() -> None:
     with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]"):
         assert _review_posted(marker, [{"body": marker, **bot}]) is True
         assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
+    # Unconfigured in production, no bot is trusted, because any installed bot could paste the marker.
+    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="", DEBUG=False, TEST=False):
+        assert _review_posted(marker, [{"body": marker, **bot}]) is False
 
 
 def test_review_already_posted_proceeds_when_readback_fails() -> None:
     # Best-effort: if listing reviews errors we post rather than silently drop the review (the
     # published_head_sha watermark still guards the common retry path).
-    assert _review_posted(_review_marker("rep-1", "sha1"), [], boom=True) is False
+    with patch(_PAGINATED, side_effect=_paginated([], boom=True, status=404)):
+        assert (
+            _review_already_posted("o", "r", 1, _review_marker("rep-1", "sha1"), token="t", installation_id=None)
+            is False
+        )
+
+
+def test_review_already_posted_raises_on_a_transient_readback_failure() -> None:
+    # An earlier attempt may have posted already, so posting blind on a 5xx risks a second review.
+    with pytest.raises(GitHubAPIError):
+        _review_posted(_review_marker("rep-1", "sha1"), [], boom=True)
 
 
 @parameterized.expand(
     [
         ("full", ""),
         ("flash", "FLASH MODE\n"),
-        ("flash", message_prefix_for_mode("flash")),
+        ("flash", LEGACY_FLASH_MODE_MESSAGE_PREFIX),
     ]
 )
 def test_legacy_markers_only_suppress_reviews_in_the_same_mode(posted_mode: str, prefix: str) -> None:
@@ -271,3 +293,14 @@ class TestPublishIdempotency(BaseTest):
             _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source="automatic"))
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.automatic_reviewed_head_sha is None
+
+
+@pytest.mark.asyncio
+async def test_publish_waits_for_the_rate_limit_reset_github_names() -> None:
+    with (
+        patch(f"{_ACTIVITIES}._publish", side_effect=GitHubRateLimitError("limited", retry_after=3000)),
+        pytest.raises(ApplicationError) as raised,
+    ):
+        await ActivityEnvironment().run(publish_review_activity, _publish_input(1, "rep-1", "sha1"))
+
+    assert raised.value.next_retry_delay == timedelta(seconds=3000)

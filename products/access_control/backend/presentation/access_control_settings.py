@@ -521,6 +521,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         results = []
         for ac in rows:
             resolved = names_by_resource.get(ac.resource, {}).get(str(ac.resource_id))
+            # A rule on a soft-deleted object stays in the database: it still gates the restore of
+            # the object and the subscriptions that point at it. It is hidden here because the
+            # object is not reachable, so the rule has nothing to configure
+            if resolved is not None and resolved.deleted:
+                continue
             results.append(
                 {
                     "resource": ac.resource,
@@ -754,8 +759,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         display = display_model(resource)
         if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
-        # _base_manager, not the default one: a rule left on a soft-deleted object still shows in
-        # the rules list, and this is the only way to clear it
+        # _base_manager, not the default one: a rule on a soft-deleted object is hidden from the
+        # rules list, and the write with access_level None is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
             display.model._base_manager.filter(team_id=team.id),
             include_all_if_admin=True,

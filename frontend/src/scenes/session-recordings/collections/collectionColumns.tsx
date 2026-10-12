@@ -3,7 +3,6 @@ import clsx from 'clsx'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +15,6 @@ type CollectionColumn = LemonTableColumn<SessionRecordingPlaylistType, keyof Ses
 export const COLUMN_WIDTHS = {
     leading: 48,
     count: 72,
-    watched: 384,
     watchNext: 140,
     createdBy: 160,
     lastModified: 140,
@@ -96,27 +94,6 @@ export function countColumn(): CollectionColumn {
                             </span>
                         )}
                     </Tooltip>
-                </div>
-            )
-        },
-    }
-}
-
-export function progressColumn(): CollectionColumn {
-    return {
-        title: 'Watched',
-        width: COLUMN_WIDTHS.watched,
-        render: function Render(_, playlist) {
-            const counts = getCollectionCounts(playlist.recordings_counts)
-            if (!counts || !counts.total) {
-                return null
-            }
-            return (
-                <div className="flex items-center gap-2">
-                    <LemonProgress percent={counts.watchedPercent} className="flex-1" />
-                    <span className="text-xs text-secondary whitespace-nowrap">
-                        {counts.watched} of {counts.total}
-                    </span>
                 </div>
             )
         },

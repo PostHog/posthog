@@ -8,11 +8,12 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    outputs::{OutputRegistry, PublishEvents},
+    outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
+    sinks::sink::SinkResult,
     time::TimeSource,
-    v0_request::{AiLanePredicate, DataType, ProcessedEvent},
+    v0_request::{DataType, ProcessedEvent},
     v1::test_utils::TestStateBuilder,
 };
 use chrono::{DateTime, Utc};
@@ -1039,6 +1040,13 @@ impl PublishEvents for MemorySink {
     }
 }
 
+#[async_trait]
+impl PublishPrepared for MemorySink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
+    }
+}
+
 pub fn test_lifecycle_handlers() -> (
     lifecycle::ReadinessHandler,
     lifecycle::LivenessHandler,
@@ -1121,9 +1129,8 @@ fn build_router_for_mode_at(
             historical_rerouting_threshold_days,
             is_mirror_deploy,
             verbose_sample_percent,
-            26_214_400, // 25MB default for AI endpoint
-            983_040,    // ai_max_event_bytes (960KB, the previous hardcoded limit)
-            AiLanePredicate::Allowlist,
+            26_214_400,       // 25MB default for AI endpoint
+            983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
             None,             // body_chunk_read_timeout_ms
             256,              // body_read_chunk_size_kb
             10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes

@@ -1,1 +1,1 @@
-0158_signalscoutconfig_managed_by
+0172_signalscoutconfig_precheck_disabled
