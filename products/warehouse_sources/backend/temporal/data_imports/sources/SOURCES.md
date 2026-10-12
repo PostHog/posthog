@@ -1240,6 +1240,7 @@ doesn't conflict with concurrent PRs.
 - kyve
 - labelbox
 - lambda_labs
+- laravel_cloud
 - lawmatics
 - learnworlds
 - ledyer
@@ -1520,6 +1521,7 @@ doesn't conflict with concurrent PRs.
 - whmcs
 - wikipedia_pageviews
 - windsor_ai
+- wise
 - wisprflow
 - wistia
 - wiz

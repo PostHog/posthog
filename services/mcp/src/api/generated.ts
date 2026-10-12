@@ -32126,6 +32126,8 @@ export namespace Schemas {
      * * `StackAdapt` - StackAdapt
      * * `CheckHQ` - CheckHQ
      * * `RainforestPay` - RainforestPay
+     * * `Wise` - Wise
+     * * `LaravelCloud` - LaravelCloud
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33510,6 +33512,8 @@ export namespace Schemas {
       StackAdapt: 'StackAdapt',
       CheckHQ: 'CheckHQ',
       RainforestPay: 'RainforestPay',
+      Wise: 'Wise',
+      LaravelCloud: 'LaravelCloud',
     } as const;
 
     /**
@@ -34907,7 +34911,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37549,7 +37555,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -49264,7 +49272,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -50682,7 +50692,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -84069,7 +84081,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -84081,7 +84093,7 @@ export namespace Schemas {
       urgency_threshold?: UrgencyThresholdEnum;
       /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
-      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
@@ -97361,7 +97373,7 @@ export namespace Schemas {
        * * `flash` - On everywhere
        * * `off` - Off everywhere */
       default_review_mode?: DefaultReviewModeEnum;
-      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the reviewhog label, an @posthog review comment, and the Review button still review drafts. */
+      /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
       review_drafts?: boolean;
       /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
       resolve_comments?: boolean;
@@ -97373,7 +97385,7 @@ export namespace Schemas {
       urgency_threshold?: UrgencyThresholdEnum;
       /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
       celebrate_clean_reviews?: boolean;
-      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
@@ -103620,7 +103632,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -105069,7 +105083,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -106485,7 +106501,9 @@ export namespace Schemas {
        * * `Tracklution` - Tracklution
        * * `StackAdapt` - StackAdapt
        * * `CheckHQ` - CheckHQ
-       * * `RainforestPay` - RainforestPay */
+       * * `RainforestPay` - RainforestPay
+       * * `Wise` - Wise
+       * * `LaravelCloud` - LaravelCloud */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -117749,7 +117767,9 @@ export namespace Schemas {
 
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string;
     };

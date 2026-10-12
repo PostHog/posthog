@@ -300,6 +300,28 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
     source.parse_config.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_job_not_found_on_first_read_is_non_reportable():
+    # A run_id can point at a job that was never created, e.g. an older worker's
+    # create_external_data_job_model_activity still returning the legacy tuple result during a
+    # rolling deploy (see external_data_job.py). Every other activity that fetches ExternalDataJob
+    # by id already treats this as benign (check_billing_limits_activity, repartition_table.py,
+    # calculate_table_size.py); this first read in the import activity must too, rather than
+    # escaping raw and minting an error-tracking issue for a deploy skew.
+    error = ExternalDataJob.DoesNotExist("ExternalDataJob matching query does not exist.")
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source),
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(NonReportableError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    source.parse_config.assert_not_called()
+
+
 @parameterized.expand(
     [
         ("pooler_cooldown", OperationalError, "server login has been failing, cached error: (server_login_retry)"),

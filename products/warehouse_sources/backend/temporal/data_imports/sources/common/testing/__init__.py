@@ -10,7 +10,7 @@ from .fake_network import (
     http_response,
 )
 from .inputs import source_inputs
-from .responders import Script, ScriptedResponder, ScriptedResponse, UnexpectedRequest, route, scripted_network
+from .responders import Script, ScriptedResponder, ScriptedResponse, UnexpectedRequest, always, route, scripted_network
 
 __all__ = [
     "DatabaseBlockedError",
@@ -25,6 +25,7 @@ __all__ = [
     "ScriptedResponse",
     "SourceDriver",
     "UnexpectedRequest",
+    "always",
     "fake_environment",
     "http_response",
     "route",

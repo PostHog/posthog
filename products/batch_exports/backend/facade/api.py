@@ -21,7 +21,7 @@ those may be imported from here.
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -59,6 +59,7 @@ __all__ = [
     "delete_batch_export",
     "delete_batch_exports_for_teams",
     "describe_destination_test",
+    "drop_unknown_hogql_modifiers",
     "get_batch_export_by_name",
     "get_latest_completed_run",
     "get_latest_run",
@@ -464,3 +465,12 @@ def run_destination_test_step(
 
     destination_test.configure(**test_configuration)
     return _to_destination_test_step(destination_test.run_step(step))
+
+
+def drop_unknown_hogql_modifiers(stored: Mapping[str, Any]) -> dict[str, Any]:
+    """Return stored HogQL modifiers without keys that the HogQL schema no longer defines."""
+    from products.batch_exports.backend.hogql_source import (  # noqa: PLC0415 — keeps the HogQL parser and printer off the django.setup() path
+        drop_unknown_hogql_modifiers as drop_unknown,
+    )
+
+    return drop_unknown(dict(stored))
