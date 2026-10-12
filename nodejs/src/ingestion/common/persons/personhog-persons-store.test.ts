@@ -18,6 +18,7 @@ import {
     personhogStoreFlushCounter,
     personhogStoreFlushErrorCounter,
     personhogStoreMergeDrainCounter,
+    personhogStorePrefetchAnswerCounter,
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
@@ -410,6 +411,40 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         const fetched = await bound.fetchForUpdate(1, 'd1')
         expect(fetched?.id).toBe('7')
+    })
+
+    it.each([
+        ['an answer nothing raced as cached', (): void => {}, 'cached_found'],
+        [
+            'an answer a same-team merge overtook as stale',
+            (): void => (store as any).bumpGeneration(1),
+            'stale_generation',
+        ],
+        [
+            'an answer another read beat as already resolved',
+            (): void => (store as any).setDistinctIdToPersonId('1:d1', '1:9'),
+            'already_resolved',
+        ],
+        [
+            'an answer that only fills a known edge as filled',
+            (): void => (store as any).setDistinctIdToPersonId('1:d1', '1:7'),
+            'filled',
+        ],
+    ])('a prefetch counts %s', async (_case, duringResolve, expected) => {
+        store.forBatch(0)
+        personhogStorePrefetchAnswerCounter.reset()
+        repository.resolvePersonsByDistinctIds.mockImplementation((() => {
+            duringResolve()
+            return Promise.resolve([{ teamId: 1, distinctId: 'd1', person: { ...person } }])
+        }) as never)
+        repository.fetchPersonById.mockResolvedValue({ ...person } as never)
+
+        await store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+
+        const outcomes = (await personhogStorePrefetchAnswerCounter.get()).values
+            .filter((entry) => entry.value > 0)
+            .map((entry) => [entry.labels.outcome, entry.value])
+        expect(outcomes).toEqual([[expected, 1]])
     })
 
     describe('mergePersons runs the saga and folds it into the batch view', () => {

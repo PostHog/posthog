@@ -4,10 +4,15 @@ import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
 import { TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
-import { SEMANTIC_REFUSAL_METADATA_KEY, SEMANTIC_REFUSAL_OP_ID_REUSED } from '~/common/personhog/identity'
+import {
+    DistinctIdKey,
+    SEMANTIC_REFUSAL_METADATA_KEY,
+    SEMANTIC_REFUSAL_OP_ID_REUSED,
+} from '~/common/personhog/identity'
 import { errorClassLabel } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonIdentity, PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import { personResolveKeysPerCallHistogram } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
@@ -58,6 +63,17 @@ export const personhogStorePrefetchFailedCounter = new Counter({
     help: 'Batch prefetches that failed, degrading the batch to resolving each distinct id on first touch',
 })
 
+export const personhogStorePrefetchAnswerCounter = new Counter({
+    name: 'personhog_store_prefetch_answers_total',
+    help: 'What became of each distinct id a prefetch resolved, by outcome',
+    labelNames: ['outcome'],
+})
+
+export const personhogStorePrefetchOverlappingKeysCounter = new Counter({
+    name: 'personhog_store_prefetch_overlapping_keys_total',
+    help: 'Distinct ids a prefetch sent while an earlier prefetch covering them had not settled',
+})
+
 export const personhogStoreUnsupportedFieldCounter = new Counter({
     name: 'personhog_store_unsupported_field_total',
     help: 'Direct updates refused because they carried a field this backend cannot write, by field',
@@ -95,6 +111,16 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
+
+type ResolveSite =
+    | 'prefetch'
+    | 'fetch_for_checking'
+    | 'fetch_for_update'
+    | 'merge_participants'
+    | 'redirect_survivor'
+    | 'held_lanes'
+
+type CacheFillOutcome = 'cached_found' | 'cached_absent' | 'filled' | 'already_resolved' | 'stale_generation'
 
 /** SYNC uses the store's limit; other modes carry their own, validated at startup. */
 function moveLimitFor(mergeMode: MergeMode, syncMergeMoveLimit: number): number {
@@ -420,10 +446,16 @@ export class PersonhogPersonsStore implements PersonsStore {
         distinctId: string,
         fetched: InternalPerson | null,
         batchId: number,
-        options: { grade: 'check' | 'update'; generation: number; fillOnly?: boolean }
+        options: {
+            grade: 'check' | 'update'
+            generation: number
+            fillOnly?: boolean
+            onOutcome?: (outcome: CacheFillOutcome) => void
+        }
     ): InternalPerson | null {
         const distinctKey = `${teamId}:${distinctId}`
         if (options.generation !== this.generationOf(teamId)) {
+            options.onOutcome?.('stale_generation')
             // A cached absence this answer contradicts is wrong even when the answer is not installed.
             if (fetched !== null && this.resolutions.get(distinctKey) === null) {
                 this.resolutions.delete(distinctKey)
@@ -434,6 +466,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // A stale absence must not overwrite presence; a live mapping
             // stands and serves its best available view.
             const existing = this.resolutions.get(distinctKey)
+            options.onOutcome?.(existing === undefined ? 'cached_absent' : 'already_resolved')
             if (existing === undefined || existing === null) {
                 this.setDistinctIdToPersonId(distinctKey, null)
                 this.trackBatchEntry(batchId, distinctKey)
@@ -446,11 +479,14 @@ export class PersonhogPersonsStore implements PersonsStore {
         // projection carries folds it cannot know about.
         const standingEdge = this.resolutions.get(distinctKey)
         if (options.fillOnly && standingEdge !== undefined) {
-            if (standingEdge === personKey && !this.projections.has(personKey)) {
+            const fills = standingEdge === personKey && !this.projections.has(personKey)
+            options.onOutcome?.(fills ? 'filled' : 'already_resolved')
+            if (fills) {
                 this.setCachedPerson(personKey, fetched, options.grade)
             }
             return standingEdge !== null ? (this.getCachedPerson(teamId, distinctId, options.grade) ?? null) : null
         }
+        options.onOutcome?.('cached_found')
         this.setDistinctIdToPersonId(distinctKey, personKey)
         this.trackBatchEntry(batchId, distinctKey)
         this.setCachedPerson(personKey, fetched, options.grade)
@@ -473,6 +509,14 @@ export class PersonhogPersonsStore implements PersonsStore {
         return { ...identity, properties: {}, properties_last_updated_at: {}, properties_last_operation: null }
     }
 
+    private resolveDistinctIds(
+        site: ResolveSite,
+        keys: DistinctIdKey[]
+    ): ReturnType<PersonHogPersonWriteRepository['resolvePersonsByDistinctIds']> {
+        personResolveKeysPerCallHistogram.observe({ backend: this.backend, site }, keys.length)
+        return this.repository.resolvePersonsByDistinctIds(keys, CALLER_TAG)
+    }
+
     /** Resolves through identity and serves its answer directly, saving the leader hop. */
     async fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.getCachedPerson(teamId, distinctId, 'check')
@@ -489,7 +533,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
         }
         const generation = this.generationOf(teamId)
-        const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
+        const [resolved] = await this.resolveDistinctIds('fetch_for_checking', [{ teamId, distinctId }])
         const document = resolved?.person ? this.identityDocument(resolved.person) : null
         return this.cacheFetchedPerson(teamId, distinctId, document, batchId, {
             grade: 'check',
@@ -529,7 +573,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 this.resolutions.delete(distinctKey)
             }
         }
-        const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
+        const [resolved] = await this.resolveDistinctIds('fetch_for_update', [{ teamId, distinctId }])
         if (!resolved?.person) {
             return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', generation })
         }
@@ -895,9 +939,9 @@ export class PersonhogPersonsStore implements PersonsStore {
     private async resolveMergeParticipants(teamId: number, distinctIds: string[]): Promise<Set<string>> {
         let resolved
         try {
-            resolved = await this.repository.resolvePersonsByDistinctIds(
-                distinctIds.map((distinctId) => ({ teamId, distinctId })),
-                CALLER_TAG
+            resolved = await this.resolveDistinctIds(
+                'merge_participants',
+                distinctIds.map((distinctId) => ({ teamId, distinctId }))
             )
         } catch (error) {
             // Unwrapped it would reach the merge service's catch-all, which
@@ -1076,9 +1120,9 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
         }
         try {
-            const resolved = await this.repository.resolvePersonsByDistinctIds(
-                unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId })),
-                CALLER_TAG
+            const resolved = await this.resolveDistinctIds(
+                'prefetch',
+                unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
             const limit = pLimit(this.options.maxConcurrentUpdates)
             await Promise.all(
@@ -1089,18 +1133,23 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // Caching for a released batch recreates its key
                         // set, and nothing ever releases it again.
                         if (!this.prefetchingBatches.has(batchId)) {
+                            personhogStorePrefetchAnswerCounter.inc({ outcome: 'batch_released' })
                             return
                         }
                         if (!entry.person) {
                             this.cacheFetchedPerson(entry.teamId, entry.distinctId, null, batchId, {
                                 grade: 'check',
                                 generation,
+                                onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                             })
                             return
                         }
                         const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
                         // Merged away since identity answered; the update read resolves it.
                         if (!this.prefetchingBatches.has(batchId) || person === null) {
+                            personhogStorePrefetchAnswerCounter.inc({
+                                outcome: this.prefetchingBatches.has(batchId) ? 'leader_gone' : 'batch_released',
+                            })
                             return
                         }
                         // Fill-only: this response raced everything the
@@ -1109,6 +1158,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                             grade: 'update',
                             generation,
                             fillOnly: true,
+                            onOutcome: (outcome) => personhogStorePrefetchAnswerCounter.inc({ outcome }),
                         })
                     })
                 )
@@ -1141,6 +1191,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const fetched = this.prefetchUnresolved(unresolved)
         const distinctKeys = unresolved.map((entry) => `${entry.teamId}:${entry.distinctId}`)
+        const overlapping = distinctKeys.filter((distinctKey) => this.pendingPrefetches.has(distinctKey)).length
+        if (overlapping > 0) {
+            personhogStorePrefetchOverlappingKeysCounter.inc(overlapping)
+        }
         for (const distinctKey of distinctKeys) {
             this.pendingPrefetches.set(distinctKey, fetched)
         }
@@ -1404,10 +1458,9 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<void> {
         const generation = this.generationOf(entry.teamId)
-        const [resolved] = await this.repository.resolvePersonsByDistinctIds(
-            [{ teamId: entry.teamId, distinctId: entry.distinctId }],
-            CALLER_TAG
-        )
+        const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
+            { teamId: entry.teamId, distinctId: entry.distinctId },
+        ])
         const survivorId = resolved?.person?.id
         if (survivorId === undefined || survivorId === entry.personId) {
             // Released, so the redelivered events re-resolve rather than
@@ -1463,9 +1516,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         let answers: Awaited<ReturnType<PersonHogPersonWriteRepository['resolvePersonsByDistinctIds']>>
         try {
-            answers = await this.repository.resolvePersonsByDistinctIds(
-                due.map(([, entry]) => ({ teamId: entry.teamId, distinctId: entry.distinctId })),
-                CALLER_TAG
+            answers = await this.resolveDistinctIds(
+                'held_lanes',
+                due.map(([, entry]) => ({ teamId: entry.teamId, distinctId: entry.distinctId }))
             )
         } catch (error) {
             // The held lanes stay unresolved and ask again at the next flush; the lanes with an owner still write.
