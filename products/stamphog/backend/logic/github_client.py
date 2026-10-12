@@ -1379,6 +1379,30 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
             )
 
+    def create_label(self, repo: str, name: str, *, color: str, description: str) -> bool:
+        """Create a repository label (``POST /repos/{repo}/labels``). Returns whether GitHub created it.
+
+        Best-effort and never raises over the response: a 422 means the label already exists, and a
+        403 or 404 means the installation may not write labels on this repository. Both leave the
+        repository as it is.
+        """
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name, "color": color, "description": description},
+            priority=Priority.BATCH,
+        )
+        if response.status_code == 201:
+            return True
+        logger.info(
+            "stamphog github: label not created",
+            repo=repo,
+            label=name,
+            status_code=response.status_code,
+        )
+        return False
+
     def dismiss_pr_review(self, repo: str, pr_number: int, review_id: int, message: str) -> None:
         """Dismiss a previously submitted review (``PUT .../reviews/{review_id}/dismissals``).
 
