@@ -32,7 +32,7 @@ from social_django.utils import load_strategy
 from posthog.api.authentication import social_identity_matches_session
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
-from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, SSO_REAUTH_SELECT_ACCOUNT_KEY, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
@@ -879,6 +879,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
         session = self.client.session
         session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session[SSO_REAUTH_SELECT_ACCOUNT_KEY] = True
         session.save()
         last_reauth_at_before = session[settings.SESSION_LAST_REAUTH_AT_KEY]
         session_key_before = session.session_key
@@ -896,6 +897,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
         self.assertGreater(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
         self.assertIsNone(self.client.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY))
+        self.assertIsNone(self.client.session.get(SSO_REAUTH_SELECT_ACCOUNT_KEY))
 
         login_activity = ActivityLog.objects.filter(scope="User", activity="logged_in").latest("created_at")
         login_context = cast(dict, login_activity.detail)["context"]
@@ -965,6 +967,14 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
         # The stranger's identity must not have been linked to the signed-in account
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+        # The retry has to offer the account chooser, or Google picks the same wrong account again
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            query = urlencode({"reauth": "true", "next": "/settings/user", "email": self.user.email})
+            retry = self.client.get(f"/login/google-oauth2/?{query}")
+        retry_params = parse_qs(urlparse(retry["Location"]).query)
+        self.assertEqual(retry_params["prompt"], ["select_account"])
+        self.assertEqual(retry_params["login_hint"], [self.user.email])
 
     def _complete_github_login(
         self,
@@ -1984,6 +1994,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         mock_strategy = type("MockStrategy", (), {})()
         mock_strategy.request_get = lambda: get_params
         mock_strategy.setting = lambda name, default=None, backend=None: default
+        mock_strategy.session_get = lambda name, default=None: default
         return mock_strategy
 
     def test_auth_extra_arguments_without_email(self):

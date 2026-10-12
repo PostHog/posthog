@@ -7,6 +7,8 @@ UNVERIFIED_SOCIAL_EMAIL_ERROR = (
     "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
 )
 GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
+# Set when a re-auth returns the wrong identity, so the next attempt lets the user pick another account at the IdP
+SSO_REAUTH_SELECT_ACCOUNT_KEY = "sso_reauth_select_account"
 
 
 def get_safe_next_url(next_url: str | None, request: HttpRequest) -> str | None:

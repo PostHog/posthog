@@ -36,7 +36,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.helpers.sso import SSO_REAUTH_SELECT_ACCOUNT_KEY, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
@@ -416,7 +416,9 @@ class CustomGoogleOAuth2(GoogleOAuth2):
     def auth_extra_arguments(self):
         extra_args = super().auth_extra_arguments()
         is_reauth = self.strategy.request_get().get("reauth") == "true"
-        if not is_reauth:
+        # A re-auth skips the account chooser and relies on `login_hint`, unless the last attempt came back
+        # as another account: Google then picks that same account again on every retry.
+        if not is_reauth or self.strategy.session_get(SSO_REAUTH_SELECT_ACCOUNT_KEY):
             prompt_tokens = [token for token in str(extra_args.get("prompt", "")).split() if token]
             if "select_account" not in prompt_tokens:
                 prompt_tokens.append("select_account")

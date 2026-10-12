@@ -225,12 +225,21 @@ describe('timeSensitiveAuthenticationLogic', () => {
 
     describe('failed SSO re-authentication', () => {
         it('should report the error the backend sent back and drop it from the URL', async () => {
+            router.actions.push('/settings/user', { error_code: 'improperly_configured_sso' })
+
+            logic.actions.showSsoReauthenticationError()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(ERROR_MESSAGES.improperly_configured_sso)
+            expect(router.values.searchParams).toEqual({})
+        })
+
+        it('should name the signed-in email when the wrong account came back', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
             router.actions.push('/settings/user', { error_code: 'reauth_user_mismatch' })
 
             logic.actions.showSsoReauthenticationError()
 
-            expect(lemonToast.error).toHaveBeenCalledWith(ERROR_MESSAGES.reauth_user_mismatch)
-            expect(router.values.searchParams).toEqual({})
+            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining(MOCK_DEFAULT_USER.email))
         })
 
         it('should leave unrelated query params alone', async () => {
