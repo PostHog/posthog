@@ -57,7 +57,9 @@ def test_complete_collections_use_the_documented_method_and_preserve_attributes(
     assert finished.rows == []
     assert finished.requests == []
     assert request.headers["authorization"] == "Bearer example-access-token"
-    assert parse_qs(result.requests[0].body.decode()) == {
+    token_body = result.requests[0].body
+    assert token_body is not None
+    assert parse_qs(token_body.decode()) == {
         "client_id": ["example-client"],
         "client_secret": ["example-secret"],
         "grant_type": ["client_credentials"],
