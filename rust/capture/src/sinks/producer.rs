@@ -81,9 +81,10 @@ fn ack_outcome(
 ) -> (&'static str, Result<(), CaptureError>) {
     match result {
         Err(Canceled) => {
-            // Cancelled due to timeout while retrying
+            // The producer was dropped before the delivery report arrived, so
+            // the record may or may not have been written.
             metrics::counter!("capture_kafka_produce_errors_total").increment(1);
-            error!("failed to produce to Kafka before write timeout");
+            error!("Kafka producer dropped before the delivery report arrived");
             ("cancelled", Err(CaptureError::RetryableSinkError))
         }
         Ok(Err(KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge))) => {
