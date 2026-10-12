@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import asyncio
 import itertools
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -67,8 +67,9 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
         if input.common.django_redis_url is None:
             input.common.django_redis_url = settings.REDIS_URL
 
-        year, week, _ = datetime.now().isocalendar()
-        period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        now = workflow.now()
+        year, week, _ = now.isocalendar()
+        period_end = now.replace(hour=0, minute=0, second=0, microsecond=0)
         period_start = period_end - timedelta(days=7)
 
         digest = Digest(
