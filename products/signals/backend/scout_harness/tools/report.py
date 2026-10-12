@@ -59,6 +59,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -509,6 +510,7 @@ def _capture_trial_report(
         "id": report_id,
         "title": title,
         "summary": summary,
+        "summary_lead": summary_lead(summary, SUMMARY_LEAD_LIMIT),
         "status": str(judgement.status),
         "created_at": now,
         "updated_at": now,
@@ -690,6 +692,8 @@ def _capture_trial_edit(
                 )
                 document[name] = value
                 updated_fields.append(name)
+        if "summary" in updated_fields:
+            document["summary_lead"] = summary_lead(summary, SUMMARY_LEAD_LIMIT)
         supersede = False
         if updated_fields:
             report.content_revision_count += 1

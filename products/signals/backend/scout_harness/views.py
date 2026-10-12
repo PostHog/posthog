@@ -1330,6 +1330,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["signal_scout_report:write"],
         pagination_class=None,
     )
+    @trial_state_errors()
     def emit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
         data = request.validated_data
@@ -1408,6 +1409,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["signal_scout_report:write"],
         pagination_class=None,
     )
+    @trial_state_errors()
     def edit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
         data = request.validated_data
