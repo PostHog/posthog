@@ -5674,10 +5674,10 @@ Today (7): `chargebacks`, `customers`, `payment_links`, `payments`, `refunds`, `
 
 Diffed against: <https://raw.githubusercontent.com/mollie/openapi/main/specs.yaml>
 
-- [ ] `/v2/balances/{balanceId}/transactions` — per-transaction ledger of every movement (payment, refund, fee, payout) — the reconciliation fact table (high)
-- [ ] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
-- [ ] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
-- [ ] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
+- [x] `/v2/balances/{balanceId}/transactions` — per-transaction ledger of every movement (payment, refund, fee, payout) — the reconciliation fact table (high)
+- [x] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
+- [x] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
+- [x] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
 - [ ] `/v2/payouts` — bank payouts of settled funds — needed to tie settlements to money received (high)
 - [ ] `/v2/payments/{paymentId}/captures` — capture events on authorized payments; without them captured vs authorized amounts can't be split (medium)
 - [ ] `/v2/invoices` — Mollie's own invoices to the merchant (fees charged) for cost analysis (medium)
@@ -5737,9 +5737,9 @@ Today (9): `assets`, `errors`, `live_streams`, `metrics_comparison`, `playback_r
 Diffed against: <https://storage.googleapis.com/stainless-sdk-openapi-specs/mux/mux-d9ec974ac41da39a8bc9920a266615453f948fec82e03a1d9d4ffc0ae5f372c5.yml>
 
 - [ ] `/data/v1/exports/views` — daily raw video-view exports — the bulk path for getting full view-level data into a warehouse (high)
-- [ ] `/data/v1/metrics/{METRIC_ID}/breakdown` — Mux Data's headline output: any metric broken down by dimension (country, CDN, player) (high)
-- [ ] `/data/v1/metrics/{METRIC_ID}/timeseries` — metric over time — the core QoE trend series (high)
-- [ ] `/data/v1/dimensions and /data/v1/dimensions/{DIMENSION_ID}/elements` — lookup enumerating valid dimensions and their values, needed to interpret breakdowns and view rows (high)
+- [x] `/data/v1/metrics/{METRIC_ID}/breakdown` — Mux Data's headline output: any metric broken down by dimension (country, CDN, player) (high)
+- [x] `/data/v1/metrics/{METRIC_ID}/timeseries` — metric over time — the core QoE trend series (high)
+- [x] `/data/v1/dimensions and /data/v1/dimensions/{DIMENSION_ID}/elements` — lookup enumerating valid dimensions and their values, needed to interpret breakdowns and view rows (high)
 - [ ] `/video/v1/delivery-usage` — delivery minutes per asset — the billing/usage fact table (high)
 - [ ] `/data/v1/metrics/{METRIC_ID}/overall` — aggregate metric value plus total watch time and view count for a window (medium)
 - [ ] `/data/v1/incidents (+ /incidents/{id}/related)` — detected delivery incidents with affected-view counts (medium)

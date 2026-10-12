@@ -421,7 +421,18 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
-        model = await _get_external_data_job(inputs.run_id)
+        try:
+            model = await _get_external_data_job(inputs.run_id)
+        except ExternalDataJob.DoesNotExist as e:
+            # The same condition check_billing_limits_activity, repartition_table.py and
+            # calculate_table_size.py already treat as benign: this run_id can point at a job
+            # that was never created, e.g. external_data_job.py's legacy-tuple safety net
+            # handing through an older worker's create_external_data_job_model_activity result
+            # during a rolling deploy. NonReportableError keeps a deploy skew out of error
+            # tracking; Temporal retries the activity, and the next scheduled run recreates the
+            # job if these retries don't land on a consistent worker.
+            await logger.awarning(str(e))
+            raise NonReportableError(f"Job {inputs.run_id} does not exist") from e
 
         if model.pipeline_version != ExternalDataJob.PipelineVersion.V3:
             # Only a job created before every run moved to V3 can get here, and the V2 pipeline
