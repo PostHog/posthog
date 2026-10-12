@@ -633,6 +633,16 @@ services:
         volumes:
             - objectstorage-data:/data
 
+    openfga:
+        image: openfga/openfga:v1.8.0
+        command: run
+        env_file: ./products/authz/openfga.env
+        ports:
+            - '127.0.0.1:8080:8080'
+            - '127.0.0.1:8081:8081'
+            - '127.0.0.1:3000:3000'
+        profiles: [authz]
+
     objectstorage-azure:
         extends:
             file: docker-compose.base.yml

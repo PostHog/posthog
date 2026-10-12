@@ -215,6 +215,7 @@ dependencies = [
     "deltalite==0.1.11",
     "posthog-hogland==0.4.1",
     "requests-oauthlib~=2.0.0",
+    "openfga-sdk>=0.10.5,<0.11.0",
 ]
 
 [dependency-groups]
