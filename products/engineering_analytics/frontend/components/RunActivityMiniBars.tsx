@@ -60,7 +60,7 @@ export function RunActivityMiniBars({
     const barHeight = (seconds: number): number =>
         maxSeconds > 0 ? Math.max(MIN_BAR_PX, Math.round((seconds / maxSeconds) * CHART_HEIGHT)) : MIN_BAR_PX
     const medianTopPx = maxSeconds > 0 ? CHART_HEIGHT * (1 - Math.min((medianMin * 60) / maxSeconds, 1)) : CHART_HEIGHT
-    const presentTypeSet = new Set(shown.map((run) => verdictTag(run.conclusion).type))
+    const presentTypeSet = new Set<string>(shown.map((run) => verdictTag(run.conclusion).type))
     const presentTypes = LEGEND_ORDER.filter((type) => presentTypeSet.has(type))
 
     return (
