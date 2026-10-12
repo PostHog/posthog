@@ -13,6 +13,7 @@ from django.urls import path
 
 import structlog
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -151,6 +152,67 @@ class TestCommandExecAuditPatching(TestCase):
     def _find(self, logs: Sequence[Mapping[str, Any]], sink: str) -> Mapping[str, Any] | None:
         return next((log for log in logs if log.get("event") == "command_execution" and log.get("sink") == sink), None)
 
+    @staticmethod
+    def _counter(name: str, **labels: str) -> float:
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    def _audit_count(self, sink: str, **flags: str) -> float:
+        labels = dict.fromkeys(
+            ("shell", "has_shell_operators", "has_encoded_blob", "replaces_process", "suppressed"),
+            "false",
+        )
+        labels.update(flags)
+        return self._counter("posthog_command_exec_audit_total", sink=sink, **labels)
+
+    @parameterized.expand(
+        [
+            ("plain_argv", ["true"], False, None, {}),
+            ("shell_operators", "true | cat", True, None, {"shell": "true", "has_shell_operators": "true"}),
+            (
+                "encoded_blob",
+                ["python3", "-c", "x='" + "A" * 80 + "'"],
+                False,
+                None,
+                {"has_encoded_blob": "true"},
+            ),
+            ("replaces_process", ["/bin/true"], False, {"replaces_process": True}, {"replaces_process": "true"}),
+            ("volume_suppressed", ["uname", "-rs"], False, None, {"suppressed": "true"}),
+            (
+                "volume_suppressed_exec_keeps_flags",
+                ["uname", "-rs"],
+                False,
+                {"replaces_process": True},
+                {"suppressed": "true", "replaces_process": "true"},
+            ),
+            # A payload behind a suppressed basename still carries its detection labels.
+            (
+                "volume_suppressed_keeps_detection_labels",
+                ["uname", "-" + "A" * 80],
+                False,
+                None,
+                {"suppressed": "true", "has_encoded_blob": "true"},
+            ),
+        ]
+    )
+    def test_execution_is_counted_with_bounded_labels(
+        self,
+        _name: str,
+        command: list[str] | str,
+        shell: bool,
+        extra: dict[str, Any] | None,
+        flags: dict[str, str],
+    ) -> None:
+        before = self._audit_count("os.spawn", **flags)
+        with structlog.testing.capture_logs() as logs:
+            command_exec_audit._emit(component="os", sink="os.spawn", command=command, shell=shell, extra=extra)
+        self.assertEqual(self._audit_count("os.spawn", **flags), before + 1)
+        entry = self._find(logs, "os.spawn")
+        if flags.get("suppressed") == "true":
+            self.assertIsNone(entry)
+            return
+        assert entry is not None
+        self.assertNotIn("suppressed", entry)
+
     def test_subprocess_run_is_logged(self) -> None:
         with structlog.testing.capture_logs() as logs:
             subprocess.run(["true"], check=True)
@@ -258,14 +320,24 @@ class TestCommandExecAuditPatching(TestCase):
         self.assertNotIn(blob, " ".join(entry["command"]))
         self.assertTrue(entry["has_encoded_blob"])
 
-    def test_operator_chars_in_argv_are_not_flagged(self) -> None:
-        # shell=False: operator chars inside an arg are literal, not injection — must not flag.
+    @parameterized.expand(
+        [
+            # shell=False: operator chars inside an arg are literal, not injection — must not flag.
+            ("plain_binary", ["echo", "a > b && c"], None, False),
+            # Unless the program is a shell, where the arguments reach a shell parser anyway.
+            ("shell_binary", ["sh", "-c", "true | cat"], None, True),
+            ("shell_binary_by_path", ["/bin/sh", "-c", "true | cat"], None, True),
+            ("shell_via_executable", ["ignored", "-c", "true | cat"], "/bin/sh", True),
+            ("shell_binary_without_operators", ["sh", "-c", "true"], None, False),
+        ]
+    )
+    def test_operator_chars_in_argv(self, _name: str, argv: list[str], executable: str | None, expected: bool) -> None:
         with structlog.testing.capture_logs() as logs:
-            subprocess.run(["echo", "a > b && c"], check=True)
+            subprocess.run(argv, executable=executable, check=True)
         entry = self._find(logs, "subprocess.Popen")
         assert entry is not None
         self.assertFalse(entry["shell"])
-        self.assertNotIn("has_shell_operators", entry)
+        self.assertEqual(entry.get("has_shell_operators", False), expected)
 
     def test_audit_does_not_break_command(self) -> None:
         result = subprocess.run(["true"], check=False)
@@ -291,9 +363,25 @@ class TestCommandExecAuditPatching(TestCase):
 
     def test_audit_failure_never_breaks_the_command(self) -> None:
         # If the audit path raises, the wrapped command must still run and return normally.
+        before = self._counter(
+            "posthog_command_exec_audit_failures_total", kind="emit", sink="subprocess.Popen", target=""
+        )
         with mock.patch.object(command_exec_audit, "_context", side_effect=RuntimeError("boom")):
             result = subprocess.run(["true"], check=False)
         self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            self._counter("posthog_command_exec_audit_failures_total", kind="emit", sink="subprocess.Popen", target=""),
+            before + 1,
+        )
+
+    def test_wrap_failure_is_counted(self) -> None:
+        before = self._counter("posthog_command_exec_audit_failures_total", kind="wrap", sink="", target="getpid")
+        with mock.patch("wrapt.wrap_function_wrapper", side_effect=RuntimeError("boom")):
+            command_exec_audit._wrap(os, "getpid", lambda *a: None)
+        self.assertEqual(
+            self._counter("posthog_command_exec_audit_failures_total", kind="wrap", sink="", target="getpid"),
+            before + 1,
+        )
 
     def test_reentrancy_guard_suppresses_nested_audit(self) -> None:
         # While an audit is in progress, a nested exec (e.g. the git shell-out in query
