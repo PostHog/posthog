@@ -18,6 +18,8 @@ export const SCOUT = {
 
 export const INSIGHT = { insightShortId: 'abc123', insightId: 42, insightName: 'Signups' }
 
+export const WORKFLOW = { prompt: 'Draft a workflow triggered by signed_up that sends a reminder after one day.' }
+
 export const INCIDENT_NOTEBOOK = {
     title: 'Why signups dropped on Tuesday',
     summary: 'A checkout error was the cause.',
@@ -30,4 +32,5 @@ export const SUGGESTION_FRAMES: Record<TurnSuggestion['kind'], Record<string, un
     alert: { ...BASE, kind: 'alert', alert: { ...INSIGHT, direction: 'decrease', changePercent: 20.4 } },
     subscription: { ...BASE, kind: 'subscription', subscription: { ...INSIGHT, cadence: 'weekly' } },
     error_alert: { ...BASE, kind: 'error_alert', errorAlert: { issueId: 'issue-1', issueName: 'Checkout error' } },
+    workflow: { ...BASE, kind: 'workflow', workflow: WORKFLOW },
 }

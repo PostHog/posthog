@@ -11,6 +11,7 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { WorkflowSuggestionAvailabilityProvider } from 'scenes/max/WorkflowSuggestionAvailabilityProvider'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
 import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
@@ -63,13 +64,18 @@ export default function AuthenticatedShell({ children }: { children: React.React
             theme={isDarkModeOn ? 'dark' : 'light'}
         />
     )
+    const navigation = (
+        <WorkflowSuggestionAvailabilityProvider>
+            <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+        </WorkflowSuggestionAvailabilityProvider>
+    )
 
     // The page around the frame already has the command palette, shortcuts and floating buttons.
     if (isEmbeddedPageFrame()) {
         return (
             <>
                 <div className="contents isolate">
-                    <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                    {navigation}
                     <GlobalModals />
                 </div>
                 {toasts}
@@ -80,7 +86,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     return (
         <>
             <div className="contents isolate">
-                <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                {navigation}
                 <GlobalModals />
                 <GlobalShortcuts />
                 {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (

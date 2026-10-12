@@ -1,10 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { turnSuggestionsResolveCreate } from '../generated/api'
 import type { StoredLogEntry } from '../types/wireTypes'
 import { acceptSuggestion } from '../utils/acceptSuggestion'
+import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { runStreamLogic } from './runStreamLogic'
 import { suggestionActionLogic } from './suggestionActionLogic'
 import { turnSuggestionLogic } from './turnSuggestionLogic'
@@ -145,4 +148,41 @@ describe('turnSuggestionLogic', () => {
             resolution: 'accepted',
         })
     })
+
+    it('keeps accept disabled until the environment team loads', async () => {
+        await mountStreamWithSuggestion({
+            ...SUGGESTION,
+            kind: 'notebook',
+            notebook: { title: 'Signups investigation', summary: '' },
+        })
+        const logic = suggestionActionLogic({
+            streamKey: STREAM_KEY,
+            turnIndex: 1,
+            sessionId: 'task',
+            revealDelayMs: 0,
+        })
+        logic.mount()
+        expect(logic.values.acceptDisabledReason).toBeNull()
+
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+
+        expect(logic.values.acceptDisabledReason).toBe('Your project is still loading')
+    })
+
+    it.each([true, false])(
+        'shows a workflow offer only when the AI workflow builder can open: available=%s',
+        async (workflowBuilderAvailable) => {
+            await mountStreamWithSuggestion({ ...SUGGESTION_FRAMES.workflow, turnIndex: 1 })
+            const logic = turnSuggestionLogic({
+                streamKey: STREAM_KEY,
+                turnIndex: 1,
+                sessionId: 'task',
+                revealDelayMs: 0,
+                workflowBuilderAvailable,
+            })
+            logic.mount()
+
+            expect(logic.values.visible).toBe(workflowBuilderAvailable)
+        }
+    )
 })

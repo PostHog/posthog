@@ -1,7 +1,13 @@
+import { router } from 'kea-router'
+
+import { WORKFLOW_BRIEF_HANDOFF_PARAM, storeWorkflowDraftBrief } from 'lib/utils/workflowDraftHandoff'
+import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { findCreatedWorkflowId } from './newWorkflowHandoff'
+import { NEW_WORKFLOW_HANDOFF, findCreatedWorkflowId } from './newWorkflowHandoff'
 
 const WORKFLOW_ID = '2f1e9c3a-5b7d-4e8f-9a0b-1c2d3e4f5a6b'
 const OLDER_ID = '7a1b2c3d-0000-4e8f-9a0b-1c2d3e4f5a6b'
@@ -32,5 +38,25 @@ describe('findCreatedWorkflowId', () => {
         { name: 'null for a non-string name', input: 42, expected: null },
     ])('returns $name', async ({ input, expected }) => {
         await expect(findCreatedWorkflowId(input)).resolves.toBe(expected)
+    })
+})
+
+describe('the new workflow composer seed', () => {
+    beforeEach(() => {
+        initKeaTests()
+        sessionStorage.clear()
+    })
+
+    it('takes the stored brief the entry URL names', () => {
+        const eventProperties = {
+            source: 'ai_turn_suggestion' as const,
+            task_id: 'original-chat-task',
+            turn_index: 0,
+            team_id: '997',
+        }
+        const handoffId = storeWorkflowDraftBrief(projectLogic.values.currentProjectId!, NAME, eventProperties)
+        router.actions.push(urls.workflowNew(), { mode: 'ai', [WORKFLOW_BRIEF_HANDOFF_PARAM]: handoffId })
+
+        expect(NEW_WORKFLOW_HANDOFF.getInitialSeed?.()).toEqual({ prompt: NAME, eventProperties })
     })
 })

@@ -119,20 +119,20 @@ If a judge cannot reach the target at any threshold, the closest threshold shows
 
 ## Options
 
-| Option                | Default              | Effect                                                                                                              |
-| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `--threshold`         | the production value | The show threshold for the per-case lines and the first scores table                                                |
-| `--target-offer-rate` | 0.45                 | The offer rate to match, as a share between 0 and 1                                                                 |
-| `--case NAME`         | all                  | Only cases whose name contains this text. Repeat it for more                                                        |
-| `--category NAME`     | all                  | Only cases in this category. Repeat it for more                                                                     |
-| `--workers`           | 8                    | Parallel requests per judge                                                                                         |
-| `--cases-file`        | the bundled file     | Another YAML file with cases                                                                                        |
-| `--state`             | off                  | Print the masked state the judge reads for each case. One judge only                                                |
-| `--draft`             | off                  | Also ask the language model to write the scout or notebook text. Needs a team in the local database. One judge only |
-| `--endpoint URL`      | the variable         | Judge with this URL instead of `TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS`                                               |
-| `--skip-jev`          | off                  | Judge with the endpoints only                                                                                       |
-| `--jev-only`          | off                  | Ignore the endpoints and judge with Jev alone                                                                       |
-| `--sweep`             | off                  | With more than one judge, print every judge's full sweep                                                            |
+| Option                | Default              | Effect                                                                                                                         |
+| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `--threshold`         | the production value | The show threshold for the per-case lines and the first scores table                                                           |
+| `--target-offer-rate` | 0.45                 | The offer rate to match, as a share between 0 and 1                                                                            |
+| `--case NAME`         | all                  | Only cases whose name contains this text. Repeat it for more                                                                   |
+| `--category NAME`     | all                  | Only cases in this category. Repeat it for more                                                                                |
+| `--workers`           | 8                    | Parallel requests per judge                                                                                                    |
+| `--cases-file`        | the bundled file     | Another YAML file with cases                                                                                                   |
+| `--state`             | off                  | Print the masked state the judge reads for each case. One judge only                                                           |
+| `--draft`             | off                  | Also ask the language model to write the scout, notebook, or workflow text. Needs a team in the local database. One judge only |
+| `--endpoint URL`      | the variable         | Judge with this URL instead of `TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS`                                                          |
+| `--skip-jev`          | off                  | Judge with the endpoints only                                                                                                  |
+| `--jev-only`          | off                  | Ignore the endpoints and judge with Jev alone                                                                                  |
+| `--sweep`             | off                  | With more than one judge, print every judge's full sweep                                                                       |
 
 ## Things to keep in mind
 
