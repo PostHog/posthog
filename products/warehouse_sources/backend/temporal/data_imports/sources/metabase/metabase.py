@@ -1,6 +1,7 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -16,10 +17,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import (
     METABASE_ENDPOINTS,
@@ -27,6 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.s
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
+
+# Metabase deletes query_execution rows older than `audit-max-retention-days` (720 by default), so a
+# full refresh walks back this many months before the current one.
+QUERY_EXECUTION_LOOKBACK_MONTHS = 24
 
 HOST_NOT_ALLOWED_ERROR = "Metabase host is not allowed"
 
@@ -41,6 +53,10 @@ REDIRECT_NOT_FOLLOWED_ERROR = (
 # Stable substring matched by MetabaseSource.get_non_retryable_errors when the session endpoint
 # returns a 2xx that isn't JSON (the Instance URL isn't a Metabase API).
 SESSION_RESPONSE_NOT_JSON_ERROR = "Metabase session response was not valid JSON"
+
+# Stable substring matched by MetabaseSource.get_non_retryable_errors when the query log endpoint is
+# missing (open-source edition) or not licensed.
+QUERY_LOGS_UNAVAILABLE_ERROR = "Metabase query execution logs are unavailable"
 
 API_KEY_AUTH = "api_key"
 SESSION_AUTH = "session"
@@ -58,11 +74,21 @@ class MetabaseHostNotAllowedError(Exception):
     pass
 
 
+class MetabaseQueryLogsUnavailableError(Exception):
+    pass
+
+
 class MetabaseAuthError(Exception):
     """Raised when credentials are rejected (bad API key, or username/password that won't mint a
     session). Deterministic — retrying never fixes it — so it surfaces via get_non_retryable_errors."""
 
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class MetabaseResumeConfig:
+    # The next yyyy-mm window of the query log walk.
+    next_month: str
 
 
 @frozen
@@ -266,14 +292,116 @@ def validate_credentials(
     )
 
 
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + delta
+    return index // 12, index % 12 + 1
+
+
+def query_execution_months(now: datetime, last_value: Any) -> list[str]:
+    """The yyyy-mm windows to fetch, oldest first, ending with the month of ``now``.
+
+    Metabase buckets rows by month in its application database's timezone, so an incremental run
+    starts one month before the watermark's UTC month to cover rows across that boundary.
+    """
+    watermark = _parse_timestamp(last_value)
+    if watermark is None:
+        year, month = _shift_month(now.year, now.month, -QUERY_EXECUTION_LOOKBACK_MONTHS)
+    else:
+        year, month = _shift_month(watermark.year, watermark.month, -1)
+
+    months: list[str] = []
+    while (year, month) <= (now.year, now.month):
+        months.append(f"{year:04d}-{month:02d}")
+        year, month = _shift_month(year, month, 1)
+    return months
+
+
+def _started_at_sort_key(row: dict[str, Any]) -> datetime:
+    return _parse_timestamp(row.get("started_at")) or datetime.min.replace(tzinfo=UTC)
+
+
+def _list_pages(
+    client_config: ClientConfig, config: MetabaseEndpointConfig, path: str, team_id: int, job_id: str
+) -> Iterable[Any]:
+    endpoint_config: Endpoint = {"path": path, "params": dict(config.params)}
+    if config.data_selector:
+        endpoint_config["data_selector"] = config.data_selector
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [{"name": config.name, "endpoint": endpoint_config}],
+    }
+    return rest_api_resource(rest_config, team_id, job_id, None)
+
+
+def _get_query_execution_rows(
+    client_config: ClientConfig,
+    config: MetabaseEndpointConfig,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Any,
+    resumable_source_manager: ResumableSourceManager[MetabaseResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    watermark = _parse_timestamp(db_incremental_field_last_value)
+    months = query_execution_months(datetime.now(UTC), db_incremental_field_last_value)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.next_month in months:
+        months = months[months.index(resume.next_month) :]
+
+    for index, month in enumerate(months):
+        path = config.path.replace("{month}", month)
+        try:
+            rows = [row for page in _list_pages(client_config, config, path, team_id, job_id) for row in page]
+        except requests.exceptions.HTTPError as e:
+            # The route only exists on Pro/Enterprise builds, and an unlicensed instance refuses it.
+            if e.response is not None and e.response.status_code in (402, 404):
+                raise MetabaseQueryLogsUnavailableError(QUERY_LOGS_UNAVAILABLE_ERROR) from e
+            raise
+
+        if watermark is not None:
+            rows = [row for row in rows if _started_at_sort_key(row) >= watermark]
+        # Metabase returns each month newest first; ascending order keeps the incremental watermark
+        # monotonic across months.
+        rows.sort(key=_started_at_sort_key)
+        if index + 1 < len(months):
+            resumable_source_manager.save_state(MetabaseResumeConfig(next_month=months[index + 1]))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _flatten_grouped_rows(pages: Iterable[Any]) -> Iterator[list[dict[str, Any]]]:
+    for page in pages:
+        rows = [row for group in page for rows_for_key in group.values() for row in rows_for_key]
+        if rows:
+            yield rows
+
+
 def get_rows(
     host: str,
     auth: MetabaseAuth,
     endpoint: str,
     logger: FilteringBoundLogger,
     team_id: int,
+    resumable_source_manager: ResumableSourceManager[MetabaseResumeConfig],
     job_id: str = "",
-) -> Iterator[list[dict[str, Any]]]:
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[Any]:
     config = METABASE_ENDPOINTS[endpoint]
     base_url = normalize_host(host)
 
@@ -294,27 +422,40 @@ def get_rows(
 
     session = make_tracked_session(redact_values=_redact_values_for_data_requests(auth, headers))
 
-    endpoint_config: Endpoint = {"path": config.path, "params": dict(config.params)}
-    if config.data_selector:
-        endpoint_config["data_selector"] = config.data_selector
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url,
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "name": auth_header_name, "api_key": secret, "location": "header"},
-            # Metabase list endpoints are unpaginated — one request returns the whole collection.
-            "paginator": SinglePagePaginator(),
-            # A pre-built tracked session carries the value redaction; disabling redirects rejects a
-            # customer-controlled host that 3xx-es toward an internal address (SSRF).
-            "session": session,
-            "allow_redirects": False,
-        },
-        "resource_defaults": {},
-        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    client_config: ClientConfig = {
+        "base_url": base_url,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "name": auth_header_name, "api_key": secret, "location": "header"},
+        # Metabase list endpoints are unpaginated — one request returns the whole collection.
+        "paginator": SinglePagePaginator(),
+        # A pre-built tracked session carries the value redaction; disabling redirects rejects a
+        # customer-controlled host that 3xx-es toward an internal address (SSRF).
+        "session": session,
+        "allow_redirects": False,
     }
 
-    yield from rest_api_resource(rest_config, team_id, job_id, None)
+    if config.fanout is not None:
+        parent = METABASE_ENDPOINTS[config.fanout.parent_name]
+        yield from build_dependent_resource(
+            endpoint_configs=METABASE_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": parent.data_selector} if parent.data_selector else None,
+            page_size_param=None,
+        )
+    elif config.month_windowed:
+        yield from _get_query_execution_rows(
+            client_config, config, team_id, job_id, db_incremental_field_last_value, resumable_source_manager
+        )
+    elif config.grouped_by_key:
+        yield from _flatten_grouped_rows(_list_pages(client_config, config, config.path, team_id, job_id))
+    else:
+        yield from _list_pages(client_config, config, config.path, team_id, job_id)
 
 
 def metabase_source(
@@ -323,13 +464,26 @@ def metabase_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     team_id: int,
+    resumable_source_manager: ResumableSourceManager[MetabaseResumeConfig],
     job_id: str = "",
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config: MetabaseEndpointConfig = METABASE_ENDPOINTS[endpoint]
+    last_value = db_incremental_field_last_value if should_use_incremental_field else None
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(host=host, auth=auth, endpoint=endpoint, logger=logger, team_id=team_id, job_id=job_id),
+        items=lambda: get_rows(
+            host=host,
+            auth=auth,
+            endpoint=endpoint,
+            logger=logger,
+            team_id=team_id,
+            resumable_source_manager=resumable_source_manager,
+            job_id=job_id,
+            db_incremental_field_last_value=last_value,
+        ),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
