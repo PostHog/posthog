@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
 
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
@@ -50,6 +51,11 @@ class ButtonTile(UUIDModel):
 
     class Meta:
         db_table = "posthog_buttontile"
+
+
+class DashboardTileBadge(models.TextChoices):
+    WINNER = "winner", "Winner"
+    CHEEKY_HOG = "cheeky-hog", "Cheeky hog"
 
 
 class DashboardTileManager(models.Manager):
@@ -106,6 +112,10 @@ class DashboardTile(models.Model):
     show_description = models.BooleanField(null=True, blank=True)
 
     transparent_background = models.BooleanField(null=True, blank=True)
+
+    # Tiles that share a group key belong together. The dashboard's `customization.group_titles` names each group.
+    group_key = models.CharField(max_length=MAX_GROUP_KEY_LENGTH, null=True, blank=True)
+    badge = models.CharField(max_length=20, choices=DashboardTileBadge.choices, null=True)
 
     deleted = models.BooleanField(null=True, blank=True)
 
@@ -217,7 +227,7 @@ class DashboardTile(models.Model):
                 raise ValidationError("This content is already on the destination dashboard.")
             stale.delete()
 
-    def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+    def copy_to_dashboard(self, dashboard: Dashboard, *, keep_group_key: bool = True) -> None:
         """
         Place this tile's content on another dashboard: create a new row, or undelete a soft-deleted
         row for the same insight, text, or button (unique constraint would block a second insert otherwise).
@@ -249,6 +259,8 @@ class DashboardTile(models.Model):
             existing.color = self.color
             existing.show_description = self.show_description
             existing.transparent_background = self.transparent_background
+            existing.group_key = self.group_key if keep_group_key else None
+            existing.badge = self.badge
             existing.filters_overrides = self.filters_overrides
             existing.save()
             return
@@ -263,6 +275,8 @@ class DashboardTile(models.Model):
             layouts=self.layouts,
             show_description=self.show_description,
             transparent_background=self.transparent_background,
+            group_key=self.group_key if keep_group_key else None,
+            badge=self.badge,
             filters_overrides=self.filters_overrides,
         )
 

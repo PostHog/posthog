@@ -1,8 +1,6 @@
 import re
 from typing import Any, Literal
 
-from django.db import transaction
-
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -18,14 +16,16 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
 
-from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
-from products.messaging.backend.models.message_preferences import (
-    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-    MessageRecipientPreference,
-    PreferenceStatus,
+from products.messaging.backend.facade.preferences import (
+    MessageCategoryNotFound,
+    OptOutRequest,
+    RecipientPreferences,
+    add_opt_out,
+    bulk_opt_out,
+    export_opt_outs_csv,
+    list_opt_outs,
+    remove_opt_out,
 )
-from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, OptOutService, UnknownCategoryError
-from products.messaging.backend.tasks import sync_preferences_to_customerio_task
 
 MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
@@ -37,32 +37,14 @@ class OptOutsPagination(PageNumberPagination):
     max_page_size = 100
 
 
-class MessagePreferencesSerializer(serializers.ModelSerializer):
+class MessagePreferencesSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Server-assigned UUID for this recipient's preference record.")
     identifier = serializers.CharField(help_text="The recipient identifier (e.g. email address).")
     updated_at = serializers.DateTimeField(help_text="When the preference was last updated.")
     preferences = serializers.JSONField(
         help_text="Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). "
         "The reserved `$all` key covers every marketing message."
     )
-
-    class Meta:
-        model = MessageRecipientPreference
-        fields = [
-            "id",
-            "identifier",
-            "updated_at",
-            "preferences",
-        ]
-        read_only_fields = [
-            "id",
-            "identifier",
-            "created_at",
-            "updated_at",
-            "created_by",
-        ]
-        extra_kwargs = {
-            "id": {"help_text": "Server-assigned UUID for this recipient's preference record."},
-        }
 
 
 class AddOptOutRequestSerializer(serializers.Serializer):
@@ -221,30 +203,19 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Get opt-outs filtered by category or overall opt-outs if no category specified"""
         self._require_resource_access("viewer", "You need hog_flow viewer access to view the opt-out list.")
 
-        category_key = request.validated_query_data.get("category_key")
-
-        # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided
-        preference_key = ALL_MESSAGE_PREFERENCE_CATEGORY_ID
-        if category_key:
-            category = MessageCategory.objects.filter(key=category_key, team_id=self.team_id).first()
-            if category is None:
-                return Response({"error": "Category not found"}, status=404)
-            preference_key = str(category.id)
-
-        opt_outs = MessageRecipientPreference.objects.filter(
-            team_id=self.team_id,
-            **{f"preferences__{preference_key}": PreferenceStatus.OPTED_OUT.value},
-        )
-
-        search = request.validated_query_data.get("search")
-        if search:
-            opt_outs = opt_outs.filter(identifier__icontains=search)
-
-        opt_outs = opt_outs.order_by("-updated_at")  # Order by most recently updated first
+        try:
+            opt_outs = list_opt_outs(
+                self.team_id,
+                request.validated_query_data.get("category_key"),
+                request.validated_query_data.get("search"),
+            )
+        except MessageCategoryNotFound:
+            return Response({"error": "Category not found"}, status=404)
 
         # Apply pagination
         paginator = OptOutsPagination()
-        page = paginator.paginate_queryset(opt_outs, request)
+        # The paginator only needs len() and slicing, which the facade's sequence provides.
+        page: list[RecipientPreferences] | None = paginator.paginate_queryset(opt_outs, request)  # type: ignore[arg-type]
         if page is not None:
             serializer = MessagePreferencesSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
@@ -269,27 +240,13 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         identifier = serializer.validated_data["identifier"]
         category_key = serializer.validated_data.get("category_key")
 
-        category = None
-        if category_key:
-            category = MessageCategory.objects.filter(key=category_key, team_id=self.team_id).first()
-            if category is None:
-                return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            changed = add_opt_out(self.team_id, identifier, category_key, request.user.id)
+        except MessageCategoryNotFound:
+            return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        category_id = str(category.id) if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
-
-        preference, created = MessageRecipientPreference.objects.get_or_create(
-            team_id=self.team_id,
-            identifier=identifier,
-            defaults={"created_by": request.user},
-        )
-        preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
-
-        # Customer.io round-trips can take tens of seconds, so sync off the request path
-        # once the preference write has committed.
-        transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
-
-        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(MessagePreferencesSerializer(preference).data, status=response_status)
+        response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
+        return Response(MessagePreferencesSerializer(changed.preferences).data, status=response_status)
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
@@ -307,62 +264,13 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         identifier = serializer.validated_data["identifier"]
         category_key = serializer.validated_data.get("category_key")
 
-        category = None
-        if category_key:
-            category = MessageCategory.objects.filter(key=category_key, team_id=self.team_id).first()
-            if category is None:
-                return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            changed = remove_opt_out(self.team_id, identifier, category_key, request.user.id)
+        except MessageCategoryNotFound:
+            return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        preference, created = MessageRecipientPreference.objects.get_or_create(
-            team_id=self.team_id,
-            identifier=identifier,
-            defaults={"created_by": request.user},
-        )
-        preferences = dict(preference.preferences or {})
-
-        if category is None:
-            preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_IN.value
-        else:
-            self._lift_global_opt_out(preferences, category)
-            preferences[str(category.id)] = PreferenceStatus.OPTED_IN.value
-
-        preference.preferences = preferences
-        preference.save(update_fields=["preferences", "updated_at"])
-
-        transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
-
-        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(MessagePreferencesSerializer(preference).data, status=response_status)
-
-    def _lift_global_opt_out(self, preferences: dict[str, Any], category: MessageCategory) -> None:
-        """Clear a `$all` opt-out that would otherwise swallow a per-category resubscribe.
-
-        Sends check the category and `$all` together, so opting someone back in to one category
-        does nothing while `$all` stays opted out. Pin the team's other marketing categories to
-        opted out first, so lifting `$all` resubscribes only the category the caller named
-        instead of silently widening consent to everything.
-
-        The pinning overwrites even an explicit OPTED_IN on a sibling category (e.g. one a
-        Customer.io webhook recorded): while `$all` was opted out that opt-in was inert, so
-        preserving the recipient's effective state means opting the sibling out, not letting
-        the stale opt-in spring back to life.
-        """
-        if category.category_type != MessageCategoryType.MARKETING:
-            return
-        if preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) != PreferenceStatus.OPTED_OUT.value:
-            return
-
-        other_category_ids = (
-            MessageCategory.objects.filter(
-                team_id=self.team_id, category_type=MessageCategoryType.MARKETING, deleted=False
-            )
-            .exclude(id=category.id)
-            .values_list("id", flat=True)
-        )
-        for other_category_id in other_category_ids:
-            preferences[str(other_category_id)] = PreferenceStatus.OPTED_OUT.value
-
-        preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_IN.value
+        response_status = status.HTTP_201_CREATED if changed.created else status.HTTP_200_OK
+        return Response(MessagePreferencesSerializer(changed.preferences).data, status=response_status)
 
     @extend_schema(
         parameters=[
@@ -386,11 +294,9 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_resource_access("viewer", "You need hog_flow viewer access to view the opt-out list.")
 
         category_key = request.query_params.get("category_key")
-        service = OptOutService(team_id=self.team_id, user=request.user)
-
         try:
-            rows = service.export_rows(category_key)
-        except UnknownCategoryError as e:
+            rows = export_opt_outs_csv(self.team_id, category_key)
+        except MessageCategoryNotFound as e:
             return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
 
         filename_suffix = (
@@ -418,15 +324,16 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = BulkAddOptOutsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        entries = [
-            BulkOptOutEntry(identifier=entry["identifier"], category_key=entry.get("category_key") or None)
+        requests = [
+            OptOutRequest(identifier=entry["identifier"], category_key=entry.get("category_key") or None)
             for entry in serializer.validated_data["opt_outs"]
         ]
 
-        service = OptOutService(team_id=self.team_id, user=request.user)
         try:
-            result = service.opt_out_recipients(entries, serializer.validated_data.get("category_key") or None)
-        except UnknownCategoryError as e:
+            result = bulk_opt_out(
+                self.team_id, requests, serializer.validated_data.get("category_key") or None, request.user.id
+            )
+        except MessageCategoryNotFound as e:
             return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(BulkAddOptOutsResultSerializer(result).data, status=status.HTTP_200_OK)

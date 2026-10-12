@@ -40,7 +40,6 @@ from products.tasks.backend.facade.run_config import (
 
 MAX_TRIAL_LAUNCH_BYTES = 16 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
-SCOUT_TRIAL_TASK_STATE_KEY = "scout_trial"
 
 
 class ScoutTrialLaunchError(ValueError):
@@ -461,9 +460,22 @@ def create_trial_launch(
 def bound_trial_run(team_id: int, task_id: UUID | str | None) -> SignalScoutRun | None:
     if task_id is None:
         return None
-    return (
+    run = (
         SignalScoutRun.objects.for_team(team_id)
-        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
-        .select_related("task_run")
+        .filter(
+            task_run__task_id=task_id,
+            task_run__team_id=team_id,
+            task_run__task__team_id=team_id,
+            task_run__task__deleted=False,
+            task_run__task__origin_product="signals_scout",
+            metadata__scout_trial__version=1,
+        )
+        .select_related("task_run__task")
         .first()
     )
+    if run is None or run.metadata is None:
+        return None
+    launch_id = run.metadata["scout_trial"].get("launch_id")
+    if not isinstance(launch_id, str) or run.task_run.task.origin_key != f"scout-trial:{launch_id}":
+        return None
+    return run

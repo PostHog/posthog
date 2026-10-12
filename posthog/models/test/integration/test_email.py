@@ -12,6 +12,8 @@ from posthog.models.integration import EmailIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+
 
 class TestEmailIntegrationDomainValidation(BaseTest):
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
@@ -172,3 +174,35 @@ class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
             team.delete()
 
         mock_delete_identity.assert_not_called()
+
+
+class TestEmailIntegrationDefaultSender(BaseTest):
+    def _create_sender(self, email: str) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=email,
+            config={"email": email, "domain": email.split("@")[1], "provider": "maildev", "verified": False},
+        )
+
+    def _default_sender_id(self) -> int | None:
+        return TeamWorkflowsConfig.objects.get(team=self.team).default_email_integration_id
+
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    def test_first_verified_sender_becomes_the_default_and_later_ones_do_not_replace_it(self, _reload):
+        first = self._create_sender("hello@first.example.com")
+        second = self._create_sender("hello@second.example.com")
+
+        EmailIntegration(first).verify()
+        EmailIntegration(second).verify()
+
+        assert self._default_sender_id() == first.id
+
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    def test_deleting_the_default_sender_clears_it(self, _reload):
+        sender = self._create_sender("hello@first.example.com")
+        EmailIntegration(sender).verify()
+
+        sender.delete()
+
+        assert self._default_sender_id() is None

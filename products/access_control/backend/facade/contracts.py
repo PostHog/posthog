@@ -11,6 +11,7 @@ from enum import Enum
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.scopes import APIScopeObject
 
 
 class PropertyAccessLevel(str, Enum):
@@ -60,6 +61,22 @@ class PropertyAccessControlState:
 
 
 # --- Input DTOs ---
+
+
+@frozen
+class ObjectAccessRef:
+    """The fields object-level access control reads from one object, without the model.
+
+    A view that serves a facade contract passes this to `check_object_permissions` in place of a
+    model instance. Resolution needs only the resource, the object id, and the creator. A resource
+    that inherits access from a parent object through a foreign key (`RESOURCE_FALLBACK_MAP`)
+    cannot be resolved from a reference, so the check raises for it.
+    """
+
+    resource: APIScopeObject
+    id: str
+    team_id: int
+    created_by_id: int | None
 
 
 @frozen

@@ -71,9 +71,9 @@ class TestSelectReviewDesign:
     @parameterized.expand(
         [
             # Dashboards split Flash by version, so a v2 turn must never report the v1 id or the reverse.
-            ("flash_single_agent", REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT, "reviewhog-flash-2-1"),
-            ("flash_pipeline", REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE, "reviewhog-flash-1-2"),
-            ("full_pipeline", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE, "reviewhog-full-1-2"),
+            ("flash_single_agent", REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT, "reviewhog-flash-2-2"),
+            ("flash_pipeline", REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE, "reviewhog-flash-1-4"),
+            ("full_pipeline", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE, "reviewhog-full-1-4"),
         ]
     )
     def test_version_id_depends_on_mode_and_design(

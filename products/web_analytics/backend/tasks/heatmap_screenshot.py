@@ -423,6 +423,9 @@ def _browserless_screenshot(
     width: int,
     block_consent_modals: bool,
     cookies: list[dict[str, object]] | None = None,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "heatmap_screenshot",
 ) -> tuple[bytes, int | None]:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
@@ -457,15 +460,15 @@ def _browserless_screenshot(
     width_bucket = _width_bucket(width)
     started = time.monotonic()
     try:
-        # NORMAL, not BATCH: somebody is waiting on this render. Background consumers of the same
-        # fleet ask as BATCH and are shed first, which is what leaves headroom for this call.
+        # NORMAL by default: somebody is waiting on this render. Background callers such as the daily
+        # history capture pass BATCH and are shed first, which is what leaves headroom for this call.
         response = browserless_request(
             "POST",
             endpoint_url,
             token=settings.HEATMAP_BROWSERLESS_TOKEN,
-            source="heatmap_screenshot",
+            source=source,
             endpoint="screenshot",
-            priority=Priority.NORMAL,
+            priority=priority,
             json=body,
             timeout=timeout,
         )
@@ -604,9 +607,6 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> int:
 def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int]) -> int:
     # REST /screenshot: one request per width (viewport.width sets the captured width). Persist and
     # release each image as it arrives so worker memory holds one full-page JPEG at a time.
-    endpoint_url = _build_browserless_screenshot_url()
-    if not endpoint_url:
-        raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
     # Skip widths already rendered, so promoting a prewarm only renders the still-missing widths.
     already_rendered = _rendered_widths(screenshot, widths)
     pending = [w for w in widths if w not in already_rendered]
@@ -620,32 +620,49 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     )
     count = 0
     for w in pending:
-        config = TeamHeatmapConfig.objects.filter(team_id=screenshot.team_id).first()
-        secret = config.screenshot_secret if config else None
-        allowed_hostnames = config.allowed_hostnames if config else []
-        reason = screenshot_credential_delivery_reason(secret, screenshot.url, allowed_hostnames)
-        HEATMAP_SCREENSHOT_CREDENTIAL_DELIVERY.labels(reason=reason).inc()
-        cookies = heatmap_screenshot_cookies(secret, screenshot.url, allowed_hostnames)
-        image_data, page_status = _browserless_screenshot(
-            endpoint_url, screenshot.url, w, screenshot.block_consent_modals, cookies
-        )
-        if page_status is not None and not 200 <= page_status < 300:
-            guidance = (
-                "Screenshot cookie delivery is disabled on this installation. Contact your PostHog administrator."
-                if reason == "delivery_disabled"
-                else "The screenshot cookie was configured. Check the page and your bot protection rule before retrying."
-                if cookies
-                else "No screenshot cookie was sent. If bot protection blocks this page, ask a project admin to "
-                "approve its HTTPS hostname and configure a screenshot cookie in project settings under Heatmaps."
-            )
-            raise PageHttpStatusError(
-                f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
-                f"is a picture of that response. {guidance}",
-                cause="page_http_status",
-            )
+        image_data = render_page(screenshot.team_id, screenshot.url, w, screenshot.block_consent_modals)
         _persist_snapshot(screenshot, w, image_data)
         count += 1
     return count
+
+
+def render_page(
+    team_id: int,
+    page_url: str,
+    width: int,
+    block_consent_modals: bool,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "heatmap_screenshot",
+) -> bytes:
+    endpoint_url = _build_browserless_screenshot_url()
+    if not endpoint_url:
+        raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
+    config = TeamHeatmapConfig.objects.filter(team_id=team_id).first()
+    secret = config.screenshot_secret if config else None
+    allowed_hostnames = config.allowed_hostnames if config else []
+    reason = screenshot_credential_delivery_reason(secret, page_url, allowed_hostnames)
+    HEATMAP_SCREENSHOT_CREDENTIAL_DELIVERY.labels(reason=reason).inc()
+    cookies = heatmap_screenshot_cookies(secret, page_url, allowed_hostnames)
+    image_data, page_status = _browserless_screenshot(
+        endpoint_url, page_url, width, block_consent_modals, cookies, priority=priority, source=source
+    )
+    if page_status is not None and not 200 <= page_status < 300:
+        guidance = (
+            "Screenshot cookie delivery is disabled on this installation. Contact your PostHog administrator."
+            if reason == "delivery_disabled"
+            else "The screenshot cookie was configured. Check the page and your bot protection rule before retrying."
+            if cookies
+            else "No screenshot cookie was sent. If bot protection blocks this page, ask a project admin to "
+            "approve its HTTPS hostname and configure a screenshot cookie in project settings under Heatmaps."
+        )
+        raise PageHttpStatusError(
+            f"{_host_of(page_url)} returned {page_status} when we loaded the page, so the capture "
+            f"is a picture of that response. {guidance}",
+            status_code=page_status,
+            cause="page_http_status",
+        )
+    return image_data
 
 
 def _host_of(url: str) -> str:

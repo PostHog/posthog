@@ -91,6 +91,17 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+# sshtunnel reports every failure to reach the gateway with this fixed wording, which names no fix.
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_ERROR = (
+    "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion "
+    "host is running and reachable, and that PostHog's IP addresses are allowed through its firewall."
+)
+_SSH_TUNNEL_GENERIC_ERROR = (
+    "Could not connect to ClickHouse through your SSH tunnel. Check the SSH tunnel settings for this source, then "
+    "try again."
+)
+
 _HOST_NOT_RESOLVED = "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog."
 
 # Error message → user-friendly translation. Matched as a substring of the
@@ -133,6 +144,10 @@ ClickHouseErrors: dict[str, str] = {
     "received http status 307": _REDIRECTED,
     "received http status 308": _REDIRECTED,
     "received http status 429": _TEMPORARILY_UNAVAILABLE,
+    # A bare 500 (no X-ClickHouse-Exception-Code header, see get_retryable_errors) is a
+    # proxy/load balancer in front of ClickHouse failing, not ClickHouse itself — same
+    # transient shape as 502/503/504 below.
+    "received http status 500": _TEMPORARILY_UNAVAILABLE,
     "received http status 502": _TEMPORARILY_UNAVAILABLE,
     "received http status 503": _TEMPORARILY_UNAVAILABLE,
     "received http status 504": _TEMPORARILY_UNAVAILABLE,
@@ -286,7 +301,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # this per-source dict, so without the entry a down tunnel retries to the maximum and
             # reports the customer's gateway misconfig as error-tracking noise. Postgres, MySQL, and
             # MSSQL already treat this identical error as non-retryable.
-            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_ERROR,
             "Could not resolve the ClickHouse host": None,
             "nodename nor servname provided": None,
             "Name or service not known": None,
@@ -376,7 +391,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_retryable_errors(self) -> set[str]:
         # `_get_client` already retries dropped connections and rate limits in-process
         # (see clickhouse.py's `_is_retryable_connect_error`) before re-raising as
-        # `ClickHouseConnectionError`. Bare HTTP 502/503/504 responses skip that
+        # `ClickHouseConnectionError`. Bare HTTP 500/502/503/504 responses skip that
         # in-process retry by design (there's no proxy CONNECT to re-dial) and go
         # straight to Temporal's activity retry instead. Either way, once Temporal
         # retries the activity the failure is transient and self-recovering, so
@@ -387,6 +402,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "Connection reset by peer",
             "Connection aborted",
             "received HTTP status 429",
+            # No X-ClickHouse-Exception-Code header means ClickHouse itself never raised
+            # this — a proxy/load balancer in front of it failed instead (see
+            # clickhouse.py's NOT_A_CLICKHOUSE_HTTP_RESPONSE and the 400/404 entries
+            # above for the same reasoning applied to deterministic bare statuses).
+            "received HTTP status 500",
             "received HTTP status 502",
             "received HTTP status 503",
             "received HTTP status 504",
@@ -571,11 +591,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
-            return (
-                False,
-                e.value
-                or "Could not connect to ClickHouse via the SSH tunnel. Please check all connection details are valid.",
-            )
+            if _SSH_GATEWAY_SESSION_ERROR in (e.value or ""):
+                return False, _SSH_GATEWAY_UNREACHABLE_ERROR
+            # Other sshtunnel messages are written for a traceback reader and can carry the host it dialed.
+            capture_exception(e)
+            return False, _SSH_TUNNEL_GENERIC_ERROR
         except ClickHouseConnectionError as e:
             message = self._translate_error(str(e))
             return False, message or GENERIC_CONNECTION_ERROR

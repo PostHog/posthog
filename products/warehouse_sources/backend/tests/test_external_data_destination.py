@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NoActiveDestinationsError,
     destination_ids_for_run,
     external_destination_ids_for,
 )
@@ -79,6 +80,9 @@ class TestResolveDestinations(BaseTest):
         )
 
         assert resolve_destinations(self.schema) == []
+        # An empty id list means "the PostHog warehouse only", which this table never picked.
+        with self.assertRaises(NoActiveDestinationsError):
+            destination_ids_for_run(self.schema)
 
     def test_deleted_destinations_are_excluded(self) -> None:
         live = self._destination("live")

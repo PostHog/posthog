@@ -40,6 +40,9 @@ class TestNormalizeBaseUrl:
             ("https://acme.api-us1.com/api/3", "https://acme.api-us1.com"),
             ("https://acme.api-us1.com/api/3/", "https://acme.api-us1.com"),
             ("  https://acme.api-us1.com  ", "https://acme.api-us1.com"),
+            ("acme.api-us1.com", "https://acme.api-us1.com"),
+            ("acme.api-us1.com/api/3/", "https://acme.api-us1.com"),
+            ("http://acme.api-us1.com", "http://acme.api-us1.com"),
         ],
     )
     def test_normalize(self, raw: str, expected: str) -> None:

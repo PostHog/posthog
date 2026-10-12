@@ -19,6 +19,8 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
+
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
@@ -83,12 +85,14 @@ function TracingSceneContents(): JSX.Element {
     const {
         listRows,
         spansLoading,
+        spansError,
         isTraceOpen,
         selectedTraceId,
         selectedSpanId,
         selectedTraceTs,
         sparklineData,
         sparklineLoading,
+        sparklineError,
         openTraceSpans,
         traceIdentity,
         traceSessionId,
@@ -131,6 +135,8 @@ function TracingSceneContents(): JSX.Element {
         openCompareFlame,
         closeCompareFlame,
         fetchNextPage,
+        fetchSpans,
+        fetchSparkline,
         loadMoreTraceSpans,
         setVisibleRowRange,
         selectInspectorTab,
@@ -254,6 +260,9 @@ function TracingSceneContents(): JSX.Element {
                 <TracingSparkline
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
+                    // The duration histogram replaces the sparkline in this mode.
+                    sparklineError={isDurationMode && !showHeatmap ? null : sparklineError}
+                    onRetry={() => fetchSparkline()}
                     onDateRangeChange={setDateRange}
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}
                     currentDateTo={utcDateRange.date_to}
@@ -298,34 +307,44 @@ function TracingSceneContents(): JSX.Element {
                                 onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
                             />
                         ) : (
-                            <VirtualizedSpanList
-                                dataSource={listRows}
-                                spanColumns={spanColumns}
-                                showRootTag={filters.viewMode === 'spans'}
-                                loading={spansLoading}
-                                hasMoreToLoad={hasMoreToLoad}
-                                onLoadMore={fetchNextPage}
-                                onVisibleRowRangeChange={setVisibleRowRange}
-                                spanErrors={spanErrors}
-                                orderBy={filters.orderBy}
-                                orderDirection={filters.orderDirection}
-                                onSort={(column) =>
-                                    // Click an active column to flip direction; a new column starts at DESC.
-                                    setSort(
-                                        column,
-                                        column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
-                                    )
-                                }
-                                emptyState={
-                                    <div className="flex flex-col items-center gap-1">
-                                        <span>No spans found</span>
-                                        <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
-                                            Learn how to send traces
-                                        </Link>
-                                    </div>
-                                }
-                                onRowClick={onRowClick}
-                            />
+                            <div className="relative flex flex-col flex-1 min-h-0">
+                                <VirtualizedSpanList
+                                    dataSource={listRows}
+                                    spanColumns={spanColumns}
+                                    showRootTag={filters.viewMode === 'spans'}
+                                    loading={spansLoading}
+                                    hasMoreToLoad={hasMoreToLoad}
+                                    onLoadMore={fetchNextPage}
+                                    onVisibleRowRangeChange={setVisibleRowRange}
+                                    spanErrors={spanErrors}
+                                    orderBy={filters.orderBy}
+                                    orderDirection={filters.orderDirection}
+                                    onSort={(column) =>
+                                        // Click an active column to flip direction; a new column starts at DESC.
+                                        setSort(
+                                            column,
+                                            column === filters.orderBy && filters.orderDirection === 'DESC'
+                                                ? 'ASC'
+                                                : 'DESC'
+                                        )
+                                    }
+                                    emptyState={
+                                        <div className="flex flex-col items-center gap-1">
+                                            <span>No spans found</span>
+                                            <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                                Learn how to send traces
+                                            </Link>
+                                        </div>
+                                    }
+                                    onRowClick={onRowClick}
+                                />
+                                <QueryFailedOverlay
+                                    error={spansError}
+                                    title="Couldn't load traces"
+                                    onRetry={() => fetchSpans()}
+                                    className="rounded border bg-bg-light"
+                                />
+                            </div>
                         )}
                     </div>
                 </div>
