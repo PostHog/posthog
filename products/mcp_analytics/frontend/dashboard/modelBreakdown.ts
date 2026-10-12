@@ -11,16 +11,12 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
-import { isFoldedModelsLabel, modelRowLabels, otherModelsLabel, topModels } from '../aiLabs'
+import { foldedModelLabel, isFoldedModelsLabel, modelRowLabelsByCalls, otherModelsLabel } from '../aiLabs'
 
-function foldModelRows(rows: MCPModelBreakdownItem[], top: ReadonlySet<string>): MCPModelBreakdownItem[] {
-    const rowLabels = modelRowLabels(
-        rows.map((row) => row.model),
-        top
-    )
+function foldModelRows(rows: MCPModelBreakdownItem[], rowLabels: ReadonlyMap<string, string>): MCPModelBreakdownItem[] {
     const totals = new Map<string, number>()
     for (const row of rows) {
-        const label = rowLabels.get(row.model) ?? row.model
+        const label = rowLabels.get(row.model) ?? foldedModelLabel(row.model)
         totals.set(label, (totals.get(label) ?? 0) + row.total_calls)
     }
     const rank = (model: string): number =>
@@ -30,10 +26,10 @@ function foldModelRows(rows: MCPModelBreakdownItem[], top: ReadonlySet<string>):
         .sort((a, b) => rank(a.model) - rank(b.model) || b.total_calls - a.total_calls)
 }
 
-/** Pass `top` when another chart on the page names models, so both charts name the same ones. */
+/** Pass `rowLabels` when another chart on the page shows models, so both charts put a model in the same row. */
 export function summarizeModelBreakdown(
     rows: MCPModelBreakdownItem[],
-    top?: ReadonlySet<string>
+    rowLabels?: ReadonlyMap<string, string>
 ): {
     totalCalls: number
     unknownCalls: number
@@ -51,7 +47,7 @@ export function summarizeModelBreakdown(
         identifiedShare: totalCalls > 0 ? ((totalCalls - unknownCalls) / totalCalls) * 100 : 0,
         rankedModels: foldModelRows(
             rows.filter((row) => row.model !== 'Unknown'),
-            top?.size ? top : topModels(rows.map((row) => [row.model, row.total_calls]))
+            rowLabels?.size ? rowLabels : modelRowLabelsByCalls(rows.map((row) => [row.model, row.total_calls]))
         ),
     }
 }

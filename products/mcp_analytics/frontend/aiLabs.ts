@@ -71,6 +71,16 @@ export function modelRowLabels(models: string[], top: ReadonlySet<string>): Map<
     )
 }
 
+// The row of every model, from the calls each model has. Build it once per page from the fullest model
+// list, so every chart on the page puts a model in the same row.
+export function modelRowLabelsByCalls(totals: Iterable<[model: string, calls: number]>): Map<string, string> {
+    const named = [...totals].filter(([model]) => model !== UNKNOWN)
+    return modelRowLabels(
+        named.map(([model]) => model),
+        topModels(named)
+    )
+}
+
 export function isFoldedModelsLabel(label: string): boolean {
     return LAB_ORDER.some((lab) => otherModelsLabel(lab) === label)
 }

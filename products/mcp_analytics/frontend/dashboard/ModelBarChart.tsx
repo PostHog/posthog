@@ -45,15 +45,15 @@ export function ModelBarChart({
     theme,
     filters = {},
     colorOf,
-    topModels,
+    rowLabels,
 }: {
     rows: ModelRow[]
     theme: ChartTheme
     filters?: HogQLFilters
     /** Pass the page's model colors when another chart on the page also shows models. */
     colorOf?: (model: string) => string | undefined
-    /** Pass the page's top models when another chart on the page also names models. */
-    topModels?: ReadonlySet<string>
+    /** Pass the page's model rows when another chart on the page also shows models. */
+    rowLabels?: ReadonlyMap<string, string>
 }): JSX.Element {
     const logic = modelBreakdownLogic({ filters })
     const { expanded, modelPageLoading } = useValues(logic)
@@ -62,7 +62,7 @@ export function ModelBarChart({
         totalCalls,
         unknownCalls,
         rankedModels: sortedRows,
-    } = useMemo(() => summarizeModelBreakdown(rows, topModels), [rows, topModels])
+    } = useMemo(() => summarizeModelBreakdown(rows, rowLabels), [rows, rowLabels])
     const chartRows = useMemo<ShareBarRow<ModelRow>[]>(() => {
         const ownColors = modelColors(
             theme,

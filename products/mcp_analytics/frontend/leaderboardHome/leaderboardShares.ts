@@ -1,6 +1,6 @@
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
-import { isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, modelRowLabels, seriesLab } from '../aiLabs'
+import { foldedModelLabel, isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, seriesLab } from '../aiLabs'
 import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
 
 export interface BucketedFacetRow {
@@ -95,11 +95,10 @@ export function buildShareSeries(
 export function buildModelShareSeries(
     rows: BucketedFacetRow[],
     bucketKeys: string[],
-    top: ReadonlySet<string>
+    rowLabels: ReadonlyMap<string, string>
 ): ShareSeries[] {
     const named = rows.filter((row) => row.label !== UNKNOWN)
-    const rowLabels = modelRowLabels([...new Set(named.map((row) => row.label))], top)
-    const groupOf = (label: string): string => rowLabels.get(label) ?? label
+    const groupOf = (label: string): string => rowLabels.get(label) ?? foldedModelLabel(label)
     return buildShareSeries(named, bucketKeys, groupOf, Infinity).sort(
         (a, b) =>
             LAB_ORDER.indexOf(seriesLab(a.label)) - LAB_ORDER.indexOf(seriesLab(b.label)) ||

@@ -68,7 +68,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         scoreboardShares,
         modelSeries,
         pageModels,
-        topModelNames,
+        modelRowLabelMap,
         labSeries,
         protocolVersionSeries,
         reliabilitySeries,
@@ -176,7 +176,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             theme={theme}
                             filters={queryFilters}
                             colorOf={modelColorOf}
-                            topModels={topModelNames}
+                            rowLabels={modelRowLabelMap}
                         />
                     )}
                 </TwoColumns>

@@ -1,3 +1,4 @@
+import { modelRowLabels } from '../aiLabs'
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
@@ -33,7 +34,11 @@ describe('leaderboardShares', () => {
             row('d1', 'Other', 1),
             row('d1', 'Unknown', 99),
         ]
-        expect(buildModelShareSeries(rows, ['d1'], new Set(['gpt-6', 'claude-opus-5-5']))).toEqual([
+        const rowLabels = modelRowLabels(
+            rows.map((row) => row.label).filter((label) => label !== 'Unknown'),
+            new Set(['gpt-6', 'claude-opus-5-5'])
+        )
+        expect(buildModelShareSeries(rows, ['d1'], rowLabels)).toEqual([
             { label: 'claude-opus-5-5', data: [40] },
             { label: 'Other Anthropic models', data: [7] },
             { label: 'gpt-6', data: [50] },

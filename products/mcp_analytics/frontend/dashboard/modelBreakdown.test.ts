@@ -1,6 +1,7 @@
 import { HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { modelRowLabels } from '../aiLabs'
 import { buildModelExplorationQuery, freezeModelDateRange, summarizeModelBreakdown } from './modelBreakdown'
 
 describe('model breakdown', () => {
@@ -40,9 +41,13 @@ describe('model breakdown', () => {
         ]
 
         const top = new Set(rows.slice(0, 6).map((row) => row.model))
+        const rowLabels = modelRowLabels(
+            rows.map((row) => row.model),
+            top
+        )
 
         expect(
-            summarizeModelBreakdown(rows, top).rankedModels.map(({ model, total_calls }) => [model, total_calls])
+            summarizeModelBreakdown(rows, rowLabels).rankedModels.map(({ model, total_calls }) => [model, total_calls])
         ).toEqual([
             ['claude-opus-5-5', 70],
             ['gpt-6', 60],
@@ -53,6 +58,22 @@ describe('model breakdown', () => {
             ['gpt-5', 4],
             ['Other Anthropic models', 5],
             ['Other models', 10],
+        ])
+    })
+
+    it('puts a model in the row the page chose, even when this chart alone would name it', () => {
+        const rows = [
+            { model: 'claude-opus-5-5', total_calls: 70 },
+            { model: 'gemini-3-flash', total_calls: 3 },
+        ]
+        const pageRowLabels = new Map([
+            ['claude-opus-5-5', 'claude-opus-5-5'],
+            ['gemini-3-flash', 'Other Google models'],
+        ])
+
+        expect(summarizeModelBreakdown(rows, pageRowLabels).rankedModels.map((row) => row.model)).toEqual([
+            'claude-opus-5-5',
+            'Other Google models',
         ])
     })
 
