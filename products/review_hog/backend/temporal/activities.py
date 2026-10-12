@@ -2517,7 +2517,7 @@ async def add_review_reaction_activity(input: ReviewReactionInput) -> int | None
 @scoped_temporal()
 @close_db_connections
 async def remove_review_reaction_activity(input: ReviewReactionInput) -> None:
-    """Remove the turn's 👀 by the id the add returned. Fail-open: never raises."""
+    """Remove the turn's 👀 by the id the add returned. Raises only on a transient GitHub error, so Temporal retries it."""
     await database_sync_to_async(_remove_eyes_reaction, thread_sensitive=False)(input)
 
 

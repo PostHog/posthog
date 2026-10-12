@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -9,6 +10,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     add_pr_reaction,
     github_api_request,
     remove_own_pr_reactions,
+    remove_pr_reaction,
 )
 
 _MODULE = "products.review_hog.backend.reviewer.tools.github_client"
@@ -51,3 +53,22 @@ def test_remove_own_pr_reactions_deletes_only_the_apps_reactions_and_fails_open(
         ("DELETE", "/repos/o/r/issues/7/reactions/3"),
         ("DELETE", "/repos/o/r/issues/7/reactions/4"),
     ]
+
+
+@pytest.mark.parametrize(
+    "status, raises",
+    [
+        # A 5xx must reach the activity so Temporal retries it, or the 👀 stays on the PR.
+        (502, True),
+        (404, False),
+        (403, False),
+    ],
+)
+def test_remove_pr_reaction_raises_only_transient_errors(status: int, raises: bool) -> None:
+    error = GitHubAPIError("boom", status=status)
+    with patch(f"{_MODULE}.github_api_request", side_effect=error):
+        if raises:
+            with pytest.raises(GitHubAPIError):
+                remove_pr_reaction("o/r", 7, 3, token="t")
+        else:
+            remove_pr_reaction("o/r", 7, 3, token="t")

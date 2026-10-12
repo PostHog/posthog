@@ -189,7 +189,11 @@ def add_pr_reaction(
 def remove_pr_reaction(
     repository: str, pr_number: int, reaction_id: int, *, token: str, installation_id: str | None = None
 ) -> None:
-    """Delete one reaction from the PR. Fail-open like `add_pr_reaction`; a 404 means it is already gone."""
+    """Delete one reaction from the PR. A 404 means it is already gone.
+
+    A transient error raises, so the calling activity retries it and no stale reaction stays on the
+    PR. Any other error is logged and dropped, because a retry can not get past it.
+    """
     try:
         github_api_request(
             "DELETE",
@@ -198,11 +202,11 @@ def remove_pr_reaction(
             installation_id=installation_id,
             endpoint=f"{_REACTIONS_ENDPOINT}/{{reaction_id}}",
         )
-    except GitHubAPIError as e:
-        if e.status != 404:
-            logger.warning("Could not remove reaction %s from %s#%s: %s", reaction_id, repository, pr_number, e)
-    except Exception:
-        logger.warning("Could not remove reaction %s from %s#%s", reaction_id, repository, pr_number, exc_info=True)
+    except Exception as e:
+        if is_transient_github_error(e):
+            raise
+        if not (isinstance(e, GitHubAPIError) and e.status == 404):
+            logger.warning("Could not remove reaction %s from %s#%s", reaction_id, repository, pr_number, exc_info=True)
 
 
 def remove_own_pr_reactions(
@@ -225,4 +229,7 @@ def remove_own_pr_reactions(
         logger.warning("Could not read the %s reactions on %s#%s", content, repository, pr_number, exc_info=True)
         return
     for reaction_id in own_ids:
-        remove_pr_reaction(repository, pr_number, reaction_id, token=token, installation_id=installation_id)
+        try:
+            remove_pr_reaction(repository, pr_number, reaction_id, token=token, installation_id=installation_id)
+        except Exception:
+            logger.warning("Could not remove reaction %s from %s#%s", reaction_id, repository, pr_number, exc_info=True)
