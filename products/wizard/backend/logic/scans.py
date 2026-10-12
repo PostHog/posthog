@@ -1,12 +1,37 @@
 from datetime import datetime
+from functools import partial
 
 from django.db import connection, transaction
 
+from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_or_team_action
+from posthog.models import Team, User
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
 from products.wizard.backend.tool_catalog.catalog import classify_tool
+
+
+@frozen
+class _CompetitorSighting:
+    kind: str
+    competes_with: tuple[str, ...]
+    first_detection: bool
+    signal_sources: tuple[str, ...]
+
+
+@frozen
+class _CompetitorRemoval:
+    kind: str
+    competes_with: tuple[str, ...]
+    days_detected: int
+
+
+@frozen
+class _ScanChanges:
+    sightings: tuple[_CompetitorSighting, ...]
+    removals: tuple[_CompetitorRemoval, ...]
 
 
 def _signals_json(tool: WizardScanTool) -> list[dict[str, str | None]]:
@@ -62,7 +87,9 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
                 .using("default")
                 .filter(workspace_fingerprint=params.workspace_fingerprint)
             }
-            _apply_scan(scan, tools, existing, complete=params.complete)
+            changes = _apply_scan(scan, tools, existing, complete=params.complete)
+            # robust: the scan is already stored, so an analytics failure must not turn the request into a 500.
+            transaction.on_commit(partial(_report_competitor_changes, scan, changes), robust=True)
 
     return WizardScanResult(id=scan.id, created=True)
 
@@ -79,10 +106,12 @@ def _lock_workspace(team_id: int, workspace_fingerprint: str) -> None:
 
 def _apply_scan(
     scan: WizardScan, tools: dict[str, WizardScanTool], existing: dict[str, WizardDetectedTool], *, complete: bool
-) -> None:
+) -> _ScanChanges:
     scanned_at: datetime = scan.scanned_at
     to_create: list[WizardDetectedTool] = []
     to_update: list[WizardDetectedTool] = []
+    sightings: list[_CompetitorSighting] = []
+    removals: list[_CompetitorRemoval] = []
 
     for kind, tool in tools.items():
         row = existing.get(kind)
@@ -103,12 +132,29 @@ def _apply_scan(
         row.removed_in_scan = None
         row.removed_at = None
         _classify(row)
+        if row.competes_with:
+            sightings.append(
+                _CompetitorSighting(
+                    kind=kind,
+                    competes_with=tuple(row.competes_with),
+                    first_detection=kind not in existing,
+                    signal_sources=tuple(sorted({signal.source for signal in tool.signals})),
+                )
+            )
 
     for kind, row in existing.items():
         if complete and kind not in tools and row.removed_at is None:
             row.removed_in_scan = scan
             row.removed_at = scanned_at
             to_update.append(row)
+            if row.competes_with:
+                removals.append(
+                    _CompetitorRemoval(
+                        kind=kind,
+                        competes_with=tuple(row.competes_with),
+                        days_detected=(scanned_at - row.first_seen_at).days,
+                    )
+                )
 
     # Scoped explicitly, because the ambient team context is not always the scanned team.
     tools_of_team = WizardDetectedTool.objects.for_team(scan.team_id)
@@ -125,3 +171,41 @@ def _apply_scan(
             "removed_at",
         ],
     )
+    return _ScanChanges(sightings=tuple(sightings), removals=tuple(removals))
+
+
+def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
+    if not changes.sightings and not changes.removals:
+        return
+    team = Team.objects.get(id=scan.team_id)
+    user = User.objects.filter(id=scan.created_by_id).first() if scan.created_by_id else None
+    scan_properties = {
+        "program": scan.program,
+        "wizard_session_id": scan.session_id,
+        "workspace_fingerprint": scan.workspace_fingerprint,
+    }
+    for sighting in changes.sightings:
+        report_user_or_team_action(
+            "competitor detected",
+            {
+                **scan_properties,
+                "kind": sighting.kind,
+                "competes_with": list(sighting.competes_with),
+                "first_detection": sighting.first_detection,
+                "signal_sources": list(sighting.signal_sources),
+            },
+            user=user,
+            team=team,
+        )
+    for removal in changes.removals:
+        report_user_or_team_action(
+            "competitor removed",
+            {
+                **scan_properties,
+                "kind": removal.kind,
+                "competes_with": list(removal.competes_with),
+                "days_detected": removal.days_detected,
+            },
+            user=user,
+            team=team,
+        )
