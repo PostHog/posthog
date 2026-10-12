@@ -45,6 +45,14 @@ export type PushCaptureEvent = {
     properties: Record<string, any>
 }
 
+/** Capture refuses every event for a project over its billing limit, until the limit lifts. */
+export class CaptureBillingLimitError extends Error {
+    constructor() {
+        super('capture returned 402')
+        this.name = 'CaptureBillingLimitError'
+    }
+}
+
 export class PushCaptureService {
     private origin: string
 
@@ -84,6 +92,10 @@ export class PushCaptureService {
         for (let attempt = 1; ; attempt++) {
             const response = await this.post(event.token, body, attempt)
 
+            if (response.status === 402) {
+                captureCounter.inc({ outcome: 'billing_limited' })
+                throw new CaptureBillingLimitError()
+            }
             if (response.status < 200 || response.status >= 300) {
                 captureCounter.inc({ outcome: 'rejected' })
                 logger.warn('push_subscription_capture_rejected', { status: response.status })
