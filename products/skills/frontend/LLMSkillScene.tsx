@@ -20,7 +20,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -29,7 +28,6 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -119,7 +117,6 @@ export function LLMSkillScene(): JSX.Element {
     // GitHub handle. Mounting llmSkillsLogic here shares that single source of truth.
     const { publishingSkills, githubLogin } = useValues(llmSkillsLogic)
     const { publishToCommunity } = useActions(llmSkillsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
 
     const {
@@ -184,7 +181,6 @@ export function LLMSkillScene(): JSX.Element {
     // wouldn't otherwise give — fall back to the read-only view when the user can't actually publish.
     const canEditSkill = userHasAccess(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
 
-    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
     const publishDisabledReason = isSkill(skill)
         ? publishToCommunityDisabledReason({
               ownerUuids: skill.owners.map((owner) => owner.uuid),
@@ -254,7 +250,7 @@ export function LLMSkillScene(): JSX.Element {
                                 size="small"
                                 overlay={
                                     <>
-                                        {communitySkillsEnabled && isSkill(skill) && (
+                                        {isSkill(skill) && (
                                             <AccessControlAction
                                                 resourceType={AccessControlResourceType.LlmSkill}
                                                 minAccessLevel={AccessControlLevel.Editor}

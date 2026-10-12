@@ -6,8 +6,6 @@ import { IconArrowLeft, IconExternal, IconRefresh, IconUpload } from '@posthog/i
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -111,7 +109,6 @@ export function ScoutDetailHeader({
     learnedCount: number
 }): JSX.Element {
     const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(teamLogic)
     const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
@@ -119,7 +116,6 @@ export function ScoutDetailHeader({
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
     const publishing = publishingScoutIds.includes(config.id)
-    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
     const isOwner = !!user && (config.owners ?? []).some((owner) => owner.uuid === user.uuid)
     // A scout's skill is seeded on the canonical parent team, so both the consent preview and the
     // publish itself read that team rather than the child environment the page may be scoped to.
@@ -173,7 +169,7 @@ export function ScoutDetailHeader({
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
                 <ScoutRubricsButton config={config} />
-                {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
+                {config.scout_origin !== 'canonical' && (
                     <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
                         <LemonButton
                             type="secondary"

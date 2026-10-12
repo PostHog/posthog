@@ -52,8 +52,6 @@ from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
 
-COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
-
 
 class TestLLMSkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
@@ -2087,9 +2085,8 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Publish to community ---
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
+    def test_publish_to_community_succeeds(self, mock_publish):
         mock_publish.return_value = {
             "pr_url": "https://github.com/PostHog/community-skills/pull/7",
             "pr_number": 7,
@@ -2140,10 +2137,9 @@ class TestLLMSkillAPI(APIBaseTest):
             ("padded metadata tags", {}, [" github "], ["github"]),
         ]
     )
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
     def test_publish_to_community_tags(
-        self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
+        self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish
     ):
         mock_publish.return_value = {"pr_url": "https://github.com/x/y/pull/1", "pr_number": 1, "branch": "b"}
         skill = self.create_skill(name="make-pr", metadata={"tags": metadata_tags})
@@ -2163,9 +2159,8 @@ class TestLLMSkillAPI(APIBaseTest):
             ("too many tags", {"tags": [f"tag-{index}" for index in range(11)]}),
         ]
     )
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_scout_rejects_an_invalid_config(self, _label: str, scout_config: dict, mock_publish, _mock_flag):
+    def test_publish_scout_rejects_an_invalid_config(self, _label: str, scout_config: dict, mock_publish):
         skill = self.create_skill(name="signals-scout-feed", category="scout")
 
         response = self.client.post(
@@ -2177,17 +2172,15 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_publish.assert_not_called()
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
+    def test_publish_to_community_unknown_skill_returns_404(self, mock_publish):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_publish.assert_not_called()
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(self, mock_publish, _mock_flag):
+    def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(self, mock_publish):
         skill = self.create_skill(name="make-pr")
 
         response = self.client.post(
@@ -2202,9 +2195,8 @@ class TestLLMSkillAPI(APIBaseTest):
         )
         mock_publish.assert_not_called()
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_rejects_a_skill_registered_as_a_scout_after_review(self, mock_publish, _mock_flag):
+    def test_publish_to_community_rejects_a_skill_registered_as_a_scout_after_review(self, mock_publish):
         # Registering a skill as a scout stamps `category` without raising the version, so version
         # alone would let a skill reviewed as an ordinary one publish as a scout on a schedule.
         skill = self.create_skill(name="make-pr")
@@ -2223,9 +2215,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         mock_publish.assert_not_called()
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_accepts_the_category_the_publisher_reviewed(self, mock_publish, _mock_flag):
+    def test_publish_to_community_accepts_the_category_the_publisher_reviewed(self, mock_publish):
         mock_publish.return_value = {"pr_url": "https://github.com/PostHog/community-skills/pull/1", "pr_number": 1}
         skill = self.create_skill(name="make-pr")
 
@@ -2242,9 +2233,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         mock_publish.assert_called_once()
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_rejects_a_recreated_skill_with_the_same_version(self, mock_publish, _mock_flag):
+    def test_publish_to_community_rejects_a_recreated_skill_with_the_same_version(self, mock_publish):
         reviewed_skill = self.create_skill(name="make-pr")
         archive_skill(self.team, "make-pr", acting_user=None)
         replacement_skill = self.create_skill(name="make-pr")
@@ -2266,9 +2256,8 @@ class TestLLMSkillAPI(APIBaseTest):
             ("spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>"),
         ]
     )
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
+    def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish):
         skill = self.create_skill(name="make-pr")
 
         response = self.client.post(
@@ -2280,23 +2269,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_publish.assert_not_called()
 
-    @patch(COMMUNITY_FLAG, return_value=False)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
-        skill = self.create_skill(name="make-pr")
-
-        response = self.client.post(
-            self._url("name/make-pr/publish-community"),
-            data={"expected_skill_id": str(skill.id), "expected_version": 1},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_publish.assert_not_called()
-
-    @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
+    def test_publish_to_community_not_configured_returns_503(self, mock_publish):
         mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
         skill = self.create_skill(name="make-pr")
 
@@ -2308,9 +2282,8 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
+    def test_publish_to_community_invalid_skill_returns_400(self, mock_publish):
         # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
         # tell the publisher to retry an upstream request that was never the problem.
         mock_publish.side_effect = CommunitySkillPublishValidationError("that slug is reserved")
@@ -2325,9 +2298,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "that slug is reserved"
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
+    def test_publish_to_community_github_error_returns_502(self, mock_publish):
         mock_publish.side_effect = CommunitySkillPublishError("github exploded")
         skill = self.create_skill(name="make-pr")
 
@@ -2525,8 +2497,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         )
         assert update_response.status_code == status.HTTP_200_OK
 
-    @patch(COMMUNITY_FLAG, return_value=True)
-    def test_an_object_level_grant_on_one_skill_does_not_allow_publishing_another(self, _mock_flag):
+    def test_an_object_level_grant_on_one_skill_does_not_allow_publishing_another(self):
         # AccessControlPermission.has_permission passes anyone holding an object-level grant for the
         # resource, and the name/<slug> actions then load whichever skill the URL names. Ownership is
         # the per-skill claim that stops one grant reaching every skill in the project.
@@ -2568,8 +2539,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             ("a skill that does not exist", "no-such-skill", status.HTTP_404_NOT_FOUND),
         ]
     )
-    @patch(COMMUNITY_FLAG, return_value=True)
-    def test_publishing_without_ownership_is_refused(self, _label, skill_name, expected_status, _mock_flag):
+    def test_publishing_without_ownership_is_refused(self, _label, skill_name, expected_status):
         # Resource-level editor is not enough on its own. An ownerless skill is publishable by nobody,
         # because the alternative fallback to edit access reaches every skill in the project again.
         # An unknown slug still answers 404, the way the other name/<slug> actions answer it.
@@ -2583,9 +2553,8 @@ class TestSkillAccessControlRBAC(APIBaseTest):
 
         assert response.status_code == expected_status
 
-    @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
+    def test_an_owner_with_editor_access_can_publish(self, mock_publish):
         mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
         self._grant_llm_skill_access("editor")
         set_skill_owners(self.team, self.skill.name, [self.member])
