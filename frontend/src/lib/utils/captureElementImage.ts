@@ -38,8 +38,8 @@ export async function captureElementImage(element: HTMLElement, options?: Captur
         includeQueryParams: true,
         imagePlaceholder: BLANK_IMAGE,
         onImageErrorHandler: () => {},
-        fetchRequestInit: { signal: AbortSignal.timeout(RESOURCE_FETCH_TIMEOUT_MS) },
         ...options,
+        fetchRequestInit: { signal: AbortSignal.timeout(RESOURCE_FETCH_TIMEOUT_MS), ...options?.fetchRequestInit },
     })
 
     if (!blob) {

@@ -1740,7 +1740,7 @@ export interface EmailPreviewImageApi {
      * @maxLength 300
      */
     title: string
-    /** The rendered email as a base64-encoded PNG, at most 1 MB once decoded. */
+    /** The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded. */
     image_base64: string
 }
 

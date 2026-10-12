@@ -14,8 +14,8 @@ import { IntegrationType } from '~/types'
 import { hogFlowsSharePreviewToSlack } from 'products/workflows/frontend/generated/api'
 
 import type { HogFlow } from '../hogflows/types'
-import { renderEmailPreviewPngBase64 } from './renderEmailPreview'
-import { getShareDisabledReason } from './shareDisabledReason'
+import { renderEmailPreviewBase64 } from './renderEmailPreview'
+import { MAX_SHARED_EMAILS, getShareDisabledReason } from './shareDisabledReason'
 import { EmailSendersByIntegrationId, EmailStep, buildWorkflowOutline, listEmailSteps } from './workflowPreviewOutline'
 
 const MAX_IMAGE_BYTES = 1024 * 1024
@@ -154,7 +154,10 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
             {
                 toggleEmail: (excluded, { actionId }) =>
                     excluded.includes(actionId) ? excluded.filter((id) => id !== actionId) : [...excluded, actionId],
-                openModal: () => [],
+                openModal: (_, { workflow }) =>
+                    listEmailSteps(workflow)
+                        .slice(MAX_SHARED_EMAILS)
+                        .map((step) => step.actionId),
             },
         ],
         isSubmitting: [false, { submit: () => true, submitSuccess: () => false, submitFailure: () => false }],
@@ -222,7 +225,10 @@ export const shareWorkflowPreviewLogic = kea<shareWorkflowPreviewLogicType>([
                 const title = emailTitle(step)
                 let imageBase64: string
                 try {
-                    imageBase64 = await renderEmailPreviewPngBase64(step)
+                    imageBase64 = await renderEmailPreviewBase64(step, 'png')
+                    if (decodedSize(imageBase64) > MAX_IMAGE_BYTES) {
+                        imageBase64 = await renderEmailPreviewBase64(step, 'jpeg')
+                    }
                 } catch {
                     actions.submitFailure(
                         'render_failed',

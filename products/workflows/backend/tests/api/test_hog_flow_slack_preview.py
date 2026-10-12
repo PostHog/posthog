@@ -103,6 +103,19 @@ class TestHogFlowSlackPreview(APIBaseTest):
         assert "<!channel>" not in message
 
     @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
+    def test_uploads_jpeg_previews_with_a_jpg_name(self, mock_slack: MagicMock) -> None:
+        slack_client = mock_slack.return_value
+        slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}
+        jpeg = b"\xff\xd8\xff\xe0" + b"fake-jpeg-data"
+
+        response = self._share(emails=[{"title": "Photo email", "image_base64": base64.b64encode(jpeg).decode()}])
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert slack_client.files_upload_v2.call_args.kwargs["file_uploads"] == [
+            {"content": jpeg, "filename": "email-1.jpg", "title": "Photo email"}
+        ]
+
+    @patch.object(SlackIntegration, "client", new_callable=PropertyMock)
     def test_posts_text_only_when_workflow_has_no_emails(self, mock_slack: MagicMock) -> None:
         slack_client = mock_slack.return_value
         slack_client.conversations_info.return_value = {"channel": {"id": "C0PREVIEW", "is_private": False}}

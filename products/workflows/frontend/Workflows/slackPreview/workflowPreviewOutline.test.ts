@@ -107,7 +107,8 @@ describe('workflowPreviewOutline', () => {
 
     it.each([
         ['the connected sender', { integrationId: 7 }, 'Hedgebox team <hello@example.com>'],
-        ['an overridden sender name', { integrationId: 7, name: 'Support' }, 'Support <hello@example.com>'],
+        ['a blank sender override', { integrationId: 7, email: '', name: '' }, 'Hedgebox team <hello@example.com>'],
+        ['an overridden sender name', { integrationId: 7, email: '', name: 'Support' }, 'Support <hello@example.com>'],
         ['a sender name without an address', { name: 'Support' }, 'Support'],
         ['a plain template string', '{{ person.properties.owner }}', '{{ person.properties.owner }}'],
     ])('shows %s as the email sender', (_name, from, expected) => {

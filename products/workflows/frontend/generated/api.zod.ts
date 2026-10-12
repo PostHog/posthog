@@ -2787,7 +2787,7 @@ export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
                     .describe('Caption shown under the image in Slack.'),
                 image_base64: zod
                     .string()
-                    .describe('The rendered email as a base64-encoded PNG, at most 1 MB once decoded.'),
+                    .describe('The rendered email as a base64-encoded PNG or JPEG, at most 1 MB once decoded.'),
             })
         )
         .max(hogFlowsSharePreviewToSlackBodyEmailsMax)

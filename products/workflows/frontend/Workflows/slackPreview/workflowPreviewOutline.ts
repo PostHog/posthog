@@ -159,8 +159,8 @@ function formatSender(
         return from ?? ''
     }
     const connectedSender = from.integrationId ? sendersByIntegrationId[from.integrationId] : undefined
-    const name = from.name ?? connectedSender?.name
-    const email = from.email ?? connectedSender?.email
+    const name = from.name || connectedSender?.name
+    const email = from.email || connectedSender?.email
     if (!email) {
         return name ?? ''
     }

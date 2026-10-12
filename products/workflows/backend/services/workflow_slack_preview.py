@@ -21,6 +21,7 @@ SLACK_ERROR_MESSAGES = {
         "PostHog cannot see this Slack channel. If it is private, add PostHog with /invite @PostHog, then share again."
     ),
 }
+IMAGE_EXTENSIONS_BY_SIGNATURE = {b"\x89PNG\r\n\x1a\n": "png", b"\xff\xd8\xff": "jpg"}
 _PERMALINK_PATH = re.compile(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d{7,})/?")
 _THREAD_TS = re.compile(r"\d+\.\d+")
 
@@ -38,7 +39,7 @@ class SlackDestination:
 @frozen
 class EmailPreviewImage:
     title: str
-    png: bytes
+    content: bytes
 
 
 @frozen
@@ -65,6 +66,13 @@ def parse_slack_thread_link(link: str) -> SlackDestination | None:
 
 def _is_slack_host(scheme: str, hostname: str | None) -> bool:
     return scheme == "https" and hostname is not None and (hostname == "slack.com" or hostname.endswith(".slack.com"))
+
+
+def image_extension(content: bytes) -> str | None:
+    return next(
+        (extension for signature, extension in IMAGE_EXTENSIONS_BY_SIGNATURE.items() if content.startswith(signature)),
+        None,
+    )
 
 
 def find_team_slack_integration(team: Team, integration_id: int) -> Integration | None:
@@ -125,7 +133,11 @@ def _post_preview(
         thread_ts=destination.thread_ts,
         initial_comment=message,
         file_uploads=[
-            {"content": email.png, "filename": f"email-{position}.png", "title": email.title}
+            {
+                "content": email.content,
+                "filename": f"email-{position}.{image_extension(email.content)}",
+                "title": email.title,
+            }
             for position, email in enumerate(emails, start=1)
         ],
     )

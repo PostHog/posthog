@@ -14,6 +14,7 @@ import api from 'lib/api'
 import { SlackDestinationPicker } from 'lib/components/Comments/SlackDestinationPicker'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 
+import { isSlackMessageLink } from './shareDisabledReason'
 import { ShareWorkflowPreviewLogicProps, shareWorkflowPreviewLogic } from './shareWorkflowPreviewLogic'
 
 export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps): JSX.Element {
@@ -80,11 +81,7 @@ export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps)
                         placeholder="Paste a link to a Slack message"
                         data-attr="workflow-share-preview-thread-link"
                     />
-                    {threadLink.trim() ? (
-                        <p className="text-secondary text-xs m-0">
-                            The preview goes into this message's thread, not the channel above.
-                        </p>
-                    ) : null}
+                    <ThreadLinkHint threadLink={threadLink} hasChannel={!!channel} />
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel htmlFor="workflow-share-preview-note" showOptional>
@@ -108,7 +105,10 @@ export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps)
                             'data-attr': 'workflow-share-preview-slack-reconnect',
                         }}
                     >
-                        This Slack connection cannot upload images. Reconnect Slack to share the emails.
+                        This Slack connection cannot upload images.{' '}
+                        {reconnectRestriction
+                            ? 'Ask a project admin to reconnect Slack to share the emails.'
+                            : 'Reconnect Slack to share the emails.'}
                     </LemonBanner>
                 ) : null}
                 <div className="flex flex-col gap-1">
@@ -130,5 +130,25 @@ export function ShareWorkflowPreviewModal(props: ShareWorkflowPreviewLogicProps)
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+function ThreadLinkHint({ threadLink, hasChannel }: { threadLink: string; hasChannel: boolean }): JSX.Element | null {
+    if (!threadLink.trim()) {
+        return null
+    }
+    if (!isSlackMessageLink(threadLink)) {
+        return (
+            <p className="text-danger text-xs m-0">
+                This is not a link to a Slack message. In Slack, open the message menu and choose Copy link.
+            </p>
+        )
+    }
+    return (
+        <p className="text-secondary text-xs m-0">
+            {hasChannel
+                ? "The preview goes into this message's thread, not the channel above."
+                : "The preview goes into this message's thread."}
+        </p>
     )
 }
