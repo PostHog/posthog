@@ -27,11 +27,11 @@ class TestOpenExchangeRatesSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            (True, True, None),
+            ((True, None), True, None),
             (
+                (False, "Your Open Exchange Rates App ID is invalid"),
                 False,
-                False,
-                "Unable to verify your Open Exchange Rates App ID. Check that the App ID is correct and that openexchangerates.org is reachable.",
+                "Your Open Exchange Rates App ID is invalid",
             ),
         ],
     )
@@ -39,7 +39,11 @@ class TestOpenExchangeRatesSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source.validate_open_exchange_rates_credentials"
     )
     def test_validate_credentials(
-        self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool, expected_message: str | None
+        self,
+        mock_validate: mock.MagicMock,
+        mock_return: tuple[bool, str | None],
+        expected_valid: bool,
+        expected_message: str | None,
     ) -> None:
         mock_validate.return_value = mock_return
 
