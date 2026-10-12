@@ -17,6 +17,8 @@ export const workflowsSetupLogic = createSetupDetectionLogic({
     path: ['products', 'workflows', 'frontend', 'emptyState', 'workflowsSetupLogic'],
     cacheHasData: true,
     revalidateCachedHasData: true,
+    // A first visit can render before the flags load, so look again once they arrive.
+    recheckActionTypes: () => [featureFlagLogic.actionTypes.setFeatureFlags],
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await hogFlowsList(projectId, { limit: 1 })

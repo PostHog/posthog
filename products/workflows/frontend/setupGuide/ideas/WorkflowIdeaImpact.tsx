@@ -1,4 +1,5 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type { WorkflowIdeaApi } from '../../generated/api.schemas'
 import { EXAMPLE_LIFT, estimatedMonthlyCost, exampleExtraPerMonth } from './ideaCopy'
@@ -11,10 +12,13 @@ export function WorkflowIdeaImpact({ evidence }: { evidence: WorkflowIdeaApi['ev
         <div className="flex flex-col gap-1 rounded border bg-surface-secondary p-2 text-sm">
             <span>
                 <strong translate="no">{humanFriendlyNumber(evidence.reachable_people)}</strong>{' '}
-                {evidence.audience ?? 'people'} a month don't {evidence.goal ?? 'reach the goal'} within a week
+                {evidence.reachable_people === 1
+                    ? `person a month doesn't ${evidence.goal ?? 'reach the goal'}`
+                    : `${evidence.audience ?? 'people'} a month don't ${evidence.goal ?? 'reach the goal'}`}{' '}
+                within a week
                 {evidence.baseline_rate !== null && ` (${Math.round(evidence.baseline_rate * 100)}% do today)`}.
             </span>
-            {extra !== null && evidence.goal_unit && (
+            {!!extra && evidence.goal_unit && (
                 <span className="text-secondary">
                     For example, if {Math.round(EXAMPLE_LIFT * 100)} in 100 of them {evidence.goal} after these emails,
                     that's about{' '}
@@ -26,7 +30,7 @@ export function WorkflowIdeaImpact({ evidence }: { evidence: WorkflowIdeaApi['ev
             )}
             {evidence.emails_per_month ? (
                 <span className="text-xs text-secondary">
-                    About {humanFriendlyNumber(evidence.emails_per_month)} emails a month at today's volume,{' '}
+                    About {pluralize(evidence.emails_per_month, 'email')} a month at today's volume,{' '}
                     {cost > 0
                         ? `roughly $${humanFriendlyNumber(cost)} a month on its own.`
                         : 'within the free emails each month on its own.'}

@@ -14,6 +14,7 @@ import type { IntegrationType } from '~/types'
 
 import {
     hogFlowsCreate,
+    hogFlowsDestroy,
     workflowIdeasAccept,
     workflowIdeasDismiss,
     workflowIdeasList,
@@ -88,6 +89,11 @@ export type workflowIdeasLogicType = MakeLogicType<
     workflowIdeasLogicMeta
 >
 
+/** The idea was used or dismissed elsewhere, such as in another tab. */
+function isAlreadyResolved(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 409
+}
+
 export const workflowIdeasLogic = kea<workflowIdeasLogicType>([
     path(['products', 'workflows', 'frontend', 'setupGuide', 'ideas', 'workflowIdeasLogic']),
     connect(() => ({ values: [projectLogic, ['currentProjectId'], integrationsLogic, ['integrations']] })),
@@ -160,7 +166,16 @@ export const workflowIdeasLogic = kea<workflowIdeasLogicType>([
                     status: 'draft',
                     origin_product: 'ideas',
                 } as Parameters<typeof hogFlowsCreate>[1])
-                await workflowIdeasAccept(projectId, idea.id, { hog_flow_id: workflow.id, site_url: enteredSite })
+                try {
+                    await workflowIdeasAccept(projectId, idea.id, { hog_flow_id: workflow.id, site_url: enteredSite })
+                } catch (error) {
+                    // A refused accept leaves the draft a stray copy, so take it back out. Any other failure
+                    // may have reached the server, and deleting then would leave the idea used with no draft.
+                    if (error instanceof ApiError && error.status && error.status >= 400 && error.status < 500) {
+                        await hogFlowsDestroy(projectId, workflow.id).catch(() => undefined)
+                    }
+                    throw error
+                }
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflow idea used', {
                     key: idea.key,
@@ -170,6 +185,11 @@ export const workflowIdeasLogic = kea<workflowIdeasLogicType>([
                 actions.removeIdea(idea.id)
                 router.actions.push(urls.workflow(workflow.id, 'workflow'))
             } catch (error) {
+                if (isAlreadyResolved(error)) {
+                    actions.removeIdea(idea.id)
+                    lemonToast.info('Someone already used or dismissed this idea.')
+                    return
+                }
                 lemonToast.error(
                     error instanceof ApiError && error.detail
                         ? error.detail
@@ -180,6 +200,9 @@ export const workflowIdeasLogic = kea<workflowIdeasLogicType>([
             }
         },
         dismissIdea: async ({ idea, reason }) => {
+            if (values.busyId) {
+                return
+            }
             actions.setBusyId(idea.id)
             try {
                 await workflowIdeasDismiss(String(values.currentProjectId), idea.id, { reason })
@@ -189,8 +212,16 @@ export const workflowIdeasLogic = kea<workflowIdeasLogicType>([
                     has_reason: !!reason.trim(),
                 })
                 actions.removeIdea(idea.id)
-            } catch {
-                lemonToast.error("We couldn't dismiss this idea. Try again in a moment.")
+            } catch (error) {
+                if (isAlreadyResolved(error)) {
+                    actions.removeIdea(idea.id)
+                    return
+                }
+                lemonToast.error(
+                    error instanceof ApiError && error.status === 403 && error.detail
+                        ? error.detail
+                        : "We couldn't dismiss this idea. Try again in a moment."
+                )
             } finally {
                 actions.setBusyId(null)
             }

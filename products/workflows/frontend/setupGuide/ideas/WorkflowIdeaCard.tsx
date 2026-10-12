@@ -4,6 +4,9 @@ import { IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDialog, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { WorkflowIdeaApi } from '../../generated/api.schemas'
 import { ideaEmails } from './ideaCopy'
@@ -35,6 +38,7 @@ export function WorkflowIdeaCard({
     const { evidence } = idea
     const emails = ideaEmails(idea.definition)
     const needsSender = emailSender.status === 'none' || emailSender.status === 'unverified'
+    const noEditAccess = getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
 
     const openPreview = (): void => {
         LemonDialog.open({
@@ -111,11 +115,12 @@ export function WorkflowIdeaCard({
                     size="small"
                     loading={busy}
                     disabledReason={
-                        busyId && !busy
+                        noEditAccess ??
+                        (busyId && !busy
                             ? 'Another idea is being saved'
                             : !evidence.site_url && !enteredSite
                               ? 'Add your website so the email buttons link somewhere'
-                              : undefined
+                              : undefined)
                     }
                     onClick={() => applyIdea(idea)}
                     // pinned: data-attr - autocapture dashboards read it
@@ -135,7 +140,7 @@ export function WorkflowIdeaCard({
                 <LemonButton
                     type="tertiary"
                     size="small"
-                    disabledReason={busyId ? 'An idea is being saved' : undefined}
+                    disabledReason={noEditAccess ?? (busyId ? 'An idea is being saved' : undefined)}
                     onClick={openDismiss}
                     // pinned: data-attr - autocapture dashboards read it
                     data-attr="workflow-idea-dismiss"
