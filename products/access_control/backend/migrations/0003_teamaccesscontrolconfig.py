@@ -29,9 +29,9 @@ class Migration(migrations.Migration):
                     "is_managed_by_terraform",
                     models.BooleanField(db_default=False, default=False),
                 ),
-                ("managed_at", models.DateTimeField(blank=True, null=True)),
+                ("terraform_last_applied_at", models.DateTimeField(blank=True, null=True)),
                 (
-                    "managed_by",
+                    "terraform_managed_by",
                     models.ForeignKey(
                         blank=True,
                         null=True,
