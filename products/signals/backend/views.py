@@ -4374,7 +4374,7 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         repository, pr_number = reference
-        user_github = UserGitHubIntegration(user_integration, source="signals_api", priority=Priority.NORMAL)
+        user_github = UserGitHubIntegration(user_integration, source="signals_api", priority=Priority.CRITICAL)
         if comment_id is not None:
             lookup = self._run_user_github_write(
                 lambda: user_github.get_pull_request_review_comment(repository, comment_id),
