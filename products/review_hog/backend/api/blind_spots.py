@@ -53,7 +53,7 @@ class ReviewBlindSpotsConfigSelectSerializer(serializers.Serializer):
 
 
 class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Per-user selection of ReviewHog's single active blind-spots skill for a project.
+    """Per-user selection of the single active blind-spots skill for PostHog Review for a project.
 
     A blind-spots skill is any team `review-hog-blind-spots-*` `LLMSkill` (canonical or custom —
     handled identically at run time): the final per-chunk sweep that reads the perspective wave's

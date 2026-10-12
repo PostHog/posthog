@@ -1,4 +1,5 @@
-"""The label trigger: the `reviewhog` label on a pull request starts a Full review.
+"""The label trigger: the `posthog-review` label (or the legacy `reviewhog` label) on a pull request starts a
+Full review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -24,7 +25,7 @@ from posthog.otel_metrics import OtelInstrumentFactory
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.pull_request_events import REVIEWHOG_LABEL
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL, REVIEW_LABELS
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
@@ -40,8 +41,8 @@ _otel = OtelInstrumentFactory("review_hog")
 STAMPHOG_BOT_LOGIN = "stamphog[bot]"
 
 BOT_LABEL_COMMENT = (
-    f"ReviewHog reviews start only when a person adds the `{REVIEWHOG_LABEL}` label, so this label from a bot "
-    "was removed. Add it again yourself to start a review."
+    f"PostHog Review starts a review only when a person adds the `{REVIEW_LABEL}` label. A bot added it here, "
+    "so the label was removed. Add the label yourself to start a review."
 )
 
 LabelReviewOutcome = Literal[
@@ -106,17 +107,19 @@ class LabelReview:
     def _refuse_bot_label(self, integration: Integration) -> None:
         # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
-        try:
-            github_api_request(
-                "DELETE",
-                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{REVIEWHOG_LABEL}",
-                token=token,
-                installation_id=self.installation_id,
-                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-            )
-        except GitHubAPIError as error:
-            if error.status != 404:
-                raise
+        # The task does not carry the label name, so a queued task works on old and new workers alike.
+        for label in sorted(REVIEW_LABELS):
+            try:
+                github_api_request(
+                    "DELETE",
+                    f"/repos/{self.repository}/issues/{self.pr_number}/labels/{label}",
+                    token=token,
+                    installation_id=self.installation_id,
+                    endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+                )
+            except GitHubAPIError as error:
+                if error.status != 404:
+                    raise
         # A POST can succeed on GitHub and still fail here, so a retry checks for the earlier comment.
         if self._bot_label_comment_posted(token):
             return
