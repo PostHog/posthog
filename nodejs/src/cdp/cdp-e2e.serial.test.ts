@@ -278,7 +278,7 @@ describe('CDP Consumer loop', () => {
 
         // Regression coverage for the production wire shape of an outgoing Kinesis
         // PutRecord. The pre-refactor Python template test
-        // (posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py) asserted a
+        // (products/cdp/backend/templates/aws_kinesis/test_template_aws_kinesis.py) asserted a
         // similar shape but ran against the Python Hog VM, whose `jsonStringify`
         // formats objects WITH spaces (`{"k": "v"}`). The Node Hog VM — what CDP
         // actually runs in production — formats WITHOUT spaces (`{"k":"v"}`), so the
