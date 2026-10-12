@@ -229,7 +229,7 @@ class TestGetModelsRelinksAnOrphanedTable(BaseTest):
     def test_relinks_an_orphan_before_the_pipeline_decides_on_a_first_sync(
         self,
         case: str,
-        sync_type: ExternalDataSchema.SyncType,
+        sync_type: str,
         sync_type_config: dict[str, Any],
         reset_pipeline: bool,
         expected_table: str | None,
