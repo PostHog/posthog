@@ -77,6 +77,13 @@ export interface BICategoryGroup {
     values: string[]
 }
 
+export interface BIHierarchy {
+    id: string
+    name: string
+    /** Ordered from the broadest dimension to the most detailed. */
+    levels: BIField[]
+}
+
 export interface BIValue {
     field: BIField
     /** Measures in older worksheets belong to rows. */
@@ -134,6 +141,8 @@ export interface BIConfig {
     source: BIDataSource | null
     /** Reusable expressions owned by this worksheet only. */
     localFields?: BIField[]
+    /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+    hierarchies?: BIHierarchy[]
     colorBy?: string | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null

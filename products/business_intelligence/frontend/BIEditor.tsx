@@ -64,7 +64,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 }}
                 onDrop={(event) => {
                     const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
-                    if (pill?.dragSessionId === dragSessionId) {
+                    if (pill?.dragSessionId === dragSessionId && !event.altKey) {
                         event.preventDefault()
                         removeFieldFromShelf(pill.shelf, pill.index)
                     }

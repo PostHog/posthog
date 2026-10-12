@@ -20,6 +20,7 @@ import {
     BISort,
     BIConditionGroup,
     BIResultFilter,
+    BIHierarchy,
 } from '~/queries/schema/schema-business-intelligence'
 import { CompareFilter, DatabaseSchemaTable, DateRange } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -93,6 +94,7 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         ...config,
         source,
         localFields: undefined,
+        hierarchies: undefined,
         colorBy: undefined,
         comparisonPeriod: undefined,
         rows: [],
@@ -428,11 +430,15 @@ export interface biEditorLogicActions {
     }
     duplicateField: (
         shelf: Exclude<BIShelf, 'filters'>,
-        index: number
+        index: number,
+        toShelf?: BIShelf,
+        toIndex?: number
     ) => {
         fieldId: string
         index: number
         shelf: 'columns' | 'rows' | 'values'
+        toIndex: number | undefined
+        toShelf: BIShelf
     }
     editCalculatedField: (field?: BIField) => {
         field: BIField | undefined
@@ -467,6 +473,9 @@ export interface biEditorLogicActions {
     ) => {
         index: number
         shelf: BIShelf
+    }
+    removeHierarchy: (id: string) => {
+        id: string
     }
     removeLocalField: (fieldId: string) => {
         fieldId: string
@@ -664,6 +673,9 @@ export interface biEditorLogicActions {
         draft: BICalculatedMeasureDraft
         fieldId: string
     }
+    upsertHierarchy: (hierarchy: BIHierarchy) => {
+        hierarchy: BIHierarchy
+    }
     upsertLocalField: (field: BIField) => {
         field: BIField
     }
@@ -736,6 +748,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setLocalFieldDraft: (field: BIField | null) => ({ field }),
         saveLocalField: true,
         upsertLocalField: (field: BIField) => ({ field }),
+        upsertHierarchy: (hierarchy: BIHierarchy) => ({ hierarchy }),
+        removeHierarchy: (id: string) => ({ id }),
         setFilterGroup: (scope: 'row' | 'result', group: BIConditionGroup) => ({ scope, group }),
         addResultFilter: () => ({ id: uuid() }),
         updateResultFilter: (id: string, update: Partial<BIResultFilter>) => ({ id, update }),
@@ -760,7 +774,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setColorBy: (colorBy: string | null | undefined) => ({ colorBy }),
         editCalculatedField: (field?: BIField) => ({ field }),
         removeLocalField: (fieldId: string) => ({ fieldId }),
-        duplicateField: (shelf: Exclude<BIShelf, 'filters'>, index: number) => ({ shelf, index, fieldId: uuid() }),
+        duplicateField: (
+            shelf: Exclude<BIShelf, 'filters'>,
+            index: number,
+            toShelf: BIShelf = shelf,
+            toIndex?: number
+        ) => ({ shelf, index, toShelf, toIndex, fieldId: uuid() }),
         setFieldDatePart: (shelf: BIShelf, index: number, datePart: BIField['datePart']) => ({
             shelf,
             index,
@@ -893,6 +912,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
             freshBIConfig(),
             {
                 upsertLocalField: (config, { field }) => upsertBILocalField(config, field),
+                upsertHierarchy: (config, { hierarchy }) => ({
+                    ...config,
+                    hierarchies: [...(config.hierarchies ?? []).filter((item) => item.id !== hierarchy.id), hierarchy],
+                }),
+                removeHierarchy: (config, { id }) => ({
+                    ...config,
+                    hierarchies: config.hierarchies?.filter((item) => item.id !== id),
+                }),
                 upsertCalculatedMeasure: (config, { draft, fieldId }) => {
                     if (!config.source) {
                         return config
@@ -952,6 +979,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         ...next,
                         rows: next.rows.filter((field) => !matches(field)),
                         columns: next.columns.filter((field) => !matches(field)),
+                        hierarchies: next.hierarchies
+                            ?.map((hierarchy) => ({
+                                ...hierarchy,
+                                levels: hierarchy.levels.filter((field) => !matches(field)),
+                            }))
+                            .filter((hierarchy) => hierarchy.levels.length >= 2),
                         filters: next.filters.filter((filter) => !matches(filter.field)),
                         dateField: next.dateField && matches(next.dateField) ? undefined : next.dateField,
                     })
@@ -1118,27 +1151,44 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     setFieldDateBucketInConfig(config, shelf, index, dateBucket),
                 setFieldDatePart: (config, { shelf, index, datePart }) =>
                     setFieldDateBucketInConfig(config, shelf, index, null, datePart),
-                duplicateField: (config, { shelf, index, fieldId }) => {
+                duplicateField: (config, { shelf, index, fieldId, toShelf, toIndex }) => {
+                    let duplicated: BIConfig
                     if (shelf === 'values') {
                         const value = config.values[index]
-                        return value ? { ...config, values: [...config.values, { ...value }] } : config
+                        if (!value || (toShelf === 'filters' && value.label)) {
+                            return config
+                        }
+                        duplicated = {
+                            ...config,
+                            values: [
+                                ...config.values,
+                                {
+                                    ...value,
+                                    shelf:
+                                        toShelf === 'values' && toIndex !== undefined
+                                            ? (config.values[toIndex]?.shelf ?? value.shelf)
+                                            : value.shelf,
+                                },
+                            ],
+                        }
+                    } else {
+                        const field = config[shelf][index]
+                        if (!field) {
+                            return config
+                        }
+                        duplicated = {
+                            ...config,
+                            [shelf]: [
+                                ...config[shelf],
+                                {
+                                    ...field,
+                                    id: fieldId,
+                                    localFieldId: field.localDefinition ? (field.localFieldId ?? field.id) : undefined,
+                                },
+                            ],
+                        }
                     }
-                    const field = config[shelf][index]
-                    return field
-                        ? {
-                              ...config,
-                              [shelf]: [
-                                  ...config[shelf],
-                                  {
-                                      ...field,
-                                      id: fieldId,
-                                      localFieldId: field.localDefinition
-                                          ? (field.localFieldId ?? field.id)
-                                          : undefined,
-                                  },
-                              ],
-                          }
-                        : config
+                    return moveFieldInConfig(duplicated, shelf, config[shelf].length, toShelf, toIndex)
                 },
                 setValueCustomExpression: (config, { index, customExpression }) => ({
                     ...config,
@@ -1157,6 +1207,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     ...freshBIConfig(),
                     source: config.source,
                     localFields: getBILocalFields(config),
+                    hierarchies: config.hierarchies,
                     dateField: config.dateField,
                     dateRange: config.dateRange,
                 }),
@@ -1405,6 +1456,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setCompareFilter: () => actions.runAfterChange(),
         setMissingDates: () => actions.runAfterChange(),
         setDateField: () => actions.runAfterChange(),
+        upsertHierarchy: () => actions.runAfterChange(),
+        removeHierarchy: () => actions.runAfterChange(),
         setDataSource: () => {
             captureBIWorksheetAction('source_selected', values.config)
             actions.runAfterChange()
