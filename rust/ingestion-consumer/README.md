@@ -6,12 +6,12 @@ Worker health combines active `/_ready` probes with passive send outcomes; worke
 
 ## Ordering sentinels
 
-`order_sentinel.rs` and `commit_sentinel.rs` turn the consumer's core guarantees into always-on, alertable metrics (see the module docs for semantics).
+`order_sentinel.rs`, `commit_sentinel.rs` and the offset ledger turn the consumer's core guarantees into always-on, alertable metrics (see the module docs for semantics).
 Each guarantee has a violation counter that must stay flat and a denominator that must grow:
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
-| Commits are contiguous, monotonic, non-empty per partition, and cover only completed offsets (the span check runs at `poll` granularity only, see below) | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty\|uncredited}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
+| Commits are contiguous and monotonic per partition, each the ledger frontier one past the accepted prefix, and cover only completed offsets | `kafka_consumer_ledger_errors_total{stage,kind}` (a redelivered or out-of-window offset), `kafka_consumer_ledger_gap_offsets_total{topic,partition}` (offsets a frontier walked over without delivery), `ingestion_consumer_commit_violations_total{kind=empty\|uncredited}` | `ingestion_consumer_committed_offset{topic,partition}`, `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` |
 | Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
@@ -44,7 +44,6 @@ A partition that leaves the assignment drops its pending frontier with its ledge
 At `group` granularity the pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
 The consumer asks the pacer on each completion wake, at the top of each loop turn, and on the completion wait's one-second heartbeat, and commits everything pending on exit.
 Admission is still per poll at both granularities: `CONSUMER_MAX_BACKGROUND_TASKS` caps in-flight polls, and a slot frees when its whole poll is covered, oldest first, so a stalled key still holds its poll's slot.
-The sentinel's span check compares the span each poll delivered against the previous commit; it runs at `poll` granularity only, because at `group` granularity a frontier no longer maps to one poll's slice, and `kafka_consumer_ledger_gap_offsets_total` reports the gaps a frontier walks instead.
 At `poll` granularity, `ingestion_consumer_commits_skipped_total{reason}` counts polls that settle with no frontier: `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
 The ledger emits its own metrics, so any consumer built on the crate reports the same series.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.

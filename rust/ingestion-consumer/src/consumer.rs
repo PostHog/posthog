@@ -17,7 +17,7 @@ use tracing::{error, info, warn};
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::CommitPacer;
-use crate::commit_sentinel::{CommitSentinel, CommitViolation};
+use crate::commit_sentinel::CommitSentinel;
 use crate::config::{CompletionGranularity, Config};
 use crate::debug_recorder::{
     record_if, CommitOffset, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
@@ -367,9 +367,7 @@ fn settle_run(
 ) {
     match ledger.settle(topic_partition, generation, offsets.iter().copied()) {
         Ok(Some(_)) => {
-            if let Some(taken) = ledger.take_frontier(topic_partition) {
-                sentinel.advance_frontier_unchecked(topic_partition, taken);
-            }
+            hand_over_frontier(ledger, sentinel, topic_partition);
         }
         Ok(None) => {}
         Err(rejection) => warn_rejection(
@@ -1104,18 +1102,11 @@ impl IngestionConsumer {
     }
 }
 
-/// How a poll settled: how many partitions the ledger accepted, how many of
-/// those reached a frontier that was handed over for commit, and what the
-/// sentinel found on the way. The sentinel has already counted and logged
-/// the violations; they are returned for tests.
 struct PollSettlement {
     settled: usize,
     advanced: usize,
-    violations: Vec<CommitViolation>,
 }
 
-/// Settle each partition's slice against the ledger and hand every frontier
-/// reached to the sentinel, with the span the poll delivered for it.
 fn settle_partitions(
     ledger: &TopicOffsetLedger,
     sentinel: &CommitSentinel,
@@ -1124,32 +1115,39 @@ fn settle_partitions(
     let mut settlement = PollSettlement {
         settled: 0,
         advanced: 0,
-        violations: Vec::new(),
     };
     for (topic_partition, partition) in partitions {
-        // A rejected slice is not committed, and the commit sentinel
-        // keeps its baseline. A stale slice belongs to an assignment the
-        // revoke callback already forgot on the sentinel, so the
-        // partition's next commit rebaselines. A violation reset the
-        // ledger and dropped what it held, so the partition's next commit
-        // can pass work still in flight; the sentinel reports that as the
-        // gap it is.
         let Ok(frontier) = settle(ledger, topic_partition, partition) else {
             continue;
         };
         settlement.settled += 1;
-        let Some(span) = frontier_span(&partition.span, frontier) else {
-            continue;
-        };
-        let Some(taken) = ledger.take_frontier(topic_partition) else {
-            continue;
-        };
-        settlement
-            .violations
-            .extend(sentinel.advance_frontier(topic_partition, span, taken));
-        settlement.advanced += 1;
+        if frontier.is_some() && hand_over_frontier(ledger, sentinel, topic_partition) {
+            settlement.advanced += 1;
+        }
     }
     settlement
+}
+
+fn hand_over_frontier(
+    ledger: &TopicOffsetLedger,
+    sentinel: &CommitSentinel,
+    topic_partition: &TopicPartition,
+) -> bool {
+    let Some(taken) = ledger.take_frontier(topic_partition) else {
+        return false;
+    };
+    if taken.gap_offset_count > 0 {
+        warn!(
+            topic = %topic_partition.topic,
+            partition = topic_partition.partition,
+            window_base = taken.first.0,
+            frontier = taken.offset.0,
+            gap_offsets = taken.gap_offset_count,
+            "Commit frontier walked over offsets Kafka never delivered"
+        );
+    }
+    sentinel.advance_frontier(topic_partition, taken);
+    true
 }
 
 /// Settle one partition's slice of a batch against the ledger and report
@@ -1174,18 +1172,6 @@ fn settle(
                 RejectedSlice::settled(&partition.span),
             )
         })
-}
-
-/// Map a settled frontier back to the span the sentinel checks: the
-/// frontier is next-to-read and the span is last-processed, so the span
-/// starts at the poll's first delivered offset and ends one before the
-/// frontier. `None` for a partition that settled without a frontier; it
-/// stays on its last commit.
-fn frontier_span(span: &OffsetSpan, frontier: Option<Offset>) -> Option<OffsetSpan> {
-    frontier.map(|frontier| OffsetSpan {
-        first: span.first,
-        last: frontier.0 - 1,
-    })
 }
 
 /// Emit the per-poll parity metrics (received counts, batch sizes,
@@ -1332,7 +1318,6 @@ fn emit_latest_processed_timestamp_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commit_sentinel::CommitViolationKind;
     use common_kafka_consumer::Offset as MessageOffset;
 
     fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
@@ -1763,35 +1748,6 @@ mod tests {
     }
 
     #[test]
-    fn a_gap_in_what_kafka_delivered_fires_the_sentinel_and_still_commits() {
-        let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(CommitPacer::immediate());
-        let tp = TopicPartition::new("test", 0);
-        let first = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
-        assert!(settle_partitions(&ledger, &sentinel, &first)
-            .violations
-            .is_empty());
-        assert_eq!(
-            sentinel.take_due(Instant::now()),
-            Some(HashMap::from([(tp.clone(), MessageOffset(12))]))
-        );
-
-        // Offsets 12 and 13 never arrived. The ledger walks the gap, so its
-        // take chains from 12; the sentinel must see what was delivered.
-        let second = HashMap::from([(tp.clone(), charged(&ledger, &tp, 14, 15))]);
-        let settlement = settle_partitions(&ledger, &sentinel, &second);
-
-        assert_eq!(settlement.violations.len(), 1);
-        assert_eq!(settlement.violations[0].kind, CommitViolationKind::Gap);
-        assert_eq!(settlement.violations[0].prev_committed, 12);
-        assert_eq!(settlement.violations[0].span.first, 14);
-        assert_eq!(
-            sentinel.take_due(Instant::now()),
-            Some(HashMap::from([(tp, MessageOffset(16))]))
-        );
-    }
-
-    #[test]
     fn a_rejected_slice_hands_nothing_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
         let sentinel = CommitSentinel::new(CommitPacer::immediate());
@@ -1818,38 +1774,6 @@ mod tests {
 
         assert_eq!((settlement.settled, settlement.advanced), (1, 0));
         assert!(sentinel.take_due(Instant::now()).is_none());
-    }
-
-    #[test]
-    fn frontier_span_submits_the_frontier_verbatim() {
-        let span = OffsetSpan {
-            first: 10,
-            last: 11,
-        };
-        assert_eq!(
-            frontier_span(&span, Some(MessageOffset(12))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 11
-            })
-        );
-        assert_eq!(
-            frontier_span(&span, Some(MessageOffset(11))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 10
-            }),
-            "a frontier trailing the span wins"
-        );
-    }
-
-    #[test]
-    fn a_partition_without_a_frontier_is_not_committed() {
-        let span = OffsetSpan {
-            first: 20,
-            last: 21,
-        };
-        assert_eq!(frontier_span(&span, None), None);
     }
 
     fn charge_offsets(
