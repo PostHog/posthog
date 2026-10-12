@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paymongo.s
 if TYPE_CHECKING:
     import pyarrow as pa
 
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @frozen
@@ -309,7 +309,7 @@ class PaymongoClient:
 
 
 def webhook_template() -> "HogFunctionTemplateDC":
-    from posthog.cdp.templates.hog_function_template import (  # noqa: PLC0415 - keeps the template dependencies off the source registration path
+    from products.cdp.backend.templates.hog_function_template import (  # noqa: PLC0415 - keeps the template dependencies off the source registration path
         HogFunctionTemplateDC,
     )
 
