@@ -23,7 +23,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.access_control.backend.facade.api import team_has_property_access_rules
 
 from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
-from .attribution_session_dimensions import session_dimensions
+from .attribution_session_dimensions import SEARCH_SESSION_COLUMNS, session_dimensions
 from .constants import UNKNOWN_CHANNEL
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
@@ -194,7 +194,7 @@ def _session_identities(start: datetime, end: datetime) -> ast.SelectQuery:
     return query
 
 
-def _read_sessions(dimensions: ast.SelectQuery) -> ast.SelectQuery:
+def _read_sessions(dimensions: ast.SelectQuery, columns: set[str]) -> ast.SelectQuery:
     query = parse_select(
         """
         WITH dimensions AS (SELECT * FROM {dimensions}), identities AS ({identities})
@@ -212,6 +212,10 @@ def _read_sessions(dimensions: ast.SelectQuery) -> ast.SelectQuery:
         },
     )
     assert isinstance(query, ast.SelectQuery)
+    for index, column in enumerate((column for column in SEARCH_SESSION_COLUMNS if column in columns), start=11):
+        query.select.append(
+            ast.Alias(alias=column, expr=ast.TupleAccess(tuple=ast.Field(chain=["d", "latest"]), index=index))
+        )
     return query
 
 
@@ -287,6 +291,9 @@ def _exclusions(runner: "AttributionQueryRunnerBase", table_alias: Optional[str]
 
 
 def _breakdown_expr(runner: "AttributionQueryRunnerBase") -> ast.Expr:
+    resolved = runner.resolved_breakdown_expr()
+    if resolved is not None:
+        return resolved
     column = _field(BREAKDOWN_COLUMNS[runner.breakdown])
     if runner.breakdown == MarketingAnalyticsAttributionBreakdown.CHANNEL:
         return runner._non_empty_or(column, UNKNOWN_CHANNEL)
@@ -388,7 +395,7 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
     if not _eligible(runner, date_range):
         return {}
     read = window(runner, date_range)
-    columns = {BREAKDOWN_COLUMNS[runner.breakdown]}
+    columns = {BREAKDOWN_COLUMNS[runner.breakdown]} | runner.additional_session_columns()
     if runner.breakdown == MarketingAnalyticsAttributionBreakdown.CAMPAIGN:
         columns.add("utm_source")
     if runner.query.excludeDirectTraffic:
@@ -399,7 +406,7 @@ def session_ctes(runner: "AttributionQueryRunnerBase", date_range: QueryDateRang
         read.start,
         read.end,
     )
-    sessions = _read_sessions(dimensions)
+    sessions = _read_sessions(dimensions, columns)
     ctes: dict[str, ast.CTE] = {}
     ctes["attribution_session_identities"] = ast.CTE(
         name="attribution_session_identities",

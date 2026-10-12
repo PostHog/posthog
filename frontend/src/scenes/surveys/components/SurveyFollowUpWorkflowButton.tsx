@@ -31,15 +31,15 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
     return (
         <ButtonPrimitive
             menuItem
-            tooltip="Open a new workflow that runs each time someone submits a response to this survey"
+            tooltip="Open a workflow that emails each person who responds to this survey"
             onClick={() => {
                 captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(urlForNewWorkflowWithTrigger(surveyFollowUpTrigger(surveyId)))
+                router.actions.push(urlForNewWorkflowWithTrigger(surveyFollowUpTrigger(surveyId), SOURCE))
             }}
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />
-            Start a follow-up workflow
+            Email everyone who responds
         </ButtonPrimitive>
     )
 }

@@ -628,7 +628,31 @@ def _reviewer_selection_written_since(team_id: int, report_id: str, since: datet
     ).exists()
 
 
-def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> bool:
+def _priority_adjusted_since(team_id: int, report_id: str, priority_judgment_id: UUID | None) -> bool:
+    judgments = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+    ).order_by("-created_at", "-id")
+    for judgment_id, content in judgments.values_list("id", "content").iterator():
+        if judgment_id == priority_judgment_id:
+            break
+        try:
+            assessment = PriorityAssessment.model_validate_json(content)
+        except ValidationError:
+            continue
+        if assessment.adjustment is not None:
+            return True
+    return False
+
+
+def _append_agentic_report_artefacts(
+    *,
+    team_id: int,
+    report_id: str,
+    artefacts: list[ArtefactDraft],
+    priority_judgment_id: UUID | None = None,
+) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
     # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
@@ -644,8 +668,12 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
     # `mark_report_pending_input`). The research activity only resolves the payload; see
     # `_resolve_report_charts_payload` and `RunAgenticReportOutput.charts`.
     with transaction.atomic():
+        # Priority edits take the same lock, so a correction cannot arrive between this check and append.
+        SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        priority_adjusted_mid_run = any(isinstance(draft.content, PriorityAssessment) for draft in artefacts) and (
+            _priority_adjusted_since(team_id, report_id, priority_judgment_id)
+        )
         if any(isinstance(draft.content, SuggestedReviewers) for draft in artefacts):
-            SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
             human_selected_reviewers = SignalReportArtefact.objects.filter(
                 team_id=team_id,
                 report_id=report_id,
@@ -656,6 +684,8 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
             human_selected_reviewers = False
         wrote_reviewers = False
         for draft in artefacts:
+            if priority_adjusted_mid_run and isinstance(draft.content, PriorityAssessment):
+                continue
             if human_selected_reviewers and isinstance(draft.content, SuggestedReviewers):
                 continue
             SignalReportArtefact.append(
@@ -725,6 +755,7 @@ async def _persist_agentic_report_artefacts(
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
     repo_selection_as_of: datetime | None = None,
+    priority_judgment_id: UUID | None = None,
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
@@ -799,6 +830,7 @@ async def _persist_agentic_report_artefacts(
         team_id=team_id,
         report_id=report_id,
         artefacts=artefacts,
+        priority_judgment_id=priority_judgment_id,
     )
 
     # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
@@ -862,13 +894,15 @@ def _suggestable_products(team_id: int) -> list[SuggestedSourceProduct]:
 def _team_runs_scouts(team_id: int) -> bool:
     """Whether this team's scout fleet could take an `agent` check dispatched at it.
 
-    The enrollment half of the gate the check dispatcher applies, read at authoring time so the
-    research turn is never offered a kind whose lane does not exist. A project at its daily run
-    budget still counts as running scouts: a research check stays pending until its report resolves
-    and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
-    throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
+    The enrollment and lane halves of the gate the check dispatcher applies, read at authoring time
+    so the research turn is never offered a kind whose lane does not exist. Research checks name no
+    skill, so the lane is the fleet's fallback scout. A paused lane still counts, because dispatch
+    waits for the resume. A project at its daily run budget still counts as running scouts: a
+    research check stays pending until its report resolves and its soak passes, so today's budget
+    says nothing about that day, and the dispatcher defers a throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
     kind, never the report.
     """
+    from products.signals.backend.report_check_agent import agent_check_lane_available  # noqa: PLC0415
     from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415
         ScoutRunRejectionKind,
         check_fleet_gates,
@@ -876,7 +910,10 @@ def _team_runs_scouts(team_id: int) -> bool:
 
     try:
         rejection = check_fleet_gates(team_id)
-        return rejection is None or rejection.kind == ScoutRunRejectionKind.THROTTLED
+        if rejection is not None and rejection.kind != ScoutRunRejectionKind.THROTTLED:
+            return False
+        team = Team.objects.only("id", "parent_team_id").get(id=team_id)
+        return agent_check_lane_available(team.parent_team_id or team.id)
     except Exception:
         logger.warning("scout fleet availability check failed", team_id=team_id, exc_info=True)
         return False
@@ -988,6 +1025,16 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             checks_snapshot = await database_sync_to_async(_load_check_snapshot, thread_sensitive=False)(
                 input.team_id, input.report_id
             )
+            priority_judgment_id = (
+                await SignalReportArtefact.objects.filter(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                )
+                .order_by("-created_at", "-id")
+                .values_list("id", flat=True)
+                .afirst()
+            )
             previous_research = await _load_previous_research(input.team_id, input.report_id)
             previous_checks = await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
                 input.team_id, input.report_id
@@ -1038,6 +1085,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 result,
                 input.repo_selection,
                 repo_selection_as_of=input.repo_selection_as_of,
+                priority_judgment_id=priority_judgment_id,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()

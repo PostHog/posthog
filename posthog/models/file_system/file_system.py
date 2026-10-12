@@ -69,7 +69,7 @@ def create_or_update_file(
     for existing in all_existing:
         has_existing = True
         segments = split_path(existing.path)
-        segments[-1] = escape_path(name)
+        segments[-1] = name
         new_path = join_path(segments)
         existing.path = new_path
         existing.depth = len(segments)

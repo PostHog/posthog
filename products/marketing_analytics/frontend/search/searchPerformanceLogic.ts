@@ -1,12 +1,15 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { teamLogic, teamLogicActions } from 'scenes/teamLogic'
 import {
     marketingAnalyticsLogic,
     marketingAnalyticsLogicActions,
     marketingAnalyticsLogicValues,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
+    ConversionGoalFilter,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchRow,
     MarketingAnalyticsSearchSource,
@@ -15,6 +18,7 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import {
+    SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
     SearchMetrics,
@@ -26,10 +30,17 @@ import {
 
 export interface searchPerformanceLogicValues extends Pick<
     marketingAnalyticsLogicValues,
-    'dataWarehouseSources' | 'dataWarehouseSourcesLoading' | 'dateFilter' | 'compareFilter' | 'integrationFilter'
+    | 'dataWarehouseSources'
+    | 'dataWarehouseSourcesLoading'
+    | 'dateFilter'
+    | 'compareFilter'
+    | 'integrationFilter'
+    | 'includeConversionGoals'
+    | 'conversion_goals'
 > {
     metrics: SearchMetrics
     hasPaidSources: boolean
+    conversionsDisabledReason: string | null
     displayMetrics: SearchMetrics
     breakdown: SearchBreakdown
     channel: SearchChannel
@@ -50,10 +61,13 @@ export interface searchPerformanceLogicValues extends Pick<
     query: MarketingAnalyticsSearchQuery
 }
 
-export interface searchPerformanceLogicActions extends Pick<
-    marketingAnalyticsLogicActions,
-    'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
-> {
+export interface searchPerformanceLogicActions
+    extends
+        Pick<
+            marketingAnalyticsLogicActions,
+            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
+        >,
+        Pick<teamLogicActions, 'updateCurrentTeamSuccess'> {
     clearFilters: () => { value: true }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
     setBreakdown: (breakdown: SearchBreakdown) => { breakdown: SearchBreakdown }
@@ -70,11 +84,21 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     connect(() => ({
         values: [
             marketingAnalyticsLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading', 'dateFilter', 'compareFilter', 'integrationFilter'],
+            [
+                'dataWarehouseSources',
+                'dataWarehouseSourcesLoading',
+                'dateFilter',
+                'compareFilter',
+                'integrationFilter',
+                'includeConversionGoals',
+                'conversion_goals',
+            ],
         ],
         actions: [
             marketingAnalyticsLogic,
             ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter', 'setDates'],
+            teamLogic,
+            ['updateCurrentTeamSuccess'],
         ],
     })),
     actions({
@@ -162,17 +186,54 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: MarketingAnalyticsSearchSource[]): boolean =>
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
+        conversionsDisabledReason: [
+            (s) => [s.hasPaidSources, s.breakdown, s.includeConversionGoals, s.conversion_goals],
+            (
+                hasPaidSources: boolean,
+                breakdown: SearchBreakdown,
+                includeConversionGoals: boolean,
+                conversionGoals: ConversionGoalFilter[]
+            ): string | null => {
+                if (hasPaidSources || (breakdown === 'page' && includeConversionGoals)) {
+                    return null
+                }
+                if (breakdown !== 'page') {
+                    return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
+                }
+                return conversionGoals.length > 0
+                    ? 'Turn on "Include conversion goals" to see PostHog conversions for organic landing pages.'
+                    : 'Configure a conversion goal in marketing analytics settings to see PostHog conversions for organic landing pages.'
+            },
+        ],
         displayMetrics: [
-            (s) => [s.hasPaidSources, s.metrics],
-            (hasPaidSources: boolean, metrics: SearchMetrics): SearchMetrics => (hasPaidSources ? metrics : 'traffic'),
+            (s) => [s.conversionsDisabledReason, s.metrics],
+            (conversionsDisabledReason: string | null, metrics: SearchMetrics): SearchMetrics =>
+                conversionsDisabledReason ? 'traffic' : metrics,
         ],
         query: [
-            (s) => [s.readySources, s.dateFilter, s.querySearch, s.compareFilter, s.breakdown],
-            (sources, dateFilter, search, compareFilter, breakdown): MarketingAnalyticsSearchQuery => ({
+            (s) => [
+                s.readySources,
+                s.dateFilter,
+                s.querySearch,
+                s.compareFilter,
+                s.breakdown,
+                s.includeConversionGoals,
+                s.displayMetrics,
+            ],
+            (
+                sources,
+                dateFilter,
+                search,
+                compareFilter,
+                breakdown,
+                includeConversionGoals,
+                metrics
+            ): MarketingAnalyticsSearchQuery => ({
                 kind: NodeKind.MarketingAnalyticsSearchQuery,
                 sources,
                 breakdown,
                 compareFilter,
+                includePostHogConversions: breakdown === 'page' && metrics === 'conversions' && includeConversionGoals,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
             }),
@@ -205,6 +266,8 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 })
                 return {
                     ...query,
+                    includePostHogConversions: false,
+                    normalizePageUrls: query.includePostHogConversions,
                     sources: detailSources,
                     search: undefined,
                     breakdown: row.page ? 'keyword' : 'page',
@@ -225,6 +288,17 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(300)
             actions.setQuerySearch(search)
+        },
+        updateCurrentTeamSuccess: ({ payload }) => {
+            // The backend reads the saved test-account setting, which the query does not carry, so a
+            // changed setting leaves the cached goal columns stale until the table reloads past the cache.
+            if (
+                values.query.includePostHogConversions &&
+                payload?.marketing_analytics_config &&
+                'filter_test_accounts' in payload.marketing_analytics_config
+            ) {
+                dataNodeLogic.findMounted({ key: SEARCH_PERFORMANCE_QUERY_KEY })?.actions.loadData('force_async')
+            }
         },
     })),
     afterMount(({ values, actions }) => {

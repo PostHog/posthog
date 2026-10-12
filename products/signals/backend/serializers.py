@@ -50,7 +50,13 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, SourceSuggestion, priority_from_judgment
+from .artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
+    ActionabilityChoice,
+    RankingScore,
+    SourceSuggestion,
+    priority_from_judgment,
+)
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
@@ -64,6 +70,7 @@ from .models import (
     SignalReportCheck,
     SignalReportPullRequest,
     SignalReportRefund,
+    SignalReportSuppressionSource,
     SignalReportTrackerIssue,
     SignalReportWorkState,
     SignalSourceConfig,
@@ -1183,6 +1190,13 @@ class ReportRankingSerializer(serializers.Serializer):
     )
 
 
+class SignalReportPriorityUpdateSerializer(serializers.Serializer):
+    priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        help_text="New report priority, from P0 (critical) to P4 (minimal).",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -1240,6 +1254,22 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     dismissal_note = serializers.SerializerMethodField(
         help_text="Free-form note captured alongside the dismissal reason (when present).",
+    )
+    suppression_source = serializers.SerializerMethodField(
+        help_text=(
+            "Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or "
+            "agent dismissed it, it was merged into another report, or its pull request closed without "
+            "merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge "
+            "marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. "
+            "`system`: suppressed by the pipeline for another reason. Every value except `dismissed` is "
+            "a verdict nobody has reviewed, listed by the `held_back` inbox view."
+        ),
+    )
+    suppression_explanation = serializers.SerializerMethodField(
+        help_text=(
+            "The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. "
+            "Null otherwise, or when the judge gave none."
+        ),
     )
     repo_slug = serializers.SerializerMethodField(
         help_text=(
@@ -1350,6 +1380,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "already_addressed",
             "dismissal_reason",
             "dismissal_note",
+            "suppression_source",
+            "suppression_explanation",
             "repo_slug",
             "is_suggested_reviewer",
             "source_products",
@@ -1457,6 +1489,58 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("note")
         return value if isinstance(value, str) and value else None
+
+    def _get_safety_artefact_data(self, obj: SignalReport) -> dict | None:
+        prefetched = getattr(obj, "prefetched_safety_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _has_dismissal_artefact(self, obj: SignalReport) -> bool:
+        prefetched = getattr(obj, "prefetched_dismissal_artefacts", None)
+        if prefetched is not None:
+            return bool(prefetched)
+        return obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).exists()
+
+    def _suppression(self, obj: SignalReport) -> tuple[SignalReportSuppressionSource, str | None] | None:
+        # Mirrors the `dismissed` / `held_back` inbox views: a dismissal artefact means someone chose
+        # it, so it wins over any verdict the report also carries.
+        if obj.status != SignalReport.Status.SUPPRESSED:
+            return None
+        if self._has_dismissal_artefact(obj):
+            return SignalReportSuppressionSource.DISMISSED, None
+        safety = self._get_safety_artefact_data(obj)
+        if safety is not None and safety.get("choice") is False:
+            explanation = safety.get("explanation")
+            return SignalReportSuppressionSource.SAFETY_JUDGE, explanation if isinstance(explanation, str) else None
+        actionability = self._get_actionability_artefact_data(obj)
+        if actionability is not None and actionability.get("actionability") == ActionabilityChoice.NOT_ACTIONABLE:
+            explanation = actionability.get("explanation")
+            return SignalReportSuppressionSource.NOT_ACTIONABLE, explanation if isinstance(explanation, str) else None
+        return SignalReportSuppressionSource.SYSTEM, None
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportSuppressionSource.choices, allow_null=True))
+    def get_suppression_source(self, obj: SignalReport) -> str | None:
+        suppression = self._suppression(obj)
+        return suppression[0].value if suppression is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_suppression_explanation(self, obj: SignalReport) -> str | None:
+        suppression = self._suppression(obj)
+        explanation = suppression[1] if suppression is not None else None
+        return explanation or None
 
     def _get_repo_selection_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_repo_selection_artefacts", None)
@@ -2040,6 +2124,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at",
             "last_run_at",
             "last_outcome",
+            "last_outcome_reason",
             "dispatched_at",
             "consecutive_errors",
             "created_at",
@@ -2073,6 +2158,13 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
             "last_run_at": {"help_text": "When the check last ran; null before its first run."},
             "last_outcome": {"help_text": "Verdict of the most recent run."},
+            "last_outcome_reason": {
+                "help_text": (
+                    "Why the most recent run could not settle the claim. Set only when `last_outcome` is "
+                    "`inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or "
+                    "`no_fix_to_measure`."
+                )
+            },
             "dispatched_at": {
                 "help_text": (
                     "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. "

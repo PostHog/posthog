@@ -135,6 +135,11 @@ GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
 
 _REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
 
+RATE_LIMITED_MESSAGE = (
+    "This sync used up the GitHub request limit for your connection before it finished. The next "
+    "sync runs on schedule, and if this keeps happening, sync fewer tables or repositories."
+)
+
 
 def _join_validation_failures(failures: list[str]) -> str:
     """Join the per-repository failures, with one next step for the whole list rather than one each."""
@@ -388,6 +393,14 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",
             "Read timed out",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a rate limit that outlasts every retry leaves the raw limiter text on the
+        # job, which names an internal budget and the installation id rather than a next step.
+        return {
+            "GitHub egress budget exhausted": RATE_LIMITED_MESSAGE,
+            "GitHub API rate limit exceeded": RATE_LIMITED_MESSAGE,
         }
 
     def get_oauth_accounts(
@@ -914,8 +927,17 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def get_external_webhook_info(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Same customer-side state as in delete_webhook: the OAuth integration is gone or the token
+            # is unset. Report it as status so the settings page can say so, instead of raising into
+            # the view's catch-all, which captures it as an exception.
+            return ExternalWebhookInfo(
+                exists=False,
+                error="Couldn't check the GitHub webhook because the connected account is no longer available. Reconnect your GitHub account, then reload.",
+            )
         # exists=True only when every repo carries the hook; partial coverage surfaces the
         # missing repos so the UI can prompt a re-create (which is idempotent per repo).
         missing: list[str] = []
