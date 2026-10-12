@@ -594,22 +594,25 @@ describe("ClaudeAcpAgent session creation", () => {
       kind: "new",
       setModel: () => new Promise<void>(() => {}),
       error: "Session model switch timed out after 30000ms",
+      attempts: 1,
     },
     {
       name: "a resumed session whose model switch never answers",
       kind: "resume",
       setModel: () => new Promise<void>(() => {}),
       error: "Session model switch timed out after 30000ms",
+      attempts: 1,
     },
     {
       name: "a new session whose model switch fails",
       kind: "new",
       setModel: () => Promise.reject(new Error("set model boom")),
       error: "Session model switch failed",
+      attempts: 2,
     },
   ] as const)(
     "rejects and closes the query for $name",
-    async ({ kind, setModel, error }) => {
+    async ({ kind, setModel, error, attempts }) => {
       vi.useFakeTimers();
       try {
         nextSetModel = setModel;
@@ -631,9 +634,10 @@ describe("ClaudeAcpAgent session creation", () => {
         await vi.waitFor(() => {
           expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
         });
-        await vi.advanceTimersByTimeAsync(61_001);
+        await vi.advanceTimersByTimeAsync(30_001);
 
         await expect(promise).rejects.toThrow(error);
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(attempts);
         expect(createdQueryOptions[0]?.abortController?.signal.aborted).toBe(
           true,
         );
@@ -688,21 +692,30 @@ describe("ClaudeAcpAgent session creation", () => {
     });
     nextSetModel = () => Promise.reject(requestError);
     const agent = makeAgent();
+    vi.useFakeTimers();
+    try {
+      const caught = agent
+        .resumeSession({
+          sessionId: "0197a000-0000-7000-8000-0000000000fc",
+          cwd,
+          mcpServers: [],
+        })
+        .catch((rejection: unknown) => rejection);
+      await vi.waitFor(() => {
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      const error = await caught;
 
-    const error = await agent
-      .resumeSession({
-        sessionId: "0197a000-0000-7000-8000-0000000000fc",
-        cwd,
-        mcpServers: [],
-      })
-      .catch((caught: unknown) => caught);
-
-    expect(error).toBe(requestError);
-    expect(error).toMatchObject({
-      code: 42,
-      data: { source: "sdk" },
-      message: "Session model switch failed: set model boom",
-    });
+      expect(error).toBe(requestError);
+      expect(error).toMatchObject({
+        code: 42,
+        data: { source: "sdk" },
+        message: "Session model switch failed: set model boom",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("starts a fresh query when retrying failed session configuration", async () => {
@@ -715,15 +728,25 @@ describe("ClaudeAcpAgent session creation", () => {
       _meta: { taskRunId: "run-set-model-retry" },
     };
 
-    await expect(agent.resumeSession(params)).rejects.toThrow(
-      "Session model switch failed",
-    );
+    vi.useFakeTimers();
+    try {
+      const failed = expect(agent.resumeSession(params)).rejects.toThrow(
+        "Session model switch failed",
+      );
+      await vi.waitFor(() => {
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await failed;
 
-    nextSetModel = () => Promise.resolve();
-    await expect(agent.resumeSession(params)).resolves.toMatchObject({
-      sessionId: params.sessionId,
-    });
-    expect(createdQueries).toHaveLength(2);
+      nextSetModel = () => Promise.resolve();
+      await expect(agent.resumeSession(params)).resolves.toMatchObject({
+        sessionId: params.sessionId,
+      });
+      expect(createdQueries).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("closes the query and rethrows when resume init fails", async () => {
@@ -950,21 +973,27 @@ describe("ClaudeAcpAgent session creation", () => {
         },
       });
 
-      const promise = agent.newSession({ cwd, mcpServers: [] });
-      const rejection = expect(promise).rejects.toThrow(
-        "Session model switch failed",
-      );
-      await vi.waitFor(() =>
-        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1),
-      );
-      const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
-      expect(settings.startsWith(configDir)).toBe(true);
-      expect(existsSync(settings)).toBe(true);
-      nextSetModel = () => Promise.reject(new Error("set model boom"));
-      rejectSetModel(new Error("set model boom"));
-      await rejection;
+      vi.useFakeTimers();
+      try {
+        const promise = agent.newSession({ cwd, mcpServers: [] });
+        const rejection = expect(promise).rejects.toThrow(
+          "Session model switch failed",
+        );
+        await vi.waitFor(() =>
+          expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1),
+        );
+        const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
+        expect(settings.startsWith(configDir)).toBe(true);
+        expect(existsSync(settings)).toBe(true);
+        nextSetModel = () => Promise.reject(new Error("set model boom"));
+        rejectSetModel(new Error("set model boom"));
+        await vi.advanceTimersByTimeAsync(1_000);
+        await rejection;
 
-      expect(existsSync(settings)).toBe(false);
+        expect(existsSync(settings)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
 });

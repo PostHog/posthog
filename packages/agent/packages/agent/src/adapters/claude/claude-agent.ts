@@ -188,6 +188,8 @@ import type {
 
 const SESSION_VALIDATION_TIMEOUT_MS = 30_000;
 
+class StartupControlTimeoutError extends RequestError {}
+
 // Pre-prompt self-heal runs on every cloud turn; bound the status RPC so a
 // wedged control channel can't stall the turn.
 const MCP_STATUS_TIMEOUT_MS = 5_000;
@@ -3039,7 +3041,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       throw this.startupFailure(step, error, errorData);
     });
     if (result.result === "timeout") {
-      throw new RequestError(
+      throw new StartupControlTimeoutError(
         -32603,
         `Session ${step} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         errorData,
@@ -3554,6 +3556,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             startupErrorData,
           );
         } catch (modelSwitchError) {
+          if (modelSwitchError instanceof StartupControlTimeoutError) {
+            throw modelSwitchError;
+          }
           startupLogger.warn("Session model switch failed; retrying once", {
             ...startupErrorData,
             modelId: resolvedModelId,
