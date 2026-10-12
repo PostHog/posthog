@@ -1,0 +1,143 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.buildbetter._config import BuildBetterSourceConfig
+from sources.buildbetter.buildbetter import (
+    BuildBetterResumeConfig,
+    buildbetter_source,
+    validate_credentials as validate_buildbetter_credentials,
+)
+from sources.buildbetter.settings import (
+    BUILDBETTER_API_VERSION_V1,
+    BUILDBETTER_API_VERSION_V3,
+    ENDPOINTS,
+    incremental_fields_for_version,
+)
+
+
+@SourceRegistry.register
+class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    # `v1` reads every table from the GraphQL API. `v3` reads interviews, attendees and transcripts
+    # from the REST API, the only data REST serves so far, and keeps the other tables on GraphQL.
+    supported_versions = (BUILDBETTER_API_VERSION_V1, BUILDBETTER_API_VERSION_V3)
+    default_version = BUILDBETTER_API_VERSION_V3
+    api_docs_url = "https://docs.buildbetter.ai/pages/api/index"
+    # BuildBetter deprecates GraphQL for customer integrations but publishes no sunset date
+    deprecated_versions = (VersionDeprecation(version=BUILDBETTER_API_VERSION_V1, sunset_at=None),)
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.BUILDBETTER
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from sources.buildbetter.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": "BuildBetter authentication failed. Please check your API key.",
+            "403 Client Error": "BuildBetter access forbidden. Please check your API key permissions.",
+            "Authentication hook unauthorized this request": "BuildBetter authentication failed. Please check your API key.",
+            "webhook authentication request failed": "BuildBetter authentication failed. Please check your API key.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `execute`'s own tenacity retry already retries a 5xx or 429 (raised as
+        # BuildBetterRetryableError) up to 5 attempts; once that budget exhausts, Temporal retries
+        # the whole activity from the saved pagination checkpoint, so the failure is transient and
+        # self-recovering rather than tracked-exception-worthy.
+        return {"BuildBetter: server error", "BuildBetter: rate limited"}
+
+    def get_schemas(
+        self,
+        config: BuildBetterSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(
+            ENDPOINTS, incremental_fields_for_version(self.resolve_api_version(api_version)), names
+        )
+
+    def validate_credentials(
+        self,
+        config: BuildBetterSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        return validate_buildbetter_credentials(config.api_key, self.resolve_api_version(api_version))
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BuildBetterResumeConfig]:
+        return ResumableSourceManager[BuildBetterResumeConfig](inputs, BuildBetterResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: BuildBetterSourceConfig,
+        resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        incremental_field_last_value = None
+        if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
+            incremental_field_last_value = str(inputs.db_incremental_field_last_value)
+
+        return buildbetter_source(
+            api_key=config.api_key,
+            endpoint_name=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
+            incremental_field_last_value=incremental_field_last_value,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.BUILDBETTER,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            label="BuildBetter",
+            releaseStatus=ReleaseStatus.GA,
+            caption="Connect your BuildBetter workspace to sync interviews, transcripts, extractions, documents, persons, and companies.",
+            iconPath="/static/services/buildbetter.png",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )

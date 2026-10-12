@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.microsoft_365_usage_reports._config import Microsoft365UsageReportsSourceConfig
+
+
+@SourceRegistry.register
+class Microsoft365UsageReportsSource(SimpleSource[Microsoft365UsageReportsSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.MICROSOFT365USAGEREPORTS
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.MICROSOFT365USAGEREPORTS,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Microsoft (Microsoft Graph / Microsoft 365)",
+            iconPath="/static/services/microsoft_365_usage_reports.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

@@ -27,6 +27,7 @@ rules:
       paths:
           include:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+              - '/sources/**'
           exclude:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/http/**'
               - '**/test/**'
@@ -61,6 +62,7 @@ rules:
       paths:
           include:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+              - '/sources/**'
           exclude:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/http/**'
               - '**/test/**'
@@ -97,6 +99,7 @@ rules:
       paths:
           include:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+              - '/sources/**'
           exclude:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/http/**'
               - '**/test/**'

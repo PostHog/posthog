@@ -1,0 +1,81 @@
+from typing import Any
+
+from unittest import mock
+from unittest.mock import MagicMock
+
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+
+from sources.upstash import source as upstash_source_module
+from sources.upstash._config import UpstashSourceConfig
+from sources.upstash.source import UpstashSource
+
+
+def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
+    defaults: dict[str, Any] = {
+        "schema_name": schema_name,
+        "schema_id": "schema-id",
+        "source_id": "source-id",
+        "team_id": 1,
+        "should_use_incremental_field": False,
+        "db_incremental_field_last_value": None,
+        "db_incremental_field_earliest_value": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "job_id": "job-id",
+        "logger": MagicMock(),
+        "reset_pipeline": False,
+    }
+    defaults.update(overrides)
+    return SourceInputs(**defaults)
+
+
+class TestUpstashSource:
+    def setup_method(self) -> None:
+        self.source = UpstashSource()
+        self.config = UpstashSourceConfig(email="me@example.com", api_key="key")
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas iterates a static catalog with no I/O, so the public docs render the table list.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, team_id=1, names=["teams"])
+        assert [s.name for s in schemas] == ["teams"]
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.upstash.com/v2/teams"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.upstash.com/auditlogs"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.upstash.com/v2/teams"),
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.upstash.com/v2/teams"),
+            ("read_timeout", "HTTPSConnectionPool(host='api.upstash.com', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
+
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_upstash_source(**kwargs: Any):
+            captured.update(kwargs)
+            return MagicMock(name="source_response")
+
+        inputs = _source_inputs("redis_databases")
+        with mock.patch.object(upstash_source_module, "upstash_source", fake_upstash_source):
+            self.source.source_for_pipeline(self.config, inputs)
+
+        assert captured["email"] == "me@example.com"
+        assert captured["api_key"] == "key"
+        assert captured["endpoint"] == "redis_databases"

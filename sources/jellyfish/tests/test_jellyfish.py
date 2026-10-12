@@ -1,0 +1,331 @@
+from datetime import date
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+import pytest
+from unittest.mock import MagicMock
+
+from parameterized import parameterized
+
+from sources.jellyfish import jellyfish
+from sources.jellyfish.jellyfish import (
+    MAX_RETRY_AFTER_SECONDS,
+    JellyfishRateLimitError,
+    JellyfishResumeConfig,
+    _build_url,
+    _extract_rows,
+    _list_ids,
+    _parse_retry_after,
+    _retry_wait,
+    get_rows,
+    jellyfish_source,
+    validate_credentials,
+)
+from sources.jellyfish.settings import JELLYFISH_ENDPOINTS
+
+
+class TestExtractRows:
+    @parameterized.expand(
+        [
+            ("bare_list", [{"id": 1}, {"id": 2}], None, [{"id": 1}, {"id": 2}]),
+            ("bare_list_drops_non_dicts", [{"id": 1}, "junk"], None, [{"id": 1}]),
+            ("known_data_key", {"deliverables": [{"id": 1}], "meta": {"x": 1}}, "deliverables", [{"id": 1}]),
+            ("single_list_value_autodetected", {"teams": [{"id": 7}]}, None, [{"id": 7}]),
+            ("scalar_payload", "not json rows", None, []),
+        ]
+    )
+    def test_extract(self, _name: str, payload: Any, data_key: str | None, expected: list[dict]) -> None:
+        assert _extract_rows(payload, data_key) == expected
+
+    def test_ambiguous_dict_is_kept_whole_as_one_row(self) -> None:
+        # Two list-of-dict values means we can't tell which holds the rows — keep the payload
+        # intact rather than guessing and silently dropping half the data.
+        payload = {"a": [{"x": 1}], "b": [{"y": 2}]}
+        assert _extract_rows(payload) == [payload]
+
+    def test_missing_parent_ids_are_logged(self) -> None:
+        logger = MagicMock()
+
+        assert _list_ids([{"name": "No identifier"}], "engineers", logger) == []
+        logger.error.assert_called_once_with("Jellyfish: could not find an id field in engineers rows: keys=['name']")
+
+
+class _FakeResumableManager:
+    def __init__(self, state: JellyfishResumeConfig | None = None) -> None:
+        self._state = state
+        self.saved: list[JellyfishResumeConfig] = []
+
+    def can_resume(self) -> bool:
+        return self._state is not None
+
+    def load_state(self) -> JellyfishResumeConfig | None:
+        return self._state
+
+    def save_state(self, data: JellyfishResumeConfig) -> None:
+        self.saved.append(data)
+
+
+def _install_fake_fetch(monkeypatch: Any, responder: Any) -> list[dict[str, Any]]:
+    """Route `_fetch` to `responder(path, params)`; returns the list of captured requests."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+        parsed = urlparse(url)
+        params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(parsed.query).items()}
+        path = parsed.path.removeprefix("/endpoints/export/v0/")
+        calls.append({"path": path, "params": params})
+        return responder(path, params)
+
+    monkeypatch.setattr(jellyfish, "_fetch", fake_fetch)
+    return calls
+
+
+def _collect(endpoint: str, manager: _FakeResumableManager, today: date, monkeypatch: Any) -> list[dict]:
+    class _FixedDatetime:
+        @staticmethod
+        def now(tz: Any = None) -> Any:
+            return MagicMock(date=lambda: today)
+
+    monkeypatch.setattr(jellyfish, "datetime", _FixedDatetime)
+
+    rows: list[dict] = []
+    for batch in get_rows(
+        api_token="t",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+    ):
+        rows.extend(batch)
+    return rows
+
+
+class TestGetRowsReference:
+    def test_single_request_with_static_params_and_json_format(self, monkeypatch: Any) -> None:
+        calls = _install_fake_fetch(monkeypatch, lambda path, params: {"teams": [{"id": 7, "name": "Core"}]})
+        rows = _collect("teams", _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        assert rows == [{"id": 7, "name": "Core"}]
+        assert calls == [
+            {
+                "path": "teams/list_teams",
+                # `format=json` is mandatory (the API otherwise defaults to CSV); hierarchy params
+                # are what makes list_teams return the whole tree.
+                "params": {"format": "json", "hierarchy_level": "1", "include_children": "true"},
+            }
+        ]
+
+
+class TestGetRowsMonthWindowed:
+    def test_walks_every_window_injects_window_fields_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
+        calls = _install_fake_fetch(monkeypatch, lambda path, params: [{"metric": "x"}])
+        manager = _FakeResumableManager()
+        rows = _collect("company_metrics", manager, date(2026, 3, 10), monkeypatch)
+
+        assert len(calls) == 24
+        assert all(c["path"] == "metrics/company_metrics" for c in calls)
+        assert calls[0]["params"]["start_date"] == "2024-04-01"
+        assert calls[0]["params"]["end_date"] == "2024-04-30"
+        assert calls[0]["params"]["unit"] == "month"
+        assert calls[-1]["params"] == {
+            "format": "json",
+            "start_date": "2026-03-01",
+            "end_date": "2026-03-10",
+            "unit": "month",
+        }
+        # Each aggregate row keeps its period.
+        assert rows[0] == {"metric": "x", "window_start_date": "2024-04-01", "window_end_date": "2024-04-30"}
+        assert rows[-1]["window_start_date"] == "2026-03-01"
+        # State points at the NEXT window and is saved after each yielded window except the last —
+        # a crash re-fetches the current window instead of skipping it.
+        assert len(manager.saved) == 23
+        assert manager.saved[0] == JellyfishResumeConfig(next_window_start="2024-05-01")
+        assert manager.saved[-1] == JellyfishResumeConfig(next_window_start="2026-03-01")
+
+    def test_resume_skips_windows_before_saved_watermark(self, monkeypatch: Any) -> None:
+        calls = _install_fake_fetch(monkeypatch, lambda path, params: [{"metric": "x"}])
+        manager = _FakeResumableManager(JellyfishResumeConfig(next_window_start="2026-02-01"))
+        _collect("company_metrics", manager, date(2026, 3, 10), monkeypatch)
+
+        assert [c["params"]["start_date"] for c in calls] == ["2026-02-01", "2026-03-01"]
+
+
+class TestGetRowsFanOut:
+    @staticmethod
+    def _responder(path: str, params: dict[str, Any]) -> Any:
+        if path == "delivery/work_categories":
+            return [{"slug": "roadmap"}, {"slug": "kt"}]
+        assert path == "delivery/work_category_contents"
+        return {"deliverables": [{"name": f"deliverable-{params['work_category_slug']}"}]}
+
+    def test_fans_out_per_work_category_and_injects_slug(self, monkeypatch: Any) -> None:
+        calls = _install_fake_fetch(monkeypatch, self._responder)
+        manager = _FakeResumableManager()
+        rows = _collect("deliverables", manager, date(2026, 3, 10), monkeypatch)
+
+        assert rows == [
+            {"name": "deliverable-roadmap", "work_category_slug": "roadmap"},
+            {"name": "deliverable-kt", "work_category_slug": "kt"},
+        ]
+        content_calls = [c for c in calls if c["path"] == "delivery/work_category_contents"]
+        # One wide window over the whole lookback range — deliverables are discrete records, not
+        # per-period aggregates.
+        assert content_calls[0]["params"]["start_date"] == "2024-04-01"
+        assert content_calls[0]["params"]["end_date"] == "2026-03-10"
+        assert manager.saved == [
+            JellyfishResumeConfig(completed_parent_ids=["roadmap"]),
+            JellyfishResumeConfig(completed_parent_ids=["kt", "roadmap"]),
+        ]
+
+
+class TestGetRowsEntityFanOut:
+    @pytest.mark.parametrize(
+        "endpoint,parent_path,parent_payload,param,expected_ids",
+        [
+            ("person_metrics", "people/list_engineers", [{"id": 11}, {"id": 12}], "person_id", ["11", "12"]),
+            # Child teams nested under `children` are fanned out too, so every level gets metrics.
+            (
+                "team_metrics",
+                "teams/list_teams",
+                {"teams": [{"id": 1, "children": [{"id": 2, "children": [{"id": 3}]}]}]},
+                "team_id",
+                ["1", "2", "3"],
+            ),
+            (
+                "allocations_by_work_category_team",
+                "delivery/work_categories",
+                [{"slug": "roadmap"}, {"slug": "roadmap"}],
+                "work_category_slug",
+                ["roadmap"],
+            ),
+        ],
+    )
+    def test_month_windows_per_parent_with_parent_and_window_injected(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_payload: Any,
+        param: str,
+        expected_ids: list[str],
+        monkeypatch: Any,
+    ) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == parent_path:
+                return parent_payload
+            return [{"value": 1}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        rows = _collect(endpoint, _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        child_calls = [c for c in calls if c["path"] == JELLYFISH_ENDPOINTS[endpoint].path]
+        assert [c["params"][param] for c in child_calls[::24]] == expected_ids
+        assert len(child_calls) == 24 * len(expected_ids)
+        assert child_calls[0]["params"]["unit"] == "month"
+        assert rows[0] == {
+            "value": 1,
+            param: expected_ids[0],
+            "window_start_date": "2024-04-01",
+            "window_end_date": "2024-04-30",
+        }
+
+    def test_resume_continues_in_progress_parent_from_saved_window(self, monkeypatch: Any) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == "people/list_engineers":
+                return [{"id": 11}, {"id": 12}, {"id": 13}]
+            return [{"value": 1}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        manager = _FakeResumableManager(
+            JellyfishResumeConfig(next_window_start="2026-02-01", completed_parent_ids=["11"], current_parent_id="12")
+        )
+        _collect("person_metrics", manager, date(2026, 3, 10), monkeypatch)
+
+        metric_calls = [
+            (c["params"]["person_id"], c["params"]["start_date"]) for c in calls if "person_id" in c["params"]
+        ]
+        assert metric_calls[:2] == [("12", "2026-02-01"), ("12", "2026-03-01")]
+        # The saved window only applies to the parent it was saved for.
+        assert metric_calls[2] == ("13", "2024-04-01")
+        assert len(metric_calls) == 2 + 24
+        assert manager.saved[1] == JellyfishResumeConfig(completed_parent_ids=["11", "12"])
+        assert manager.saved[2] == JellyfishResumeConfig(
+            next_window_start="2024-05-01", completed_parent_ids=["11", "12"], current_parent_id="13"
+        )
+
+    def test_scope_history_fans_out_over_deliverables_in_every_work_category(self, monkeypatch: Any) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == "delivery/work_categories":
+                return [{"slug": "epics"}, {"slug": "initiatives"}]
+            if path == "delivery/work_category_contents":
+                ids = {"epics": [101, 102], "initiatives": [102, 201]}[params["work_category_slug"]]
+                return {"deliverables": [{"id": i} for i in ids]}
+            return [{"week": "2026-03-02", "scope": 5}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        rows = _collect("deliverable_scope_and_effort_history", _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        history_calls = [c for c in calls if c["path"] == "delivery/scope_and_effort_history"]
+        # A deliverable listed under two work categories is fetched once.
+        assert [c["params"]["deliverable_id"] for c in history_calls] == ["101", "102", "201"]
+        assert history_calls[0]["params"] == {
+            "format": "json",
+            "unit": "week",
+            "deliverable_id": "101",
+            "start_date": "2024-04-01",
+            "end_date": "2026-03-10",
+        }
+        assert rows[0] == {"week": "2026-03-02", "scope": 5, "deliverable_id": "101"}
+
+
+class TestJellyfishSourceResponse:
+    def test_windowed_endpoint_partitions_on_injected_window_start(self) -> None:
+        response = jellyfish_source("t", "company_metrics", MagicMock(), MagicMock())
+        assert response.partition_mode == "datetime"
+        assert response.partition_format == "month"
+        assert response.partition_keys == ["window_start_date"]
+
+    def test_every_declared_endpoint_builds_a_response(self) -> None:
+        for endpoint in JELLYFISH_ENDPOINTS:
+            assert jellyfish_source("t", endpoint, MagicMock(), MagicMock()).name == endpoint
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize("status_code,expected", [(200, True), (401, False), (403, False)])
+    def test_status_maps_to_bool(self, status_code: int, expected: bool, monkeypatch: Any) -> None:
+        response = MagicMock()
+        response.status_code = status_code
+        session = MagicMock()
+        session.get.return_value = response
+        monkeypatch.setattr(jellyfish, "make_tracked_session", lambda *a, **k: session)
+        assert validate_credentials("t") is expected
+
+    def test_network_error_is_not_valid(self, monkeypatch: Any) -> None:
+        session = MagicMock()
+        session.get.side_effect = Exception("boom")
+        monkeypatch.setattr(jellyfish, "make_tracked_session", lambda *a, **k: session)
+        assert validate_credentials("t") is False
+
+
+class TestFetch:
+    def test_429_raises_rate_limit_with_retry_after(self) -> None:
+        response = MagicMock()
+        response.status_code = 429
+        response.headers = {"Retry-After": "12"}
+        session = MagicMock()
+        session.get.return_value = response
+        # Call the undecorated body (bypassing tenacity) to assert the error carries Retry-After.
+        with pytest.raises(JellyfishRateLimitError) as exc:
+            jellyfish._fetch.__wrapped__(session, _build_url("metrics/company_metrics", {}), {}, MagicMock())  # type: ignore[attr-defined]
+        assert exc.value.retry_after == 12.0
+
+
+class TestRetryWait:
+    @parameterized.expand([("missing", None, None), ("non_numeric", "soon", None), ("negative", "-5", None)])
+    def test_parse_retry_after_falls_back(self, _name: str, header: str | None, expected: float | None) -> None:
+        # None means "no honored delay" so the caller falls back to exponential backoff.
+        assert _parse_retry_after(header) == expected
+
+    def test_wait_clamps_pathological_retry_after(self) -> None:
+        # A huge Retry-After must not pin an import worker for its whole duration.
+        state = MagicMock()
+        state.outcome.exception.return_value = JellyfishRateLimitError("rate limited", retry_after=6000.0)
+        assert _retry_wait(state) == MAX_RETRY_AFTER_SECONDS

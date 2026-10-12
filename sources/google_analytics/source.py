@@ -1,0 +1,337 @@
+from typing import Optional, cast
+
+import requests
+import structlog
+from google.auth.exceptions import RefreshError
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.google_analytics._config import GoogleAnalyticsSourceConfig
+from sources.google_analytics.google_analytics import (
+    GoogleAnalyticsResumeConfig,
+    get_property_metadata,
+    google_analytics_session,
+    google_analytics_source,
+    normalize_property_id,
+)
+from sources.google_analytics.settings import (
+    GOOGLE_ANALYTICS_INCREMENTAL_FIELD,
+    CustomReportError,
+    build_report_schemas,
+)
+
+logger = structlog.get_logger(__name__)
+
+# Fallback messages for unexpected failures during credential validation. The raw exception can
+# embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
+# guidance instead of surfacing `str(e)` to the user.
+_LOAD_CONNECTION_ERROR = (
+    "PostHog couldn't load your Google Analytics connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_METADATA_ERROR = (
+    "PostHog couldn't reach Google Analytics to read your property. Wait a few minutes, then try again."
+)
+
+# Google answers the metadata probe with 403 both when the account can't read the property (or the
+# property doesn't exist) and when the user unticked the Analytics scope on the consent screen. Only
+# a 401 means the token itself is bad, so reconnecting is the fix for the scope and 401 cases only.
+_CREDENTIALS_REJECTED_ERROR = (
+    "Google rejected the credentials for this connection. Reconnect your Google account, then try again."
+)
+_PROPERTY_ACCESS_ERROR = (
+    "Your connected Google account can't read this Google Analytics property. Check the property ID, "
+    "or reconnect with an account that has access to it."
+)
+_MISSING_SCOPE_ERROR = (
+    "Your Google connection doesn't include Google Analytics access. Reconnect your Google account "
+    "and allow Google Analytics access when Google asks."
+)
+
+
+@SourceRegistry.register
+class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.google.com/analytics/devguides/reporting/data/v1"
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.GOOGLEANALYTICS
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from sources.google_analytics.canonical_descriptions import CANONICAL_DESCRIPTIONS  # noqa: PLC0415
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # `_run_report` raises this verbatim for any runReport response that isn't quota
+            # exhaustion or a 5xx — GA4 rejected the request itself (e.g. an invalid custom
+            # report dimension/metric name, or an incompatible dimension/metric combination),
+            # so retrying replays the identical request and fails identically every time.
+            "400 Client Error: Bad Request for url: https://analyticsdata.googleapis.com": (
+                "Google Analytics rejected this report request as invalid. This is usually caused by "
+                "a custom report dimension or metric name — GA4 API names are camelCase (e.g. "
+                "'bounceRate', not 'bounce_rate'). Check your custom report configuration against the "
+                "GA4 Data API schema, then try again."
+            ),
+            "401 Client Error": "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
+            "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
+            # Raised as a bare `RefreshError` from `AuthorizedSession` when the stored refresh token
+            # has been revoked or expired. `validate_credentials` already maps this to a reconnect
+            # prompt, but only runs before a sync starts. Mid-sync it reaches `_run_report` via
+            # `session.post()` before any HTTP status is available to match on, so match Google's
+            # stable OAuth error code instead.
+            "invalid_grant": "Your Google Analytics connection has expired or been revoked. Please reconnect your account.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_run_report` already retries Data API quota exhaustion in-line with backoff; if it's
+        # still exhausted once those retries run out, the property's token quota refills over
+        # time and the resumable source picks up from the last saved chunk, so let Temporal
+        # retry the activity without paging it as a bug.
+        #
+        # "Connection aborted"/"Connection reset by peer"/"Read timed out" are transport-level blips
+        # from `requests` raised by `session.post()` in `_run_report`, which now backs off on them
+        # inline, so they reach here only once that budget is spent. The resumable source picks up
+        # from the last saved chunk on the next Temporal retry, same as ClickHouse's source
+        # classifies this text.
+        #
+        # "Connection broken" is the urllib3 `ProtocolError` prefix for a body cut off mid-stream.
+        # It carries the underlying reason (an incomplete read, an invalid chunk length, or a reset),
+        # so only the reset variant matches the text above — match the prefix to cover them all.
+        #
+        # "Max retries exceeded with url" is the urllib3 wrapper around a connect that never
+        # succeeded (a DNS failure, a refused connection, or a connect timeout). `Retry.increment`
+        # tests for a connection error before it tests the method allowlist, so the shared adapter
+        # retries this POST too and wraps the exhausted failure in that text, which carries none of
+        # the messages above. Google Sheets, Langfuse, Notion and SigNoz match the same prefix.
+        return {
+            "(retryable)",
+            "Connection aborted",
+            "Connection broken",
+            "Connection reset by peer",
+            "Max retries exceeded with url",
+            "Read timed out",
+        }
+
+    def get_schemas(
+        self,
+        config: GoogleAnalyticsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        schemas = [
+            SourceSchema(
+                name=name,
+                supports_incremental=True,
+                supports_append=True,
+                incremental_fields=[GOOGLE_ANALYTICS_INCREMENTAL_FIELD],
+                description=schema["description"],
+                should_sync_default=schema["should_sync_default"],
+            )
+            for name, schema in build_report_schemas(config.custom_reports).items()
+        ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GoogleAnalyticsResumeConfig]:
+        return ResumableSourceManager[GoogleAnalyticsResumeConfig](inputs, GoogleAnalyticsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: GoogleAnalyticsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GoogleAnalyticsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return google_analytics_source(
+            config=config,
+            resource_name=inputs.schema_name,
+            team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )
+
+    def validate_credentials(
+        self,
+        config: GoogleAnalyticsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            build_report_schemas(config.custom_reports)
+        except CustomReportError as e:
+            return False, str(e)
+
+        property_id = normalize_property_id(config.property_id)
+        if not property_id.isdigit():
+            # Name the two IDs users most often paste by mistake — both are non-numeric and
+            # look plausible, so the generic "use a numeric ID" hint leaves them hunting.
+            upper_id = property_id.upper()
+            if upper_id.startswith("G-"):
+                return (
+                    False,
+                    f"'{config.property_id}' looks like a Measurement ID (from your GA4 data stream / "
+                    "website tag), not a property ID. Use the numeric property ID from Google Analytics "
+                    "Admin → Property settings → Property details (e.g. '123456789').",
+                )
+            if upper_id.startswith("UA-"):
+                return (
+                    False,
+                    f"'{config.property_id}' is a Universal Analytics property ID. This connector supports "
+                    "Google Analytics 4 only — use the numeric GA4 property ID from Admin → Property "
+                    "settings → Property details (e.g. '123456789').",
+                )
+            return (
+                False,
+                f"'{config.property_id}' is not a valid GA4 property ID. Use the numeric ID from "
+                "Google Analytics admin settings (e.g. '123456789' or 'properties/123456789').",
+            )
+
+        try:
+            session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        except Integration.DoesNotExist:
+            # The stored OAuth integration row has been deleted/disconnected before validation runs.
+            # Caught explicitly so an unrelated model's DoesNotExist still surfaces as a real bug below.
+            return (
+                False,
+                "The Google Analytics connection for this source no longer exists. Please reconnect your Google account.",
+            )
+        except Exception as e:
+            capture_exception(e)
+            return False, _LOAD_CONNECTION_ERROR
+
+        try:
+            get_property_metadata(session, property_id)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status == 401:
+                return False, _CREDENTIALS_REJECTED_ERROR
+            if status == 403:
+                if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in e.response.text:
+                    return False, _MISSING_SCOPE_ERROR
+                return False, _PROPERTY_ACCESS_ERROR
+            if status == 404:
+                return (
+                    False,
+                    f"GA4 property '{property_id}' was not found. Verify the numeric property ID in "
+                    "Google Analytics admin settings.",
+                )
+            if status == 429 or (status is not None and 500 <= status < 600):
+                # Google is rate-limiting this metadata probe or briefly unavailable — both clear on
+                # their own and the status means nothing actionable for us, so log it rather than
+                # paging error tracking (same call as app_store_connect's credential probe).
+                logger.warning("ga4_property_metadata_probe_transient_status", status=status)
+                return False, _PROPERTY_METADATA_ERROR
+            capture_exception(e)
+            return False, _PROPERTY_METADATA_ERROR
+        except RefreshError:
+            # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
+            # invalid_grant): the stored token is missing the required permissions, or has expired or
+            # been revoked. Retrying can't recover it — the raw RefreshError repr is meaningless to
+            # users, so guide them to reconnect.
+            return (
+                False,
+                "PostHog could not authenticate with Google Analytics. Your connection may have "
+                "expired or is missing the required permissions. Please reconnect your Google "
+                "account and grant access to Google Analytics.",
+            )
+        except Exception as e:
+            capture_exception(e)
+            return False, _PROPERTY_METADATA_ERROR
+
+        return True, None
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.GOOGLEANALYTICS,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            keywords=["ga4", "ga"],
+            label="Google Analytics",
+            caption=(
+                "Connect a Google Analytics 4 property to sync daily report data (users, sessions, page views, "
+                "devices, locations, traffic sources, and events). Requires a Google account with read access "
+                "to the GA4 property."
+            ),
+            releaseStatus=ReleaseStatus.GA,
+            iconPath="/static/services/google_analytics.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/google-analytics",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldOauthConfig(
+                        name="google_analytics_integration_id",
+                        label="Google Analytics account",
+                        required=True,
+                        kind="google-analytics",
+                        requiredScopes="https://www.googleapis.com/auth/analytics.readonly",
+                    ),
+                    SourceFieldInputConfig(
+                        name="property_id",
+                        label="Property ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="123456789",
+                        caption=(
+                            "The numeric GA4 property ID, found in Google Analytics under "
+                            "Admin → Property settings → Property details. This is not the "
+                            "'G-XXXXXXX' Measurement ID from your website tag."
+                        ),
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="custom_reports",
+                        label="Custom reports (optional)",
+                        type=SourceFieldInputConfigType.TEXTAREA,
+                        required=False,
+                        placeholder=(
+                            '[{"name": "paid_campaigns", '
+                            '"dimensions": ["sessionCampaignName", "sessionSource"], '
+                            '"metrics": ["sessions", "totalUsers", "purchaseRevenue"]}]'
+                        ),
+                        caption=(
+                            "Define your own report tables as a JSON array, on top of the built-in ones. "
+                            "Each report needs a name, GA4 dimensions, and GA4 metrics. PostHog always adds "
+                            "the date dimension and syncs each report daily. GA4 allows up to 9 dimensions "
+                            "(including date) and 10 metrics per report."
+                        ),
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

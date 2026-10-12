@@ -6,7 +6,7 @@ description: Add support for a new vendor API version to an existing Data wareho
 # Adding a new vendor API version to a warehouse source
 
 Use this skill when a vendor has released a new API version and an existing source under
-`products/warehouse_sources/backend/temporal/data_imports/sources/<dir>/` must support it
+`sources/<dir>/` (or `products/warehouse_sources/backend/temporal/data_imports/sources/<dir>/` for a vendor that stays in the product) must support it
 **while keeping every previously supported version functional**.
 
 ## How versioning works

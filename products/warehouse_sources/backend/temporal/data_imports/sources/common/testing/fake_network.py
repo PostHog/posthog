@@ -236,7 +236,8 @@ def _sleep_aliases() -> list[tuple[Any, str]]:
     """Each `from time import sleep` binding in a loaded source module. A patch of `time.sleep` does not reach them."""
     aliases: list[tuple[Any, str]] = []
     for module_name, module in list(sys.modules.items()):
-        if not module_name.startswith(_SOURCES_PACKAGE):
+        # Vendors live in this package and in the top-level `sources` package.
+        if not module_name.startswith((_SOURCES_PACKAGE, "sources.")):
             continue
         aliases.extend((module, name) for name, value in list(vars(module).items()) if value is _REAL_SLEEP)
     return aliases

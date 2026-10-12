@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.datascope._config import DatascopeSourceConfig
+
+
+@SourceRegistry.register
+class DatascopeSource(SimpleSource[DatascopeSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.DATASCOPE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.DATASCOPE,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            label="Datascope",
+            iconPath="/static/services/datascope.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

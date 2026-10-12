@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.rd_station_marketing._config import RDStationMarketingSourceConfig
+
+
+@SourceRegistry.register
+class RDStationMarketingSource(SimpleSource[RDStationMarketingSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.RDSTATIONMARKETING
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.RDSTATIONMARKETING,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            label="RD Station Marketing",
+            iconPath="/static/services/rd_station_marketing.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

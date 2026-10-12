@@ -14,11 +14,16 @@ from parameterized import parameterized
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "resume_state_after_yield_baseline.txt"
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+# Vendor directories live in the product and in the top-level `sources/` tree.
+SOURCE_ROOTS = (REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources", REPO_ROOT / "sources")
 SKIPPED_DIRS = {"tests", "test", "__pycache__"}
 REGENERATE = "python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py"
 
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
 
 
 def _own_nodes(statement: ast.stmt) -> list[ast.AST]:
@@ -169,8 +174,8 @@ def _parse(source: str) -> ast.Module | None:
 
 def collect_functions() -> list[str]:
     sources: dict[str, str] = {}
-    for file in SOURCES_ROOT.rglob("*.py"):
-        relative = file.relative_to(SOURCES_ROOT)
+    for root, file in _source_files("*.py"):
+        relative = file.relative_to(root)
         if SKIPPED_DIRS.intersection(relative.parts) or file.name.startswith("test_"):
             continue
         source = file.read_text(encoding="utf-8", errors="ignore")

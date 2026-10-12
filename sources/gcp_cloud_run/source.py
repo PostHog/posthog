@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.gcp_cloud_run._config import GcpCloudRunSourceConfig
+
+
+@SourceRegistry.register
+class GcpCloudRunSource(SimpleSource[GcpCloudRunSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.GCPCLOUDRUN
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.GCPCLOUDRUN,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="Google Cloud Platform (Cloud Run)",
+            iconPath="/static/services/gcp_cloud_run.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

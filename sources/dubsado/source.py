@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.dubsado._config import DubsadoSourceConfig
+
+
+@SourceRegistry.register
+class DubsadoSource(SimpleSource[DubsadoSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.DUBSADO
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.DUBSADO,
+            category=DataWarehouseSourceCategory.CRM,
+            label="Dubsado",
+            iconPath="/static/services/dubsado.png",
+            keywords=["dubsado crm", "invoicing", "client management"],
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

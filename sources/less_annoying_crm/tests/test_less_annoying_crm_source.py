@@ -1,0 +1,27 @@
+from unittest import mock
+
+from sources.less_annoying_crm._config import LessAnnoyingCRMSourceConfig
+from sources.less_annoying_crm.source import LessAnnoyingCRMSource
+
+MODULE = "sources.less_annoying_crm.source"
+
+
+class TestLessAnnoyingCRMSource:
+    def setup_method(self) -> None:
+        self.source = LessAnnoyingCRMSource()
+        self.team_id = 123
+        self.config = LessAnnoyingCRMSourceConfig(api_key="test-key")
+
+    def test_get_schemas_names_filter(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "tasks"])
+        assert {s.name for s in schemas} == {"contacts", "tasks"}
+
+    def test_validate_credentials_success(self) -> None:
+        with mock.patch(f"{MODULE}.validate_less_annoying_crm_credentials", return_value=True):
+            assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
+
+    def test_validate_credentials_failure(self) -> None:
+        with mock.patch(f"{MODULE}.validate_less_annoying_crm_credentials", return_value=False):
+            ok, error = self.source.validate_credentials(self.config, self.team_id)
+        assert ok is False
+        assert error is not None

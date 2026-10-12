@@ -619,6 +619,8 @@ jobs:
                         # The extract worker imports the whole warehouse_sources backend
                         # (models, facade, scheduling, tasks) and the data_warehouse facade.
                         - 'products/warehouse_sources/backend/**'
+                        # The vendor catalog the extract worker runs.
+                        - 'sources/**'
                         - 'products/data_warehouse/backend/**'
                         - 'posthog/warehouse/**'
                         - Dockerfile
@@ -645,7 +647,6 @@ jobs:
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*/**'
-                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/_load_all.py'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/*.md'
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
@@ -656,6 +657,7 @@ jobs:
 
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
+                        - 'sources/**'
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'

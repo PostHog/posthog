@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.salestrics._config import SalestricsSourceConfig
+
+
+@SourceRegistry.register
+class SalestricsSource(SimpleSource[SalestricsSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SALESTRICS
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.SALESTRICS,
+            category=DataWarehouseSourceCategory.CRM,
+            label="Salestrics",
+            iconPath="/static/services/salestrics.png",
+            keywords=["crm", "sales"],
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

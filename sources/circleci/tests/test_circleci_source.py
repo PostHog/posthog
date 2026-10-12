@@ -1,0 +1,75 @@
+from urllib.parse import urlparse
+
+from unittest import mock
+
+from parameterized import parameterized
+
+from sources.circleci._config import CircleCISourceConfig
+from sources.circleci.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from sources.circleci.source import CircleCISource
+
+
+class TestCircleCISource:
+    def setup_method(self):
+        self.source = CircleCISource()
+        self.team_id = 123
+        self.config = CircleCISourceConfig(api_token="circle-token", org_slug="gh/posthog")
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://circleci.com/api/v2/pipeline?org-slug=gh%2Fposthog",),
+            ("403 Client Error: Forbidden for url: https://circleci.com/api/v2/workflow/abc/job",),
+            ("404 Client Error: Not Found for url: https://circleci.com/api/v2/project/gh/posthog/posthog",),
+        ]
+    )
+    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
+            ("500 Server Error for url: https://circleci.com/api/v2/pipeline",),
+            ("429 Client Error: Too Many Requests for url: https://circleci.com/api/v2/pipeline",),
+        ]
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_no_endpoint_advertises_incremental(self, endpoint):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        # No CircleCI v2 list endpoint has a server-side timestamp filter, so all are full refresh.
+        assert schemas[endpoint].supports_incremental is False
+        assert schemas[endpoint].supports_append is False
+        assert schemas[endpoint].incremental_fields == []
+        assert INCREMENTAL_FIELDS.get(endpoint) is None
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["pipelines"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "pipelines"
+
+    @parameterized.expand(
+        [
+            ("v2", "/api/v2/pipeline"),
+            ("v3", "/api/v3/projects"),
+            # An unpinned call (pre-creation validation) resolves to the v3 default.
+            (None, "/api/v3/projects"),
+        ]
+    )
+    @mock.patch("sources.circleci.circleci.make_tracked_session")
+    def test_validate_credentials_probes_the_pinned_api(self, api_version, expected_org_probe_path, mock_session):
+        collaborations = mock.MagicMock(status_code=200)
+        collaborations.json.return_value = [{"id": "org-uuid", "slug": "gh/posthog"}]
+        ok = mock.MagicMock(status_code=200)
+        mock_session.return_value.get.side_effect = lambda url, **kwargs: (
+            collaborations if "/me/collaborations" in url else ok
+        )
+
+        assert self.source.validate_credentials(self.config, self.team_id, api_version=api_version) == (True, None)
+
+        last_url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(last_url).path == expected_org_probe_path

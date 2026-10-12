@@ -1,0 +1,267 @@
+import json
+from typing import Any
+
+import pytest
+from unittest import mock
+
+import requests
+from parameterized import parameterized
+from requests import Response
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    DEFAULT_RETRY_ATTEMPTS,
+    RESTClientRetryableError,
+)
+
+from sources.bluetally.bluetally import PAGE_SIZE, BluetallyResumeConfig, bluetally_source, validate_credentials
+from sources.bluetally.settings import BLUETALLY_ENDPOINTS, ENDPOINTS
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the bluetally module.
+BLUETALLY_SESSION_PATCH = "sources.bluetally.bluetally.make_tracked_session"
+
+
+def _response(items: list[dict[str, Any]], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(items).encode()
+    return resp
+
+
+def _wrapped_response(body: dict[str, Any], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.url = "https://app.bluetallyapp.com/api/v1/tenants"
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _error_response(status_code: int) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.url = "https://app.bluetallyapp.com/api/v1/assets"
+    resp._content = b""
+    return resp
+
+
+def _non_list_response() -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp.url = "https://app.bluetallyapp.com/api/v1/assets"
+    resp._content = b'{"error": "unexpected"}'
+    return resp
+
+
+def _make_manager(resume_state: BluetallyResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(
+    endpoint: str = "assets",
+    manager: mock.MagicMock | None = None,
+    tenant_id: str | None = None,
+):
+    return bluetally_source(
+        api_key="key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager if manager is not None else _make_manager(),
+        tenant_id=tenant_id,
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        params = _wire(session, [_response(full_page), _response([{"id": PAGE_SIZE}])])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
+
+        assert len(rows) == PAGE_SIZE + 1
+        assert params[0]["offset"] == 0
+        assert params[1]["offset"] == PAGE_SIZE
+        # State is saved after the full page (pointing at the next offset), then we stop on the short page.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == BluetallyResumeConfig(offset=PAGE_SIZE)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": PAGE_SIZE}])])
+
+        manager = _make_manager(BluetallyResumeConfig(offset=PAGE_SIZE))
+        rows = _rows(_source(manager=manager))
+
+        # Resuming at offset=PAGE_SIZE skips the already-synced first page.
+        assert rows == [{"id": PAGE_SIZE}]
+        assert params[0]["offset"] == PAGE_SIZE
+
+
+class TestErrors:
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
+    @mock.patch("time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_exhaust_retries(self, _name: str, status: int, MockSession, _mock_sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_error_response(status)] * DEFAULT_RETRY_ATTEMPTS)
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source())
+
+        assert session.send.call_count == DEFAULT_RETRY_ATTEMPTS
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_http_error(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_error_response(status)])
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source())
+
+        # Client errors are permanent — no retries.
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_payload_raises_value_error(self, MockSession) -> None:
+        # A non-list 200 is a permanent contract violation (wrapped payload, proxy HTML, …) — it must
+        # fail loud without burning the retry budget on something retries can't fix.
+        session = MockSession.return_value
+        _wire(session, [_non_list_response()])
+
+        with pytest.raises(ValueError, match="list"):
+            _rows(_source())
+
+        assert session.send.call_count == 1
+
+
+class TestBluetallySourceResponse:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, name: str, MockSession) -> None:
+        config = BLUETALLY_ENDPOINTS[name]
+        response = _source(endpoint=name)
+        assert response.name == name
+        assert response.primary_keys == config.primary_keys
+        # An endpoint we can't sort stays unordered rather than claiming an order it never requested.
+        assert response.sort_mode == ("asc" if config.sort else None)
+        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
+        assert response.partition_mode == ("datetime" if config.partition_key else None)
+
+    def test_every_partition_key_is_a_creation_timestamp(self) -> None:
+        # Guards against accidentally partitioning on a churning field like updated_at.
+        assert {cfg.partition_key for cfg in BLUETALLY_ENDPOINTS.values()} == {"created_at", "timestamp", None}
+
+
+class TestUnparameterizedEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tenants_sends_no_query_params(self, MockSession) -> None:
+        # `/tenants` documents no parameters, so it must not be sent limit/offset/sort/tenant_id.
+        session = MockSession.return_value
+        params = _wire(session, [_wrapped_response({"tenants": [{"tenant_id": 1, "tenant_name": "Acme"}]})])
+
+        rows = _rows(_source(endpoint="tenants", tenant_id="99"))
+
+        assert rows == [{"tenant_id": 1, "tenant_name": "Acme"}]
+        assert params[0] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tenants_fetches_a_single_page(self, MockSession) -> None:
+        # Without limit/offset there is no second page to ask for, even on a large response.
+        session = MockSession.return_value
+        tenants = [{"tenant_id": i, "tenant_name": str(i)} for i in range(PAGE_SIZE)]
+        _wire(session, [_wrapped_response({"tenants": tenants})])
+
+        manager = _make_manager()
+        rows = _rows(_source(endpoint="tenants", manager=manager))
+
+        assert len(rows) == PAGE_SIZE
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tenants_ignores_stale_offset_resume_state(self, MockSession) -> None:
+        # Resume state can outlive a schema switch; a single-page endpoint must not skip its only page.
+        session = MockSession.return_value
+        params = _wire(session, [_wrapped_response({"tenants": [{"tenant_id": 1, "tenant_name": "Acme"}]})])
+
+        manager = _make_manager(BluetallyResumeConfig(offset=PAGE_SIZE))
+        rows = _rows(_source(endpoint="tenants", manager=manager))
+
+        assert rows == [{"tenant_id": 1, "tenant_name": "Acme"}]
+        assert "offset" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tenants_missing_envelope_raises(self, MockSession) -> None:
+        # The rows live under `tenants`; a body without it is a contract change, not an empty page.
+        session = MockSession.return_value
+        _wire(session, [_wrapped_response({"unexpected": []})])
+
+        with pytest.raises(ValueError):
+            _rows(_source(endpoint="tenants"))
+
+
+class TestActivity:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_activity_paginates_with_sorted_params(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"item_id": i} for i in range(PAGE_SIZE)]
+        params = _wire(session, [_response(full_page), _response([{"item_id": PAGE_SIZE}])])
+
+        rows = _rows(_source(endpoint="activity", tenant_id="99"))
+
+        assert len(rows) == PAGE_SIZE + 1
+        # The log defaults to newest-first; we ask for oldest-first so the offset walk stays stable.
+        assert params[0]["sort"] == "created_at"
+        assert params[0]["order"] == "asc"
+        assert params[0]["tenant_id"] == "99"
+        assert params[1]["offset"] == PAGE_SIZE
+
+
+class TestValidateCredentials:
+    @mock.patch(BLUETALLY_SESSION_PATCH)
+    def test_probes_given_endpoint_with_tenant_id(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert validate_credentials("key", tenant_id="42", endpoint="employees") is True
+        url = mock_session.return_value.get.call_args.args[0]
+        assert url.startswith("https://app.bluetallyapp.com/api/v1/employees?")
+        assert "limit=1" in url
+        assert "tenant_id=42" in url
+
+    @mock.patch(BLUETALLY_SESSION_PATCH)
+    def test_probes_unparameterized_endpoint_without_a_query_string(self, mock_session) -> None:
+        # `/tenants` takes no parameters, so probing it with limit/tenant_id could be rejected.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert validate_credentials("key", tenant_id="42", endpoint="tenants") is True
+        url = mock_session.return_value.get.call_args.args[0]
+        assert url == "https://app.bluetallyapp.com/api/v1/tenants"

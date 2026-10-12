@@ -24,6 +24,22 @@ depends_on = [
 ]
 layer = "modules"
 
+# One module per vendor directory under the top-level `sources/`. Vendors still import internals of
+# the product directly, so tach does not check their imports yet (`unchecked`). The goal is
+# `depends_on = ["sources.sdk"]` with checks on.
+[[modules]]
+path = "sources.*"
+depends_on = ["sources.sdk"]
+layer = "modules"
+unchecked = true
+
+# The explicit entry wins over the glob for `sources.sdk`. The SDK re-exports the shared source code
+# of warehouse_sources, which still lives in the product.
+[[modules]]
+path = "sources.sdk"
+depends_on = ["posthog", "products.warehouse_sources"]
+layer = "modules"
+
 [[modules]]
 path = "common.hogql_parser"
 depends_on = []

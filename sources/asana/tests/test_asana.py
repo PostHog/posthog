@@ -1,0 +1,335 @@
+import json
+from typing import Any, Optional
+
+import pytest
+from unittest import mock
+
+from requests import Response
+
+from sources.asana.asana import ASANA_BASE_URL, AsanaResumeConfig, asana_source, validate_credentials
+from sources.asana.settings import ASANA_ENDPOINTS, ENDPOINTS
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the asana module.
+ASANA_SESSION_PATCH = "sources.asana.asana.make_tracked_session"
+
+
+def _page(items: list[dict[str, Any]], next_uri: Optional[str] = None) -> Response:
+    body: dict[str, Any] = {"data": items, "next_page": {"uri": next_uri, "offset": "tok"} if next_uri else None}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _make_manager(resume_state: Optional[AsanaResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, routes: list[tuple[str, Response]]) -> list[str]:
+    """Wire a mock session that dispatches each request to the first still-unconsumed route whose
+    substring appears in the fully-prepared URL. Returns the list of URLs sent, in order.
+
+    Real ``Request.prepare()`` builds the URL (merging path-embedded query with the params dict and
+    applying Bearer auth) so fan-out over parents and multi-page pagination route deterministically.
+    """
+    session.headers = {}
+    sent_urls: list[str] = []
+    remaining = list(routes)
+
+    def _prepare(request: Any) -> Any:
+        return request.prepare()
+
+    def _send(prepared: Any, **kwargs: Any) -> Response:
+        sent_urls.append(prepared.url)
+        for i, (substr, response) in enumerate(remaining):
+            if substr in prepared.url:
+                remaining.pop(i)
+                return response
+        raise AssertionError(f"no route for {prepared.url}")
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return sent_urls
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock) -> Any:
+    return asana_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+
+
+class TestTopLevelPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_next_page_uri_and_checkpoints(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_uri = f"{ASANA_BASE_URL}/workspaces?offset=tok2"
+        urls = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "1"}, {"gid": "2"}], next_uri=next_uri)),
+                ("offset=tok2", _page([{"gid": "3"}])),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("workspaces", manager))
+
+        assert [r["gid"] for r in rows] == ["1", "2", "3"]
+        # First request carries the page size and opted-in fields.
+        assert "limit=100" in urls[0]
+        assert "opt_fields=" in urls[0]
+        # Checkpoint saved after the first page (points at the next link); the terminal page saves nothing.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == AsanaResumeConfig(paginator_state={"next_url": next_uri})
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_next_url(self, MockSession) -> None:
+        session = MockSession.return_value
+        resume_url = f"{ASANA_BASE_URL}/workspaces?offset=resume"
+        urls = _wire(session, [("offset=resume", _page([{"gid": "9"}]))])
+
+        manager = _make_manager(AsanaResumeConfig(paginator_state={"next_url": resume_url}))
+        _rows(_source("workspaces", manager))
+
+        assert urls[0] == resume_url
+
+
+class TestFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_fan_out_drains_every_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}, {"gid": "W2"}])),
+                ("workspace=W1", _page([{"gid": "a"}])),
+                ("workspace=W2", _page([{"gid": "b"}])),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("projects", manager))
+
+        assert [r["gid"] for r in rows] == ["a", "b"]
+        # Single-hop fan-out keeps resume: the dependent resource checkpoints per-parent progress.
+        assert manager.save_state.called
+        assert "completed" in manager.save_state.call_args.args[0].paginator_state
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_organization_fan_out_skips_non_org_workspaces(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                (
+                    "/workspaces?",
+                    _page([{"gid": "W1", "is_organization": True}, {"gid": "W2", "is_organization": False}]),
+                ),
+                ("/organizations/W1/teams", _page([{"gid": "team1"}])),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("teams", manager))
+
+        assert [r["gid"] for r in rows] == ["team1"]
+        # The non-organization workspace never triggers a teams request.
+        assert not any("/organizations/W2/" in url for url in sent)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_task_level_chain_yields_stories_per_task(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "P1"}])),
+                ("project=P1", _page([{"gid": "T1"}, {"gid": "T2"}])),
+                ("/tasks/T1/stories", _page([{"gid": "s1"}])),
+                ("/tasks/T2/stories", _page([{"gid": "s2"}])),
+            ],
+        )
+
+        rows = _rows(_source("stories", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["s1", "s2"]
+        # The tasks level is fetched compact — story opt_fields must not leak onto the parent walk.
+        assert not any("opt_fields" in url for url in sent if "project=P1" in url)
+
+    @pytest.mark.parametrize(
+        "endpoint, child_routes, expected_gids",
+        [
+            ("users", [], ["U1", "U2"]),
+            ("time_tracking_entries", [("user=U1", [{"gid": "e1"}]), ("user=U2", [])], ["e1"]),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_users_are_walked_per_workspace(self, MockSession, endpoint, child_routes, expected_gids) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("/users", _page([{"gid": "U1"}, {"gid": "U2"}])),
+                *[(substr, _page(items)) for substr, items in child_routes],
+            ],
+        )
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert [r["gid"] for r in rows] == expected_gids
+        # Asana rejects an unscoped /users once the token can see more than one workspace.
+        user_urls = [url for url in sent if "/users" in url]
+        assert user_urls and all("workspace=W1" in url for url in user_urls)
+        # Every entry request is scoped to a user; an unfiltered request would be rejected.
+        assert all("user=" in url for url in sent if "/time_tracking_entries" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_goals_carry_the_child_gid_and_skip_pagination(self, MockSession) -> None:
+        session = MockSession.return_value
+        # parentGoals takes no limit/offset and returns no next_page — a `limit` param is rejected.
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "G1"}, {"gid": "G2"}])),
+                ("/goals/G1/parentGoals", _page([{"gid": "P"}], next_uri="ignored")),
+                ("/goals/G2/parentGoals", _page([{"gid": "P"}])),
+            ],
+        )
+
+        rows = _rows(_source("parent_goals", _make_manager()))
+
+        # The same parent goal under two children — only the composite key keeps both rows.
+        assert [(r["goal_gid"], r["gid"]) for r in rows] == [("G1", "P"), ("G2", "P")]
+        assert not any(r for r in rows if "_goals_gid" in r)
+        parent_goal_urls = [url for url in sent if "parentGoals" in url]
+        assert len(parent_goal_urls) == 2
+        assert not any("limit=" in url or "offset=" in url for url in parent_goal_urls)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_team_memberships_walk_organizations_then_teams(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                (
+                    "/workspaces?",
+                    _page([{"gid": "W1", "is_organization": True}, {"gid": "W2", "is_organization": False}]),
+                ),
+                ("/organizations/W1/teams", _page([{"gid": "TM1"}])),
+                ("/teams/TM1/team_memberships", _page([{"gid": "m1"}])),
+            ],
+        )
+
+        rows = _rows(_source("team_memberships", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["m1"]
+        # Teams only exist under organizations, so the plain workspace is dropped before the walk.
+        assert not any("/organizations/W2/" in url for url in sent)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_portfolio_items_carry_the_portfolio_gid(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "PF1"}, {"gid": "PF2"}])),
+                ("/portfolios/PF1/items", _page([{"gid": "PR1"}])),
+                ("/portfolios/PF2/items", _page([{"gid": "PR1"}])),
+            ],
+        )
+
+        rows = _rows(_source("portfolio_items", _make_manager()))
+
+        # The same project held by two portfolios — only the composite key keeps both rows.
+        assert [(r["portfolio_gid"], r["gid"]) for r in rows] == [("PF1", "PR1"), ("PF2", "PR1")]
+        assert not any(r for r in rows if "_portfolios_gid" in r)
+        assert all("limit=" in url for url in sent if "/items" in url)
+        # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
+        assert all("owner=me" in url for url in sent if "/portfolios?" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_portfolios_scope_to_the_tokens_own_user(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "PF1"}])),
+            ],
+        )
+
+        rows = _rows(_source("portfolios", _make_manager()))
+
+        assert [r["gid"] for r in rows] == ["PF1"]
+        # Asana 400s GET /portfolios for a non-service-account token without an explicit owner.
+        assert all("owner=me" in url for url in sent if "/portfolios?" in url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_project_level_chain_yields_grandchild_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                ("/workspaces?", _page([{"gid": "W1"}])),
+                ("workspace=W1", _page([{"gid": "P1"}, {"gid": "P2"}])),
+                ("project=P1", _page([{"gid": "t1"}])),
+                ("project=P2", _page([{"gid": "t2"}])),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("tasks", manager))
+
+        assert [r["gid"] for r in rows] == ["t1", "t2"]
+        # Multi-level fan-out disables resume (one shared hook can't checkpoint two levels);
+        # retries re-fetch and the merge dedupes on gid.
+        manager.save_state.assert_not_called()
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @mock.patch(ASANA_SESSION_PATCH)
+    def test_status_mapping(self, mock_session, status_code, expected) -> None:
+        response = mock.MagicMock()
+        response.status_code = status_code
+        mock_session.return_value.get.return_value = response
+        assert validate_credentials("token") is expected
+
+
+class TestAsanaSourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, MockSession, endpoint) -> None:
+        config = ASANA_ENDPOINTS[endpoint]
+        response = _source(endpoint, _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_format == "week"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+
+    # Creation-time fields that never change after a row is written — safe to partition on.
+    # A mutable field (modified_at, lastSeen) would rewrite partitions on every sync.
+    STABLE_CREATION_FIELDS = {"created_at", "run_started_at"}
+
+    @pytest.mark.parametrize("config", list(ASANA_ENDPOINTS.values()))
+    def test_partition_keys_are_stable_creation_fields(self, config) -> None:
+        if config.partition_key:
+            assert config.partition_key in self.STABLE_CREATION_FIELDS
+            # The partition field must be opted into the response, else partitioning fails.
+            assert config.partition_key in config.opt_fields

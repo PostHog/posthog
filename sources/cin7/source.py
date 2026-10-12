@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.cin7._config import Cin7SourceConfig
+
+
+@SourceRegistry.register
+class Cin7Source(SimpleSource[Cin7SourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.CIN7
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.CIN7,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
+            label="Cin7",
+            iconPath="/static/services/cin7.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

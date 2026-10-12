@@ -1,0 +1,75 @@
+from unittest import mock
+
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.facade.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+
+from sources.hetzner._config import HetznerSourceConfig
+from sources.hetzner.source import HetznerSource
+
+
+class TestHetznerSource:
+    def setup_method(self) -> None:
+        self.source = HetznerSource()
+        self.team_id = 1
+
+    def test_config_has_single_secret_token_field(self) -> None:
+        # The token is a credential — it must render as a masked password input and be marked secret,
+        # or it would be stored/echoed in plaintext.
+        config = self.source.get_source_config
+        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hetzner"
+        fields = config.fields
+        assert len(fields) == 1
+        field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.name == "api_token"
+        assert field.type == SourceFieldInputConfigType.PASSWORD
+        assert field.required is True
+        assert field.secret is True
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.hetzner.cloud/v1/servers?page=1",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.hetzner.cloud/v1/volumes",
+            ),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.hetzner.cloud/v1/servers"),
+            ("server_error", "503 Server Error for url: https://api.hetzner.cloud/v1/servers"),
+        ]
+    )
+    def test_transient_errors_stay_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("list", "servers", ["id"]),
+            ("server_metrics", "server_metrics", ["server_id", "metric", "timestamp"]),
+            ("load_balancer_metrics", "load_balancer_metrics", ["load_balancer_id", "metric", "timestamp"]),
+            ("network_members", "network_members", ["network_id", "type", "id"]),
+        ]
+    )
+    def test_source_for_pipeline_routes_schema(self, _name: str, schema_name: str, primary_keys: list[str]) -> None:
+        config = HetznerSourceConfig(api_token="tok")
+        inputs = mock.MagicMock()
+        inputs.schema_name = schema_name
+        response = self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys

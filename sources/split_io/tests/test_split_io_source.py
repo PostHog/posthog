@@ -1,0 +1,73 @@
+import pytest
+from unittest import mock
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+
+from sources.split_io._config import SplitIoSourceConfig
+from sources.split_io.settings import SPLIT_IO_API_VERSION_V2
+from sources.split_io.source import SplitIoSource
+
+
+class TestSplitIoSource:
+    def setup_method(self):
+        self.source = SplitIoSource()
+        self.team_id = 123
+        self.config = SplitIoSourceConfig(api_key="admin-api-key")
+
+    def test_version_declaration(self):
+        # v2 is the newest supported version and the default new sources are stamped with;
+        # v1 (the pre-versioning placeholder) stays supported so existing pins keep working.
+        assert self.source.default_version == SPLIT_IO_API_VERSION_V2
+        assert set(self.source.supported_versions) == {UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2}
+        assert self.source.deprecated_versions == ()
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["feature_flags"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "feature_flags"
+
+    @pytest.mark.parametrize(
+        "status, schema_name, expected_valid",
+        [
+            (200, None, True),
+            (401, None, False),
+            # A valid key may lack scope for an unselected endpoint — accept 403 at source-create.
+            (403, None, True),
+            # But reject 403 when validating a specific schema.
+            (403, "feature_flags", False),
+            (500, None, False),
+            (None, None, False),
+        ],
+    )
+    @mock.patch("sources.split_io.source.validate_split_io_credentials")
+    def test_validate_credentials_status_mapping(self, mock_validate, status, schema_name, expected_valid):
+        mock_validate.return_value = status
+
+        is_valid, _error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+
+        assert is_valid is expected_valid
+
+    def test_validate_credentials_unknown_schema_rejected_without_probe(self):
+        is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name="nope")
+        assert is_valid is False
+        assert error is not None and "nope" in error
+
+    @mock.patch("sources.split_io.source.split_io_source")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_split_io_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "workspaces"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = mock_split_io_source.call_args.kwargs
+        assert kwargs["api_key"] == "admin-api-key"
+        assert kwargs["endpoint"] == "workspaces"
+        assert kwargs["resumable_source_manager"] is manager
+
+    def test_source_for_pipeline_rejects_unknown_schema(self):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "nope"
+
+        with pytest.raises(ValueError, match="Unknown Split schema"):
+            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

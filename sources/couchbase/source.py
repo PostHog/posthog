@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.couchbase._config import CouchbaseSourceConfig
+
+
+@SourceRegistry.register
+class CouchbaseSource(SimpleSource[CouchbaseSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.COUCHBASE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.COUCHBASE,
+            category=DataWarehouseSourceCategory.DATABASES,
+            label="Couchbase",
+            iconPath="/static/services/couchbase.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

@@ -1,0 +1,204 @@
+import dataclasses
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Optional
+
+from dateutil import parser as dateutil_parser
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+    JSONResponseCursorPaginatorConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+
+from sources.cloudzero.settings import DEFAULT_START_DATE, LIST_ENDPOINTS, RESTATEMENT_WINDOW_DAYS
+
+CLOUDZERO_BASE_URL = "https://api.cloudzero.com"
+
+
+@dataclasses.dataclass
+class CloudzeroResumeConfig:
+    next_cursor: str
+
+
+def _to_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    return dateutil_parser.parse(str(value))
+
+
+def _format_iso8601(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
+
+
+def _rolling_incremental_start_date(value: Any) -> str:
+    """Roll the incremental `start_date` back a few days to recapture CloudZero cost restatements."""
+    dt = _to_datetime(value) - timedelta(days=RESTATEMENT_WINDOW_DAYS)
+    return _format_iso8601(dt)
+
+
+CURSOR_PAGINATOR: JSONResponseCursorPaginatorConfig = {
+    "type": "cursor",
+    "cursor_path": "pagination.cursor.next_cursor",
+    "cursor_param": "cursor",
+    "param_location": "query",
+}
+
+
+def _get_list_resource(name: str) -> EndpointResource:
+    settings = LIST_ENDPOINTS[name]
+    endpoint: Endpoint = {
+        "path": settings["path"],
+        "params": dict(settings["params"]),
+        "data_selector_required": True,
+    }
+    if settings["data_selector"] is not None:
+        endpoint["data_selector"] = settings["data_selector"]
+    if settings["paginated"]:
+        endpoint["paginator"] = CURSOR_PAGINATOR
+
+    return {
+        "name": name,
+        "table_name": settings["table_name"],
+        "write_disposition": "replace",
+        "endpoint": endpoint,
+        "table_format": "delta",
+    }
+
+
+def get_resource(
+    name: str,
+    should_use_incremental_field: bool,
+    granularity: str,
+    cost_type: str,
+    group_by: list[str],
+) -> EndpointResource:
+    if name in LIST_ENDPOINTS:
+        return _get_list_resource(name)
+    if name != "Costs":
+        raise ValueError(f"Unknown CloudZero endpoint: {name}")
+
+    params: dict[str, Any] = {
+        "start_date": (
+            {
+                "type": "incremental",
+                "cursor_path": "usage_date",
+                "initial_value": DEFAULT_START_DATE,
+                "convert": _rolling_incremental_start_date,
+            }
+            if should_use_incremental_field
+            else DEFAULT_START_DATE
+        ),
+        "granularity": granularity,
+        "cost_type": cost_type,
+    }
+    if group_by:
+        # CloudZero accepts `group_by` as a repeated query param (one per dimension id).
+        params["group_by"] = group_by
+
+    return {
+        "name": "Costs",
+        "table_name": "costs",
+        "write_disposition": {
+            "disposition": "merge",
+            "strategy": "upsert",
+        },
+        "endpoint": {
+            "data_selector": "costs",
+            "path": "/v2/billing/costs",
+            "params": params,
+            "data_selector_required": True,
+            "paginator": CURSOR_PAGINATOR,
+        },
+        "table_format": "delta",
+    }
+
+
+def cloudzero_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[CloudzeroResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool = False,
+    granularity: str = "daily",
+    cost_type: str = "real_cost",
+    group_by: Optional[list[str]] = None,
+):
+    config: RESTAPIConfig = {
+        "client": {
+            "base_url": CLOUDZERO_BASE_URL,
+            "auth": {
+                # CloudZero puts the raw API key in `Authorization` — no `Bearer` prefix.
+                "type": "api_key",
+                "name": "Authorization",
+                "api_key": api_key,
+                "location": "header",
+            },
+        },
+        "resource_defaults": {
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            },
+        },
+        "resources": [get_resource(endpoint, should_use_incremental_field, granularity, cost_type, group_by or [])],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            initial_paginator_state = {"cursor": resume_config.next_cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Only persist when there's a next page to resume to; the manager's TTL (24h) already
+        # matches CloudZero's own cursor validity window, so an expired resume naturally falls
+        # back to a fresh query rather than replaying a stale (410 Expired Cache) cursor.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(CloudzeroResumeConfig(next_cursor=str(state["cursor"])))
+
+    return rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+# Shared with `CloudzeroSource.get_non_retryable_errors` so the same rejection reads the same way
+# whether it surfaces while connecting the source or mid-sync.
+KEY_REJECTED_MESSAGE = (
+    "CloudZero rejected your API key. Check the key is correct and has the read scopes for the "
+    "tables you want to sync, then reconnect."
+)
+# `validate_via_probe` reports a transport failure as a `None` status, so anything CloudZero did not
+# answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
+# that fails the same way.
+PROBE_FAILED_MESSAGE = "PostHog couldn't check your API key with CloudZero. Wait a few minutes and try again."
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{CLOUDZERO_BASE_URL}/v2/billing/dimensions",
+        headers={"Authorization": api_key},
+    )
+    if ok:
+        return True, None
+    if status in (401, 403):
+        return False, KEY_REJECTED_MESSAGE
+    return False, PROBE_FAILED_MESSAGE

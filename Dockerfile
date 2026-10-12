@@ -240,6 +240,7 @@ COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
 COPY posthog posthog/
 COPY products/ products/
+COPY sources/ sources/
 COPY ee ee/
 
 # Copy the sourcemap-processed frontend assets and also the products.json file. The CLI injects
@@ -396,6 +397,7 @@ COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
+COPY --chown=posthog:posthog sources sources/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
 # source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
@@ -414,7 +416,7 @@ COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 # Test modules are skipped to keep the layer small. Default (timestamp) validation: one stat per
 # module, and a later COPY of edited .py files still takes effect. See docs/internal/django-startup-time.md.
 RUN /python-runtime/bin/python -m compileall -q -j 0 -x '/tests?/' \
-    manage.py posthog ee common/hogvm common/migration_utils products packages/owners-yaml
+    manage.py posthog ee common/hogvm common/migration_utils products sources packages/owners-yaml
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

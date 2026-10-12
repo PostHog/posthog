@@ -1,0 +1,70 @@
+import pytest
+from unittest import mock
+
+from sources.ashby._config import AshbySourceConfig
+from sources.ashby.source import AshbySource
+
+
+class TestAshbySource:
+    def setup_method(self) -> None:
+        self.source = AshbySource()
+        self.team_id = 123
+        self.config = AshbySourceConfig(api_key="ashby-key")
+
+    @pytest.mark.parametrize(
+        "status, schema_name, expected_valid, expected_message",
+        [
+            (200, None, True, None),
+            (401, None, False, "Invalid Ashby API key"),
+            # 403 at source-create is accepted (key may be scoped to a subset of endpoints).
+            (403, None, True, None),
+            # 403 for a specific schema is rejected.
+            (403, "candidates", False, "Your Ashby API key does not have permission to read 'candidates'"),
+            (400, None, False, "boom"),
+        ],
+    )
+    @mock.patch("sources.ashby.source.check_access")
+    def test_validate_credentials(
+        self,
+        mock_check: mock.MagicMock,
+        status: int,
+        schema_name: str | None,
+        expected_valid: bool,
+        expected_message: str | None,
+    ) -> None:
+        mock_check.return_value = (status, "boom")
+        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        assert is_valid is expected_valid
+        assert message == expected_message
+
+    @mock.patch("sources.ashby.source.check_access")
+    def test_validate_credentials_probes_schema_path_when_given(self, mock_check: mock.MagicMock) -> None:
+        mock_check.return_value = (200, None)
+        self.source.validate_credentials(self.config, self.team_id, schema_name="candidates")
+        mock_check.assert_called_once_with("ashby-key", "candidate.list")
+
+    @pytest.mark.parametrize(
+        "schema_name, expected_path",
+        [("application_history", "application.list"), ("interview_stages", "interviewPlan.list")],
+    )
+    @mock.patch("sources.ashby.source.check_access")
+    def test_validate_credentials_probes_the_parent_of_a_fanned_out_schema(
+        self, mock_check: mock.MagicMock, schema_name: str, expected_path: str
+    ) -> None:
+        # The child methods need a parent id, so probing them directly always fails.
+        mock_check.return_value = (200, None)
+        self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        mock_check.assert_called_once_with("ashby-key", expected_path)
+
+    @mock.patch("sources.ashby.source.check_access")
+    def test_validate_credentials_uses_default_probe_without_schema(self, mock_check: mock.MagicMock) -> None:
+        mock_check.return_value = (200, None)
+        self.source.validate_credentials(self.config, self.team_id)
+        mock_check.assert_called_once_with("ashby-key", "department.list")
+
+    @mock.patch("sources.ashby.source.check_access")
+    def test_validate_credentials_rejects_unknown_schema_without_probing(self, mock_check: mock.MagicMock) -> None:
+        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+        assert is_valid is False
+        assert message == "Unknown Ashby schema 'not_a_table'"
+        mock_check.assert_not_called()
