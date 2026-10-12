@@ -41,7 +41,9 @@ HEAD_COMPONENTS = {"open": 0, "action": 1, "fixed": 2}
 
 
 def _birth(day: int) -> pd.Timestamp:
-    return pd.Timestamp(datetime.datetime.combine(D0, datetime.time(12), tzinfo=datetime.UTC)) + pd.Timedelta(days=day)
+    birth = pd.Timestamp(datetime.datetime.combine(D0, datetime.time(12), tzinfo=datetime.UTC)) + pd.Timedelta(days=day)
+    assert isinstance(birth, pd.Timestamp)
+    return birth
 
 
 class _SyntheticInbox:
