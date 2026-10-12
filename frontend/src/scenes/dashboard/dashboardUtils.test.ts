@@ -599,6 +599,7 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
 describe('getInsightQueryError', () => {
     it.each([
         ['clickhouse_memory_limit_exceeded', 513],
+        ['rate_limited', 429],
         ['invalid_query', 400],
     ])('maps error code %s to status %s', (errorCode, expectedStatus) => {
         const error = getInsightQueryError({

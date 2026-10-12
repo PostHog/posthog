@@ -4350,16 +4350,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     true
                 )
 
-                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
-                    const queryError = getInsightQueryError(refreshedInsight)
-                    if (queryError) {
-                        actions.setRefreshError(insight.short_id, queryError)
-                    } else {
-                        dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                        actions.setRefreshStatus(insight.short_id)
-                    }
+                const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
+                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight) && !queryError) {
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                    actions.setRefreshStatus(insight.short_id)
                 } else {
-                    actions.setRefreshError(insight.short_id)
+                    actions.setRefreshError(insight.short_id, queryError ?? undefined)
                 }
             } catch (e: any) {
                 actions.setRefreshError(insight.short_id, e)
@@ -4447,29 +4443,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
-                            const queryError = getInsightQueryError(refreshedInsight)
-                            if (queryError) {
-                                actions.setRefreshError(insight.short_id, queryError)
-                                tilesErroredCount++
-                            } else {
-                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                                actions.setRefreshStatus(insight.short_id)
-                                tilesRefreshedCount++
-                                if (refreshedInsight.is_cached) {
-                                    tilesRefreshedCachedCount++
-                                }
-                                reportDashboardTileRefreshed(
-                                    dashboardId,
-                                    tile,
-                                    urlFilters,
-                                    urlVariables,
-                                    Math.floor(performance.now() - insightRefreshStartTime),
-                                    false
-                                )
+                        const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
+                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight) && !queryError) {
+                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                            actions.setRefreshStatus(insight.short_id)
+                            tilesRefreshedCount++
+                            if (refreshedInsight.is_cached) {
+                                tilesRefreshedCachedCount++
                             }
+                            reportDashboardTileRefreshed(
+                                dashboardId,
+                                tile,
+                                urlFilters,
+                                urlVariables,
+                                Math.floor(performance.now() - insightRefreshStartTime),
+                                false
+                            )
                         } else {
-                            actions.setRefreshError(insight.short_id)
+                            actions.setRefreshError(insight.short_id, queryError ?? undefined)
                             tilesErroredCount++
                         }
                     } catch (e: any) {
