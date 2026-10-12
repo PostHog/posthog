@@ -47,6 +47,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
+    COORDINATOR_MAX_SUBAGENTS,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -63,7 +64,7 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_design,
     validation_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on
+from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -135,6 +136,11 @@ from products.review_hog.backend.reviewer.status_comment import (
     maybe_refresh_status_comment,
 )
 from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
+from products.review_hog.backend.reviewer.tools.coordinator_review import (
+    CoordinatorReview,
+    CoordinatorUnit,
+    coordinator_prompt,
+)
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -192,6 +198,7 @@ from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.agents import AgentTurnFailed
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:
@@ -267,6 +274,9 @@ class ReviewMeta:
     lens_chunk_count: int = 0
     # True when the PR passed the lens part cap, so the status comment says it ran in larger parts.
     lens_chunks_capped: bool = False
+    # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
+    # so a replay takes the same branch. Older histories decode as separate sessions.
+    coordinator: bool = False
     # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
     # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
@@ -412,6 +422,17 @@ class LensReviewInput(SandboxStageInput):
     chunk_id: int
 
 
+@dataclass(frozen=False)
+class CoordinatorReviewInput(SandboxStageInput):
+    lens_chunk_count: int
+
+
+@frozen
+class CoordinatorReviewResult:
+    # Lens sub-agents that failed twice or ran out of time. Their findings are missing.
+    lens_failures: int
+
+
 @dataclass
 class ValidateChunkInput(SandboxStageInput):
     chunk_id: int
@@ -524,6 +545,8 @@ class FlashSessionStats:
     lens_timeouts: int
     # The longest session, main or lens, from its start to its result or failure.
     slowest_session_seconds: float
+    # The sessions ran as sub-agents of one coordinator session, and the slowest session is that one.
+    coordinator: bool = False
 
 
 @frozen
@@ -564,6 +587,7 @@ class RecordTurnMarkerInput:
     review_mode: str
     flash_reasoning_effort: str
     review_design: str = REVIEW_DESIGN_PIPELINE
+    coordinator: bool = False
 
 
 @frozen
@@ -579,6 +603,7 @@ class TrackReviewStartedInput:
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
     review_design_reason: str = ""
+    coordinator: bool = False
 
 
 @frozen
@@ -837,6 +862,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
+        coordinator=single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number),
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
         skip_agent_review=skip_agent_review,
     )
@@ -1036,6 +1062,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             review_mode=input.review_mode,
             flash_reasoning_effort=input.flash_reasoning_effort,
             review_design=input.review_design,
+            coordinator=input.coordinator,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -1468,6 +1495,110 @@ async def lens_review_activity(input: LensReviewInput) -> None:
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
     )
+
+
+def _coordinator_units(input: CoordinatorReviewInput, done: set[tuple[int, int]]) -> list[CoordinatorUnit]:
+    """The review units of this turn that have no persisted result yet, each with its full session prompt."""
+    units: list[CoordinatorUnit] = []
+    if (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID) not in done:
+        units.append(
+            CoordinatorUnit(
+                task_name=f"main_{SINGLE_AGENT_CHUNK_ID}",
+                pass_number=SINGLE_AGENT_PASS_NUMBER,
+                chunk_id=SINGLE_AGENT_CHUNK_ID,
+                source=SINGLE_AGENT_SOURCE,
+                prompt=_prepare_single_agent_prompt(input, SINGLE_AGENT_CHUNK_ID, False, load_core_prompt()),
+            )
+        )
+    for name, lens in FLASH_LENSES.items():
+        guidelines = load_prompt_file(lens_prompt_path(lens.prompt_file))
+        for chunk_id in range(1, input.lens_chunk_count + 1):
+            if (lens.pass_number, chunk_id) in done:
+                continue
+            units.append(
+                CoordinatorUnit(
+                    task_name=f"{name.replace('-', '_')}_{chunk_id}",
+                    pass_number=lens.pass_number,
+                    chunk_id=chunk_id,
+                    source=lens.source,
+                    prompt=_prepare_single_agent_prompt(input, chunk_id, True, guidelines),
+                )
+            )
+    return units
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def coordinator_review_activity(input: CoordinatorReviewInput) -> CoordinatorReviewResult:
+    """Run the main review and every lens part as sub-agents of one coordinator session (idempotent).
+
+    Each sub-agent's findings persist under the key of its separate session, so dedup reads them the same
+    way. A failed lens sub-agent costs only its own findings. A failed main sub-agent fails the attempt,
+    and the retry runs only the units without a result.
+    """
+    arm = SINGLE_AGENT_FLASH_ARM
+    done = await database_sync_to_async(load_perspective_results, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        review_arm=arm,
+        review_design=REVIEW_DESIGN_SINGLE_AGENT,
+    )
+    units = await database_sync_to_async(_coordinator_units, thread_sensitive=False)(input, set(done))
+    if not units:
+        logger.info("Reusing the persisted sub-agent results for this turn")
+        return CoordinatorReviewResult(lens_failures=0)
+    step_name = "flash-coordinator"
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
+        try:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt="",
+                system_prompt=coordinator_prompt(units, model=arm.model, reasoning_effort=arm.reasoning_effort.value),
+                model_to_validate=CoordinatorReview,
+                step_name=step_name,
+                workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+                runtime_adapter=arm.runtime_adapter,
+                model=arm.model,
+                reasoning_effort=arm.reasoning_effort,
+                initial_permission_mode=arm.initial_permission_mode,
+                files=[SessionFile(name=unit.file_name, content=unit.prompt) for unit in units],
+                codex_max_subagents=COORDINATOR_MAX_SUBAGENTS,
+            )
+        except AgentTurnFailed as exc:
+            _raise_if_non_retryable_unit_failure(exc)
+            raise
+    reviews = review.reviews_by_task()
+    results = {
+        (unit.pass_number, unit.chunk_id): IssuesReview(
+            issues=issues_from_review(
+                reviews[unit.task_name],
+                pass_number=unit.pass_number,
+                chunk_id=unit.chunk_id,
+                source=unit.source,
+            )
+        )
+        for unit in units
+        if unit.task_name in reviews
+    }
+    logger.info("The coordinator returned %s of %s sub-agent result(s)", len(results), len(units))
+    if results:
+        await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            head_sha=input.head_sha,
+            results=results,
+            review_arm=arm,
+        )
+        await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
+    failed = [unit for unit in units if unit.task_name not in reviews]
+    if any(unit.pass_number == SINGLE_AGENT_PASS_NUMBER for unit in failed):
+        raise ApplicationError("The main review sub-agent failed")
+    return CoordinatorReviewResult(lens_failures=len(failed))
 
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
@@ -1998,6 +2129,7 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_lens_failures": sessions.lens_failures,
                 "flash_lens_timeouts": sessions.lens_timeouts,
                 "flash_slowest_session_seconds": sessions.slowest_session_seconds,
+                "flash_coordinator": sessions.coordinator,
             }
         )
     return properties
@@ -2028,6 +2160,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
                 review_design=input.review_design,
             ),
             "review_design_reason": input.review_design_reason or None,
+            "flash_coordinator": input.coordinator,
             **_pr_size_properties(snapshot),
         },
         groups=groups(team=report.team),
