@@ -1,12 +1,17 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+
 import { HogFlow } from './hogflows/types'
+import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 
@@ -97,5 +102,56 @@ describe('WorkflowSceneHeader', () => {
 
         // The pointer has not moved, so neither has the button under it.
         expect(toolbar()).toEqual(clean)
+    })
+    it('opens the support composer with the staff-paused workflow context', async () => {
+        const originalConversations = posthog.conversations
+        Object.assign(posthog, {
+            conversations: {
+                isAvailable: () => true,
+                getTickets: jest.fn().mockResolvedValue({ results: [] }),
+            },
+        })
+        const tickets = sidepanelTicketsLogic()
+        tickets.mount()
+        try {
+            await expectLogic(tickets).toFinishAllListeners()
+            act(() => {
+                logic.actions.loadWorkflowSuccess({
+                    ...ACTIVE_WITH_DRAFT,
+                    email_sending_paused_at: new Date().toISOString(),
+                    email_sending_paused_by: 'staff',
+                    email_sending_pause_requires_support: true,
+                })
+            })
+            const { container } = render(
+                <Provider>
+                    <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
+                        <WorkflowEmailPauseBanner />
+                    </BindLogic>
+                </Provider>
+            )
+            await act(async () => {
+                fireEvent.click(container.querySelector('[data-attr="workflow-email-paused-contact-support"]')!)
+                await expectLogic(tickets).toFinishAllListeners()
+            })
+
+            expect(tickets.values.view).toBe('new')
+            expect(tickets.values.newTicketDraft).toMatchObject({
+                content: [
+                    {
+                        content: [
+                            {
+                                text: expect.stringContaining(
+                                    'Email sending is paused for the workflow "Header test" (wf-header-1), and only support can resume it.'
+                                ),
+                            },
+                        ],
+                    },
+                ],
+            })
+        } finally {
+            tickets.unmount()
+            Object.assign(posthog, { conversations: originalConversations })
+        }
     })
 })
