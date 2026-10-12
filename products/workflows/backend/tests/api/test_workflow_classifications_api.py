@@ -1,4 +1,5 @@
 from datetime import timedelta
+from functools import reduce
 from typing import Any
 from uuid import uuid4
 
@@ -153,6 +154,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             ("long_category_name", {"categories": {"x" * 101: "Spam", "support": "Help"}}),
             ("too_many_categories", {"categories": {f"c{i}": "x" for i in range(17)}}),
             ("oversized_context", {"context": {"message": "x" * 65_536}}),
+            ("deeply_nested_context", {"context": reduce(lambda inner, _: {"a": inner}, range(255), "x")}),
         ]
     )
     def test_rejects_inputs_the_model_cannot_answer(self, _name: str, body: dict) -> None:
