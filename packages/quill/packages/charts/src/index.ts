@@ -117,6 +117,10 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
 
+// Bar list
+export { BarList } from './charts/BarList/BarList'
+export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
+
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
 export type {
