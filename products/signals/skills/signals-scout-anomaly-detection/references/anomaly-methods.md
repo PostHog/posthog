@@ -27,6 +27,11 @@ configs and a detector-selection guide, read the `anomaly-alerts`, `signals-aler
 
 **Gotchas that will bite (all learned in production):**
 
+- **`threshold` is a probability between 0 and 1, not a z-score.** The simulator rejects
+  `threshold: 3.5` with a range error. Use `0.9`–`0.99` (the default is `0.95`). The simulator
+  returns scores on the same 0–1 scale, so a point is report-worthy when it is in
+  `triggered_indices`. The `robust_z ≥ ~3.5` bar applies only to the SQL fallback below.
+
 - **Every sub-detector inside an `ensemble` needs an explicit `window`.** A null window on a
   standalone detector defaults fine, but a null window inside an ensemble 500s the evaluation.
 - **`diffs_n` defaults to `0` (raw values), not `1`.** For `zscore`/`mad` on count or level
