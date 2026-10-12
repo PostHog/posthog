@@ -303,7 +303,8 @@ The wizard install flow, the skill-distribution channels, and the in-app onboard
 ## Current state
 
 Verified against `master`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and MCP spec `2026-07-28`
-on 2026-08-25. Treat versions and open threads as perishable: re-check
+on 2026-08-25. The `services/mcp` pin and the published SDK version were re-checked on
+2026-10-12 (`0.22.2` pinned, `0.22.3` published). Treat versions and open threads as perishable: re-check
 `packages/mcp/CHANGELOG.md`, the pinned alias in `services/mcp/package.json`, and
 [mega-issue 64016](https://github.com/PostHog/posthog/issues/64016) rather than trusting this
 section.
@@ -329,10 +330,11 @@ reports, `mcp_analytics` access control, the shared `ProductEmptyState` adoption
 failure-occurrence drill-down with "create fix task", the migration of every chart to typed
 query runners, the demo seeder, and exec-mode inner-tool breakout (Hard rule 1).
 
-What still lags, all checkable in this repo: the `services/mcp` alias pin is `0.10.2` against a
-0.11.7 SDK (Hard rule 5 — no 0.11.x SDK-side fix or SDK-emitted property reaches dogfood data,
-though the server independently stamps `$mcp_client_user_agent` and the legacy non-`$`
-`mcp_vendor_client` regardless of the pin; harness resolution reads the SDK-emitted
-`$mcp_vendor_client` first and coalesces the legacy name for those rows);
-the exec-property emitter is still absent from
+The `services/mcp` alias pin is `0.22.2`, one patch behind the published `0.22.3` (Hard rule 5).
+So the 0.11.x-0.22.2 SDK fixes reach dogfood data through the `PostHogMCP` path. The 0.22.3
+change (`$mcp_interface` set to `mcp`) does not reach it yet. The server stamps
+`$mcp_client_user_agent` and `$mcp_vendor_client` itself (`src/hono/analytics.ts`). Harness
+resolution still coalesces the legacy non-`$` `mcp_vendor_client` for older rows.
+
+What still lags, all checkable in this repo: the exec-property emitter is still absent from
 master (Hard rule 1); and the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`.
