@@ -259,8 +259,9 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          same way as every other scope here, so no scout holds it by default.
 #   ticket:write           Every support ticket in the scout's project: status, priority,
 #                          assignee, SLA, escalation, and tags, plus every saved ticket view. It also
-#                          sends CUSTOMER-FACING messages: a reply and a composed ticket both go
-#                          out as email, and an email that is sent cannot be recalled. Note edit
+#                          sends CUSTOMER-FACING messages: a reply goes out over the ticket's
+#                          channel (email, Slack, Teams, or GitHub), a composed ticket goes out as
+#                          email, and a message that is sent cannot be recalled. Note edit
 #                          and delete reach only notes the caller wrote, and note delete is a
 #                          recoverable soft-delete. Ticket delete is not one of the scope's write
 #                          actions, so a scout cannot remove a ticket. Saved view delete is
