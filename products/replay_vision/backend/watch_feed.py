@@ -82,6 +82,23 @@ _FRICTION_RE = re.compile(
     r"gave up|give up|churn\w*|unable|couldn.?t|blocked|glitch\w*|freez\w*|froze|unresponsive)\b",
     re.IGNORECASE,
 )
+# Scan prose often reports a clean session in the negative ("No errors, validation messages, or crashes
+# were observed"). A friction word after one of these, in the same clause, is a non-event.
+_NEGATION_RE = re.compile(r"\b(?:no|not|none|never|neither|nor|without|zero)\b|\w+n['’]t\b", re.IGNORECASE)
+# Clause breaks end a negation's scope. Commas and "and"/"or" do not, so a negated list stays negated, but
+# a contrast or a cause starts a new claim ("no errors, but checkout failed", "could not pay because of an error").
+_CLAUSE_BREAK_RE = re.compile(
+    r"[.;:!?\n]+|\b(?:but|however|although|though|yet|except|because|since|until|whereas|while|then)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_friction(text: str) -> bool:
+    for clause in _CLAUSE_BREAK_RE.split(text):
+        for match in _FRICTION_RE.finditer(clause):
+            if not _NEGATION_RE.search(clause, 0, match.start()):
+                return True
+    return False
 
 
 @frozen
@@ -170,7 +187,7 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         score=float(score) if isinstance(score, int | float) else None,
         tags=tuple(tag for tag in tags if isinstance(tag, str)),
         summary_tokens=frozenset(_TOKEN_RE.findall(summary_text.lower())),
-        friction=friction_eligible and bool(_FRICTION_RE.search(" ".join([prose, *tags]))),
+        friction=friction_eligible and any(_has_friction(part) for part in (prose, *tags)),
         # The LLM-response schema bounds this to 0-1, but a stored row (or a bool, since bool is an int
         # subclass) can carry anything, so clamp defensively — an out-of-range value would outrank its tier.
         notability=(
