@@ -2734,6 +2734,18 @@ describe('exec tool', () => {
                     })
                 })
 
+                it('repairs a datetime inside a union with another string format', () => {
+                    // Zod reports this as one `invalid_union` issue, with the datetime branch's
+                    // `invalid_format` issue nested in `issue.errors` under a path relative to the union.
+                    const unionSchema = z.object({
+                        at: z.union([z.iso.datetime({ offset: true }), z.email()]),
+                    })
+
+                    expect(repairFor(unionSchema, { at: '2026-10-12T10:00Z' })).toEqual({
+                        at: '2026-10-12T10:00:00Z',
+                    })
+                })
+
                 it('repairs a call that is also nested one level too deep', () => {
                     const tool = GENERATED_TOOL_MAP['reminder-create']!()
                     const input = {

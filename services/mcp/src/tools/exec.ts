@@ -852,15 +852,61 @@ function valueAtPath(value: unknown, path: readonly PropertyKey[]): unknown {
     )
 }
 
-function withValueAtPath(value: unknown, path: readonly PropertyKey[], leaf: unknown): unknown {
-    if (path.length === 0) {
-        return leaf
+type PathEdit = { path: readonly PropertyKey[]; value: string }
+
+/** Applies every edit in one pass, copying a shared container once no matter how many edits sit under it. */
+function withValuesAtPaths(value: unknown, edits: readonly PathEdit[]): unknown {
+    if (edits.length === 0) {
+        return value
     }
-    const [key, ...rest] = path as [PropertyKey, ...PropertyKey[]]
     const container = value as Record<PropertyKey, unknown>
     const copy = (Array.isArray(value) ? [...value] : { ...container }) as Record<PropertyKey, unknown>
-    copy[key] = withValueAtPath(container[key], rest, leaf)
+    const childEdits = new Map<PropertyKey, PathEdit[]>()
+    for (const edit of edits) {
+        const [key, ...rest] = edit.path as [PropertyKey, ...PropertyKey[]]
+        if (rest.length === 0) {
+            copy[key] = edit.value
+            continue
+        }
+        const group = childEdits.get(key) ?? []
+        group.push({ path: rest, value: edit.value })
+        childEdits.set(key, group)
+    }
+    for (const [key, group] of childEdits) {
+        copy[key] = withValuesAtPaths(container[key], group)
+    }
     return copy
+}
+
+/**
+ * Collects a seconds-added edit for every minute-precision datetime zod rejected.
+ *
+ * Zod reports a datetime inside a union with another string branch as one `invalid_union`
+ * issue, with the per-branch `invalid_format` issues nested in `issue.errors` and their
+ * `path` relative to the union's own path, so those are walked with the union's path as
+ * the prefix.
+ */
+function datetimeEdits(
+    issues: readonly z.core.$ZodIssue[],
+    input: Record<string, unknown>,
+    prefix: readonly PropertyKey[] = []
+): PathEdit[] {
+    const edits: PathEdit[] = []
+    for (const issue of issues) {
+        if (issue.code === 'invalid_format') {
+            const path = [...prefix, ...issue.path]
+            const value = valueAtPath(input, path)
+            const match = typeof value === 'string' ? MINUTE_PRECISION_DATETIME.exec(value) : null
+            if (match) {
+                edits.push({ path, value: `${match[1]}:00${match[2]}` })
+            }
+        } else if (issue.code === 'invalid_union') {
+            for (const branch of issue.errors) {
+                edits.push(...datetimeEdits(branch, input, [...prefix, ...issue.path]))
+            }
+        }
+    }
+    return edits
 }
 
 /**
@@ -872,15 +918,12 @@ function withDatetimeSecondsAdded(
     input: Record<string, unknown>,
     schema: ZodObjectAny
 ): Record<string, unknown> | undefined {
-    let dated = input
-    for (const issue of error.issues) {
-        const value = issue.code === 'invalid_format' ? valueAtPath(dated, issue.path) : undefined
-        const match = typeof value === 'string' ? MINUTE_PRECISION_DATETIME.exec(value) : null
-        if (match) {
-            dated = withValueAtPath(dated, issue.path, `${match[1]}:00${match[2]}`) as Record<string, unknown>
-        }
+    const edits = datetimeEdits(error.issues, input)
+    if (edits.length === 0) {
+        return undefined
     }
-    return dated !== input && schema.safeParse(dated).success ? dated : undefined
+    const dated = withValuesAtPaths(input, edits) as Record<string, unknown>
+    return schema.safeParse(dated).success ? dated : undefined
 }
 
 /** The repaired payload when it parses as it is or once its datetimes have seconds. */
