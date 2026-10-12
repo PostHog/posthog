@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { type ChangeEvent, type KeyboardEvent } from 'react'
 
 import { IconArrowRight, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
-import { Text, Textarea } from '@posthog/quill'
+import { Input, Text } from '@posthog/quill'
 
 import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
@@ -76,12 +76,12 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
             </div>
             {/* The note lives under the row so it never pushes the thumbs sideways. */}
             {feedbackSentiment && !feedbackNoteSent && (
-                <div className="flex w-full max-w-sm items-end gap-1">
-                    <Textarea
+                <div className="flex w-full max-w-64 items-center gap-1">
+                    <Input
                         value={feedbackNoteDraft}
-                        onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setFeedbackNoteDraft(event.target.value)}
-                        onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-                            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                        onChange={(event: ChangeEvent<HTMLInputElement>) => setFeedbackNoteDraft(event.target.value)}
+                        onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                                 event.preventDefault()
                                 sendNote()
                             }
@@ -89,11 +89,12 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         placeholder="What was useful or off?"
                         aria-label="Add a note about this report"
                         maxLength={NOTE_MAX_LENGTH}
-                        rows={1}
-                        className="max-h-40 min-h-9! min-w-0 flex-1 resize-none"
+                        // Same height as the icon-sm thumbs next to it.
+                        className="h-6 min-w-0 flex-1"
                         data-attr="today-report-feedback-note"
                     />
                     <TodayActionButton
+                        variant="primary"
                         size="icon-sm"
                         aria-label="Send note"
                         tooltip="Send note"
@@ -107,7 +108,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 </div>
             )}
             {feedbackNoteSent && (
-                <Text size="xs" variant="muted" render={<p className="m-0 max-w-sm" />}>
+                <Text size="xs" variant="muted" render={<p className="m-0 max-w-64" />}>
                     Note added: {feedbackSentNote}
                 </Text>
             )}

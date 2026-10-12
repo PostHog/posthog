@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { InboxReportFeedbackSentiment } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -102,40 +102,35 @@ export function ReportFeedbackFooter({
             </div>
             {/* The note lives under the row so it never pushes the thumbs sideways. */}
             {feedbackSentiment && !feedbackNoteSent && (
-                <div className="flex w-full max-w-sm items-end gap-1">
-                    {/* `className` lands on the inner textarea too, so the flex sizing stays on a wrapper. */}
-                    <div className="min-w-0 flex-1">
-                        <LemonTextArea
-                            value={feedbackNoteDraft}
-                            // Capped here rather than with `maxLength`, whose counter footer would turn
-                            // the one-line field into a block.
-                            onChange={(value) => setFeedbackNoteDraft(value.slice(0, FEEDBACK_NOTE_MAX_LENGTH))}
-                            onPressEnter={sendNote}
-                            placeholder="What was useful or off?"
-                            // The placeholder is the only visible prompt and it disappears on the first
-                            // keystroke, so the field carries its own name for screen readers.
-                            aria-label="Add a note about this report"
-                            minRows={1}
-                            maxRows={6}
-                            className="min-h-0! resize-none"
-                            data-attr="inbox-report-feedback-note"
+                <LemonInput
+                    size="xsmall"
+                    value={feedbackNoteDraft}
+                    onChange={setFeedbackNoteDraft}
+                    onPressEnter={sendNote}
+                    placeholder="What was useful or off?"
+                    // The placeholder is the only visible prompt and it disappears on the first
+                    // keystroke, so the field carries its own name for screen readers.
+                    aria-label="Add a note about this report"
+                    maxLength={FEEDBACK_NOTE_MAX_LENGTH}
+                    className="w-full max-w-64"
+                    suffix={
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            icon={<IconArrowRight />}
+                            tooltip="Send note"
+                            aria-label="Send note"
+                            loading={feedbackNoteSubmitting}
+                            disabledReason={feedbackNoteDraft.trim() ? undefined : 'Write a note first'}
+                            onClick={sendNote}
+                            data-attr="inbox-report-feedback-note-send"
                         />
-                    </div>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconArrowRight />}
-                        tooltip="Send note"
-                        aria-label="Send note"
-                        loading={feedbackNoteSubmitting}
-                        disabledReason={feedbackNoteDraft.trim() ? undefined : 'Write a note first'}
-                        onClick={sendNote}
-                        data-attr="inbox-report-feedback-note-send"
-                    />
-                </div>
+                    }
+                    data-attr="inbox-report-feedback-note"
+                />
             )}
             {feedbackNoteSent && (
-                <p className={clsx('m-0 max-w-sm text-xs text-tertiary', align === 'end' && 'text-end')}>
+                <p className={clsx('m-0 max-w-64 text-xs text-tertiary', align === 'end' && 'text-end')}>
                     Note added: {feedbackSentNote}
                 </p>
             )}
