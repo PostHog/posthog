@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
@@ -19,6 +21,7 @@ import {
   promptId,
 } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
+import type { ShellResult } from "./shell";
 import { claudeSettings } from "./starting";
 
 export interface ClaudeLocalInput {
@@ -106,7 +109,7 @@ export class ClaudeLocalSession implements LocalAgent {
         if (this.sessionId) await this.agent.cancelPrompt(this.sessionId);
       },
       compact: unavailable,
-      bash: unavailable,
+      bash: (command) => this.bash(command),
       modes: async () => {
         const option = this.modeOption();
         return {
@@ -259,12 +262,71 @@ export class ClaudeLocalSession implements LocalAgent {
   }
 
   // A message sent mid-turn steers it; the first message of a turn waits for the turn to end.
+  // Claude Code has no shell RPC, so a ! command runs here, in the chat's folder, and goes to the agent with the next
+  // message as the desktop app sends its own: logged as a user shell execute, so the chat shows it like any other.
+  private readonly shells: { command: string; output: string }[] = [];
+  private async bash(command: string): Promise<ShellResult> {
+    const id = `shell-${globalThis.crypto.randomUUID()}`;
+    const log = (result?: {
+      stdout: string;
+      stderr: string;
+      exitCode: number;
+    }) =>
+      this.record({
+        type: "acp_message",
+        timestamp: new Date().toISOString(),
+        notification: {
+          method: "_array/user_shell_execute",
+          params: { id, command, cwd: this.input.cwd, result },
+        },
+      } as StoredLogEntry);
+    log();
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    try {
+      const run = await promisify(execFile)("sh", ["-c", command], {
+        cwd: this.input.cwd,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      stdout = run.stdout;
+      stderr = run.stderr;
+    } catch (error) {
+      const failed = error as {
+        stdout?: string;
+        stderr?: string;
+        code?: number;
+      };
+      stdout = failed.stdout ?? "";
+      stderr = failed.stderr ?? String(error);
+      exitCode = typeof failed.code === "number" ? failed.code : 1;
+    }
+    log({ stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), exitCode });
+    this.shells.push({ command, output: stdout.trimEnd() || stderr.trimEnd() });
+    return {
+      output: stdout.trimEnd() || stderr.trimEnd(),
+      exitCode,
+      cancelled: false,
+    };
+  }
+
+  private record(entry: StoredLogEntry): void {
+    this.log?.append(entry);
+    this.publish({ ...this.view, entries: [...this.view.entries, entry] });
+  }
+
   async prompt(message: string, images: ImageContent[] = []): Promise<void> {
     const sessionId = this.sessionId ?? (await this.connect());
     const steer = this.turn !== null;
+    const context = this.shells.splice(0).map(({ command, output }) => ({
+      type: "text" as const,
+      text: `[User executed command in ${this.input.cwd}]\n$ ${command}\n${output || "(no output)"}`,
+      _meta: { ui: { hidden: true } },
+    }));
     const sent = this.agent.prompt(
       sessionId,
       [
+        ...context,
         { type: "text", text: message },
         ...images.map(({ data, mimeType }) => ({
           type: "image" as const,
