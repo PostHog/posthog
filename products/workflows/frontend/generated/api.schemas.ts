@@ -1740,7 +1740,10 @@ export interface EmailPreviewImageApi {
      * @maxLength 300
      */
     title: string
-    /** The rendered email as a base64-encoded PNG, at most 2 MB once decoded. */
+    /**
+     * The rendered email as a base64-encoded PNG, at most 2 MB once decoded.
+     * @maxLength 2796204
+     */
     image_base64: string
 }
 
@@ -1771,7 +1774,7 @@ export interface SharePreviewToSlackRequestApi {
     outline?: string[]
     /**
      * Rendered previews of the workflow's emails, attached to the Slack message in order.
-     * @maxItems 20
+     * @maxItems 10
      */
     emails?: EmailPreviewImageApi[]
 }

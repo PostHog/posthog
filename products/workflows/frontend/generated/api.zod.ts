@@ -2753,7 +2753,9 @@ export const hogFlowsSharePreviewToSlackBodyOutlineMax = 200
 
 export const hogFlowsSharePreviewToSlackBodyEmailsItemTitleMax = 300
 
-export const hogFlowsSharePreviewToSlackBodyEmailsMax = 20
+export const hogFlowsSharePreviewToSlackBodyEmailsItemImageBase64Max = 2796204
+
+export const hogFlowsSharePreviewToSlackBodyEmailsMax = 10
 
 export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe("ID of the project's Slack integration to post with."),
@@ -2787,6 +2789,7 @@ export const HogFlowsSharePreviewToSlackBody = /* @__PURE__ */ zod.object({
                     .describe('Caption shown under the image in Slack.'),
                 image_base64: zod
                     .string()
+                    .max(hogFlowsSharePreviewToSlackBodyEmailsItemImageBase64Max)
                     .describe('The rendered email as a base64-encoded PNG, at most 2 MB once decoded.'),
             })
         )
