@@ -4,7 +4,7 @@ import requests
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
-from products.warehouse_sources.backend.facade.codebase_detection import NO_CODE_SIGNAL, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -52,7 +52,7 @@ RECONNECT_MESSAGE = (
 
 @SourceRegistry.register
 class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTubeAnalyticsResumeConfig], OAuthMixin):
-    codebase_detection = not_detectable(NO_CODE_SIGNAL)
+    codebase_detection = NOT_DETECTABLE
 
     api_docs_url = "https://developers.google.com/youtube/analytics/reference/reports/query"
     supported_versions = ("v2",)

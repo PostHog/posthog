@@ -1,5 +1,4 @@
 from posthog.dataclasses import frozen
-from posthog.schema_enums import ProductKey
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -14,6 +13,8 @@ class Tool:
     # Whether the wizard sends the user to the app to create the source. None for a tool with no source.
     setup_requires_ui: bool | None
 
-    @property
-    def competes_with(self) -> tuple[ProductKey, ...]:
-        return self.detection.competes_with
+
+@frozen
+class ToolClassification:
+    warehouse_source_type: str | None
+    competes_with: tuple[str, ...]

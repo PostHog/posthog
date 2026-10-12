@@ -52,14 +52,14 @@ class Detection:
     # Kinds that reach the same data through a more specific connector. When one of them also
     # matches, the wizard drops this one so the data is not imported twice.
     superseded_by: tuple[str, ...]
-    # Sends the user to the app's new-source form instead of collecting credentials in the terminal.
-    # Only needed where the source's fields allow terminal setup; see `fields_require_ui`.
-    setup_requires_ui: bool
 
 
 @frozen
 class NotDetectable:
-    reason: str
+    """No SDK, documented .env key or script host identifies the vendor in code."""
+
+
+NOT_DETECTABLE = NotDetectable()
 
 
 class _Signals(TypedDict, total=False):
@@ -78,7 +78,6 @@ class _Signals(TypedDict, total=False):
     swiftpm: tuple[str, ...]
     competes_with: tuple[ProductKey, ...]
     superseded_by: tuple[str, ...]
-    setup_requires_ui: bool
 
 
 def detect(**signals: Unpack[_Signals]) -> Detection:
@@ -90,17 +89,7 @@ def detect(**signals: Unpack[_Signals]) -> Detection:
         packages={ecosystem: by_name[ecosystem.value] for ecosystem in Ecosystem if by_name.get(ecosystem.value)},
         competes_with=signals.get("competes_with", ()),
         superseded_by=signals.get("superseded_by", ()),
-        setup_requires_ui=signals.get("setup_requires_ui", False),
     )
-
-
-def not_detectable(reason: str) -> NotDetectable:
-    return NotDetectable(reason=reason)
-
-
-SHORT_NAME = "The name is too short to use as a .env key prefix."
-COMMON_WORD = "The name is a common word, so a .env key prefix built from it matches unrelated projects."
-NO_CODE_SIGNAL = "No SDK, documented .env key or script host identifies the vendor in code."
 
 
 _UI_ONLY_FIELDS = (

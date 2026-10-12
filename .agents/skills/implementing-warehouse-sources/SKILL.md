@@ -283,8 +283,8 @@ the name already obviously matches; don't add noise.
 
 A released source (no `unreleasedSource=True`) must set the `codebase_detection` class attribute. The PostHog wizard uses it to tell that a customer's codebase uses the vendor, to suggest the source and to spot competitors.
 Use `detect(...)` from `products/warehouse_sources/backend/facade/codebase_detection.py`. List the vendor's official SDK package names per ecosystem, the `.env` key names the vendor documents as anchored regexes, and any CDN host its script tag loads from.
-The wizard creates the source from the terminal unless the source's fields need OAuth, a file upload or an account picker. Pass `setup_requires_ui=True` when users should still go to the app, for example because a credential is hard to find.
-Use `not_detectable(reason)` when no package, key or script gives the vendor away. `tests/test_codebase_detection.py` fails for a released source without the attribute, and for an unreleased source with one.
+The wizard creates the source from the terminal unless the source's fields need OAuth, a file upload or an account picker. Set the class attribute `setup_requires_ui = True` when users should still go to the app, for example because a credential is hard to find.
+Use `NOT_DETECTABLE` when no package, key or script gives the vendor away. `tests/test_codebase_detection.py` fails for a released source without the attribute, and for an unreleased source with one.
 After editing, run `hogli build:projections` to regenerate `products/wizard/tool-catalog.generated.json`.
 
 ## Self-driving Inbox candidacy (issues / tickets / conversations)

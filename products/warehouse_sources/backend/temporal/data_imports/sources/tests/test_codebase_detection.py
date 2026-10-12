@@ -23,7 +23,7 @@ def test_released_sources_and_only_they_declare_codebase_detection() -> None:
     )
     assert missing == [], (
         "Released sources must say how the wizard detects them in a codebase. Set "
-        "`codebase_detection = detect(...)` on the source class, or `not_detectable(reason)` when no "
+        "`codebase_detection = detect(...)` on the source class, or `NOT_DETECTABLE` when no "
         f"package, .env key or script tag gives it away: {missing}"
     )
     assert unreleased == [], f"Unreleased sources must not set `codebase_detection`: {unreleased}"
