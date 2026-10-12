@@ -15,6 +15,7 @@ import {
     type BucketedFacetRow,
     buildLabShares,
     buildLabUserShares,
+    buildModelShareSeries,
     buildReliabilitySeries,
     buildShareSeries,
     type LabShare,
@@ -28,6 +29,8 @@ import {
 } from './leaderboardShares'
 
 const MODEL_SERIES_LIMIT = 8
+// Matches the posthog.com MCP leaderboard, which stacks its model chart the same way.
+const TOP_MODEL_SERIES = 10
 const PROTOCOL_SERIES_LIMIT = 5
 
 // Key on the canonical event only, like the overview queries. `{filters}` carries the date range,
@@ -327,12 +330,7 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
         modelSeries: [
             (s) => [s.facets, s.bucketKeys],
             (facets: LeaderboardFacets, bucketKeys: string[]): ShareSeries[] =>
-                buildShareSeries(
-                    facets.model,
-                    bucketKeys,
-                    (label) => (label === 'Unknown' ? null : label),
-                    MODEL_SERIES_LIMIT
-                ),
+                buildModelShareSeries(facets.model, bucketKeys, TOP_MODEL_SERIES),
         ],
         labSeries: [
             (s) => [s.facets, s.bucketKeys],

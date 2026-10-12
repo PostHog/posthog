@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { HogQLFilters } from '~/queries/schema/schema-general'
 
+import { isFoldedModelsLabel } from '../aiLabs'
 import { modelColors } from '../colors'
 import { type ModelRow } from '../mcpDashboardOverviewLogic'
 import { ChartTooltip } from './ChartTooltip'
@@ -22,10 +23,6 @@ import { modelBreakdownLogic } from './modelBreakdownLogic'
 import { ModelBreakdownTable } from './ModelBreakdownTable'
 import { ShareBarChart, type ShareBarRow } from './ShareBarChart'
 
-function modelLabel(model: string): string {
-    return model === 'Other' ? 'Other models' : model
-}
-
 function renderTooltip(ctx: TooltipContext<ModelRow & { share: number }>): JSX.Element | null {
     const entry = ctx.seriesData[0]
     const row = entry?.series.meta
@@ -34,7 +31,7 @@ function renderTooltip(ctx: TooltipContext<ModelRow & { share: number }>): JSX.E
     }
     return (
         <ChartTooltip
-            title={modelLabel(row.model)}
+            title={row.model}
             rows={[
                 ['Calls', formatNumber(row.total_calls)],
                 ['Share of all calls', formatPercentage(row.share, { compact: true })],
@@ -66,7 +63,7 @@ export function ModelBarChart({
         )
         return sortedRows.map((row) => ({
             key: row.model,
-            label: modelLabel(row.model),
+            label: row.model,
             value: row.total_calls,
             color: colorOf ? colorOf(row.model) : ownColors.get(row.model),
             meta: row,
@@ -81,7 +78,7 @@ export function ModelBarChart({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
                 <h3 className="mb-0 text-sm font-bold">Share of calls by model</h3>
                 <div className="flex items-center gap-1">
-                    {expanded || sortedRows.some((row) => row.model === 'Other') ? (
+                    {expanded || sortedRows.some((row) => isFoldedModelsLabel(row.model)) ? (
                         <LemonButton
                             type="secondary"
                             size="xsmall"
@@ -116,8 +113,8 @@ export function ModelBarChart({
                                 <>
                                     {formatNumber(unknownCalls)} calls have no model identifier. Model names are
                                     reported by clients or agents.
-                                    {sortedRows.some((row) => row.model === 'Other')
-                                        ? ' Other models includes identified models outside the top six.'
+                                    {sortedRows.some((row) => isFoldedModelsLabel(row.model))
+                                        ? ' Models outside the top six are grouped by AI lab.'
                                         : ''}
                                 </>
                             }
