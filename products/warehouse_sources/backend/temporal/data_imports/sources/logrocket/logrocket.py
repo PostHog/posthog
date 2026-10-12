@@ -114,7 +114,7 @@ def _request_path(config: LogrocketSourceConfig, endpoint: LogrocketEndpoint) ->
     return f"orgs/{quote(config.organization_id, safe='')}/apps/{quote(config.project_id, safe='')}/{endpoint.path}"
 
 
-def _request_params(schema_name: str, page_size: int) -> dict[str, str | int]:
+def _request_params(schema_name: str, page_size: int) -> dict[str, Any]:
     return {"limit": page_size, **({"cursor": "0"} if schema_name == "audit_logs" else {})}
 
 
@@ -265,17 +265,14 @@ def _session_events(
                     line_number=resume.line_number if file_id == resume.file_id else 0,
                     completed_file_ids=list(completed),
                 )
+                # Row checkpoints are saved before each yield, so a finished file or page needs no save after it:
+                # a resume reopens the last file, skips its saved lines and moves on.
                 yield from _file_rows(url, file_id, file_resume, manager)
                 completed.append(file_id)
-                manager.save_state(LogrocketResumeConfig(cursor=resume.cursor, completed_file_ids=list(completed)))
                 manager.safe_point()
-            resume = (
-                LogrocketResumeConfig(cursor=str(next_state["cursor"]))
-                if next_state
-                else LogrocketResumeConfig(finished=True)
-            )
-            manager.save_state(resume)
+            resume = LogrocketResumeConfig(cursor=str(next_state["cursor"])) if next_state else resume
             manager.safe_point()
+        manager.save_state(LogrocketResumeConfig(finished=True))
     finally:
         client.session.close()
 

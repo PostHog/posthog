@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -34,7 +35,7 @@ def config() -> LogrocketSourceConfig:
 def test_credential_probe_maps_access_errors_without_requiring_all_addons(
     status: int, schema_name: str | None, expected: bool | None, message: str | None
 ) -> None:
-    body = {"sessions": []} if schema_name == "session_events" else {"logs": []}
+    body: dict[str, list[Any]] = {"sessions": []} if schema_name == "session_events" else {"logs": []}
     with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
         if expected is None:
             with pytest.raises(HTTPError):
