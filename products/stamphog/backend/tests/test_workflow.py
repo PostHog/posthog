@@ -11,7 +11,7 @@ from products.stamphog.backend.temporal.constants import STAMPHOG_BOT_REVIEW_MAX
 from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 
 
-def _stub_activities(calls: list[str], in_flight_polls: int) -> list:
+def _stub_activities(calls: list[str], in_flight_polls: int, reviews_completed: bool) -> list:
     def stub(name: str, result: dict):
         @activity.defn(name=name)
         async def run(input: StamphogReviewInput) -> dict:
@@ -24,7 +24,11 @@ def _stub_activities(calls: list[str], in_flight_polls: int) -> list:
     async def list_in_flight(input: StamphogReviewInput) -> dict:
         calls.append("list_in_flight_reviewer_bots")
         polls = calls.count("list_in_flight_reviewer_bots")
-        return {"in_flight": ["PostHog Review"] if polls <= in_flight_polls else []}
+        in_flight = polls <= in_flight_polls
+        return {
+            "in_flight": ["PostHog Review"] if in_flight else [],
+            "reviews_completed": reviews_completed and not in_flight,
+        }
 
     return [
         list_in_flight,
@@ -41,14 +45,18 @@ def _stub_activities(calls: list[str], in_flight_polls: int) -> list:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "in_flight_polls, refreshed",
+    "in_flight_polls, reviews_completed, refreshed",
     [
-        pytest.param(0, False, id="nothing-in-flight"),
-        pytest.param(2, True, id="reviewer-finishes-within-the-budget"),
-        pytest.param(STAMPHOG_BOT_REVIEW_MAX_POLLS, True, id="budget-runs-out"),
+        pytest.param(0, False, False, id="nothing-in-flight"),
+        # The engine counts the completed review, so it must also see the threads that review left.
+        pytest.param(0, True, True, id="review-completed-before-the-first-poll"),
+        pytest.param(2, False, True, id="reviewer-finishes-within-the-budget"),
+        pytest.param(STAMPHOG_BOT_REVIEW_MAX_POLLS, False, True, id="budget-runs-out"),
     ],
 )
-async def test_evidence_is_read_again_after_waiting_for_reviewers(in_flight_polls: int, refreshed: bool) -> None:
+async def test_evidence_is_read_again_after_waiting_for_reviewers(
+    in_flight_polls: int, reviews_completed: bool, refreshed: bool
+) -> None:
     # The context fetch runs before the wait. A review posted during the wait must reach the engine,
     # so the evidence is read again after the last poll and before the verdict.
     calls: list[str] = []
@@ -58,7 +66,7 @@ async def test_evidence_is_read_again_after_waiting_for_reviewers(in_flight_poll
             env.client,
             task_queue=queue,
             workflows=[StamphogReviewWorkflow],
-            activities=_stub_activities(calls, in_flight_polls),
+            activities=_stub_activities(calls, in_flight_polls, reviews_completed),
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(

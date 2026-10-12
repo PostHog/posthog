@@ -140,6 +140,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 # the run proceeds and the engine sees it and returns WAIT rather than approving over
                 # an unfinished review.
                 waited = False
+                reviews_completed = False
                 for _ in range(STAMPHOG_BOT_REVIEW_MAX_POLLS):
                     bots = await workflow.execute_activity(
                         list_in_flight_reviewer_bots,
@@ -147,14 +148,16 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                         start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
                         retry_policy=ACTIVITY_RETRY_POLICY,
                     )
+                    reviews_completed = bool(bots.get("reviews_completed"))
                     if not bots["in_flight"]:
                         break
                     waited = True
                     await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
 
-                # The context was read before the wait, so a review posted during it would be
-                # missing. Gated for replay like the eyes reaction above.
-                if waited and workflow.patched("stamphog-refresh-after-wait"):
+                # The context was read before the polls, so a review posted during the wait, or by an
+                # external reviewer that completed before the first poll, would be missing. Gated for
+                # replay like the eyes reaction above.
+                if (waited or reviews_completed) and workflow.patched("stamphog-refresh-after-wait"):
                     await workflow.execute_activity(
                         refresh_review_evidence,
                         input,

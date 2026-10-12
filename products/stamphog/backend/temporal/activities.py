@@ -88,6 +88,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
@@ -731,7 +732,7 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
-        return {"in_flight": []}
+        return {"in_flight": [], "reviews_completed": False}
     started_at = timezone.now()
     repo_config = run.pull_request.repo_config
     client = StamphogGitHubClient(repo_config.installation_id)
@@ -768,16 +769,18 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     in_flight += [item["reviewer"] for item in review_evidence if item["state"] == ReviewEvidenceState.PENDING]
     if in_flight:
         activity.logger.info(f"Run {run.id}: reviewer(s) in flight: {', '.join(in_flight)}")
-    return {"in_flight": in_flight}
+    reviews_completed = any(item["state"] == ReviewEvidenceState.COMPLETED for item in review_evidence)
+    return {"in_flight": in_flight, "reviews_completed": reviews_completed}
 
 
 @activity.defn
 @asyncify
 def refresh_review_evidence(input: StamphogReviewInput) -> dict:
-    """Re-read the reviews, discussion and inline threads after the workflow waited for reviewers.
+    """Re-read the reviews, discussion and inline threads before the engine counts an external review.
 
-    ``fetch_review_context`` reads them before the wait, so a review that a reviewer posted during
-    the wait would be missing from the evidence the engine judges. The reactions and the review
+    ``fetch_review_context`` reads them before the wait polls. A review posted during the wait, or
+    one that completed just before the first poll, can be missing from that read, and the engine
+    would then count the completed review over threads it never saw. The reactions and the review
     evidence are already fresh, because the last wait poll read them.
     """
     run = _load_run(input)
@@ -1597,6 +1600,31 @@ def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) 
         activity.logger.exception(f"Failed to capture review timings for run {run.id}")
 
 
+def _rereview_if_external_review_finished(run: ReviewRun) -> None:
+    """Queue a re-review when this WAIT waited on an external review that finished since the last poll.
+
+    The external reviewer asks stamphog to re-review when its review ends, but that request finds
+    no WAIT while this run is still in flight and does nothing. So the run asks the providers once
+    more after it saved its WAIT. Best-effort, because the verdict is already posted.
+    """
+    pending_at_review = [
+        item
+        for item in (run.output or {}).get("review_evidence") or []
+        if item.get("state") == ReviewEvidenceState.PENDING and item.get("head_sha") == run.head_sha
+    ]
+    if not pending_at_review:
+        return
+    try:
+        if any(item["state"] == ReviewEvidenceState.PENDING for item in _read_review_evidence(run)):
+            return
+        pull_request = run.pull_request
+        request_rereview_after_external_review(
+            repository=pull_request.repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha
+        )
+    except Exception:
+        activity.logger.exception(f"Run {run.id}: could not queue the re-review after the external review")
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -1827,6 +1855,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # The run stopped actively reviewing the moment the terminal save above committed — remove the
     # "review in flight" 👀 now, whichever verdict landed (approved, gated, refused, escalate).
     _remove_own_eyes_reaction(client, run)
+
+    if run.status == ReviewRunStatus.COMPLETED and run.verdict == ReviewVerdict.WAIT:
+        _rereview_if_external_review_finished(run)
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")

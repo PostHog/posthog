@@ -18,7 +18,7 @@ from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -137,6 +137,9 @@ PAYLOAD_GATE_AUTHOR_ASSOCIATIONS = TRUSTED_AUTHOR_ASSOCIATIONS | {"CONTRIBUTOR"}
 WRITE_PERMISSIONS = frozenset({"admin", "write"})
 _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
+
+_REREVIEW_MAX_RETRIES = 4
+_REREVIEW_RETRY_BASE_SECONDS = 30
 
 
 # Anchored to the canonical host so a lookalike ("fakegithub.com", a github.com path segment on
@@ -1404,7 +1407,7 @@ def _queue_review_at_head(
     head_sha: str,
     *,
     output: dict[str, Any],
-    replacing_run_id: str | None = None,
+    revisit_wait: bool = False,
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1414,8 +1417,9 @@ def _queue_review_at_head(
     workflow restarts on commit. Otherwise older live runs are superseded and a fresh run starts
     once the row commits. Errors propagate so the caller can retry or report them.
 
-    ``replacing_run_id`` names a finished run at this head that does not count as covering it,
-    because the caller wants that run's verdict revisited.
+    ``revisit_wait`` stops a delivered WAIT at this head from counting as covering it, because
+    the caller wants that verdict revisited. A live run at this head still counts, so repeated
+    requests collapse into one run.
     """
     team_id = repo_config.team_id
     run_write_db = router.db_for_write(ReviewRun)
@@ -1438,8 +1442,8 @@ def _queue_review_at_head(
             .filter(pull_request=pr_obj, head_sha=head_sha)
             .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
         )
-        if replacing_run_id is not None:
-            covering_runs = covering_runs.exclude(id=replacing_run_id)
+        if revisit_wait:
+            covering_runs = covering_runs.exclude(status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.WAIT)
         existing = covering_runs.order_by("-created_at").first()
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
@@ -1718,15 +1722,16 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
         .order_by("-created_at")
         .first()
     )
-    # Only an engine WAIT can change when another reviewer finishes. A GATED WAIT waits on a check.
-    if (
-        latest is None
-        or latest.head_sha != head_sha
-        or latest.status != ReviewRunStatus.COMPLETED
-        or latest.verdict != ReviewVerdict.WAIT
-    ):
+    if latest is None or latest.head_sha != head_sha:
         return
     previous_output = latest.output or {}
+    # Only an engine WAIT can change when another reviewer finishes. A GATED WAIT waits on a check.
+    waiting = latest.status == ReviewRunStatus.COMPLETED and latest.verdict == ReviewVerdict.WAIT
+    # A run that an earlier call queued and whose workflow start failed stays QUEUED. Queueing again
+    # restarts its workflow, so a retry or a later call recovers it.
+    stranded = latest.status == ReviewRunStatus.QUEUED and bool(previous_output.get("rereview_after_external_review"))
+    if not (waiting or stranded):
+        return
     # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
     if previous_output.get("inbox_review"):
         return
@@ -1746,7 +1751,7 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     for key in ("manual_review", "review_trigger"):
         if key in previous_output:
             output[key] = previous_output[key]
-    queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, replacing_run_id=str(latest.id))
+    queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, revisit_wait=True)
     logger.info(
         "stamphog_rereview_after_external_review",
         repository=repo,
@@ -1757,13 +1762,14 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     )
 
 
-@shared_task(ignore_result=True)
-def rereview_after_external_review(repository: str, pr_number: int, head_sha: str) -> None:
+@shared_task(bind=True, ignore_result=True, max_retries=_REREVIEW_MAX_RETRIES)
+def rereview_after_external_review(self: Task, repository: str, pr_number: int, head_sha: str) -> None:
     """Re-run a review that ended in WAIT, because an automated reviewer finished with ``head_sha``.
 
     The caller knows only the repository, so the configs are read across teams. Each config acts on
     its own runs, and every check runs again here, so a stray call never starts a review that the
-    webhook path would refuse.
+    webhook path would refuse. A GitHub or Temporal error retries with backoff, because no webhook
+    redelivery stands behind this call. A retry is safe: every step checks the state again.
     """
     repo_configs = (
         StamphogRepoConfig.objects.unscoped()
@@ -1771,8 +1777,15 @@ def rereview_after_external_review(repository: str, pr_number: int, head_sha: st
         .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
         .exclude(installation_id="")
     )
-    for repo_config in repo_configs:
-        _rereview_waiting_run(repo_config, pr_number, head_sha)
+    try:
+        for repo_config in repo_configs:
+            _rereview_waiting_run(repo_config, pr_number, head_sha)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_rereview_rate_limited", repository=repository, pr_number=pr_number)
+        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_rereview_failed", repository=repository, pr_number=pr_number, error=str(e))
+        raise self.retry(exc=e, countdown=_REREVIEW_RETRY_BASE_SECONDS * 2**self.request.retries)
 
 
 def request_rereview_after_external_review(*, repository: str, pr_number: int, head_sha: str) -> None:

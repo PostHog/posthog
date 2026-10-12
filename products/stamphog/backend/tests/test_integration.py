@@ -3,15 +3,17 @@ import json
 import uuid
 import threading
 from contextlib import nullcontext
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 import requests
+from celery.exceptions import Retry
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
@@ -1719,6 +1721,7 @@ def test_review_evidence_providers_drive_the_reviewer_wait(
         )
 
     assert result["in_flight"] == in_flight
+    assert result["reviews_completed"] is any(state == "completed" for _, state in stored)
     run.refresh_from_db()
     assert [(item["reviewer"], item["state"]) for item in run.output["review_evidence"]] == stored
 
@@ -1755,14 +1758,18 @@ def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, s
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "verdict, nudged_heads, live_head, enabled, expected_new_runs",
+    "verdict, nudged_heads, live_head, enabled, earlier_wait, expected_new_runs",
     [
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, 1, id="wait-on-the-head-reruns"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b", "sha123b"], "sha123b", True, 1, id="repeated-nudge-reruns-once"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, 0, id="nudge-for-an-older-head"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, 0, id="head-moved-since"),
-        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, 0, id="approved-verdict"),
-        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, 0, id="disconnected-repo"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, False, 1, id="wait-on-the-head-reruns"),
+        pytest.param(
+            ReviewVerdict.WAIT, ["sha123b", "sha123b"], "sha123b", True, False, 1, id="repeated-nudge-reruns-once"
+        ),
+        # The re-run waited again. The original WAIT it replaced must not count as covering the head.
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", True, True, 1, id="rerun-that-waited-again-reruns"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123a"], "sha123b", True, False, 0, id="nudge-for-an-older-head"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123c", True, False, 0, id="head-moved-since"),
+        pytest.param(ReviewVerdict.APPROVED, ["sha123b"], "sha123b", True, False, 0, id="approved-verdict"),
+        pytest.param(ReviewVerdict.WAIT, ["sha123b"], "sha123b", False, False, 0, id="disconnected-repo"),
     ],
 )
 def test_finished_external_review_reruns_only_a_waiting_verdict(
@@ -1772,6 +1779,7 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
     nudged_heads: list[str],
     live_head: str,
     enabled: bool,
+    earlier_wait: bool,
     expected_new_runs: int,
 ) -> None:
     # A WAIT keeps a PR unapproved until something runs stamphog again. Any other verdict, head or
@@ -1791,15 +1799,132 @@ def test_finished_external_review_reruns_only_a_waiting_verdict(
         status=ReviewRunStatus.COMPLETED,
         verdict=verdict,
     )
+    existing_ids = [waiting.id]
+    if earlier_wait:
+        earlier = ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="sha123b",
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.WAIT,
+        )
+        ReviewRun.objects.for_team(team.id).filter(id=earlier.id).update(
+            created_at=waiting.created_at - timedelta(minutes=10)
+        )
+        existing_ids.append(earlier.id)
 
     with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start:
         for head_sha in nudged_heads:
             rereview_after_external_review(REPO, 123, head_sha)
 
-    new_runs = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).exclude(id=waiting.id)
+    new_runs = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).exclude(id__in=existing_ids)
     assert new_runs.count() == expected_new_runs
-    assert start.call_count == expected_new_runs
+    # A repeated nudge restarts the still-QUEUED run, which is a no-op for a live workflow.
+    assert start.call_count == (len(nudged_heads) if expected_new_runs else 0)
     assert all(run.output.get("rereview_after_external_review") for run in new_runs)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "error, countdown",
+    [
+        pytest.param(GitHubRateLimitError("secondary rate limit", retry_after=1), 60, id="github-rate-limit"),
+        pytest.param(RuntimeError("temporal unreachable"), 30, id="other-error"),
+    ],
+)
+def test_rereview_after_external_review_retries_a_failure_with_backoff(
+    team, stamphog_chain: StamphogChain, error: Exception, countdown: int
+) -> None:
+    # No webhook redelivery stands behind this call, so a dropped error loses the re-review.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=124, author_login="devex-dev"
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha124b",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.WAIT,
+    )
+
+    with patch.object(StamphogGitHubClient, "get_pr", side_effect=error), pytest.raises(Retry) as retry:
+        rereview_after_external_review.apply(args=(REPO, 124, "sha124b"))
+
+    assert retry.value.when == countdown
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_rereview_after_external_review_restarts_a_rerun_left_queued(team, stamphog_chain: StamphogChain) -> None:
+    # The workflow start of an earlier re-run failed after its row committed. A later call must
+    # restart that run instead of treating it as a live review.
+    repo_config = _repo_config(team.id)
+    live_pr = _pr_object(126, "devex-dev", "sha126b") | {"state": "open", "author_association": "MEMBER"}
+    stamphog_chain.recorder.register_pr(REPO, 126, live_pr, _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=126, author_login="devex-dev"
+    )
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha126b",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.WAIT,
+    )
+    stranded = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha126b",
+        status=ReviewRunStatus.QUEUED,
+        output={"rereview_after_external_review": True},
+    )
+    ReviewRun.objects.for_team(team.id).filter(id=waiting.id).update(
+        created_at=stranded.created_at - timedelta(minutes=10)
+    )
+
+    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start:
+        rereview_after_external_review(REPO, 126, "sha126b")
+
+    assert start.call_args_list == [call(review_run_id=str(stranded.id), team_id=team.id)]
+    assert ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).count() == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("finished_since", [True, False])
+def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
+    team, stamphog_chain: StamphogChain, finished_since: bool
+) -> None:
+    # The external reviewer's own re-review request arrives while this run is still in flight and
+    # finds no WAIT, so the run itself must ask once more after it saved its WAIT.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha125a"
+    stamphog_chain.recorder.register_pr(REPO, 125, _pr_object(125, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=125, author_login="devex-dev"
+    )
+    pending = _evidence(ReviewEvidenceState.PENDING, head_sha)
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={
+            "reviewer_raw": _waiting_engine_output(),
+            "review_evidence": [{"state": "pending", "reviewer": pending.reviewer, "head_sha": head_sha}],
+        },
+    )
+    now = _evidence(ReviewEvidenceState.COMPLETED if finished_since else ReviewEvidenceState.PENDING, head_sha)
+
+    with (
+        patch.object(activities, "get_review_evidence_providers", return_value=(lambda *_: now,)),
+        patch.object(activities, "request_rereview_after_external_review") as rereview,
+    ):
+        _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    assert run.verdict == ReviewVerdict.WAIT
+    expected = [call(repository=REPO, pr_number=125, head_sha=head_sha)] if finished_since else []
+    assert rereview.call_args_list == expected
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1858,6 +1983,16 @@ def test_mark_review_failed_never_rewrites_a_terminal_run(team) -> None:
     assert run.status == ReviewRunStatus.COMPLETED
     assert run.verdict == ReviewVerdict.APPROVED
     assert not run.error
+
+
+def _waiting_engine_output() -> str:
+    payload = {
+        "final_verdict": "WAIT",
+        "reviewer": {"reasoning": "PostHog Review is still reviewing this commit.", "issues": []},
+        "gates": [{"name": "size", "passed": True}],
+        "review_body": "Waiting for PostHog Review.",
+    }
+    return json.dumps(payload)
 
 
 def _refused_engine_output() -> str:
