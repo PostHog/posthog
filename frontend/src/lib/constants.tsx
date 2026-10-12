@@ -458,7 +458,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_JUPYTER_MODE: 'notebook-jupyter-mode', // owner: #team-data-tools, lays notebooks out and drives them like JupyterLab
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
-    ONBOARDING_DATA_WAREHOUSE_VALUE_PROP: 'onboarding-data-warehouse-value-prop', // owner: @fercgomes #team-growth multivariate=control,table,query
     ONBOARDING_FLOW_VARIANT: 'onboarding-flow-variant', // owner: @fercgomes #team-growth multivariate=control,self-driving — selects the whole onboarding experience; control is the existing flow (the historical `legacy` value is an alias of control)
     ONBOARDING_HIDE_BREADCRUMBS: 'onboarding-hide-breadcrumbs', // owner: @fercgomes #team-growth, multivariate=true, hides breadcrumbs during onboarding to reduce distractions
     ONBOARDING_MOBILE_INSTALL_HELPER: 'onboarding-mobile-install-helper', // owner: @fercgomes #team-growth multivariate=control,test — target $device_type=Mobile at the flag level
