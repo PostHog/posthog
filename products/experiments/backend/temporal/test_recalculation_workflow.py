@@ -33,6 +33,7 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
+from products.experiments.backend.temporal.recalculation_logic import AttemptCancellation
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
@@ -288,6 +289,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             role: str,
             is_final_attempt: bool,
             attempt: int,
+            cancellation: AttemptCancellation,
         ) -> MetricRecalculationResult:
             recorded_flags.append(is_final_attempt)
             raise RuntimeError("always fails")
@@ -387,7 +389,9 @@ class TestExperimentMetricsRecalculationWorkflow:
             await query_killed.wait()
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
-        async def fake_kill(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
+        async def fake_kill(
+            recalculation_id: str, metric_uuid: str, attempt: int, cancellation: AttemptCancellation
+        ) -> None:
             query_killed.set()
 
         task_queue = str(uuid.uuid4())
