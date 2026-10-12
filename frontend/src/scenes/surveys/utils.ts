@@ -1345,6 +1345,7 @@ export function captureMaxAISurveyCreationException(error?: string, source?: SUR
 }
 
 export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+const ALL_TIME_START_DATE = '1970-01-01T00:00:00'
 
 function getTeamTimezone(): string {
     return getAppContext()?.current_team?.timezone || 'UTC'
@@ -1383,7 +1384,11 @@ export function getResolvedSurveyDateRange(
     // date_to only is ignored to avoid impossible ranges
     if (dateRange?.date_from) {
         const tz = getTeamTimezone()
-        fromDate = dateStringToDayJs(dateRange.date_from, tz)?.startOf('day').format(DATE_FORMAT) ?? fromDate
+        // "All time" includes responses dated before the survey start, e.g. imported responses
+        fromDate =
+            dateRange.date_from === 'all'
+                ? ALL_TIME_START_DATE
+                : (dateStringToDayJs(dateRange.date_from, tz)?.startOf('day').format(DATE_FORMAT) ?? fromDate)
 
         if (dateRange.date_to) {
             toDate = dateStringToDayJs(dateRange.date_to, tz)?.endOf('day').format(DATE_FORMAT) ?? toDate
