@@ -164,6 +164,59 @@ By default, `hogli start` runs a minimal set of services (enough for product ana
 
 Select the `authz` intent to start OpenFGA. It uses in-memory storage and a local development bearer token, so its data resets when the container restarts. Edit `products/authz/model.fga` in OpenFGA DSL, then run `products/authz/generate_model.sh` to generate the JSON model. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 OPENFGA_API_TOKEN=local-dev-openfga-token python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version.
 
+Run the authorization checks without starting the stack:
+
+```bash
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model validate --file products/authz/model.fga
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --tests products/authz/model.fga.yaml
+```
+
+The model covers users, organizations, organization members, roles, projects, dashboards, and insights.
+It models most-specific access resolution, not legacy highest-level resolution.
+The model does not replace Django permission checks or populate relationships from the database.
+Use the fixtures in `products/authz/model.fga.yaml` as examples when writing local tuples:
+
+- Use `user:<user_id>` for the actor and `organization_member:<membership_id>#user` for member overrides.
+  The `identity` relation on a user points to that same user.
+  Link a user's organizations for the account-deletion check.
+- Link each organization member to their user and organization.
+  Assign their userset to the organization's `member`, `admin`, or `owner` relation.
+  Set `is_owner` to `user:*` on owner memberships.
+  Member-level changes use `can_change_level`; promotions to owner also require `can_make_owner`.
+- Use one `project:<team_id>` entity for the team and project.
+  Link it to its organization.
+  Project overrides use `member_*`, `role_*`, and `default_*` relations with `none`, `member`, or `admin` levels.
+  The model accepts `owner` as an admin-equivalent project relation; persisted project levels stop at `admin`.
+- Create one `resource_category` per project and resource type, with its own `access_policy`.
+  Link each dashboard or insight to its project and category, and to a separate object policy when it has overrides.
+  Link each policy to its organization.
+  Policies resolve member overrides first, then the highest matching role override, then the default.
+  An object policy with any applicable rule overrides the category, including a `none` or lower-level rule.
+  Without a category rule, dashboards and insights default to `editor`.
+- Set default levels and organization settings with `user:*` tuples.
+  Set `access_control_enabled` and `role_based_access_enabled` from the organization's entitlements.
+  Rules are inert without the relevant entitlement.
+  Without project rules, access-control-enabled organizations default to project admin; other organizations default to project member.
+- Organization admins and owners bypass resource restrictions.
+  Creators bypass object restrictions but still require project membership.
+  Explicit project admins can manage access and bypass legacy dashboard collaborator restrictions, but cannot bypass resource or object rules.
+  The implicit project-admin default alone does not grant `can_manage_access`.
+- For legacy collaborator-only dashboards, set `restricted` to `user:*` and write `collaborator` tuples for edit privileges.
+  Link attached insights to their dashboards and set `has_dashboard` to `user:*` while any attachment exists.
+  Remove the marker when the last attachment is removed.
+  An insight passes this legacy write gate if any attached dashboard permits editing, or if it has no attachments.
+- When member visibility is restricted, link a membership's `project` relations only to projects that grant that member scoped access, excluding the organization-admin bypass.
+  This lets peers with access to a shared project see the membership.
+- Check `can_create` on the category for creation and use `ListObjects` with `can_view` to filter individual objects.
+  Object grants do not grant creation rights.
+
+Tuple writers must keep these relationships consistent with the database.
+Write only active, valid role memberships from the same organization as the policy or project.
+Keep each object's project, category, and policy in the same organization and project.
+Store one member/default level per scope and replace the old level when it changes.
+OpenFGA does not enforce relationship cardinality or compare organization IDs across tuple paths.
+Application checks still enforce request-specific rules such as API scopes, reauthentication, verified domains, and the last-owner invariant.
+
 The session replay video export worker builds a Docker image on its first start, then reuses the cached image. It runs in development mode to accept Django's default development key. The launcher translates HTTP loopback storage URLs to `host.docker.internal`, preserving optional ports and paths. It maps that hostname to Docker's host gateway so the container can reach host object storage on native Linux too. A worker startup failure returns a nonzero exit code.
 
 ### Setting environment variables
