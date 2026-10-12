@@ -23,7 +23,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
@@ -31,9 +30,10 @@ import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { MetricTile } from '../components/MetricTile'
 import { ProductNav } from '../components/ProductNav'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunConclusionTag } from '../components/runTables'
-import { RepoScopeChip, ScopeBar, WorkflowScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
+import { ScopeBar, WorkflowScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -293,7 +293,7 @@ export function WorkflowRunsScene(): JSX.Element {
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Workflow" resourceType={{ type: 'health' }} />
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
                 <CIAnalyticsLoadError
                     title="Couldn't load this workflow's runs"
                     description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
@@ -306,10 +306,8 @@ export function WorkflowRunsScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
-            <SceneTitleSection
-                name="Workflow"
-                resourceType={{ type: 'health' }}
+            <RepoSceneTitle
+                repo={`${repoOwner}/${repoName}`}
                 actions={
                     <LemonButton type="secondary" size="small" to={githubUrl} targetBlank sideIcon={<IconExternal />}>
                         View on GitHub
@@ -319,20 +317,14 @@ export function WorkflowRunsScene(): JSX.Element {
             <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
                 <div className="flex flex-col gap-4">
                     <ScopeBar
-                        repoSlot={
-                            <RepoScopeChip
-                                label={`${repoOwner}/${repoName}`}
-                                to={withScope(
-                                    urls.engineeringAnalytics(`${repoOwner}/${repoName}`),
-                                    searchParams,
-                                    sourceId
-                                )}
-                            />
-                        }
                         crumbs={[
                             {
                                 label: 'Workflows',
-                                to: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
+                                to: withScope(
+                                    urls.engineeringAnalyticsWorkflows(`${repoOwner}/${repoName}`),
+                                    searchParams,
+                                    sourceId
+                                ),
                             },
                             {
                                 label: workflowName,

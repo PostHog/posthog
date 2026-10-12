@@ -20,7 +20,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
@@ -32,8 +31,9 @@ import { PullRequestComparisonCard } from '../components/PullRequestComparisonCa
 import { PullRequestDeliveryTimeline } from '../components/PullRequestDeliveryTimeline'
 import { PullRequestFrictionCard } from '../components/PullRequestFrictionCard'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { RunConclusionTag } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { compactCount, compactUsd } from '../lib/format'
@@ -475,7 +475,7 @@ export function PullRequestDetailScene(): JSX.Element {
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
                 <CIAnalyticsLoadError
                     title="Couldn't load this pull request"
                     description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
@@ -488,9 +488,8 @@ export function PullRequestDetailScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            <SceneTitleSection
-                name="Pull request"
-                resourceType={{ type: 'health' }}
+            <RepoSceneTitle
+                repo={`${repoOwner}/${repoName}`}
                 actions={
                     githubUrl && pullRequest ? (
                         <>
@@ -522,12 +521,6 @@ export function PullRequestDetailScene(): JSX.Element {
             <ProductNav activeTab="pull-requests" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
                 <div className="flex flex-col gap-4">
                     <ScopeBar
-                        repoSlot={
-                            <RepoScopeChip
-                                label={`${repoOwner}/${repoName}`}
-                                to={withCurrentScope(urls.engineeringAnalytics(`${repoOwner}/${repoName}`), sourceId)}
-                            />
-                        }
                         crumbs={[
                             {
                                 label: 'Pull requests',

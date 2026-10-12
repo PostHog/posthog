@@ -12,7 +12,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
@@ -20,8 +19,9 @@ import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
 import { ProductNav } from '../components/ProductNav'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { formatCost, formatMinutes, runPrNumber } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
@@ -65,7 +65,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
     if (!isValidRunId) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
                 <span className="text-secondary">That run id isn't valid.</span>
             </SceneContent>
         )
@@ -109,7 +109,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
                 <CIAnalyticsLoadError
                     title="Couldn't load this workflow run"
                     description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
@@ -122,10 +122,8 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
-            <SceneTitleSection
-                name="Workflow run"
-                resourceType={{ type: 'health' }}
+            <RepoSceneTitle
+                repo={`${repoOwner}/${repoName}`}
                 actions={
                     githubUrl ? (
                         <LemonButton
@@ -146,20 +144,14 @@ export function WorkflowRunDetailScene(): JSX.Element {
                     {run ? (
                         <>
                             <ScopeBar
-                                repoSlot={
-                                    <RepoScopeChip
-                                        label={`${run.repo.owner}/${run.repo.name}`}
-                                        to={withScope(
-                                            urls.engineeringAnalytics(`${run.repo.owner}/${run.repo.name}`),
-                                            searchParams,
-                                            sourceId
-                                        )}
-                                    />
-                                }
                                 crumbs={[
                                     {
                                         label: 'Workflows',
-                                        to: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
+                                        to: withScope(
+                                            urls.engineeringAnalyticsWorkflows(`${repoOwner}/${repoName}`),
+                                            searchParams,
+                                            sourceId
+                                        ),
                                     },
                                     {
                                         label: run.workflow_name,

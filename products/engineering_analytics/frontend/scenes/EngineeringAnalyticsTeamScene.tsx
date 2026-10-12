@@ -11,14 +11,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { EntityHeader } from '../components/EntityHeader'
 import { ProductNav } from '../components/ProductNav'
-import { RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
+import { ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { TeamQuarantinedTestsTable } from '../components/TeamQuarantinedTestsTable'
@@ -71,7 +71,6 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
     const isUnowned = ownerTeam === UNOWNED_TEAM
     const mainDataNotConnected = [activityStatus, healthRowStatus, mergeTrendStatus].includes('notConnected')
-    const hubUrl = withCurrentScope(urls.engineeringAnalytics(repo), sourceId)
     const teamsUrl = withCurrentScope(urls.engineeringAnalyticsTeams(repo), sourceId)
 
     const testColumns: LemonTableColumns<TeamTestSignalRow> = [
@@ -211,11 +210,10 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            <SceneTitleSection name="Team" resourceType={{ type: 'health' }} />
+            <RepoSceneTitle repo={repo} />
             <ProductNav activeTab="teams" repo={repo} sourceId={sourceId}>
                 <div className="flex flex-col gap-4">
                     <ScopeBar
-                        repoSlot={<RepoScopeChip label={repository ?? 'repository'} to={hubUrl} />}
                         crumbs={[{ label: 'Teams', to: teamsUrl }, { label: isUnowned ? 'unowned' : ownerTeam }]}
                         showDate={false}
                     />

@@ -1,10 +1,9 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
-import { urls } from 'scenes/urls'
-
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { Breadcrumb } from '~/types'
 
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 /** The root scene's views: the repo hub and the pull request, workflow, test, deploy, team, and author list pages. */
@@ -70,26 +69,6 @@ export const engineeringAnalyticsSceneLogic = kea<engineeringAnalyticsSceneLogic
             (s) => [s.sceneKey],
             (sceneKey: string): EngineeringAnalyticsView => SCENE_KEY_TO_VIEW[sceneKey] ?? 'hub',
         ],
-        // The product above the repository it shows, so the title can name the repository alone.
-        breadcrumbs: [
-            (s) => [s.scopeRepo],
-            (scopeRepo: string | null): Breadcrumb[] => [
-                {
-                    key: 'EngineeringAnalytics',
-                    name: 'Engineering analytics',
-                    path: urls.engineeringAnalytics(scopeRepo),
-                    iconType: 'health',
-                },
-                ...(scopeRepo
-                    ? [
-                          {
-                              key: ['EngineeringAnalyticsRepo', scopeRepo],
-                              name: scopeRepo,
-                              iconType: 'health',
-                          } as Breadcrumb,
-                      ]
-                    : []),
-            ],
-        ],
+        breadcrumbs: [(s) => [s.scopeRepo], (scopeRepo: string | null): Breadcrumb[] => repoBreadcrumbs(scopeRepo)],
     }),
 ])

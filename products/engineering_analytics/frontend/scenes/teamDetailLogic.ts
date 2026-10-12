@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -15,7 +14,7 @@ import {
 } from '../generated/api'
 import type { TeamTestSignalApi } from '../generated/api.schemas'
 import { DeliveryScope } from '../lib/deliveryScope'
-import { withScope } from '../lib/scope'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     LoaderStatus,
@@ -23,14 +22,7 @@ import {
     engineeringAnalyticsLogic,
     loaderStatusFromError,
 } from './engineeringAnalyticsLogic'
-import {
-    DEFAULT_TEAMS_WINDOW,
-    TeamCIHealthRow,
-    UNOWNED_TEAM,
-    isTeamsDateRange,
-    teamLabel,
-    toTeamCIHealthRow,
-} from './teamsLogic'
+import { DEFAULT_TEAMS_WINDOW, TeamCIHealthRow, UNOWNED_TEAM, isTeamsDateRange, toTeamCIHealthRow } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -163,12 +155,7 @@ export interface teamDetailLogicMeta {
             trunkQuarantineTestsByTeam: Record<string, TrunkQuarantinedTestRow[]>,
             ownerTeam: string
         ) => TrunkQuarantinedTestRow[]
-        breadcrumbs: (
-            ownerTeam: string,
-            repo: string | null,
-            sourceId: string | null,
-            searchParams: Record<string, any>
-        ) => Breadcrumb[]
+        breadcrumbs: (repo: string | null, sourceId: string | null, searchParams: Record<string, any>) => Breadcrumb[]
         mergeTrendSeries: (mergeTrend: TeamMergeTrendData | null) => {
             average: number[]
             labels: string[]
@@ -317,31 +304,12 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             ): TrunkQuarantinedTestRow[] => trunkQuarantineTestsByTeam[ownerTeam] ?? [],
         ],
         breadcrumbs: [
-            (s) => [s.ownerTeam, s.repo, s.sourceId, router.selectors.searchParams],
+            (s) => [s.repo, s.sourceId, router.selectors.searchParams],
             (
-                ownerTeam: string,
                 repo: string | null,
                 sourceId: string | null,
                 searchParams: Record<string, string | undefined>
-            ): Breadcrumb[] => [
-                {
-                    key: 'EngineeringAnalytics',
-                    name: 'Engineering analytics',
-                    path: withScope(urls.engineeringAnalytics(repo), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: 'EngineeringAnalyticsTeams',
-                    name: 'Teams',
-                    path: withScope(urls.engineeringAnalyticsTeams(repo), searchParams, sourceId),
-                    iconType: 'health',
-                },
-                {
-                    key: ['EngineeringAnalyticsTeam', ownerTeam],
-                    name: teamLabel(ownerTeam),
-                    iconType: 'health',
-                },
-            ],
+            ): Breadcrumb[] => repoBreadcrumbs(repo, searchParams, sourceId),
         ],
         /** Quill-ready daily series on the backend's own day buckets. Gaps carry the last values
          *  forward: a day without merges means "nothing merged", not instant merges, so

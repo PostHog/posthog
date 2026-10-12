@@ -8,7 +8,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIExplorerActivity } from '../components/ciExplorer/CIExplorerActivity'
@@ -17,7 +16,8 @@ import { CIExplorerSummaryCounts } from '../components/ciExplorer/CIExplorerSumm
 import { EntityHeader } from '../components/EntityHeader'
 import { ProductNav } from '../components/ProductNav'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
+import { ScopeBar } from '../components/ScopeBar'
 import { withCurrentScope } from '../lib/scope'
 import { CIExplorerLogicProps, CIExplorerView, ciExplorerLogic } from './ciExplorerLogic'
 import { repoScopeLogic } from './repoScopeLogic'
@@ -59,9 +59,8 @@ export function CIExplorerScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-4">
-            <SceneTitleSection
-                name="CI explorer"
-                resourceType={{ type: 'health' }}
+            <RepoSceneTitle
+                repo={`${repoOwner}/${repoName}`}
                 actions={
                     <LemonButton
                         type="secondary"
@@ -77,16 +76,13 @@ export function CIExplorerScene(): JSX.Element {
             <ProductNav activeTab="pull-requests" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
                 <div className="flex flex-col gap-4">
                     <ScopeBar
-                        repoSlot={
-                            <RepoScopeChip
-                                label={`${repoOwner}/${repoName}`}
-                                to={withCurrentScope(urls.engineeringAnalytics(), sourceId)}
-                            />
-                        }
                         crumbs={[
                             {
                                 label: 'Pull requests',
-                                to: withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId),
+                                to: withCurrentScope(
+                                    urls.engineeringAnalyticsPullRequestList(`${repoOwner}/${repoName}`),
+                                    sourceId
+                                ),
                             },
                             { label: `#${number}`, to: pullRequestUrl },
                             { label: 'CI explorer' },

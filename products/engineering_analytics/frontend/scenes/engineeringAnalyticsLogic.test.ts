@@ -41,6 +41,7 @@ import {
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -380,31 +381,33 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         logic = engineeringAnalyticsLogic()
         logic.mount()
+        const scope = repoScopeLogic()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
         await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(true)
-        expect(logic.values.sourceOptions).toEqual([
+        expect(scope.values.hasMultipleSources).toBe(true)
+        expect(scope.values.sourceOptions).toEqual([
             { value: 'src-multi::posthog/posthog', label: 'posthog/posthog' },
             { value: 'src-multi::posthog/posthog.com', label: 'posthog/posthog.com' },
             { value: 'src-other::posthog/posthog.js', label: 'posthog/posthog.js' },
         ])
 
         // One source syncs that repository, so the path alone names it and no `?source` rides along.
-        logic.actions.switchRepo('src-multi::posthog/posthog.com')
+        scope.actions.switchRepo('src-multi::posthog/posthog.com')
         await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
         expect(routedPath()).toBe(urls.engineeringAnalytics('posthog/posthog.com'))
         expect(router.values.searchParams).toEqual({})
-        expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
+        expect(scope.values.selectedScope).toBe('src-multi::posthog/posthog.com')
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: 'posthog/posthog.com' })
     })
 
     it('hides the picker when the team has a single source', async () => {
         mockSources.mockResolvedValue([SOURCES[0]])
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        const scope = repoScopeLogic()
+        scope.mount()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(false)
+        expect(scope.values.hasMultipleSources).toBe(false)
     })
 
     it('defaults to no source, then scopes every endpoint to the picked one and reloads', async () => {

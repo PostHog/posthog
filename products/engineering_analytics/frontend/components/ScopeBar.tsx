@@ -1,4 +1,4 @@
-// Shared scope bar: hierarchy chips (repo › workflow › run) on the left, dismissible filter chips on
+// Shared scope bar: the in-page trail (list › entity) on the left, dismissible filter chips on
 // the right, and the shared date scope (engineeringAnalyticsFiltersLogic) so a window picked on one page
 // carries to the next. The run-scope control lives here too, but pages dock it on their scope panel.
 
@@ -58,17 +58,6 @@ export interface LensChip {
 
 const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
-
-/** Repo chip on detail pages: links back to the hub without mounting the hub's loaders. */
-export function RepoScopeChip({ label, to }: { label: string; to: string }): JSX.Element {
-    return (
-        <Link to={to}>
-            <span className={cn(CHIP_CLASS, 'cursor-pointer')}>
-                <strong className="font-semibold text-primary">{label}</strong>
-            </span>
-        </Link>
-    )
-}
 
 /** Workflow crumb that doubles as a switcher: a searchable dropdown of the repo's workflows, loaded
  *  lazily on first open, navigating to the picked workflow's page. */
@@ -225,16 +214,13 @@ export function WorkflowScopeControls(): JSX.Element {
 }
 
 export function ScopeBar({
-    repoSlot,
-    crumbs = [],
+    crumbs,
     lensFilter,
     showDate = true,
     extra,
 }: {
-    /** The repo chip on detail pages: <RepoScopeChip />. */
-    repoSlot: ReactNode
-    /** Hierarchy below the repo (workflow › run); empty on the repo hub itself. */
-    crumbs?: ScopeCrumb[]
+    /** The trail from the list tab to this page (Workflows › workflow › run). The title names the repository. */
+    crumbs: ScopeCrumb[]
     /** The active cross-cutting lens (pr: #N). Dismissing it zooms out to `to`. */
     lensFilter?: LensChip
     showDate?: boolean
@@ -242,10 +228,9 @@ export function ScopeBar({
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            {repoSlot}
-            {crumbs.map((crumb) => (
+            {crumbs.map((crumb, index) => (
                 <Fragment key={crumb.label}>
-                    <span className="text-xs text-tertiary">›</span>
+                    {index > 0 && <span className="text-xs text-tertiary">›</span>}
                     {crumb.node ? (
                         crumb.node
                     ) : crumb.to ? (

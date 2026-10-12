@@ -28,7 +28,7 @@ describe('authorLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    it('keeps the repository and scope on the breadcrumbs back to the pull requests list', () => {
+    it('names the repository in the breadcrumbs and keeps the scope on the way back to its overview', () => {
         router.actions.push(urls.engineeringAnalyticsAuthor('jane-dev', 'PostHog/posthog-js'), {
             source: 'source-2',
             date_from: '-30d',
@@ -36,11 +36,10 @@ describe('authorLogic', () => {
         logic = authorLogic({ handle: 'jane-dev', sourceId: 'source-2', repo: 'PostHog/posthog-js' })
         logic.mount()
 
-        const [hub, pullRequests] = logic.values.breadcrumbs.map(({ path }) => new URL(path!, 'https://example.com'))
-        expect(hub.pathname).toBe('/engineering-analytics/repos/PostHog/posthog-js/overview')
-        expect(pullRequests.pathname).toBe('/engineering-analytics/repos/PostHog/posthog-js/pull-requests')
-        for (const destination of [hub, pullRequests]) {
-            expect(Object.fromEntries(destination.searchParams)).toEqual({ date_from: '-30d', source: 'source-2' })
-        }
+        const [product, repository] = logic.values.breadcrumbs
+        expect(repository.name).toBe('PostHog/posthog-js')
+        const overview = new URL(product.path!, 'https://example.com')
+        expect(overview.pathname).toBe('/engineering-analytics/repos/PostHog/posthog-js/overview')
+        expect(Object.fromEntries(overview.searchParams)).toEqual({ date_from: '-30d', source: 'source-2' })
     })
 })

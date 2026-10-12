@@ -11,7 +11,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
@@ -32,17 +32,15 @@ import {
 import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { parsePullRequestReference, resolvePullRequestTarget } from '../lib/pullRequestReference'
-import { repoFromPath, switchRepoPath } from '../lib/repoScope'
+import { repoFromPath } from '../lib/repoScope'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
-import { scopeFromValue, scopeToValue, withCurrentScope, withScope } from '../lib/scope'
+import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
 import { repoScopeLogic } from './repoScopeLogic'
 
 // pinned: analytics event name. Renaming it breaks the insights built on it.
 const EVENT_PULL_REQUEST_JUMP_SUBMITTED = 'pull request jump submitted'
-// pinned: analytics event name. Renaming it breaks the insights built on it.
-const EVENT_REPO_SWITCHED = 'engineering analytics repo switched'
 
 // Mirrors the endpoint's server-side limit.
 export const PR_TABLE_LIMIT = 1000
@@ -438,7 +436,6 @@ export interface engineeringAnalyticsLogicValues {
     githubSourcesLoading: boolean
     hasActiveFilters: boolean
     hasActiveWorkflowFilters: boolean
-    hasMultipleSources: boolean
     notConnected: boolean
     pullRequestJumpFailure: PullRequestJumpFailure | null
     pullRequestJumpText: string
@@ -453,12 +450,7 @@ export interface engineeringAnalyticsLogicValues {
     repo: string | null
     scopeRepo: string | null
     search: string
-    selectedScope: string | null
     sourceId: string | null
-    sourceOptions: {
-        label: string
-        value: string
-    }[]
     stateFilter: PRStateFilter
     stuckOnly: boolean
     tableTruncated: boolean
@@ -634,9 +626,6 @@ export interface engineeringAnalyticsLogicActions {
     submitPullRequestJump: () => {
         value: true
     }
-    switchRepo: (scopeValue: string) => {
-        scopeValue: string
-    }
     toggleTrunkQuarantineTeam: (team: string) => {
         team: string
     }
@@ -692,21 +681,11 @@ export interface engineeringAnalyticsLogicMeta {
         trunkQuarantineTestsByTeam: (
             trunkQuarantine: TrunkQuarantineData | null
         ) => Record<string, TrunkQuarantinedTestRow[]>
-        hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
         activeSource: (
             githubSources: GitHubSourceApi[],
             sourceId: string | null,
             scopeRepo: string | null
         ) => GitHubSourceApi | null
-        sourceOptions: (githubSources: GitHubSourceApi[]) => {
-            label: string
-            value: string
-        }[]
-        selectedScope: (
-            githubSources: GitHubSourceApi[],
-            sourceId: string | null,
-            scopeRepo: string | null
-        ) => string | null
     }
 }
 
@@ -740,10 +719,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setThrashOnly: (thrash: boolean) => ({ thrash }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
-            // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
+            // The URL names a (source, repo) pair, so both land in one action before a single refresh.
             setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
-            // The header's switch button: a (source, repo) option value, decoded and tracked before it scopes.
-            switchRepo: (scopeValue: string) => ({ scopeValue }),
             setPullRequestJumpText: (text: string) => ({ text }),
             submitPullRequestJump: true,
             failPullRequestJump: (failure: PullRequestJumpFailure) => ({ failure }),
@@ -970,7 +947,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 { setSourceId: (_, { sourceId }) => sourceId, setScope: (_, { sourceId }) => sourceId },
             ],
             // Repo scope of a multi-repo source. Cleared when the source changes on its own (the old repo
-            // belongs to the old source); the picker uses setScope to set both together.
+            // belongs to the old source); the URL sets both together through setScope.
             scopeRepo: [null as string | null, { setScope: (_, { scopeRepo }) => scopeRepo, setSourceId: () => null }],
             pullRequestJumpText: ['', { setPullRequestJumpText: (_, { text }) => text }],
             // A scope change clears the message because picking a repository is one of the fixes it asks for.
@@ -1176,14 +1153,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (trunkQuarantine: TrunkQuarantineData | null): Record<string, TrunkQuarantinedTestRow[]> =>
                     groupBy(trunkQuarantine?.tests ?? [], (test) => test.ownerTeam),
             ],
-            hasMultipleSources: [
-                (s) => [s.githubSources],
-                (githubSources: GitHubSourceApi[]): boolean => githubSources.length > 1,
-            ],
-            // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
-            // Matched by (source, repo), not source alone: a multi-repo source's entries share one id,
-            // so headers and commit links reading activeSource.repo must reflect the picked repo, not
-            // the first entry with that id.
             activeSource: [
                 (s) => [s.githubSources, s.sourceId, s.scopeRepo],
                 (
@@ -1214,42 +1183,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     )
                 },
             ],
-            // One option per selectable (source, repo). The value encodes both so a multi-repo source's
-            // repos are distinct entries; the label is the repo (falling back to prefix).
-            sourceOptions: [
-                (s) => [s.githubSources],
-                (githubSources: GitHubSourceApi[]): { value: string; label: string }[] =>
-                    githubSources.map((source) => ({
-                        value: scopeToValue(source.id, source.repo),
-                        label: source.repo || source.prefix || `source ${source.id.slice(0, 8)}`,
-                    })),
-            ],
-            // The picker's current value: the entry matching the picked (source, repo), else that source's
-            // first entry, else null (unpicked → placeholder + backend default).
-            selectedScope: [
-                (s) => [s.githubSources, s.sourceId, s.scopeRepo],
-                (
-                    githubSources: GitHubSourceApi[],
-                    sourceId: string | null,
-                    scopeRepo: string | null
-                ): string | null => {
-                    if (!sourceId) {
-                        // A repo-only scope (?repo, no ?source) highlights that repo across sources; an
-                        // unscoped page highlights nothing (placeholder shows the default label).
-                        const byRepo = scopeRepo && githubSources.find((source) => source.repo === scopeRepo)
-                        return byRepo ? scopeToValue(byRepo.id, byRepo.repo) : null
-                    }
-                    // Mirror activeSource: with no explicit repo, prefer the synced entry so the picker
-                    // highlights the repo the loaders actually read — else it shows an unsynced repo whose
-                    // selection would flip the page to not-connected.
-                    const ofSource = githubSources.filter((source) => source.id === sourceId)
-                    const match =
-                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
-                        ofSource.find((source) => source.synced) ||
-                        ofSource[0]
-                    return match ? scopeToValue(match.id, match.repo) : null
-                },
-            ],
         }),
 
         listeners(({ actions, values }) => ({
@@ -1270,13 +1203,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 } else {
                     actions.refresh()
                 }
-            },
-            switchRepo: ({ scopeValue }) => {
-                const { sourceId, repo } = scopeFromValue(scopeValue)
-                posthog.capture(EVENT_REPO_SWITCHED, { repository_count: values.sourceOptions.length })
-                // The path names the repository; `?source` only rides along when two sources sync it.
-                const sourcesOfRepo = values.githubSources.filter((source) => source.repo === repo)
-                actions.setScope(sourcesOfRepo.length > 1 ? sourceId : null, repo)
             },
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
@@ -1324,23 +1250,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                           // explorer reads from the source that syncs the pull request's own repository.
                           withScope(explorerUrl, { ...router.values.searchParams, repo: undefined }, null)
                 )
-            },
-        })),
-
-        actionToUrl(() => ({
-            // The repository is a path segment, so picking one navigates to the same page in it. `?source`
-            // stays a query param: it only tells apart two sources that sync the same repository.
-            setScope: ({ sourceId, scopeRepo }) => {
-                if (!scopeRepo) {
-                    return undefined
-                }
-                const pathname = removeProjectIdIfPresent(router.values.location.pathname)
-                const { repo: _repo, source: _source, ...searchParams } = router.values.searchParams
-                return [
-                    switchRepoPath(pathname, scopeRepo),
-                    sourceId ? { ...searchParams, source: sourceId } : searchParams,
-                    router.values.hashParams,
-                ]
             },
         })),
 

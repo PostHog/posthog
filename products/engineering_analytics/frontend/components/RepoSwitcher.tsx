@@ -5,13 +5,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
-import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
+import { repoScopeLogic } from '../scenes/repoScopeLogic'
 
 /** The one place to change repository: a button beside the repository title. With one repository there is
  *  nothing to switch to, so it renders nothing. */
 export function RepoSwitcher(): JSX.Element | null {
-    const { hasMultipleSources, sourceOptions, selectedScope } = useValues(engineeringAnalyticsLogic)
-    const { switchRepo } = useActions(engineeringAnalyticsLogic)
+    const { hasMultipleSources, sourceOptions, selectedScope } = useValues(repoScopeLogic)
+    const { switchRepo } = useActions(repoScopeLogic)
 
     if (!hasMultipleSources) {
         return null

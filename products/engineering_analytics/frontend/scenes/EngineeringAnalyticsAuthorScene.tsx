@@ -10,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AuthorFrictionCard } from '../components/AuthorFrictionCard'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
@@ -18,8 +17,9 @@ import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { ProductNav } from '../components/ProductNav'
 import { PullRequestDayView } from '../components/PullRequestDayView'
 import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { formatCost, formatMinutes } from '../components/runTables'
-import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
+import { DELIVERY_DATE_OPTIONS, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -74,7 +74,6 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     } = useValues(timelinesLogic)
     const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
-    const hubUrl = withCurrentScope(urls.engineeringAnalytics(repo), sourceId)
     const authorsUrl = withCurrentScope(urls.engineeringAnalyticsAuthors(repo), sourceId)
     const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
@@ -85,25 +84,10 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            <SceneTitleSection name="Author" resourceType={{ type: 'health' }} />
+            <RepoSceneTitle repo={repo} />
             <ProductNav activeTab="authors" repo={repo} sourceId={sourceId}>
                 <div className="flex flex-col gap-4">
-                    <ScopeBar
-                        repoSlot={
-                            <RepoScopeChip
-                                label={
-                                    repoSlugs.length === 1
-                                        ? repoSlugs[0]
-                                        : repoSlugs.length
-                                          ? 'All repositories'
-                                          : 'Repository'
-                                }
-                                to={hubUrl}
-                            />
-                        }
-                        crumbs={[{ label: 'Authors', to: authorsUrl }, { label: handle }]}
-                        showDate={false}
-                    />
+                    <ScopeBar crumbs={[{ label: 'Authors', to: authorsUrl }, { label: handle }]} showDate={false} />
                     <EntityHeader
                         icon={
                             avatarUrl ? (

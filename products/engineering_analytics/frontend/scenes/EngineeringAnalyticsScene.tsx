@@ -5,11 +5,10 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductNav } from '../components/ProductNav'
-import { RepoSwitcher } from '../components/RepoSwitcher'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { engineeringAnalyticsEmptyState } from '../emptyState/engineeringAnalyticsEmptyState'
 import { doraLogic } from './doraLogic'
 import { EngineeringAnalyticsAuthors } from './EngineeringAnalyticsAuthors'
@@ -88,12 +87,9 @@ export function EngineeringAnalyticsScene(): JSX.Element {
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
             <SceneContent className="pb-16">
-                <SceneTitleSection
-                    // The repository is the page's subject; the breadcrumbs carry the product name.
-                    name={scopeRepo ?? 'Engineering analytics'}
-                    nameSuffix={<RepoSwitcher />}
+                <RepoSceneTitle
+                    repo={scopeRepo}
                     description={viewDescription(activeView, scopeRepo)}
-                    resourceType={{ type: 'health' }}
                     actions={
                         <>
                             {scopeRepo && (
