@@ -1,15 +1,27 @@
+import { useState } from 'react'
+
 import { IconBug, IconCode, IconMessage, IconPalette, IconPiggyBank, IconTrending } from '@posthog/icons'
-import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle, Text, cn } from '@posthog/quill-primitives'
+import {
+    IconStack,
+    IconStackItem,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemMedia,
+    ItemTitle,
+    Text,
+    cn,
+} from '@posthog/quill-primitives'
 
 import type { PermissionMode } from '../../utils/composerModes'
 
 const STARTER_SUGGESTION_ICONS = {
-    trends: IconTrending,
-    bug: IconBug,
-    canvas: IconPalette,
-    code: IconCode,
-    revenue: IconPiggyBank,
-    feedback: IconMessage,
+    trends: { Icon: IconTrending, color: 'var(--color-product-product-analytics-light)' },
+    bug: { Icon: IconBug, color: 'var(--color-product-error-tracking-light)' },
+    canvas: { Icon: IconPalette, color: 'var(--color-product-product-analytics-light)' },
+    code: { Icon: IconCode, color: 'var(--color-product-tasks-light)' },
+    revenue: { Icon: IconPiggyBank, color: 'var(--color-product-revenue-analytics-light)' },
+    feedback: { Icon: IconMessage, color: 'var(--color-product-support-light)' },
 }
 
 export type ComposerStarterSuggestionIcon = keyof typeof STARTER_SUGGESTION_ICONS
@@ -34,6 +46,8 @@ export function QuillComposerStarterSuggestions({
     hidden,
     onSelect,
 }: QuillComposerStarterSuggestionsProps): JSX.Element {
+    const [activeId, setActiveId] = useState<string | null>(null)
+
     return (
         <div
             className={cn(
@@ -46,7 +60,9 @@ export function QuillComposerStarterSuggestions({
             </Text>
             <div className="grid grid-cols-1 gap-2 @lg/starter-suggestions:grid-cols-2">
                 {suggestions.map((suggestion, index) => {
-                    const SuggestionIcon = STARTER_SUGGESTION_ICONS[suggestion.icon]
+                    const { Icon, color } = STARTER_SUGGESTION_ICONS[suggestion.icon]
+                    const activate = (): void => setActiveId(suggestion.id)
+                    const deactivate = (): void => setActiveId(null)
                     return (
                         <Item
                             key={suggestion.id}
@@ -57,12 +73,20 @@ export function QuillComposerStarterSuggestions({
                                 <button
                                     type="button"
                                     onClick={() => onSelect(suggestion, index)}
+                                    onMouseEnter={activate}
+                                    onMouseLeave={deactivate}
+                                    onFocus={activate}
+                                    onBlur={deactivate}
                                     data-attr="task-composer-starter-suggestion"
                                 />
                             }
                         >
-                            <ItemMedia variant="icon" className="text-muted-foreground">
-                                <SuggestionIcon />
+                            <ItemMedia>
+                                <IconStack className="[--quill-icon-stack-ring:var(--card)]">
+                                    <IconStackItem color={color} active={activeId === suggestion.id}>
+                                        <Icon />
+                                    </IconStackItem>
+                                </IconStack>
                             </ItemMedia>
                             <ItemContent className="min-w-0">
                                 <ItemTitle className="w-full truncate">{suggestion.label}</ItemTitle>
