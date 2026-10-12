@@ -245,10 +245,11 @@ The write path is gated by `scouts-tool-access` and fails closed when the flag i
 
 While the flag is on, a run stamps the list on its task at dispatch, and a config edit applies from the next run.
 The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
-The API refuses a request that needs a write scope unless a tool the run holds calls that endpoint, or the endpoint belongs to the sandbox harness.
+The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
+The method counts because some actions change state behind a read scope.
 The refusal is a 403 with the code `scout_tool_not_granted`.
 The check reads the run from the token's task binding, never from a request header.
-Reads stay governed by the token scopes, and the MCP server still lists every tool the scopes allow.
+GET reads stay governed by the token scopes, and the MCP server still lists every tool the scopes allow.
 Keep the flag disabled for customers until the MCP server hides unpicked tools and the settings picker ships.
 
 ### Activity attribution

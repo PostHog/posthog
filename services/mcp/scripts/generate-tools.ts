@@ -2277,6 +2277,8 @@ function generateDefinitionsJson(
                 summary: wrapperConfig.title || name,
                 title: wrapperConfig.title || name,
                 required_scopes: wrapperConfig.scopes,
+                // Every query wrapper posts to the query endpoint.
+                api_operations: ['POST /api/projects/{project_id}/query/'],
                 annotations: {
                     destructiveHint: wrapperConfig.annotations.destructive,
                     idempotentHint: wrapperConfig.annotations.idempotent,
@@ -2463,6 +2465,8 @@ function generateQueryWrapperDefinitionsJson(
             summary: toolConfig.title || name,
             title: toolConfig.title || name,
             required_scopes: toolConfig.scopes,
+            // Every query wrapper posts to the query endpoint, actors lookups included.
+            api_operations: ['POST /api/projects/{project_id}/query/'],
             annotations: {
                 destructiveHint: toolConfig.annotations.destructive,
                 idempotentHint: toolConfig.annotations.idempotent,

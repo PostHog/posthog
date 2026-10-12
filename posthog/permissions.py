@@ -921,7 +921,7 @@ class APIScopePermission(ScopeBasePermission):
     def _sandbox_tool_policy_allows(
         self, request, view, access_token: OAuthAccessToken, required_scopes: list[str]
     ) -> bool:
-        """A sandbox run narrowed to a tool list may only write through the tools it holds.
+        """A sandbox run narrowed to a tool list may only change state through the tools it holds.
 
         Scopes alone cannot say this: `ticket:write` covers a private note and a reply to the
         customer alike. The run is read from the token's server-written task binding.

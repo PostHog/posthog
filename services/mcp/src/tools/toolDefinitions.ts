@@ -40,7 +40,7 @@ export const ToolDefinitionSchema = z
         redirect_hint: z.string().optional(),
         /**
          * The Django endpoints the handler calls, as `METHOD /path` with OpenAPI path templates.
-         * The API refuses a write from a scout run when no tool the run holds lists the endpoint.
+         * A narrowed scout run is refused a non-GET call when no tool it holds lists the endpoint.
          */
         api_operations: z.array(z.string()).optional(),
         /**

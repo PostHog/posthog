@@ -22,7 +22,27 @@ from products.tasks.backend.models import Task
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 NOTES_ONLY = ["conversations-tickets-notes-create"]
-TOKEN_SCOPES = "ticket:read ticket:write notebook:read notebook:write task:read task:write"
+TOKEN_SCOPES = "ticket:read ticket:write notebook:read notebook:write task:read task:write project:read query:read"
+# Hand-written tools whose handlers only read with GET, or make no API call, so they list no endpoint.
+GET_ONLY_TOOLS = frozenset(
+    {
+        "agent-feedback",
+        "debug-mcp-ui-apps",
+        "experiment-get-by-flag-key",
+        "external-data-sources-jobs",
+        "external-data-sync-logs",
+        "feature-flag-get-definition-by-key",
+        "generate-app-url",
+        "llma-parser-recipe-reference",
+        "organizations-get",
+        "projects-get",
+        "switch-organization",
+        "switch-project",
+        "tasks-artifacts-list",
+        "tasks-comments-list",
+        "tasks-comments-retrieve",
+    }
+)
 
 
 class TestScoutToolPolicyAPI(APIBaseTest):
@@ -81,6 +101,10 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ("unpicked_ticket_update", NOTES_ONLY, True, "patch", "ticket", status.HTTP_403_FORBIDDEN),
             ("unpicked_fleet_write", NOTES_ONLY, True, "post", "notebooks", status.HTTP_403_FORBIDDEN),
             ("reads_stay_on_scopes", NOTES_ONLY, True, "get", "notebooks", status.HTTP_200_OK),
+            # The action changes the project behind a read scope, so the method has to trigger the check.
+            ("read_scoped_mutation", NOTES_ONLY, True, "patch", "complete_onboarding", status.HTTP_403_FORBIDDEN),
+            ("unpicked_post_read", NOTES_ONLY, True, "post", "query", status.HTTP_403_FORBIDDEN),
+            ("picked_post_read", ["insight-query"], True, "post", "query", status.HTTP_200_OK),
             ("harness_write", [], True, "patch", "run_summary", status.HTTP_200_OK),
             ("malformed_stamp_fails_closed", "conversations-tickets-notes-create", True, "post", "ticket_notes", 403),
             ("not_narrowed", None, True, "post", "ticket_reply", status.HTTP_201_CREATED),
@@ -100,6 +124,8 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             "ticket_reply": (f"{base}/conversations/tickets/{self.ticket.id}/reply/", {"message": "Synthetic reply"}),
             "notebooks": (f"{base}/notebooks/", {"title": "Synthetic notebook"}),
             "run_summary": (f"{base}/tasks/{task.id}/runs/{run.id}/set_summary/", {"summary": "Synthetic summary"}),
+            "complete_onboarding": (f"{base}/complete_product_onboarding/", {"type": "product_analytics"}),
+            "query": (f"{base}/query/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
         }[target]
 
         with patch("products.conversations.backend.api.tickets.transaction.on_commit"):
@@ -126,13 +152,11 @@ class TestScoutToolOperations(SimpleTestCase):
 
         assert unresolved == []
 
-    def test_every_holdable_write_tool_names_the_endpoints_it_writes_through(self) -> None:
-        missing = sorted(
-            entry.definition.name
-            for entry in get_scout_tool_catalogue().tools
-            if entry.holdable
-            and not entry.definition.api_operations
-            and any(not scope.endswith(":read") for scope in entry.definition.required_scopes)
-        )
+    def test_every_holdable_tool_names_its_endpoints_unless_it_only_reads_with_get(self) -> None:
+        holdable = {
+            entry.definition.name: entry.definition for entry in get_scout_tool_catalogue().tools if entry.holdable
+        }
 
-        assert missing == []
+        missing = sorted(name for name, definition in holdable.items() if not definition.api_operations)
+
+        assert missing == sorted(GET_ONLY_TOOLS & holdable.keys())

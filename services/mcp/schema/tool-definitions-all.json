@@ -5169,6 +5169,7 @@
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/execute_sql/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5561,6 +5562,7 @@
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6873,6 +6875,7 @@
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
         "required_scopes": ["warehouse_table:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7593,6 +7596,7 @@
         "summary": "Run a saved insight's query and return results.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11068,6 +11072,7 @@
         "summary": "Run a funnel query",
         "title": "Run a funnel query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11083,6 +11088,7 @@
         "summary": "List persons who converted or dropped off at a funnel step",
         "title": "List persons who converted or dropped off at a funnel step",
         "required_scopes": ["query:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11098,6 +11104,7 @@
         "summary": "Run a lifecycle query",
         "title": "Run a lifecycle query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11113,6 +11120,7 @@
         "summary": "List persons in a lifecycle bucket",
         "title": "List persons in a lifecycle bucket",
         "required_scopes": ["query:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11128,6 +11136,7 @@
         "summary": "Get LLM trace",
         "title": "Get LLM trace",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11143,6 +11152,7 @@
         "summary": "List LLM traces",
         "title": "List LLM traces",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11173,6 +11183,7 @@
         "summary": "Break down MCP tool calls by harness",
         "title": "Break down MCP tool calls by harness",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11188,6 +11199,7 @@
         "summary": "List MCP missing-capability reports",
         "title": "List MCP missing-capability reports",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11203,6 +11215,7 @@
         "summary": "Daily trend for one MCP tool",
         "title": "Daily trend for one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11218,6 +11231,7 @@
         "summary": "Descriptions seen for one MCP tool",
         "title": "Descriptions seen for one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11233,6 +11247,7 @@
         "summary": "Individual errored calls in one failure bucket",
         "title": "Individual errored calls in one failure bucket",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11248,6 +11263,7 @@
         "summary": "Top errors for one MCP tool",
         "title": "Top errors for one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11263,6 +11279,7 @@
         "summary": "Tools called alongside one MCP tool",
         "title": "Tools called alongside one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11278,6 +11295,7 @@
         "summary": "Sample intents for one MCP tool",
         "title": "Sample intents for one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11293,6 +11311,7 @@
         "summary": "Summarise one MCP tool",
         "title": "Summarise one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11308,6 +11327,7 @@
         "summary": "Top callers of one MCP tool",
         "title": "Top callers of one MCP tool",
         "required_scopes": ["query:read", "mcp_analytics:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11339,6 +11359,7 @@
         "summary": "Run a paths query",
         "title": "Run a paths query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11354,6 +11375,7 @@
         "summary": "List persons on a paths insight",
         "title": "List persons on a paths insight",
         "required_scopes": ["query:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11369,6 +11391,7 @@
         "summary": "Run a retention query",
         "title": "Run a retention query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11384,6 +11407,7 @@
         "summary": "List persons in a retention cohort",
         "title": "List persons in a retention cohort",
         "required_scopes": ["query:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11399,6 +11423,7 @@
         "summary": "List session recordings",
         "title": "List session recordings",
         "required_scopes": ["session_recording:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11414,6 +11439,7 @@
         "summary": "Run a stickiness query",
         "title": "Run a stickiness query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11429,6 +11455,7 @@
         "summary": "List persons behind a stickiness bar",
         "title": "List persons behind a stickiness bar",
         "required_scopes": ["query:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11444,6 +11471,7 @@
         "summary": "Run a trends query",
         "title": "Run a trends query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11459,6 +11487,7 @@
         "summary": "List persons behind a trends data point",
         "title": "List persons behind a trends data point",
         "required_scopes": ["query:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11474,6 +11503,7 @@
         "summary": "Run a web analytics overview query",
         "title": "Run a web analytics overview query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11489,6 +11519,7 @@
         "summary": "Run a web analytics breakdown table query",
         "title": "Run a web analytics breakdown table query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11504,6 +11535,7 @@
         "summary": "Run a web vitals path breakdown query",
         "title": "Run a web vitals path breakdown query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -11519,6 +11551,7 @@
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
         "required_scopes": ["action:read", "event_definition:read", "property_definition:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/read_taxonomy/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -15617,6 +15650,7 @@
         "summary": "Size workflow audience",
         "title": "Size workflow audience",
         "required_scopes": ["hog_flow:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/hog_flows/user_blast_radius/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

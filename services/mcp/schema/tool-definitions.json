@@ -109,6 +109,7 @@
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -273,6 +274,7 @@
         "summary": "Run a saved insight's query and return results.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -451,6 +453,7 @@
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
         "required_scopes": ["warehouse_table:read"],
+        "api_operations": ["POST /api/projects/{project_id}/query/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -689,6 +692,7 @@
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
         "required_scopes": ["query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/execute_sql/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -703,6 +707,7 @@
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
         "required_scopes": ["action:read", "event_definition:read", "property_definition:read"],
+        "api_operations": ["POST /api/projects/{project_id}/mcp_tools/read_taxonomy/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -745,6 +750,7 @@
         "summary": "Size workflow audience",
         "title": "Size workflow audience",
         "required_scopes": ["hog_flow:read", "person:read"],
+        "api_operations": ["POST /api/projects/{project_id}/hog_flows/user_blast_radius/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
