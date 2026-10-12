@@ -14,12 +14,28 @@ interface SectionImpressionState {
     totalCount: number | null
     loadedQueryKey: string | null
     loadedContext: ReportListRequestContext | null
+    loadedRanker: string | null
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
-    const { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic(sectionListLogicProps(sectionKey)))
-    return { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext }
+    const {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+        loadedRanker,
+    } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    return {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+        loadedRanker,
+    }
 }
 
 /**
@@ -104,6 +120,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 sortField: context.sortField,
                 sortDirection: context.sortDirection,
                 createdWindow: context.createdWindow,
+                rankerId: sections[sectionKey].loadedRanker,
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with

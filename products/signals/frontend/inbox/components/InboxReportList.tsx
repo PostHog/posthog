@@ -87,6 +87,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         pageLoadFailed,
         loadedQueryKey,
         loadedContext,
+        loadedRanker,
     } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, dismissReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
@@ -182,8 +183,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             sortField: loadedContext.sortField,
             sortDirection: loadedContext.sortDirection,
             createdWindow: loadedContext.createdWindow,
+            rankerId: loadedRanker,
         })
-    }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
+    }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext, loadedRanker])
 
     // Read fresh state at intersection time via refs so the observer isn't rebuilt twice per page
     // fetch (`hasMore`/`reportsResponseLoading` both flip during a load).

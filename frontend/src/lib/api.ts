@@ -4933,6 +4933,8 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Inbox sort preset, for example `recommended`. The server ignores it when `ordering` is set. */
+            sort?: string
             /** Comma-separated source products. */
             source_product?: string
             /** Comma-separated P0–P4. */
@@ -4953,7 +4955,7 @@ const api = {
             include_source_metadata?: 'true' | 'false'
             /** ISO 8601 datetime. Keeps reports created at or after it. */
             created_after?: string
-        }): Promise<CountedPaginatedResponse<SignalReport>> {
+        }): Promise<CountedPaginatedResponse<SignalReport> & { ranker?: string | null }> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
         async get(id: SignalReport['id']): Promise<SignalReport> {
