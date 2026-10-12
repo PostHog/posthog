@@ -54,9 +54,6 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
-from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
@@ -88,6 +85,12 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.cdp.backend.presentation.hog_functions import (
+    DATA_WAREHOUSE_SOURCES,
+    FLAG_GATED_TEMPLATE_IDS,
+    compile_filters_expr,
+    gated_template_enabled,
+)
 from products.cdp.backend.presentation.hog_invocations.cancel import (
     HogInvocationCancelRequestSerializer,
     HogInvocationCancelResponseSerializer,
@@ -106,6 +109,11 @@ from products.cdp.backend.presentation.hog_invocations.results import (
     fetch_hog_invocation_results,
     fetch_hog_invocation_results_count,
     tag_invocation_results_query,
+)
+from products.cdp.backend.presentation.serializers import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaSerializer,
+    InputsSerializer,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
