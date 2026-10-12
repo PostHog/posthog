@@ -2023,6 +2023,7 @@ export interface PaginatedTaskListItemListApi {
  * * `session_summaries` - Session Summaries
  * * `posthog_ai` - PostHog AI
  * * `experiments` - Experiments
+ * * `feature_flags` - Feature flags
  * * `signal_report` - Signal Report
  * * `autoresearch` - Autoresearch
  * * `signals_scout` - Signals Scout
@@ -2051,6 +2052,7 @@ export const TaskOriginProductEnumApi = {
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     SignalReport: 'signal_report',
     Autoresearch: 'autoresearch',
     SignalsScout: 'signals_scout',
@@ -2111,6 +2113,7 @@ export interface TaskCreateApi {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `feature_flags` - Feature flags
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -2339,6 +2342,7 @@ export interface TaskWriteApi {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `feature_flags` - Feature flags
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -2474,6 +2478,7 @@ export interface PatchedTaskWriteApi {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `feature_flags` - Feature flags
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -5858,6 +5863,7 @@ export type TasksListParams = {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `feature_flags` - Feature flags
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -6000,6 +6006,7 @@ export const TasksListExcludeOriginProduct = {
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     SignalReport: 'signal_report',
     Autoresearch: 'autoresearch',
     SignalsScout: 'signals_scout',

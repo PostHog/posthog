@@ -110,6 +110,7 @@ import {
 } from 'products/feature_flags/frontend/generated/api'
 import type {
     CopyFlagsDependencyRequirementsResponseApi,
+    FeatureFlagCleanupPrRequestApi,
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
 
@@ -150,6 +151,7 @@ import {
     projectSelectOptions,
 } from './flagSelectionLogic'
 import { PropertySelectError, getConditionSetErrors } from './propertySelectErrorMessages'
+import { requestFeatureFlagCleanupPr } from './requestFeatureFlagCleanupPr'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,
@@ -2076,13 +2078,16 @@ export interface featureFlagLogicActions {
     updateFeatureFlagArchived: ({
         archived,
         via,
+        cleanupPr,
     }: {
         archived: boolean
+        cleanupPr?: FeatureFlagCleanupPrRequestApi
         /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
         via?: FeatureFlagArchivedSource
     }) => {
         archived: boolean
         via?: FeatureFlagArchivedSource
+        cleanupPr?: FeatureFlagCleanupPrRequestApi
     }
     updateFeatureFlagArchivedFailure: (
         error: string,
@@ -2096,12 +2101,14 @@ export interface featureFlagLogicActions {
         payload?: {
             archived: boolean
             via?: FeatureFlagArchivedSource
+            cleanupPr?: FeatureFlagCleanupPrRequestApi
         }
     ) => {
         featureFlagActiveUpdate: FeatureFlagType
         payload?: {
             archived: boolean
             via?: FeatureFlagArchivedSource
+            cleanupPr?: FeatureFlagCleanupPrRequestApi
         }
     }
 }
@@ -3427,18 +3434,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 updateFeatureFlagArchived: async ({
                     archived,
                     via,
+                    cleanupPr,
                 }: {
                     archived: boolean
                     /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
                     via?: FeatureFlagArchivedSource
+                    cleanupPr?: FeatureFlagCleanupPrRequestApi
                 }) => {
-                    if (!values.featureFlag.id) {
+                    const flag = values.featureFlag
+                    if (!flag.id) {
                         throw new Error('Cannot archive an unsaved flag')
+                    }
+                    const projectId = values.currentProjectId
+                    if (archived && cleanupPr && cleanupPr.keep !== 'disabled') {
+                        await requestFeatureFlagCleanupPr(projectId, flag.id, cleanupPr)
+                        return flag
                     }
                     // Archiving also disables the flag — the backend rejects archived+enabled flags
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        `api/projects/${projectId}/feature_flags/${flag.id}`,
                         archived
                             ? { archived: true, active: false, ...values.rowVersionToken }
                             : { archived: false, ...values.rowVersionToken }
@@ -3446,6 +3461,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     if (archived && via) {
                         reportFeatureFlagArchived(via)
+                    }
+                    if (archived && cleanupPr) {
+                        void requestFeatureFlagCleanupPr(projectId, savedFlag.id, cleanupPr)
                     }
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
@@ -4332,7 +4350,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             )
         },
-        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
+        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate, payload }) => {
+            if (payload?.archived && payload.cleanupPr && payload.cleanupPr.keep !== 'disabled') {
+                return
+            }
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
                 // Archiving also disables the flag, so archived/active/version are the persisted

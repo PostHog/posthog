@@ -184,6 +184,7 @@ from products.tasks.backend.visibility import (
 )
 
 from . import contracts
+from .task_retries import retry_failed_task
 from .task_run_signals import hidden_task_ids, task_run_start_refusal
 
 if TYPE_CHECKING:
@@ -360,6 +361,7 @@ __all__ = [
     "signal_workflow_completion",
     "soft_delete_task",
     "start_task_run",
+    "retry_failed_task",
     "task_accessible_for_run_view",
     "task_channel_id",
     "task_exempt_from_code_access",

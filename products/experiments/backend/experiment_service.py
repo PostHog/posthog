@@ -106,6 +106,11 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     strip_group_cohort_restriction,
 )
+from products.feature_flags.backend.flag_cleanup import (
+    CleanupRepositorySource,
+    CleanupRepositoryTarget,
+    resolve_cleanup_repository,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
 from products.notifications.backend.facade.api import (
@@ -121,14 +126,6 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 logger = structlog.get_logger(__name__)
-
-CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
-
-
-class CleanupRepositoryTarget(TypedDict):
-    repository: str | None
-    source: CleanupRepositorySource
-    candidates: list[str]
 
 
 class CleanupRequestSummary(TypedDict):
@@ -2688,47 +2685,12 @@ class ExperimentService:
         Returns how the target was determined (`source`) and the team's connected repositories
         (`candidates`) so the end-experiment modal can show the target or offer a picker.
         """
-        # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
-        # request import path.
-        from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
-
-        # team_only: the candidates are shown to any experiment viewer with Code access, and the
-        # cleanup PR is opened by the team installation's bot identity — a personal-connection
-        # fallback would both leak someone's private repo names and target a repo the bot can't use.
-        github = tasks_repo_selection.resolve_team_github_integration(
-            experiment.team_id, team=experiment.team, team_only=True
+        return resolve_cleanup_repository(
+            experiment.team,
+            requested_repository=requested_repository,
+            saved_repository=experiment.repository,
+            team_default_repository=self._get_team_experiments_config().flag_cleanup_repository,
         )
-        if github is None:
-            return {"repository": None, "source": "no_integration", "candidates": []}
-        cached = {
-            full_name.lower(): full_name
-            for repo in github.list_all_cached_repositories(max_repos=1000)
-            if (full_name := repo.get("full_name"))
-        }
-        candidates = sorted(cached.values(), key=str.lower)
-        if not cached:
-            # An integration with nothing to target is as good as none — without this, a
-            # stale saved repo would report "ambiguous" and the modal would show an empty picker.
-            return {"repository": None, "source": "no_integration", "candidates": []}
-        explicit = requested_repository or experiment.repository
-        if explicit:
-            # An explicit repo must still belong to this team's installation — GitHub
-            # installations can be shared, so an unchecked name could reach another
-            # project's private repository through the shared credential. A stale explicit
-            # value does not fall back to the single cached repo: the user pointed at a
-            # specific repo, so ask again rather than silently retarget.
-            if explicit.lower() in cached:
-                # The stored value is lowercased on write; return GitHub's own casing.
-                return {"repository": cached[explicit.lower()], "source": "explicit", "candidates": candidates}
-            return {"repository": None, "source": "ambiguous", "candidates": candidates}
-        team_default = self._get_team_experiments_config().flag_cleanup_repository
-        if team_default and team_default.lower() in cached:
-            # A stale default falls through instead of asking: it is a convenience, not
-            # per-experiment intent, so it must not brick the flow when it stops matching.
-            return {"repository": cached[team_default.lower()], "source": "team_default", "candidates": candidates}
-        if len(cached) == 1:
-            return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}
-        return {"repository": None, "source": "ambiguous", "candidates": candidates}
 
     def _report_experiment_ended(
         self,

@@ -449,8 +449,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             if (featureFlag.archived) {
                                                 updateFeatureFlagArchived({ archived: false })
                                             } else {
-                                                openFeatureFlagArchiveDialog(featureFlag, () =>
-                                                    updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
+                                                openFeatureFlagArchiveDialog(featureFlag, (cleanupPr) =>
+                                                    updateFeatureFlagArchived({
+                                                        archived: true,
+                                                        via: 'archive-dialog',
+                                                        cleanupPr,
+                                                    })
                                                 )
                                             }
                                         }}

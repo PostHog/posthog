@@ -963,6 +963,7 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.SPACE_SETUP,
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
+            tasks_facade.TaskOriginProduct.FEATURE_FLAGS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             tasks_facade.TaskOriginProduct.SUPPORT_REPLY,

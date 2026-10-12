@@ -299,12 +299,13 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                                 updateFeatureFlagArchived({ id: featureFlag.id, archived: false })
                                             return
                                         }
-                                        openFeatureFlagArchiveDialog(featureFlag, () => {
+                                        openFeatureFlagArchiveDialog(featureFlag, (cleanupPr) => {
                                             featureFlag.id &&
                                                 updateFeatureFlagArchived({
                                                     id: featureFlag.id,
                                                     archived: true,
                                                     via: 'archive-dialog',
+                                                    cleanupPr,
                                                 })
                                         })
                                     }}

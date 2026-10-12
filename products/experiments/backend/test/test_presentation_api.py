@@ -6144,9 +6144,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         if cached_repos is None:
             mock_resolve_github.return_value = None
         else:
-            mock_resolve_github.return_value = SimpleNamespace(
-                list_all_cached_repositories=lambda max_repos: cached_repos
-            )
+            mock_resolve_github.return_value = SimpleNamespace(list_all_cached_repositories=lambda **_: cached_repos)
 
         resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
 
@@ -6182,7 +6180,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
         )
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
@@ -6205,7 +6203,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
         )
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
