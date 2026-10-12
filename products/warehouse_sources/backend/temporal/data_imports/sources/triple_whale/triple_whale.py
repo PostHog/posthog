@@ -175,7 +175,11 @@ def triple_whale_source(
                 initial_paginator_state={"page": page, "seen": seen} if endpoint.window == "month" else None,
             )
             if endpoint.window == "day":
-                resource.add_map(lambda row, start=start: {**row, "date": start.isoformat()})
+
+                def add_date(row: dict[str, Any], day: str = start.isoformat()) -> dict[str, Any]:
+                    return {**row, "date": day}
+
+                resource.add_map(add_date)
             yield from resource
             manager.safe_point()
             start, page, seen = following, 1, 0
