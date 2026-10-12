@@ -137,6 +137,35 @@ describe('biEditorLogic', () => {
         logic.unmount()
     })
 
+    it('duplicates a timeline field for date-part grouping and keeps both definitions across reload', () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        const date = {
+            ...eventField,
+            id: 'date',
+            name: 'timestamp',
+            expression: 'timestamp',
+            type: 'datetime' as const,
+            dateBucket: 'month' as const,
+        }
+        logic.actions.restoreState({
+            editorView: BIEditorView.BI,
+            config: { ...config, rows: [date], columns: [], values: [] },
+        })
+        logic.actions.duplicateField('rows', 0)
+        logic.actions.setFieldDatePart('rows', 1, 'month')
+        expect(logic.values.config.rows[0]).toEqual(date)
+        expect(logic.values.config.rows[1].id).not.toBe(date.id)
+        expect(logic.values.generatedQuery?.query).toContain('toStartOfMonth(timestamp)')
+        expect(logic.values.generatedQuery?.query).toContain('toMonth(timestamp)')
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!
+        expect(restored.config.rows[1].datePart).toBe('month')
+        logic.actions.setFieldDateBucket('rows', 1, 'year')
+        expect(logic.values.config.rows[1].datePart).toBeUndefined()
+        expect(logic.values.generatedQuery?.query).toContain('toStartOfYear(timestamp)')
+        logic.unmount()
+    })
+
     it.each(['field', 'blank', 'calculation', 'move'] as const)(
         'preserves a Count result filter when adding the first measure via %s',
         (method) => {

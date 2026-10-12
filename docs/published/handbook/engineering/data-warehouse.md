@@ -316,3 +316,7 @@ inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
 Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
 not include their field types or nested link definitions, so these connections do not infer measures or further links.
+
+The result footer reports distinct dimension groups and non-empty measure values (marks), rather than source-row counts. It excludes total rows and marks truncated results as limited. The grouping labels describe the executed query while edits await Run.
+
+Date and timestamp drops start with daily buckets. A date pill offers **Timeline (keeps the year)** buckets and **Date part (combines years)** choices: month of year, quarter of year, and day of week. **Duplicate** creates an independently configurable shelf field, so the same date can appear at two granularities.

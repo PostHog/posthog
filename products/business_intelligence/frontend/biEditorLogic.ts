@@ -308,9 +308,10 @@ function setFieldDateBucketInConfig(
     config: BIConfig,
     shelf: BIShelf,
     index: number,
-    dateBucket: BIDateBucket | null
+    dateBucket: BIDateBucket | null,
+    datePart?: BIField['datePart']
 ): BIConfig {
-    const updateField = (field: BIField): BIField => ({ ...field, dateBucket: dateBucket ?? undefined })
+    const updateField = (field: BIField): BIField => ({ ...field, dateBucket: dateBucket ?? undefined, datePart })
 
     switch (shelf) {
         case 'rows':
@@ -411,6 +412,14 @@ export interface biEditorLogicActions {
     convertMeasureToDimension: (index: number) => {
         index: number
     }
+    duplicateField: (
+        shelf: Exclude<BIShelf, 'filters'>,
+        index: number
+    ) => {
+        fieldId: string
+        index: number
+        shelf: 'columns' | 'rows' | 'values'
+    }
     editCalculatedMeasure: (index?: number | null) => {
         index: number | null
     }
@@ -506,6 +515,15 @@ export interface biEditorLogicActions {
         dateBucket: BIDateBucket | null
     ) => {
         dateBucket: BIDateBucket | null
+        index: number
+        shelf: BIShelf
+    }
+    setFieldDatePart: (
+        shelf: BIShelf,
+        index: number,
+        datePart: BIField['datePart']
+    ) => {
+        datePart: 'day_of_week' | 'month' | 'quarter' | undefined
         index: number
         shelf: BIShelf
     }
@@ -712,6 +730,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
         }),
         setMeasureShelf: (index: number, shelf: 'rows' | 'columns') => ({ index, shelf }),
         swapRowsAndColumns: true,
+        duplicateField: (shelf: Exclude<BIShelf, 'filters'>, index: number) => ({ shelf, index, fieldId: uuid() }),
+        setFieldDatePart: (shelf: BIShelf, index: number, datePart: BIField['datePart']) => ({
+            shelf,
+            index,
+            datePart,
+        }),
         convertMeasureToDimension: (index: number) => ({ index }),
         setAutoUpdate: (autoUpdate: boolean) => ({ autoUpdate }),
         setChartTypesOpen: (chartTypesOpen: boolean) => ({ chartTypesOpen }),
@@ -1017,6 +1041,16 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     setFieldExpressionInConfig(config, shelf, index, expression),
                 setFieldDateBucket: (config, { shelf, index, dateBucket }) =>
                     setFieldDateBucketInConfig(config, shelf, index, dateBucket),
+                setFieldDatePart: (config, { shelf, index, datePart }) =>
+                    setFieldDateBucketInConfig(config, shelf, index, null, datePart),
+                duplicateField: (config, { shelf, index, fieldId }) => {
+                    if (shelf === 'values') {
+                        const value = config.values[index]
+                        return value ? { ...config, values: [...config.values, { ...value }] } : config
+                    }
+                    const field = config[shelf][index]
+                    return field ? { ...config, [shelf]: [...config[shelf], { ...field, id: fieldId }] } : config
+                },
                 setValueCustomExpression: (config, { index, customExpression }) => ({
                     ...config,
                     values: config.values.map((value, valueIndex) =>
@@ -1247,6 +1281,8 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setSort: () => actions.runAfterChange(),
         setFieldExpression: () => actions.runAfterChange(),
         setFieldDateBucket: () => actions.runAfterChange(),
+        setFieldDatePart: () => actions.runAfterChange(),
+        duplicateField: () => actions.runAfterChange(),
         setValueCustomExpression: () => actions.runAfterChange(),
         setFilterCustomExpression: () => actions.runAfterChange(),
     })),

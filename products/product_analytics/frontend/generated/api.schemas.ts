@@ -8297,6 +8297,14 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export type DatePartApi = (typeof DatePartApi)[keyof typeof DatePartApi]
+
+export const DatePartApi = {
+    Month: 'month',
+    Quarter: 'quarter',
+    DayOfWeek: 'day_of_week',
+} as const
+
 export interface BICategoryGroupApi {
     name: string
     values: string[]
@@ -8345,6 +8353,7 @@ export const DatabaseSerializedFieldTypeApi = {
 
 export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
+    datePart?: DatePartApi | null
     expression: string
     id: string
     localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | null

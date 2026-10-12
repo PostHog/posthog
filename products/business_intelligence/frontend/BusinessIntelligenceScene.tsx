@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BIEditor } from './BIEditor'
 import { biEditorLogic } from './biEditorLogic'
+import { BIResultSummary } from './BIResultSummary'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -186,6 +187,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                     : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}
+                        <BIResultSummary tabId={tabId} />
                     </BIEditor>
                 )}
                 <LemonModal

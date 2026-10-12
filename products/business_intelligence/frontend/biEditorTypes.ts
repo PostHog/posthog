@@ -237,7 +237,7 @@ export function isNumericBIField(field: BIField): boolean {
 }
 
 export function isDateTimeBIField(field: BIField): boolean {
-    return field.type === 'date' || field.type === 'datetime'
+    return !field.datePart && (field.type === 'date' || field.type === 'datetime')
 }
 
 export function isBIFieldCompatible(source: BIDataSource | null, field: BIField): boolean {
@@ -302,7 +302,7 @@ export function getBIDropTarget(field: BIField, shelf: BIShelf): { field: BIFiel
     if ((shelf === 'rows' || shelf === 'columns') && isBIMeasureField(field)) {
         return { field, shelf: 'values' }
     }
-    if ((shelf === 'rows' || shelf === 'columns') && field.type === 'datetime' && !field.dateBucket) {
+    if ((shelf === 'rows' || shelf === 'columns') && isDateTimeBIField(field) && !field.dateBucket) {
         return { field: { ...field, dateBucket: 'day' }, shelf }
     }
     return { field, shelf }
@@ -446,6 +446,10 @@ function parseBIFieldValue(value: unknown): BIField | null {
         (candidate.dateBucket !== undefined &&
             (!BI_DATE_BUCKETS.has(candidate.dateBucket) ||
                 (candidate.type !== 'date' && candidate.type !== 'datetime'))) ||
+        (candidate.datePart !== undefined &&
+            (!['month', 'quarter', 'day_of_week'].includes(candidate.datePart) ||
+                (candidate.type !== 'date' && candidate.type !== 'datetime') ||
+                candidate.dateBucket !== undefined)) ||
         !candidate.source ||
         typeof candidate.source.table !== 'string' ||
         (candidate.source.connectionId !== undefined && typeof candidate.source.connectionId !== 'string')
@@ -707,6 +711,10 @@ export function fieldExpression(field: BIField): string {
         ? escapeDottedHogQLIdentifier(expression)
         : expression
 
+    if (field.datePart) {
+        const functions = { month: 'toMonth', quarter: 'toQuarter', day_of_week: 'toDayOfWeek' }
+        return `${functions[field.datePart]}(${escapedExpression})`
+    }
     return field.dateBucket ? `${DATE_BUCKET_FUNCTIONS[field.dateBucket]}(${escapedExpression})` : escapedExpression
 }
 
@@ -1200,6 +1208,10 @@ export function getBIFieldPillLabel(field: BIField): string {
     const name = field.name || field.expression.trim()
     if (!name) {
         return 'New calculation'
+    }
+    if (field.datePart) {
+        const labels = { month: 'Month of year', quarter: 'Quarter of year', day_of_week: 'Day of week' }
+        return `${labels[field.datePart]}(${name})`
     }
     return field.dateBucket ? `${field.dateBucket.toUpperCase()}(${name})` : name
 }

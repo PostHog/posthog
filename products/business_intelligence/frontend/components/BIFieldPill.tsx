@@ -15,7 +15,6 @@ import {
     getBIShelfEditorKey,
     getBIValuePillLabel,
     getBIValueSortKey,
-    isDateTimeBIField,
     isNumericBIField,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIExpressionPopover } from 'products/business_intelligence/frontend/components/BIExpressionPopover'
@@ -37,11 +36,13 @@ export function BIFieldPill({
     const {
         addFieldToShelf,
         convertMeasureToDimension,
+        duplicateField,
         editCalculatedMeasure,
         moveFieldToShelf,
         removeFieldFromShelf,
         setActiveExpressionEditorId,
         setFieldDateBucket,
+        setFieldDatePart,
         setFieldExpression,
         setSort,
         setValueAggregation,
@@ -88,18 +89,35 @@ export function BIFieldPill({
                   })),
               }
             : null,
-        isDateTimeBIField(field)
+        ['date', 'datetime'].includes(field.type)
             ? {
-                  title: 'Date',
+                  title: 'Timeline (keeps the year)',
                   items: DATE_BUCKET_OPTIONS.map((option) => ({
                       label: option.label,
-                      active: (field.dateBucket ?? null) === option.value,
+                      active: !field.datePart && (field.dateBucket ?? null) === option.value,
                       onClick: () => setFieldDateBucket(shelf, index, option.value),
+                  })),
+              }
+            : null,
+        ['date', 'datetime'].includes(field.type)
+            ? {
+                  title: 'Date part (combines years)',
+                  items: (
+                      [
+                          ['month', 'Month of year'],
+                          ['quarter', 'Quarter of year'],
+                          ['day_of_week', 'Day of week'],
+                      ] as const
+                  ).map(([part, label]) => ({
+                      label,
+                      active: field.datePart === part,
+                      onClick: () => setFieldDatePart(shelf, index, part),
                   })),
               }
             : null,
         {
             items: [
+                { label: 'Duplicate', onClick: () => duplicateField(shelf, index) },
                 isMeasure
                     ? {
                           label: value?.shelf === 'columns' ? 'Move to rows' : 'Move to columns',

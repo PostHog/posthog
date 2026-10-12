@@ -781,6 +781,20 @@ describe('BI editor query generation', () => {
     })
 
     test.each([
+        [
+            'a date on rows is bucketed by day',
+            { ...timestampField, type: 'date' },
+            'rows',
+            { ...timestampField, type: 'date', dateBucket: 'day' },
+            'rows',
+        ],
+        [
+            'a date part keeps its grouping',
+            { ...timestampField, datePart: 'month' },
+            'columns',
+            { ...timestampField, datePart: 'month' },
+            'columns',
+        ],
         ['a measure dropped on rows becomes a value', revenueField, 'rows', revenueField, 'values'],
         ['a measure dropped on columns becomes a value', revenueField, 'columns', revenueField, 'values'],
         ['a measure dropped on filters stays a filter', revenueField, 'filters', revenueField, 'filters'],

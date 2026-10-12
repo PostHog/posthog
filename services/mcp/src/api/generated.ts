@@ -10736,6 +10736,15 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    export type DatePart = typeof DatePart[keyof typeof DatePart];
+
+
+    export const DatePart = {
+      Month: 'month',
+      Quarter: 'quarter',
+      DayOfWeek: 'day_of_week',
+    } as const;
+
     export interface BICategoryGroup {
       name: string;
       values: string[];
@@ -10784,6 +10793,7 @@ export namespace Schemas {
 
     export interface BIField {
       dateBucket?: BIDateBucket | null;
+      datePart?: DatePart | null;
       expression: string;
       id: string;
       localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | null;
