@@ -1425,6 +1425,31 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert "orders" in editable_by_name
         assert not any(editable_by_name.values())
 
+    def test_the_catalog_narrows_by_search_and_subject_type(self) -> None:
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="Orders_daily", query={"kind": "HogQLQuery"})
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="refunds", query={"kind": "HogQLQuery"})
+
+        by_search = self.client.get(f"{self.url}/subjects/", {"search": "ORDERS", "subject_type": "view"})
+        assert by_search.status_code == status.HTTP_200_OK, by_search.content
+        assert [row["name"] for row in by_search.json()] == ["orders", "Orders_daily"]
+
+        events = self.client.get(f"{self.url}/subjects/", {"search": "events", "subject_type": "posthog_table"})
+        assert [(row["name"], bool(row["columns"])) for row in events.json()] == [("events", True)]
+
+        bare = self.client.get(f"{self.url}/subjects/", {"search": "events", "include_columns": "false"})
+        assert [(row["name"], row["columns"]) for row in bare.json()] == [("events", {})]
+
+    def test_the_catalog_pages_with_limit_and_offset(self) -> None:
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="refunds", query={"kind": "HogQLQuery"})
+        everything = [row["id"] for row in self.client.get(f"{self.url}/subjects/").json()]
+
+        first = self.client.get(f"{self.url}/subjects/", {"limit": 2}).json()
+        second = self.client.get(f"{self.url}/subjects/", {"limit": 2, "offset": 2}).json()
+
+        assert [row["id"] for row in first + second] == everything[:4]
+        assert len(everything) > 4
+        assert self.client.get(f"{self.url}/subjects/", {"limit": 0}).status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("list", lambda self, check, suite: self.client.get(self._checks_of(self.view.id))),
