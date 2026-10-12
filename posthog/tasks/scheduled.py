@@ -153,6 +153,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
     delete_expired_recipient_lists,
+    fail_stalled_recipient_list_import_tasks,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
@@ -357,6 +358,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="30"),
         delete_expired_recipient_lists.s(),
         name="workflows recipient lists of deleted cohorts cleanup",
+    )
+
+    # Uploaded broadcast lists whose import stalled - hourly at :25, so the cohort shows an error instead of
+    # "Matching people" forever.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="25"),
+        fail_stalled_recipient_list_import_tasks.s(),
+        name="workflows stalled recipient list imports",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13

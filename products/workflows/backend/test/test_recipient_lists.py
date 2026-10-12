@@ -29,6 +29,7 @@ from products.workflows.backend.tasks import recipient_lists as recipient_list_t
 from products.workflows.backend.tasks.recipient_lists import (
     capture_recipient_list_people,
     delete_expired_recipient_lists,
+    fail_stalled_recipient_list_import_tasks,
     fill_recipient_list_cohort,
 )
 
@@ -418,3 +419,24 @@ class TestRecipientListBroadcasts(APIBaseTest):
 
         assert RecipientList.objects.for_team(self.team.id).exists() is kept
         assert RecipientListRow.objects.for_team(self.team.id).exists() is kept
+
+    @parameterized.expand(
+        [
+            ("stalled_for_two_hours", 2.0, True, True),
+            ("still_within_the_hour", 0.5, True, False),
+            ("finished", 2.0, False, False),
+        ]
+    )
+    def test_sweep_fails_imports_that_stalled(
+        self, _name: str, hours_ago: float, calculating: bool, failed: bool
+    ) -> None:
+        with time_machine.travel(timezone.now() - timedelta(hours=hours_ago), tick=False):
+            cohort_id = self._list("Spring sale", {"user-1": {"email": "a@example.com"}})
+        Cohort.objects.filter(pk=cohort_id).update(is_calculating=calculating)
+
+        fail_stalled_recipient_list_import_tasks()
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert (cohort.errors_calculating, RecipientList.objects.for_team(self.team.id).exists()) == (
+            (1, False) if failed else (0, True)
+        )

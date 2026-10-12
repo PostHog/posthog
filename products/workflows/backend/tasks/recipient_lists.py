@@ -13,6 +13,7 @@ from products.workflows.backend.services.recipient_lists import (
     delete_recipient_lists_of_deleted_cohorts,
     existing_distinct_ids,
     fail_recipient_list_import,
+    fail_stalled_recipient_list_imports,
     get_recipient_list,
     list_emails_by_distinct_id,
 )
@@ -110,6 +111,14 @@ def fill_recipient_list_cohort(*, team_id: int, recipient_list_id: str, attempt:
 def delete_expired_recipient_lists() -> None:
     deleted = delete_recipient_lists_of_deleted_cohorts()
     logger.info("recipient_lists_of_deleted_cohorts_deleted", deleted=deleted)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def fail_stalled_recipient_list_import_tasks() -> None:
+    failed = fail_stalled_recipient_list_imports()
+    if failed:
+        logger.warning("recipient_list_imports_stalled", failed=failed)
 
 
 def _set_events(emails: dict[str, str], recipient_list_id: str) -> list[dict[str, object]]:

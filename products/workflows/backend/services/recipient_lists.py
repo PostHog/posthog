@@ -21,7 +21,11 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition
-from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
+from posthog.models.person.util import (
+    get_distinct_ids_for_persons,
+    get_person_ids_and_uuids_by_uuids,
+    get_person_uuids_and_matched_distinct_ids,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -35,6 +39,10 @@ logger = get_logger(__name__)
 MAX_RECIPIENT_LIST_ROWS = 50_000
 # A soft-deleted cohort can be restored, so its list's rows are kept this long before they are deleted.
 DELETED_COHORT_RETENTION = timedelta(days=7)
+# An import finishes in under 30 minutes, including the waits for ingestion and the capture retries.
+STALLED_IMPORT_AFTER = timedelta(hours=1)
+# An hourly sweep looks back this far, so one missed run doesn't leave an import stuck.
+STALLED_IMPORT_LOOKBACK = timedelta(days=2)
 # Each row becomes the variables of one broadcast run, so one row must not grow a run's state without bound.
 MAX_RECIPIENT_LIST_ROW_BYTES = 4096
 # Bounds each HogQL email lookup, so a full file takes five queries.
@@ -184,6 +192,27 @@ def delete_recipient_lists_of_deleted_cohorts() -> int:
     return deleted
 
 
+def fail_stalled_recipient_list_imports() -> int:
+    """Fails imports whose cohort is still calculating after they should have finished.
+
+    A task that dies, or can't schedule the next one, leaves the cohort calculating with nothing to finish it.
+    The stuck-cohort sweep skips uploaded cohorts, so this one ends them and the cohort shows the error.
+    """
+    now = timezone.now()
+    # Cross-team by design: one sweep covers every team.
+    candidates = dict(
+        RecipientList.objects.unscoped()
+        .filter(created_at__lt=now - STALLED_IMPORT_AFTER, created_at__gte=now - STALLED_IMPORT_LOOKBACK)
+        .values_list("cohort_id", "id")
+    )
+    stalled = Cohort.objects.filter(pk__in=list(candidates), is_calculating=True).values_list("pk", "team_id")
+    failed = 0
+    for cohort_id, cohort_team_id in stalled:
+        fail_recipient_list_import(cohort_team_id, candidates[cohort_id])
+        failed += 1
+    return failed
+
+
 def list_emails_by_distinct_id(team_id: int, recipient_list_id: UUID | str) -> dict[str, str]:
     rows = (
         RecipientListRow.objects.for_team(team_id)
@@ -310,13 +339,13 @@ def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, st
 def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> dict[str, str]:
     if not emails:
         return {}
+    # Querying persons directly lets HogQL filter people by email before it groups their versions.
     # The lowest person ID per email is the same person the email dedupe of a filtered audience picks.
     query = parse_select(
         """
-        SELECT lower(trim(toString(person.properties.email))) AS normalized_email,
-            argMin(distinct_id, person_id) AS matched_distinct_id
-        FROM person_distinct_ids
-        WHERE lower(trim(toString(person.properties.email))) IN {emails}
+        SELECT lower(trim(toString(properties.email))) AS normalized_email, min(id) AS person_uuid
+        FROM persons
+        WHERE lower(trim(toString(properties.email))) IN {emails}
         GROUP BY normalized_email
         LIMIT {limit}
         """,
@@ -326,7 +355,21 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
     tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
     # With the user, property access rules that hide email from the team default still let this user match.
     response = execute_hogql_query(query=query, team=team, user=user, workload=Workload.OFFLINE)
-    return {email: str(distinct_id) for email, distinct_id in response.results}
+    uuid_by_email = {email: UUID(str(person_uuid)) for email, person_uuid in response.results}
+    id_by_uuid = {
+        UUID(str(person_uuid)): person_id
+        for person_id, person_uuid in get_person_ids_and_uuids_by_uuids(
+            team.id, [str(person_uuid) for person_uuid in set(uuid_by_email.values())]
+        )
+    }
+    # Any of the person's distinct IDs will do: a broadcast matches a row by all of them.
+    distinct_ids = get_distinct_ids_for_persons(team.id, list(id_by_uuid.values()), limit_per_person=1)
+    matched: dict[str, str] = {}
+    for email, person_uuid in uuid_by_email.items():
+        person_id = id_by_uuid.get(person_uuid)
+        if person_id is not None and distinct_ids.get(person_id):
+            matched[email] = distinct_ids[person_id][0]
+    return matched
 
 
 def _loose_header(header: object) -> str:
