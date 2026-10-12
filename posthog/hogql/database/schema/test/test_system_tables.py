@@ -102,6 +102,7 @@ from products.messaging.backend.facade.testing import (
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
+from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
@@ -897,6 +898,21 @@ def _create_team(team: Team, label: str) -> Team:
     return team
 
 
+def _create_inbox_report(team: Team, label: str) -> SignalReport:
+    return SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title=f"report_{label}")
+
+
+def _create_inbox_report_check(team: Team, label: str) -> SignalReportCheck:
+    return SignalReportCheck.objects.for_team(team.pk).create(
+        team=team,
+        report=_create_inbox_report(team, label),
+        title=f"check_{label}",
+        kind=SignalReportCheck.Kind.AGENT,
+        next_run_at=timezone.now(),
+        expires_at=timezone.now(),
+    )
+
+
 def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
     return GroupUsageMetric.objects.create(
         team=team,
@@ -1016,6 +1032,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("inbox_report_checks", _create_inbox_report_check),
+    ("inbox_reports", _create_inbox_report),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("replay_scanners", _create_replay_scanner),
@@ -1337,6 +1355,21 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesInboxDeletedExclusionIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_deleted_reports_and_their_checks_excluded(self):
+        live_check = _create_inbox_report_check(self.team, "live")
+        deleted_check = _create_inbox_report_check(self.team, "deleted")
+        SignalReport.objects.filter(id=deleted_check.report_id).update(status=SignalReport.Status.DELETED)
+
+        reports = execute_hogql_query("SELECT id FROM system.inbox_reports", team=self.team, user=self.user)
+        checks = execute_hogql_query("SELECT id FROM system.inbox_report_checks", team=self.team, user=self.user)
+
+        assert {str(row[0]) for row in reports.results} == {str(live_check.report_id)}
+        assert {str(row[0]) for row in checks.results} == {str(live_check.pk)}
 
 
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
