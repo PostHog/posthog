@@ -26,6 +26,7 @@ from posthog.redis import get_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.storage import gateway_credential_cache
 from posthog.storage.gateway_credential_cache import (
+    ENABLED_HOSTS_KEY,
     GATEWAY_CREDENTIAL_FIELDS,
     GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
@@ -230,6 +231,50 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         blob = self._read_blob(credential_hash(credential))
         assert blob is not None
         self.assertNotIn(TIER_KEY, blob)
+
+    @patch("posthog.storage.gateway_credential_cache.posthoganalytics.feature_enabled", return_value=False)
+    def test_enabled_hosts_omitted_when_flag_off(self, _flag):
+        # Absent means no gated hosts; unflagged teams' blobs stay byte-identical.
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(ENABLED_HOSTS_KEY, blob)
+
+    @patch("posthog.storage.gateway_credential_cache.posthoganalytics.feature_enabled", return_value=True)
+    def test_enabled_hosts_projected_when_flag_on(self, flag):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertEqual(blob[ENABLED_HOSTS_KEY], ["gradiated"])
+        # Evaluated per team, locally, without emitting flag-called events from a batch job.
+        self.assertEqual(flag.call_args.args[0], "ai-gateway-gradiated")
+        self.assertEqual(
+            flag.call_args.kwargs["groups"],
+            {"organization": str(self.team.organization_id), "project": str(self.team.id)},
+        )
+        self.assertTrue(flag.call_args.kwargs["only_evaluate_locally"])
+        self.assertFalse(flag.call_args.kwargs["send_feature_flag_events"])
+
+    @patch(
+        "posthog.storage.gateway_credential_cache.posthoganalytics.feature_enabled", side_effect=RuntimeError("down")
+    )
+    def test_enabled_hosts_omitted_when_flag_unavailable(self, _flag):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(ENABLED_HOSTS_KEY, blob)
+
+    @patch("posthog.storage.gateway_credential_cache.posthoganalytics.feature_enabled", return_value=False)
+    def test_enabled_hosts_forced_by_setting(self, _flag):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        with override_settings(AI_GATEWAY_FORCE_ENABLED_HOSTS=["gradiated"]):
+            project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertEqual(blob[ENABLED_HOSTS_KEY], ["gradiated"])
 
     def test_the_writable_tiers_are_the_gateway_vocabulary_minus_the_sentinel(self):
         # The gateway owns this vocabulary in internal/principal/tiers.go and

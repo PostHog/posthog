@@ -1328,6 +1328,12 @@ try:
 except ValueError:
     AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
 
+# Gated gateway hosts projected into every team's enabled_hosts regardless of their
+# PostHog flag. For local dev, where those flags can't be evaluated. Comma-separated ids.
+AI_GATEWAY_FORCE_ENABLED_HOSTS = [
+    host.strip() for host in get_from_env("AI_GATEWAY_FORCE_ENABLED_HOSTS", "").split(",") if host.strip()
+]
+
 # Wizard gateway-token mint. Any of the four unset refuses every mint as
 # `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")

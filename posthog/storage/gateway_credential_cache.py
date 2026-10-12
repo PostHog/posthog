@@ -29,6 +29,7 @@ from django.db import OperationalError
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 import redis.exceptions
 from django_redis.exceptions import ConnectionInterrupted
 
@@ -80,6 +81,12 @@ GATEWAY_CREDENTIAL_FIELDS = [
 TIER_KEY = "tier"
 GATEWAY_KNOWN_TIERS = {"free", "pro", "enterprise"}
 
+# Gated served hosts (gateway-defined, internal/auth/gateway_credential.go): the gateway
+# routes a team to a host configured "gated" only when this list names it. Each host
+# maps to the PostHog flag that opts a team in; the hourly reprojection picks up flips.
+ENABLED_HOSTS_KEY = "enabled_hosts"
+GATED_HOST_FLAGS: dict[str, str] = {"gradiated": "ai-gateway-gradiated"}
+
 # Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
 # fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
 # so we validate at the write surfaces instead of relying on the clamp.
@@ -123,6 +130,7 @@ class _RefreshMemo:
         self._access: dict[tuple[Any, Any], bool] = {}
         self._teams: dict[Any, Team | None] = {}
         self._org_roots: dict[Any, int | None] = {}
+        self._enabled_hosts: dict[Any, list[str]] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -145,6 +153,11 @@ class _RefreshMemo:
         if organization_id not in self._org_roots:
             self._org_roots[organization_id] = load()
         return self._org_roots[organization_id]
+
+    def enabled_hosts(self, team_id: Any, load: Callable[[], list[str]]) -> list[str]:
+        if team_id not in self._enabled_hosts:
+            self._enabled_hosts[team_id] = load()
+        return self._enabled_hosts[team_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -320,7 +333,37 @@ def _policy_for_credential(
             # The gateway never sees the value, so this is the only signal a typo gets.
             logger.warning("gateway_credential: unrecognized tier override, not projecting", team_id=team.id, tier=tier)
 
+    # Absent unless flagged in, so ordinary teams' blobs stay byte-identical.
+    enabled_hosts = memo.enabled_hosts(team.id, lambda: _enabled_hosts(team)) if memo else _enabled_hosts(team)
+    if enabled_hosts:
+        policy[ENABLED_HOSTS_KEY] = enabled_hosts
+
     return policy
+
+
+def _enabled_hosts(team: Team) -> list[str]:
+    """Gated gateway hosts this team may route to, sorted. A flag that can't be
+    evaluated counts as off: the field only widens routing."""
+    forced = set(getattr(settings, "AI_GATEWAY_FORCE_ENABLED_HOSTS", []) or [])
+    return sorted(host for host, flag in GATED_HOST_FLAGS.items() if host in forced or _team_flag_on(flag, team))
+
+
+def _team_flag_on(flag: str, team: Team) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                flag,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "gateway_credential: flag unavailable, treating as off", flag=flag, team_id=team.id, error=str(e)
+        )
+        return False
 
 
 def _team_tier_overrides() -> dict[str, str]:
