@@ -694,6 +694,8 @@ export const visionRequestsCreateBodyIdempotencyKeyMax = 200
 export const visionRequestsCreateBodyReferenceDefault = ``
 export const visionRequestsCreateBodyReferenceMax = 200
 
+export const visionRequestsCreateBodyWaitForSessionEndDefault = false
+
 export const VisionRequestsCreateBody = () => zod
     .object({
         session_ids: zod
@@ -756,6 +758,12 @@ export const VisionRequestsCreateBody = () => zod
             .max(visionRequestsCreateBodyReferenceMax)
             .default(visionRequestsCreateBodyReferenceDefault)
             .describe('Your own id for this request, such as a ticket or job id. Returned unchanged.'),
+        wait_for_session_end: zod
+            .boolean()
+            .default(visionRequestsCreateBodyWaitForSessionEndDefault)
+            .describe(
+                "Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are."
+            ),
     })
     .describe('Body of POST \/vision\/requests\/ - the sessions plus a saved scanner or an inline question.')
 

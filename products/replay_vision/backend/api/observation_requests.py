@@ -96,6 +96,16 @@ class CreateObservationRequestSerializer(serializers.Serializer):
         max_length=200,
         help_text="Your own id for this request, such as a ticket or job id. Returned unchanged.",
     )
+    wait_for_session_end = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. "
+            "Use it when the sessions may still be recording. A scan of a live session sees only part of it, "
+            "and its observation can't be replaced later. Sessions still active after 6 hours are scanned as "
+            "they are."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if ("scanner_id" in attrs) == ("inline" in attrs):
@@ -328,6 +338,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
                 inline=inline,
                 idempotency_key=data.get("idempotency_key"),
                 reference=data["reference"],
+                wait_for_session_end=data["wait_for_session_end"],
             )
         except IdempotencyKeyConflict:
             return Response(

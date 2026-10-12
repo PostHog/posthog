@@ -634,6 +634,9 @@ const visionRequestsCreate = (): ToolBase<
         if (params.reference !== undefined) {
             body['reference'] = params.reference
         }
+        if (params.wait_for_session_end !== undefined) {
+            body['wait_for_session_end'] = params.wait_for_session_end
+        }
         const result = await context.api.request<Schemas.ObservationRequest>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/requests/`,
