@@ -1,10 +1,13 @@
 # Adding a new source to data pipelines
 
 Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a small number of other files. Simply copy the source template file and address all the TODOs in that file in order.
+New sources go in the top-level `sources/` tree, one directory per vendor (see `sources/AGENTS.md`).
+This directory keeps the shared code (`common/`) and the vendors that other code imports.
 
 ```sh
-mkdir -p products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}
-cp products/warehouse_sources/backend/temporal/data_imports/sources/source.template products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}/source.py
+mkdir -p sources/{SOURCE_NAME}
+cp sources/source.template sources/{SOURCE_NAME}/source.py
+touch sources/{SOURCE_NAME}/__init__.py
 ```
 
 ## Source metadata: category & keywords

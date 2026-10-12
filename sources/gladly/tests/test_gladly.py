@@ -1,0 +1,500 @@
+import io
+import json
+from typing import Any
+
+import pytest
+import time_machine
+from unittest import mock
+
+import urllib3
+import requests
+
+from sources.gladly.gladly import (
+    CHUNK_SIZE,
+    GladlyReportHeaderError,
+    GladlyReportNotAvailableForAccountError,
+    GladlyReportUnavailableError,
+    GladlyResumeConfig,
+    GladlyRetryableError,
+    _clean_domain,
+    _clean_organization,
+    get_rows,
+    gladly_source,
+    validate_credentials,
+)
+from sources.gladly.settings import ENDPOINTS, GLADLY_ENDPOINTS
+
+_MODULE = "sources.gladly.gladly"
+
+
+def _make_manager(resume_state: GladlyResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _jobs_response(jobs: list[dict[str, Any]]) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.json.return_value = jobs
+    resp.status_code = 200
+    resp.ok = True
+    return resp
+
+
+def _jsonl_response(rows: list[dict[str, Any]], junk_lines: list[str] | None = None) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    lines = [json.dumps(row) for row in rows] + (junk_lines or [])
+    resp.iter_lines.return_value = iter(lines)
+    resp.status_code = 200
+    resp.ok = True
+    return resp
+
+
+def _job(job_id: str, updated_at: str, files: list[str] | None = None) -> dict[str, Any]:
+    return {"id": job_id, "updatedAt": updated_at, "files": files or ["customers.jsonl", "agents.jsonl"]}
+
+
+def _csv_response(text: str) -> requests.Response:
+    # A real urllib3-backed response so iter_content streams the body and an empty
+    # body closes the connection on EOF exactly as it does in production.
+    raw = urllib3.HTTPResponse(body=io.BytesIO(text.encode()), preload_content=False)
+    response = requests.Response()
+    response.raw = raw
+    response.status_code = 200
+    return response
+
+
+def _error_response(status_code: int) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+    resp.ok = False
+    resp.text = "error body"
+    resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=resp)
+    return resp
+
+
+class TestCleanOrganization:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("myorg", "myorg"),
+            ("https://myorg.gladly.com", "myorg"),
+            ("myorg.gladly.com/api/v1", "myorg"),
+            ("my-org", "my-org"),
+            ("myorg.us-1", "myorg.us-1"),
+            ("https://myorg.us-1.gladly.com", "myorg.us-1"),
+            ("MYORG.GLADLY.COM", "MYORG"),
+        ],
+    )
+    def test_valid_organizations(self, value, expected):
+        assert _clean_organization(value) == expected
+
+    @pytest.mark.parametrize("value", ["", "my org", "org?x=1", "myorg.us-1.extra"])
+    def test_invalid_organizations_raise(self, value):
+        with pytest.raises(ValueError):
+            _clean_organization(value)
+
+
+class TestCleanDomain:
+    @pytest.mark.parametrize("value", ["", "evil.com", "gladly.com.evil.com", "gladly.qa.evil.com", "gladly.dev"])
+    def test_domains_outside_the_allowlist_raise(self, value):
+        with pytest.raises(ValueError):
+            _clean_domain(value)
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        "status_code, expected_valid, expected_message_fragment",
+        [
+            (200, True, None),
+            (401, False, "agent email and API token"),
+            (403, False, "API User permission"),
+            (404, False, "No Gladly organization found at myorg.gladly.com"),
+            (500, False, "unexpected status: 500"),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_status_mapping(
+        self, mock_session, status_code, expected_valid, expected_message_fragment
+    ):
+        response = mock.MagicMock()
+        response.status_code = status_code
+        mock_session.return_value.get.return_value = response
+
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token")
+
+        assert is_valid is expected_valid
+        if expected_message_fragment is None:
+            assert message is None
+        else:
+            assert expected_message_fragment in (message or "")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_unreachable_host_is_not_reported_as_bad_credentials(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("nodename nor servname provided")
+
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token")
+
+        assert is_valid is False
+        assert "Could not connect to Gladly at myorg.gladly.com" in (message or "")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_malformed_organization_is_reported_without_a_probe(self, mock_session):
+        is_valid, message = validate_credentials("my org", "agent@x.com", "token")
+
+        assert is_valid is False
+        assert "Invalid Gladly organization" in (message or "")
+        mock_session.assert_not_called()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_domain_outside_the_allowlist_is_never_probed(self, mock_session):
+        is_valid, message = validate_credentials("myorg", "agent@x.com", "token", "evil.com")
+
+        assert is_valid is False
+        assert "Invalid Gladly domain" in (message or "")
+        mock_session.assert_not_called()
+
+
+class TestGetRows:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_processes_jobs_oldest_first_and_injects_job_fields(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _jobs_response([_job("j2", "2024-01-02T00:00:00.000Z"), _job("j1", "2024-01-01T00:00:00.000Z")]),
+            _jsonl_response([{"id": "c1"}]),  # j1 file (oldest first)
+            _jsonl_response([{"id": "c2"}]),  # j2 file
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("myorg", "agent@x.com", "token", "customers", mock.MagicMock(), manager))
+
+        flat = [row for batch in batches for row in batch]
+        assert [(r["id"], r["_job_id"], r["_job_updated_at"]) for r in flat] == [
+            ("c1", "j1", "2024-01-01T00:00:00.000Z"),
+            ("c2", "j2", "2024-01-02T00:00:00.000Z"),
+        ]
+        # State saved after each fully-processed job.
+        assert [call.args[0].last_job_updated_at for call in manager.save_state.call_args_list] == [
+            "2024-01-01T00:00:00.000Z",
+            "2024-01-02T00:00:00.000Z",
+        ]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resume_state_supersedes_older_watermark(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _jobs_response(
+                [
+                    _job("j1", "2024-01-01T00:00:00.000Z"),
+                    _job("j2", "2024-01-02T00:00:00.000Z"),
+                    _job("j3", "2024-01-03T00:00:00.000Z"),
+                ]
+            ),
+            _jsonl_response([{"id": "c3"}]),
+        ]
+
+        # Resume cutoff (between j2 and j3) supersedes the older incremental watermark,
+        # so j1 and j2 are skipped and only j3 is processed.
+        manager = _make_manager(GladlyResumeConfig(last_job_updated_at="2024-01-02T12:00:00.000Z"))
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "customers",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-01-01T00:00:00.000Z",
+            )
+        )
+
+        assert [row["id"] for batch in batches for row in batch] == ["c3"]
+        assert mock_session.return_value.get.call_count == 2
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_jobs_missing_the_stream_file_are_skipped(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _jobs_response([_job("j1", "2024-01-01T00:00:00.000Z", files=["topics.jsonl"])]),
+        ]
+
+        manager = _make_manager()
+        assert list(get_rows("myorg", "agent@x.com", "token", "customers", mock.MagicMock(), manager)) == []
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_malformed_jsonl_lines_are_skipped_with_warning(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _jobs_response([_job("j1", "2024-01-01T00:00:00.000Z")]),
+            _jsonl_response([{"id": "good"}], junk_lines=["{not json", ""]),
+        ]
+
+        manager = _make_manager()
+        logger = mock.MagicMock()
+        batches = list(get_rows("myorg", "agent@x.com", "token", "customers", logger, manager))
+
+        assert [row["id"] for batch in batches for row in batch] == ["good"]
+        logger.warning.assert_called_once()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_large_files_are_chunked(self, mock_session):
+        rows = [{"id": str(i)} for i in range(CHUNK_SIZE + 1)]
+        mock_session.return_value.get.side_effect = [
+            _jobs_response([_job("j1", "2024-01-01T00:00:00.000Z")]),
+            _jsonl_response(rows),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("myorg", "agent@x.com", "token", "customers", mock.MagicMock(), manager))
+
+        assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+
+    @pytest.mark.parametrize(
+        "endpoint, path, body",
+        [
+            ("teams", "teams", [{"id": "team-1", "name": "Tier 1", "agentIds": ["agent-1"]}]),
+            ("inboxes", "inboxes", [{"id": "inbox-1", "name": "Support", "disabled": False}]),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_lookup_streams_read_the_whole_list_and_ignore_the_watermark(self, mock_session, endpoint, path, body):
+        mock_session.return_value.get.return_value = _jobs_response(body)
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                endpoint,
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-14T05:00:00.000Z",
+            )
+        )
+
+        assert batches == [body]
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list] == [
+            f"https://myorg.gladly.com/api/v1/{path}"
+        ]
+        manager.save_state.assert_not_called()
+
+
+class TestGetReportRows:
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_work_session_report_uses_a_time_range_and_keys_rows_on_contact_and_agent(self, mock_session):
+        header = (
+            "Timezone Filter,id,contact_session_id,contact_session_created_at,agent_id,"
+            "contact_session_ended_at,work_session_handle_time_sec\n"
+        )
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                header
+                + "UTC,,cs-open,2024-03-14T08:00:00.000Z,,,\n"
+                + "UTC,ws-2,cs-2,2024-03-14T08:30:00.000Z,,2024-03-14T08:45:00.000Z,\n"
+                + "UTC,,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-14T23:00:00.000Z,100\n"
+            ),
+            _csv_response(header + "UTC,ws-1,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-14T23:00:00.000Z,120\n"),
+        ]
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "work_session_events",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-15T00:30:00.000Z",
+            )
+        )
+
+        assert [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list] == [
+            {
+                "metricSet": "WorkSessionEventsReportV4",
+                "timezone": "UTC",
+                "startAtTime": "2024-03-14T00:00Z",
+                "endAtTime": "2024-03-14T23:59Z",
+            },
+            {
+                "metricSet": "WorkSessionEventsReportV4",
+                "timezone": "UTC",
+                "startAtTime": "2024-03-15T00:00Z",
+                "endAtTime": "2024-03-15T23:59Z",
+            },
+        ]
+
+        # The open contact has no agent yet, so its key would never match the row it
+        # gets once it ends. It is skipped, while the ended unhandled contact stays.
+        unhandled, first_read, restated = [row for batch in batches for row in batch]
+        assert unhandled["contact_session_id"] == "cs-2"
+        assert unhandled["agent_id"] is None
+        # A restated session must merge onto its earlier row even though its id
+        # and handle time changed.
+        assert first_read["_row_id"] == restated["_row_id"]
+        assert unhandled["_row_id"] != first_read["_row_id"]
+        assert restated["work_session_handle_time_sec"] == "120"
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.MAX_RETRY_ATTEMPTS", 1)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    @pytest.mark.parametrize(
+        "status_code, expected_error",
+        [
+            (429, GladlyRetryableError),
+            (500, GladlyRetryableError),
+            (400, requests.HTTPError),
+        ],
+    )
+    def test_report_errors_are_classified(self, mock_session, status_code, expected_error):
+        mock_session.return_value.post.return_value = _error_response(status_code)
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        with pytest.raises(expected_error):
+            list(get_rows("myorg", "agent@x.com", "token", "conversation_timestamps", mock.MagicMock(), manager))
+
+        # A failed window is not recorded as processed.
+        manager.save_state.assert_not_called()
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_large_report_windows_are_chunked(self, mock_session):
+        csv_text = (
+            "Timestamp,Conversation ID\n"
+            + "\n".join(f"2024-03-15T09:00:00.000Z,conv-{i}" for i in range(CHUNK_SIZE + 1))
+            + "\n"
+        )
+        mock_session.return_value.post.side_effect = [_csv_response(csv_text)]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "conversation_timestamps", mock.MagicMock(), manager))
+
+        assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.REPORT_ROW_WARNING_THRESHOLD", 2)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_windows_near_the_report_row_cap_log_a_truncation_warning(self, mock_session):
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                "Timestamp,Conversation ID\n2024-03-15T09:00:00.000Z,conv-1\n2024-03-15T10:00:00.000Z,conv-2\n"
+            )
+        ]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        logger = mock.MagicMock()
+        list(get_rows("myorg", "agent@x.com", "token", "conversation_timestamps", logger, manager))
+
+        logger.warning.assert_called_once()
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @pytest.mark.parametrize(
+        "endpoint,body",
+        [
+            ("contact_timestamps", "Event Type,Contact ID\nCONTACT/STARTED,ct-1\n"),
+            ("conversations", "Conversation ID,Status\nconv-1,OPEN\n"),
+        ],
+        ids=["cursor_column_renamed", "primary_key_column_renamed"],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_report_missing_the_columns_it_syncs_on_fails_at_the_source(self, mock_session, endpoint, body):
+        mock_session.return_value.post.side_effect = [_csv_response(body)]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        with pytest.raises(GladlyReportHeaderError, match="missing required columns"):
+            list(get_rows("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), manager))
+
+        assert mock_session.return_value.post.call_count == 1
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Unexpected error occurred",
+            '[\n{"timestamp":"2024-03-15T09:00:00.000Z"}\n]\n',
+            "<html>\n<body>\nGladly is unavailable\n</body>\n</html>\n",
+        ],
+        ids=["plain_text_error", "json_body", "html_body"],
+    )
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_in_place_of_the_report_is_retried_and_stays_retryable(self, mock_session, _sleep, body):
+        mock_session.return_value.post.side_effect = [_csv_response(body) for _ in range(5)]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        with pytest.raises(GladlyReportUnavailableError, match="Gladly returned no report"):
+            list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        assert mock_session.return_value.post.call_count == 5
+        manager.save_state.assert_not_called()
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @pytest.mark.parametrize(
+        "schema_has_ever_synced, expected_error",
+        [
+            (False, GladlyReportNotAvailableForAccountError),
+            (True, GladlyReportUnavailableError),
+        ],
+        ids=["never_served", "reset_run_after_a_successful_sync"],
+    )
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_stops_the_sync_only_when_gladly_never_served_the_report(
+        self, mock_session, _sleep, schema_has_ever_synced, expected_error
+    ):
+        mock_session.return_value.post.side_effect = [_csv_response("Unexpected error occurred") for _ in range(5)]
+
+        manager = _make_manager()
+        with pytest.raises(expected_error):
+            list(
+                get_rows(
+                    "myorg",
+                    "agent@x.com",
+                    "token",
+                    "contact_timestamps",
+                    mock.MagicMock(),
+                    manager,
+                    schema_has_ever_synced=schema_has_ever_synced,
+                )
+            )
+
+        manager.save_state.assert_not_called()
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_after_a_window_landed_stays_retryable(self, mock_session, _sleep):
+        mock_session.return_value.post.side_effect = [
+            _csv_response("Timestamp,Contact ID\n2024-03-14T09:00:00.000Z,ct-1\n"),
+            *[_csv_response("Unexpected error occurred") for _ in range(5)],
+        ]
+
+        manager = _make_manager()
+        with pytest.raises(GladlyReportUnavailableError, match="Gladly returned no report"):
+            list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_whitespace_only_body_is_treated_as_an_empty_window(self, mock_session):
+        mock_session.return_value.post.side_effect = [_csv_response("\r\n")]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        assert batches == []
+
+
+class TestGladlySourceResponse:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint):
+        config = GLADLY_ENDPOINTS[endpoint]
+        response = gladly_source("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        assert response.sort_mode == "asc"
+        assert response.partition_mode is None
+        assert response.partition_keys is None

@@ -422,6 +422,7 @@ select = [
 "posthog/**" = ["PLC0415"]
 "scripts/**" = ["PLC0415"]
 "services/stripe-mock/**" = ["PLC0415"]
+"sources/**" = ["PLC0415"]
 "tools/**" = ["PLC0415"]
 
 [tool.ruff.lint.flake8-tidy-imports]
@@ -549,6 +550,7 @@ exclude = [
     "products/stamphog/packages/**",
     "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
+    "sources/*/_config.py",
     "rust/deltalite/python/**",
 ]
 
@@ -560,7 +562,7 @@ exclude = [
 # Complements tach (inter-module boundaries) with intra-product enforcement.
 
 [tool.importlinter]
-root_packages = ["products", "owners_yaml"]
+root_packages = ["products", "owners_yaml", "sources"]
 include_external_packages = true
 
 # A Python distribution under packages/ is a leaf: it must install and run outside the
@@ -572,6 +574,28 @@ name = "packages/owners-yaml is a leaf"
 type = "forbidden"
 source_modules = ["owners_yaml"]
 forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
+
+# A vendor directory under sources/ imports shared code only from sources.sdk. tach checks this for
+# vendor code. `hogli lint:tach` leaves test files out of its dependency pass, so this contract also
+# covers the vendor tests. Only direct imports are checked: the SDK itself imports the product.
+[[tool.importlinter.contracts]]
+name = "sources vendors import shared code only from sources.sdk"
+type = "forbidden"
+source_modules = ["sources.*"]
+forbidden_modules = ["posthog", "ee", "products", "common"]
+allow_indirect_imports = true
+# A product directory without `__init__.py` shows up as the external package `products`, so the
+# entries name both `products` and `products.**`.
+ignore_imports = [
+    "sources.sdk -> posthog",
+    "sources.sdk -> products",
+    "sources.sdk -> products.**",
+    "sources.sdk.** -> posthog",
+    "sources.sdk.** -> products",
+    "sources.sdk.** -> products.**",
+    "sources.conftest -> posthog",
+    "sources.conftest -> products.**",
+]
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.

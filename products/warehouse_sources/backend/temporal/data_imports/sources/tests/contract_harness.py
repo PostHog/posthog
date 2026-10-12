@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources import TOP_LEVEL_SOURCES_PACKAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ResumableSource,
     SimpleSource,
@@ -71,6 +72,16 @@ NATIVE_DRIVER_MODULES = (
 )
 
 _SOURCES_ROOT = Path(__file__).parents[1]
+# Vendors live in this package and in the top-level `sources` package.
+_ROOT_BY_PACKAGE = {
+    _SOURCES_PACKAGE: _SOURCES_ROOT,
+    TOP_LEVEL_SOURCES_PACKAGE: Path(__file__).parents[7] / TOP_LEVEL_SOURCES_PACKAGE,
+}
+_SHARED_DIRECTORIES = {
+    (_SOURCES_PACKAGE, "common"),
+    (_SOURCES_PACKAGE, "generated_configs"),
+    (TOP_LEVEL_SOURCES_PACKAGE, "sdk"),
+}
 _EMPTY_PAGE_COUNT = 8
 
 Mode = Literal["stall", "rate_limit", "empty_pages"]
@@ -167,11 +178,19 @@ def is_stub(source: _BaseSource[Any]) -> bool:
     return extraction in (SimpleSource.source_for_pipeline, ResumableSource.source_for_pipeline)
 
 
+def _source_directory(module: str) -> tuple[str, str] | None:
+    """The source package and the vendor directory of a module, or None when it is not a source module."""
+    for package in _ROOT_BY_PACKAGE:
+        if module.startswith(f"{package}."):
+            return package, module[len(package) + 1 :].split(".")[0]
+    return None
+
+
 @functools.cache
-def _imports_of_source_directory(directory: str) -> tuple[frozenset[str], frozenset[str]]:
+def _imports_of_source_directory(package: str, directory: str) -> tuple[frozenset[str], frozenset[tuple[str, str]]]:
     """The modules that a source directory imports, and the other source directories it imports from."""
     modules: set[str] = set()
-    for path in (_SOURCES_ROOT / directory).rglob("*.py"):
+    for path in (_ROOT_BY_PACKAGE[package] / directory).rglob("*.py"):
         if path.name.startswith("test_") or "tests" in path.parts:
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -179,21 +198,21 @@ def _imports_of_source_directory(directory: str) -> tuple[frozenset[str], frozen
                 modules.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 modules.add(node.module)
-    prefix = f"{_SOURCES_PACKAGE}."
-    siblings = {module[len(prefix) :].split(".")[0] for module in modules if module.startswith(prefix)}
-    return frozenset(modules), frozenset(siblings - {directory, "common", "generated_configs"})
+    siblings = {found for module in modules if (found := _source_directory(module)) is not None}
+    return frozenset(modules), frozenset(siblings - _SHARED_DIRECTORIES - {(package, directory)})
 
 
 def native_driver(source: _BaseSource[Any]) -> str | None:
     """The first module of `NATIVE_DRIVER_MODULES` that the source imports, also through another source."""
-    pending = [type(source).__module__[len(_SOURCES_PACKAGE) + 1 :].split(".")[0]]
-    seen: set[str] = set()
+    start = _source_directory(type(source).__module__)
+    pending = [] if start is None else [start]
+    seen: set[tuple[str, str]] = set()
     while pending:
-        directory = pending.pop()
-        if directory in seen or not (_SOURCES_ROOT / directory).is_dir():
+        package, directory = pending.pop()
+        if (package, directory) in seen or not (_ROOT_BY_PACKAGE[package] / directory).is_dir():
             continue
-        seen.add(directory)
-        modules, siblings = _imports_of_source_directory(directory)
+        seen.add((package, directory))
+        modules, siblings = _imports_of_source_directory(package, directory)
         for driver in NATIVE_DRIVER_MODULES:
             if any(module == driver or module.startswith(f"{driver}.") for module in modules):
                 return driver

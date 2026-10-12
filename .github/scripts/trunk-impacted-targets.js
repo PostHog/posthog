@@ -855,6 +855,10 @@ const STANDALONE_TREES = new Map([
     // ci-python.yml validates the policy files through the pr-approval-agent
     // pytest suite, which already owns that lane.
     ['.stamphog', ['tools:pr-approval-agent']],
+    // The top-level warehouse source vendor tree. The warehouse_sources
+    // loader imports every vendor in it, so it takes the lane a vendor directory under
+    // products/warehouse_sources takes.
+    ['sources', ['py:product:warehouse_sources']],
 ])
 
 // Editor, IDE, and agent configuration. No suite reads any of it, so one shared

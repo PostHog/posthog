@@ -36,6 +36,7 @@ rules:
       paths:
           include:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+              - '/sources/**'
           exclude:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
               - '**/test/**'
@@ -65,6 +66,7 @@ rules:
       paths:
           include:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+              - '/sources/**'
           exclude:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
               # bigquery.py constructs the client itself, but routes the channel
@@ -96,6 +98,7 @@ rules:
       paths:
           include:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
+              - '/sources/**'
           exclude:
               - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
               # google_ads.py constructs the client but the enforced invariant is

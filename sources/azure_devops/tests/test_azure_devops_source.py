@@ -1,0 +1,75 @@
+import pytest
+from unittest import mock
+
+from sources.azure_devops._config import AzureDevOpsSourceConfig
+from sources.azure_devops.azure_devops import AZURE_DEVOPS_VERSION_7_2, AZURE_DEVOPS_VERSION_LEGACY
+from sources.azure_devops.source import AzureDevOpsSource
+
+
+class TestAzureDevOpsSource:
+    def setup_method(self):
+        self.source = AzureDevOpsSource()
+        self.team_id = 123
+        self.config = AzureDevOpsSourceConfig(organization="myorg", personal_access_token="pat")
+
+    def test_connection_host_fields_includes_organization(self):
+        # The PAT is sent to dev.azure.com/<organization>, so retargeting the
+        # organization must force re-entry of the token.
+        assert self.source.connection_host_fields == ["organization"]
+
+    @pytest.mark.parametrize(
+        "probe_result",
+        [
+            (True, None),
+            (
+                False,
+                "Azure DevOps denied access. Please check that your personal access token has read scopes for this data.",
+            ),
+        ],
+    )
+    @mock.patch("sources.azure_devops.source.validate_azure_devops_credentials")
+    def test_validate_credentials_passes_probe_result_through(self, mock_validate, probe_result):
+        mock_validate.return_value = probe_result
+
+        # The specific failure reason from the probe must reach the caller unchanged, not be
+        # collapsed into a single generic message.
+        assert self.source.validate_credentials(self.config, self.team_id) == probe_result
+        # No pin at creation time resolves to default_version.
+        mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+
+    @mock.patch("sources.azure_devops.source.azure_devops_source")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_ado_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "work_item_revisions"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+        inputs.api_version = AZURE_DEVOPS_VERSION_7_2
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_ado_source.assert_called_once()
+        kwargs = mock_ado_source.call_args.kwargs
+        assert kwargs["organization"] == "myorg"
+        assert kwargs["personal_access_token"] == "pat"
+        assert kwargs["endpoint"] == "work_item_revisions"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["api_version"] == AZURE_DEVOPS_VERSION_7_2
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
+
+    def test_default_version_is_the_new_ga_version(self):
+        # New sources start on 7.2; the legacy label stays supported so existing pins keep working.
+        assert self.source.default_version == AZURE_DEVOPS_VERSION_7_2
+        assert set(self.source.supported_versions) == {AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_7_2}
+
+    @mock.patch("sources.azure_devops.source.azure_devops_source")
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_ado_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "projects"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_ado_source.call_args.kwargs["db_incremental_field_last_value"] is None

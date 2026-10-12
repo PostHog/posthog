@@ -1,0 +1,33 @@
+import pytest
+from unittest import mock
+
+from sources.salesloft._config import SalesLoftSourceConfig
+from sources.salesloft.settings import SALESLOFT_ENDPOINTS
+from sources.salesloft.source import SalesLoftSource
+
+INCREMENTAL_ENDPOINTS = sorted(name for name, c in SALESLOFT_ENDPOINTS.items() if c.incremental)
+FULL_REFRESH_ENDPOINTS = sorted(name for name, c in SALESLOFT_ENDPOINTS.items() if not c.incremental)
+
+
+class TestSalesLoftSource:
+    def setup_method(self):
+        self.source = SalesLoftSource()
+        self.team_id = 123
+        self.config = SalesLoftSourceConfig(api_key="sl_test_token")
+
+    @pytest.mark.parametrize(
+        "mock_return, expected_valid, expected_message",
+        [
+            (True, True, None),
+            (False, False, "Invalid Salesloft API key"),
+        ],
+    )
+    @mock.patch("sources.salesloft.source.validate_salesloft_credentials")
+    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+        mock_validate.return_value = mock_return
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is expected_valid
+        assert error_message == expected_message
+        mock_validate.assert_called_once_with(self.config.api_key)
