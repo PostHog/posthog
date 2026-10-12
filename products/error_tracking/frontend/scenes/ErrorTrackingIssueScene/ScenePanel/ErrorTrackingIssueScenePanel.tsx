@@ -7,7 +7,6 @@ import { SceneComment } from 'lib/components/Scenes/SceneComment'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -34,8 +33,6 @@ export const ErrorTrackingIssueScenePanel = ({
 }: {
     issue: ErrorTrackingRelationalIssue
 }): JSX.Element | null => {
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-
     return issue ? (
         <ScenePanel>
             <ScenePanelInfoSection>
@@ -58,7 +55,7 @@ export const ErrorTrackingIssueScenePanel = ({
                         },
                     }}
                 />
-                {hasIssueSplitting && <IssueFingerprints />}
+                <IssueFingerprints />
             </ScenePanelActionsSection>
         </ScenePanel>
     ) : null
