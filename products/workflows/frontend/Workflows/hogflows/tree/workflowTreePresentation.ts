@@ -42,19 +42,22 @@ export function findWorkflowTreePath(sequence: WorkflowTreeSequence, edges: HogF
     return []
 }
 
-export function getWorkflowTreeContinuationPath(
-    tree: WorkflowTreeSequence,
-    path: HogFlowEdge[],
-    actionId: string
-): HogFlowEdge[] {
-    for (let depth = path.length; depth > 0; depth--) {
-        const ancestorPath = path.slice(0, depth)
-        const sequence = findWorkflowTreePath(tree, ancestorPath).at(-1)?.branch.sequence
-        if (sequence?.nodes.some((node) => node.action.id === actionId)) {
-            return ancestorPath
+export function getWorkflowTreeContinuationPath(tree: WorkflowTreeSequence, actionId: string): HogFlowEdge[] {
+    const search = (sequence: WorkflowTreeSequence, path: HogFlowEdge[]): HogFlowEdge[] | null => {
+        for (const node of sequence.nodes) {
+            if (node.action.id === actionId) {
+                return path
+            }
+            for (const branch of node.branches) {
+                const found = search(branch.sequence, [...path, branch.edge])
+                if (found) {
+                    return found
+                }
+            }
         }
+        return null
     }
-    return []
+    return search(tree, []) ?? []
 }
 
 function collectStepIds(sequence: WorkflowTreeSequence, stepIds: Set<string>): void {
@@ -73,6 +76,9 @@ export function getWorkflowTreeStepIds(sequence: WorkflowTreeSequence): Set<stri
 }
 
 function getPathDestination(sequence: WorkflowTreeSequence): string {
+    if (sequence.continueTo) {
+        return `Continue to: ${sequence.continueTo.name}`
+    }
     const lastNode = sequence.nodes.at(-1)
     if (lastNode?.action.type === 'exit') {
         return 'End workflow'
@@ -86,6 +92,53 @@ function getPathDestination(sequence: WorkflowTreeSequence): string {
 
 export function getWorkflowTreeBranchSummary(node: WorkflowTreeNode, branch: WorkflowTreeBranch): string {
     const count = getWorkflowTreeStepIds(branch.sequence).size
-    const destination = node.joinAction ? `Continue to: ${node.joinAction.name}` : getPathDestination(branch.sequence)
+    const continuation = branch.sequence.continueTo ?? node.joinAction
+    const destination = continuation ? `Continue to: ${continuation.name}` : getPathDestination(branch.sequence)
     return `${count} ${count === 1 ? 'step' : 'steps'} · ${destination}`
+}
+
+export function getWorkflowTreeBranchKey(edge: HogFlowEdge): string {
+    return `${edge.from}-${edge.type}-${edge.index ?? 'continue'}`
+}
+
+export interface WorkflowTreeBranchGroup {
+    occurrenceKey: string
+    branchKeys: string[]
+}
+
+function collectBranchGroups(
+    sequence: WorkflowTreeSequence,
+    path: HogFlowEdge[],
+    groups: WorkflowTreeBranchGroup[]
+): void {
+    for (const node of sequence.nodes) {
+        if (node.branches.length) {
+            groups.push({
+                occurrenceKey: getWorkflowTreeOccurrenceKey(node.action.id, path),
+                branchKeys: node.branches.map((branch) => getWorkflowTreeBranchKey(branch.edge)),
+            })
+        }
+        for (const branch of node.branches) {
+            collectBranchGroups(branch.sequence, [...path, branch.edge], groups)
+        }
+    }
+}
+
+/** Every branching step in the tree, including the ones nested inside a path. */
+export function getWorkflowTreeBranchGroups(sequence: WorkflowTreeSequence): WorkflowTreeBranchGroup[] {
+    const groups: WorkflowTreeBranchGroup[] = []
+    collectBranchGroups(sequence, [], groups)
+    return groups
+}
+
+export function areAllWorkflowTreeBranchesCollapsed(
+    groups: WorkflowTreeBranchGroup[],
+    viewStates: Record<string, WorkflowTreeNodeViewState>
+): boolean {
+    return (
+        groups.length > 0 &&
+        groups.every((group) =>
+            group.branchKeys.every((branchKey) => viewStates[group.occurrenceKey]?.collapsedBranches?.has(branchKey))
+        )
+    )
 }

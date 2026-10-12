@@ -149,6 +149,28 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
+    @mock.patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect, _mock_flag):
+        exp = self._launched_experiment()
+        now = timezone.now()
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=now - timedelta(minutes=3),
+            completed_at=now - timedelta(minutes=2),
+        )
+
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        assert resp.json()["code"] == "recalculation_rate_limited"
+        assert 170 <= int(resp["Retry-After"]) <= 180
+        assert not mock_connect.called
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_rejects_unlaunched_experiment(self, mock_run, mock_connect):

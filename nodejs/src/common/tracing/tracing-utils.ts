@@ -1,4 +1,4 @@
-import { Attributes, HrTime, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api'
+import { Attributes, Context, HrTime, Span, SpanKind, SpanStatusCode, Tracer, context, trace } from '@opentelemetry/api'
 import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
@@ -51,13 +51,15 @@ export function withTracingSpan<T>(
     tracer: Tracer | string,
     name: string,
     attrs: Attributes,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
+    parentContext?: Context
 ): Promise<T> {
     const _tracer = typeof tracer === 'string' ? trace.getTracer(tracer) : tracer
     const startHrTime = getHighResTimestamp()
     return _tracer.startActiveSpan(
         name,
         { kind: SpanKind.CLIENT, attributes: attrs, startTime: startHrTime },
+        parentContext ?? context.active(),
         async (span) => {
             try {
                 const out = await fn()
@@ -74,27 +76,49 @@ export function withTracingSpan<T>(
     )
 }
 
-/**
- * Wraps a function in an OpenTelemetry tracing span and logs the execution time as a summary metric.
- */
-export async function withSpan<T>(
-    tracer: Tracer | string,
-    name: string,
-    attrs: Attributes,
-    fn: () => Promise<T>
-): Promise<T> {
-    const stopTimer = instrumentedFnSummary
-        .labels({
-            metricName: name,
-            tag: attrs.tag ? String(attrs.tag) : undefined,
-        })
-        .startTimer()
-
+async function withSummary<T>(name: string, tag: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const stopTimer = instrumentedFnSummary.labels({ metricName: name, tag }).startTimer()
     try {
-        return await withTracingSpan(tracer, name, attrs, fn)
+        return await fn()
     } finally {
         stopTimer()
     }
+}
+
+/**
+ * Wraps a function in an OpenTelemetry tracing span and logs the execution time as a summary metric.
+ */
+export function withSpan<T>(
+    tracer: Tracer | string,
+    name: string,
+    attrs: Attributes,
+    fn: () => Promise<T>,
+    parentContext?: Context
+): Promise<T> {
+    return withSummary(name, attrs.tag ? String(attrs.tag) : undefined, () =>
+        withTracingSpan(tracer, name, attrs, fn, parentContext)
+    )
+}
+
+export interface DetachedSpan {
+    span: Span
+    parentContext: Context
+}
+
+/** The span is not made active: work in another async context nests under it through `parentContext`. */
+export function startDetachedSpan(name: string, attrs: Attributes, parent?: Context): DetachedSpan | null {
+    if (defaultConfig.DISABLE_OPENTELEMETRY_TRACING) {
+        return null
+    }
+    const parentContext = parent ?? context.active()
+    const span = trace
+        .getTracer('instrumented_function')
+        .startSpan(name, { kind: SpanKind.CLIENT, attributes: attrs, startTime: getHighResTimestamp() }, parentContext)
+    return { span, parentContext: trace.setSpan(parentContext, span) }
+}
+
+export function runInContext<T>(ctx: Context | undefined, fn: () => Promise<T>): Promise<T> {
+    return ctx ? context.with(ctx, fn) : fn()
 }
 
 interface FunctionInstrumentationOptions {
@@ -109,17 +133,22 @@ interface FunctionInstrumentationOptions {
     tag?: string
     /** Attributes set on the tracing span only. They never reach the Prometheus metrics. */
     attributes?: Attributes
+    /** Parent of the span instead of the active context, for work run by a shared loop outside its batch's async context. */
+    parentContext?: Context
+    /** False keeps the timeout guard and both duration metrics but emits no span. */
+    span?: boolean
 }
 
 /**
- * True when a span started now would be exported. With parent-based sampling the parent decides,
- * so callers can skip building attributes for the ~99% of spans a low sample rate discards.
+ * True when a span started under `ctx` (default: the active context) would be exported. With
+ * parent-based sampling the parent decides, so callers can skip building attributes for the ~99%
+ * of spans a low sample rate discards.
  */
-export function isTracingActive(): boolean {
+export function isTracingActive(ctx?: Context): boolean {
     if (defaultConfig.DISABLE_OPENTELEMETRY_TRACING) {
         return false
     }
-    return trace.getActiveSpan()?.isRecording() ?? false
+    return trace.getSpan(ctx ?? context.active())?.isRecording() ?? false
 }
 
 /** Set attributes on the active span. No-op when tracing is disabled or the span is not sampled. */
@@ -151,6 +180,8 @@ export async function instrumentFn<T>(
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
     const tag = typeof options === 'string' ? undefined : options.tag
     const attributes = (typeof options === 'string' ? undefined : options.attributes) ?? {}
+    const parentContext = typeof options === 'string' ? undefined : options.parentContext
+    const span = (typeof options === 'string' ? undefined : options.span) ?? true
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
         instrumentedFunctionTimeout.labels({ function: key }).inc()
@@ -162,7 +193,15 @@ export async function instrumentFn<T>(
         // Skip expensive span creation when tracing is disabled
         const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
             ? await func()
-            : await withSpan('instrumented_function', key, tag ? { ...attributes, tag } : attributes, func)
+            : span
+              ? await withSpan(
+                    'instrumented_function',
+                    key,
+                    tag ? { ...attributes, tag } : attributes,
+                    func,
+                    parentContext
+                )
+              : await withSummary(key, tag, func)
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)

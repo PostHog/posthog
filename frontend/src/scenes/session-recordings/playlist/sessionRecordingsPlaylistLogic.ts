@@ -1999,6 +1999,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const newPlaylist = await createPlaylist({
                     name: values.newCollectionName,
                     type: 'collection',
+                    creation_method: 'new',
                 })
 
                 if (newPlaylist) {

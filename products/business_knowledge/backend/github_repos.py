@@ -7,6 +7,8 @@ File reads go to GitHub for one path that is already in that tree.
 from __future__ import annotations
 
 import re
+import json
+import dataclasses
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
@@ -101,6 +103,7 @@ class RepositoryCacheState:
     repo: str
     tree_truncated: bool
     cache_status: str
+    description: str
 
 
 @frozen
@@ -212,8 +215,9 @@ def search_repositories(team: Team, user: User, query: str, repo: str | None) ->
     states = _cache_states(team.id, integration.id, targets)
     hits = _search_paths(team.id, integration.id, targets, terms)
     hits.extend(_search_readmes(team.id, integration.id, targets, terms))
-    _capture_tool(team, user, "search", len(hits), states)
-    return RepositorySearchOutcome(hits=hits, repositories=states)
+    outcome = RepositorySearchOutcome(hits=hits, repositories=states)
+    _capture_tool(team, user, "search", len(hits), states, result_chars=_serialized_chars(outcome))
+    return outcome
 
 
 def read_repository_file(team: Team, user: User, repo: str, path: str) -> RepositoryFile:
@@ -231,9 +235,9 @@ def read_repository_file(team: Team, user: User, repo: str, path: str) -> Reposi
             raise GithubReposError("That path is not a file in the cached tree.")
         loaded = _fetch_file(team, integration, full_name, safe_path, sha)
     except GithubReposError:
-        _capture_tool(team, user, "file", 0, states)
+        _capture_tool(team, user, "file", 0, states, result_chars=0)
         raise
-    _capture_tool(team, user, "file", 1, states)
+    _capture_tool(team, user, "file", 1, states, result_chars=_serialized_chars(loaded))
     return loaded
 
 
@@ -398,7 +402,7 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
         row.full_name: row
         for row in IntegrationRepositoryCacheEntry.objects.filter(
             team_id=team_id, integration_id=integration_id, full_name__in=repos
-        ).only("full_name", "updated_at", "tree_truncated", "default_branch_sha")
+        ).only("full_name", "updated_at", "tree_truncated", "default_branch_sha", "description")
     }
     fresh_after = timezone.now() - timedelta(seconds=GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS)
     states: list[RepositoryCacheState] = []
@@ -412,6 +416,7 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
                 repo=full_name,
                 tree_truncated=bool(row.tree_truncated) if row is not None else False,
                 cache_status=RepositoryCacheStatus.READY if fresh else RepositoryCacheStatus.WARMING,
+                description=row.description if row is not None and isinstance(row.description, str) else "",
             )
         )
     return states
@@ -560,7 +565,19 @@ def _repo_names(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
-def _capture_tool(team: Team, user: User, tool: str, result_count: int, states: list[RepositoryCacheState]) -> None:
+def _serialized_chars(result: RepositorySearchOutcome | RepositoryFile) -> int:
+    return len(json.dumps(dataclasses.asdict(result)))
+
+
+def _capture_tool(
+    team: Team,
+    user: User,
+    tool: str,
+    result_count: int,
+    states: list[RepositoryCacheState],
+    *,
+    result_chars: int,
+) -> None:
     cache_status = (
         RepositoryCacheStatus.WARMING
         if any(state.cache_status == RepositoryCacheStatus.WARMING for state in states)
@@ -570,7 +587,13 @@ def _capture_tool(team: Team, user: User, tool: str, result_count: int, states: 
         report_user_action(
             user,
             "business knowledge repo tool called",
-            {"tool": tool, "result_count": result_count, "cache_status": str(cache_status)},
+            {
+                "tool": tool,
+                "result_count": result_count,
+                "cache_status": str(cache_status),
+                # The tools call no model. Their cost is the text they add to the calling agent's context.
+                "result_chars": result_chars,
+            },
             team=team,
         )
     except Exception:

@@ -88,6 +88,7 @@ async def _run_relay(
     setup_title: str | None = None,
     cancel: bool = False,
     stream_closed: bool = False,
+    turn_trace_id: str | None = TRACE_ID,
 ) -> _SlackCalls:
     calls = _SlackCalls(stream_closed=stream_closed)
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -116,7 +117,7 @@ async def _run_relay(
                 with pytest.raises(WorkflowFailureError):
                     await handle.result()
             else:
-                await handle.signal("complete_turn", TRACE_ID)
+                await handle.signal("complete_turn", turn_trace_id)
                 await handle.result()
     return calls
 
@@ -194,6 +195,21 @@ class TestSlackAgentDesignRelay:
         calls = await _run_relay(signals)
 
         assert calls.answer() == expected_answer
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_a_background_turn_keeps_its_streamed_answer_over_a_late_final_text(self) -> None:
+        # The agent server sends the previous turn's final text after that turn ends, so it can land
+        # in the relay of a background turn, which completes with no trace id.
+        calls = await _run_relay(
+            [
+                *CHECKING,
+                ("agent_final_text", {"text": "The previous turn's answer.", "trace_id": str(uuid.UUID(TRACE_ID))}),
+                ("agent_text_delta", "Answer."),
+            ],
+            turn_trace_id=None,
+        )
+
+        assert calls.answer() == "Answer."
 
     @pytest.mark.parametrize(
         "work, work_lines",

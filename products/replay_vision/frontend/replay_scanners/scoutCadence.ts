@@ -18,10 +18,10 @@ const DAY_FIELD_BY_FREQUENCY: Record<ScoutFrequency, string> = {
     weekly: '1',
 }
 
-export const SCOUT_FREQUENCY_OPTIONS: { value: ScoutFrequency; label: string }[] = [
-    { value: 'daily', label: 'Every day' },
-    { value: 'weekdays', label: 'Weekdays' },
-    { value: 'weekly', label: 'Weekly (Mondays)' },
+export const SCOUT_FREQUENCY_OPTIONS: { value: ScoutFrequency; label: string; shortLabel: string }[] = [
+    { value: 'daily', label: 'Every day', shortLabel: 'Daily' },
+    { value: 'weekdays', label: 'Weekdays', shortLabel: 'Weekdays' },
+    { value: 'weekly', label: 'Weekly (Mondays)', shortLabel: 'Mondays' },
 ]
 
 export function parseScoutCadence(cron: string | null | undefined): ScoutCadence | null {

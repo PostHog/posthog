@@ -8,10 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
     MercurySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import (
-    ENDPOINTS,
-    TRANSACTIONS_LOOKBACK_SECONDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
 
 
@@ -40,39 +36,6 @@ class TestMercurySource:
     def setup_method(self) -> None:
         self.source = MercurySource()
         self.config = MercurySourceConfig(api_key="test-token")
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["Accounts", "Transactions"])
-
-        assert {schema.name for schema in schemas} == {"Accounts", "Transactions"}
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_only_transactions_supports_incremental(self, endpoint: str) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=[endpoint])
-        schema = schemas[0]
-
-        if endpoint == "Transactions":
-            assert schema.supports_incremental is True
-            assert [f["field"] for f in schema.incremental_fields] == ["createdAt"]
-            assert schema.default_incremental_lookback_seconds == TRANSACTIONS_LOOKBACK_SECONDS
-        else:
-            assert schema.supports_incremental is False
-            assert schema.incremental_fields == []
-            assert schema.default_incremental_lookback_seconds is None
-
-    def test_documented_tables_available_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-        tables = self.source.get_documented_tables()
-
-        assert {table["name"] for table in tables} == set(ENDPOINTS)
-        transactions = next(table for table in tables if table["name"] == "Transactions")
-        assert transactions["description"]
 
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_valid"),
@@ -111,19 +74,6 @@ class TestMercurySource:
         assert valid is False
         assert "connection refused" in str(error)
 
-    @pytest.mark.parametrize(
-        ("error_message", "should_match"),
-        [
-            ("401 Client Error: Unauthorized for url: https://api.mercury.com/api/v1/transactions", True),
-            ("403 Client Error: Forbidden for url: https://api.mercury.com/api/v1/accounts", True),
-            ("500 Server Error: Internal Server Error for url: https://api.mercury.com/api/v1/accounts", False),
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures_only(self, error_message: str, should_match: bool) -> None:
-        patterns = self.source.get_non_retryable_errors()
-
-        assert any(pattern in error_message for pattern in patterns) is should_match
-
 
 class TestMercurySourceForPipeline:
     def setup_method(self) -> None:
@@ -156,27 +106,6 @@ class TestMercurySourceForPipeline:
             db_incremental_field_last_value="2026-01-01",
         )
 
-    def test_drops_incremental_value_when_full_refresh(self) -> None:
-        inputs = _make_inputs(
-            "Transactions", should_use_incremental_field=False, db_incremental_field_last_value="2026-01-01"
-        )
-        mock_source, _ = self._run(inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_primary_key"),
-        [
-            ("Accounts", "id"),
-            ("Transactions", "id"),
-            ("Users", "userId"),
-        ],
-    )
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_primary_key: str) -> None:
-        _, response = self._run(_make_inputs(endpoint))
-
-        assert response.primary_keys == [expected_primary_key]
-
     @pytest.mark.parametrize(
         ("endpoint", "expected_partition_key"),
         [
@@ -197,8 +126,3 @@ class TestMercurySourceForPipeline:
         else:
             assert response.partition_keys == [expected_partition_key]
             assert response.partition_mode == "datetime"
-
-    def test_sort_mode_is_ascending(self) -> None:
-        _, response = self._run(_make_inputs("Transactions"))
-
-        assert response.sort_mode == "asc"

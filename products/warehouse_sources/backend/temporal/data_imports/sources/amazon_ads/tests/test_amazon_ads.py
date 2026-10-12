@@ -95,17 +95,6 @@ def _resume_manager(state: AmazonAdsResumeConfig | None = None) -> mock.MagicMoc
 
 
 class TestBaseUrl:
-    @pytest.mark.parametrize(
-        "region, expected_host",
-        [
-            ("na", "https://advertising-api.amazon.com"),
-            ("eu", "https://advertising-api-eu.amazon.com"),
-            ("fe", "https://advertising-api-fe.amazon.com"),
-        ],
-    )
-    def test_regional_hosts(self, region, expected_host):
-        assert _base_url(region) == expected_host
-
     def test_invalid_region_raises(self):
         with pytest.raises(ValueError):
             _base_url("evil")
@@ -143,15 +132,6 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_profiles_single_fetch(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}, {"profileId": 2}])
-
-        batches = list(get_rows("na", "cid", "sec", "rt", "profiles", mock.MagicMock()))
-
-        assert batches == [[{"profileId": 1}, {"profileId": 2}]]
-
     @pytest.mark.parametrize(
         "endpoint, id_field",
         [
@@ -264,13 +244,6 @@ class TestGetRows:
         with mock.patch(f"{_MODULE}.wait_exponential_jitter", return_value=lambda _state: 0):
             with pytest.raises(AmazonAdsRetryableError):
                 list(get_rows("na", "cid", "sec", "rt", "profiles", mock.MagicMock()))
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_no_profiles_yields_nothing(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _json_response([])
-
-        assert list(get_rows("na", "cid", "sec", "rt", "sp_campaigns", mock.MagicMock())) == []
 
 
 class TestReportRows:

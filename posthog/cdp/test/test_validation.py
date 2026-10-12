@@ -12,9 +12,10 @@ from posthog.hogql import ast
 
 from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.validation import (
+    FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
-    MappingsSerializer,
+    InputsSchemaSerializer,
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
@@ -22,13 +23,13 @@ from posthog.cdp.validation import (
 )
 from posthog.models.integration import Integration
 
-from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.facade.api import validate_design
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
 def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False, context_extra=None):
-    serializer = MappingsSerializer(
+    serializer = FunctionInputsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
@@ -145,6 +146,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "hidden": False,
             },
         ]
+
+    @parameterized.expand(
+        [("same", ["message", "message"]), ("whitespace", ["message", " message "]), ("coerced", [42, "42"])]
+    )
+    def test_duplicate_input_schema_keys_are_rejected(self, _name: str, keys: list[str | int]) -> None:
+        with self.assertRaisesMessage(ValidationError, "Each input key must be unique"):
+            InputsSchemaSerializer().run_validation([{"key": key, "type": "string"} for key in keys])
+
+    @parameterized.expand([("boolean", False), ("string", "false"), ("zero", "0")])
+    def test_false_secret_flags_do_not_restore_stored_values(self, _name: str, secret_flag: bool | str) -> None:
+        assert (
+            validate_inputs(
+                [{"key": "credential", "type": "string", "secret": secret_flag}],
+                {},
+                context_extra={"encrypted_inputs": {"credential": {"value": "example-private-value"}}},
+            )
+            == {}
+        )
 
     def test_validate_inputs(self):
         inputs_schema = create_example_inputs_schema()
@@ -899,7 +918,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 },
             ),
         ]:
-            serializer = MappingsSerializer(
+            serializer = FunctionInputsSerializer(
                 data={
                     "inputs_schema": inputs_schema,
                     "inputs": inputs,
@@ -926,7 +945,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             {"key": "secret_field", "type": "string", "required": True, "secret": True},
         ]
 
-        serializer = MappingsSerializer(
+        serializer = FunctionInputsSerializer(
             data={
                 "inputs_schema": inputs_schema,
                 "inputs": {"secret_field": input_value},
@@ -1134,6 +1153,9 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         for template in (
             "{arrayMap(a -> { let b := a return b }, [1])}",
             "{arrayMap(tryBase64Decode, event.properties.ids)}",
+            "{lower(event.event)}",
+            "{sortableSemver(event.properties.version)}",
+            "{print(event.event)}",
         ):
             assert generate_template_bytecode(template, set(), function_type="destination"), template
 
@@ -1166,6 +1188,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         with self.assertRaises(Exception) as ctx:
             generate_template_bytecode("{arrayMap(max2, [1, 2])}", set(), function_type="destination")
         assert "Variable not available in inputs: max2" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("unknown_everywhere", "{splitByChar(',', event.properties.domain)}", "splitByChar is not a function"),
+            ("python_only", "{max2(1, 2)}", "max2 is not a function"),
+            ("inside_a_branch", "{if(event.properties.x, intDiv(4, 2), 0)}", "intDiv is not a function"),
+            ("wrong_argument_count", "{lower()}", "lower needs at least 1 argument(s), got 0"),
+            ("core_async_function", "{fetch('https://example.com')}", "fetch is not a function"),
+            ("product_async_function", "{postHogGetTicket('1')}", "postHogGetTicket is not a function"),
+        ]
+    )
+    def test_destination_templates_refuse_calls_the_node_vm_cannot_make(self, _name, template, message):
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode(template, set(), function_type="destination")
+        assert message in str(ctx.exception)
 
     def test_destination_templates_skip_the_globals_check_when_the_function_stays_off(self):
         with self.assertRaises(Exception):

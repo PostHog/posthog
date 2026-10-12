@@ -1,4 +1,10 @@
-import { isLibraryType, libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
+import {
+    isLibraryType,
+    libraryListHref,
+    libraryObjectHref,
+    libraryObjectName,
+    libraryTypeForPath,
+} from './libraryUtils'
 
 describe('libraryUtils', () => {
     test.each([
@@ -39,5 +45,19 @@ describe('libraryUtils', () => {
         ['/notebooks/abc', null],
     ])('finds the object type of %s', (path, type) => {
         expect(libraryTypeForPath(path)).toBe(type)
+    })
+
+    test.each([
+        ['feature_flag', '/feature_flags'],
+        ['insight', '/insights'],
+        ['cohort', '/cohorts'],
+        ['session_recording_playlist', '/replay/playlists'],
+        ['not_a_type', null],
+    ])('opens the list page of %s', (type, href) => {
+        const listHref = libraryListHref(type)
+        expect(listHref).toBe(href)
+        if (listHref) {
+            expect(libraryTypeForPath(listHref)).toBe(type)
+        }
     })
 })

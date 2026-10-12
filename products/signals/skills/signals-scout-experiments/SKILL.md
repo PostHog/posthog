@@ -94,7 +94,7 @@ Two caveats before trusting a clean p-value:
 - It tests against the **current** configured split. If variants were redistributed mid-run, post-edit balance can look clean while pre-edit data is contaminated — check the flag history (below) whenever `feature_flag.version` is high.
 - It says nothing about `$multiple` — read `bias_risk.multiple_variant_percentage` as its own check (below).
 
-When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Read the default exposure event off `experiment-get`'s `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side, same properties either way):
+When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Read the default exposure event off `experiment-get`'s `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side, same properties either way). When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows:
 
 ```sql
 SELECT
@@ -153,7 +153,7 @@ Both are report-worthy: the team thinks they're collecting evidence and they are
 
 #### Exposure stall / dormant experiment
 
-A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall:
+A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall. When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows:
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS exposures

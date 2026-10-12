@@ -8,6 +8,11 @@ from django.conf import settings
 import jwt
 from cryptography.hazmat.primitives import serialization
 
+# For JWTs a third party signs with keys it publishes. Asymmetric signatures only: an HMAC
+# family would let anyone holding the published key sign with it as a shared secret, and
+# "none" carries no signature at all.
+ASYMMETRIC_SIGNING_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
+
 JWT_ALGORITHM = "HS256"
 
 
@@ -21,6 +26,7 @@ class PosthogJwtAudience(Enum):
     HOGQL_LANGUAGE_SERVICE = "hogql-language-service"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    REPLAY_PROXY = "posthog:replay_proxy"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"

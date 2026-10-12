@@ -62,7 +62,7 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
 You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashboard/developers/api-keys) under Developers > API keys. Use a live key (`live_...`) for production data — test keys only return test-mode data.""",
             iconPath="/static/services/mollie.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mollie",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

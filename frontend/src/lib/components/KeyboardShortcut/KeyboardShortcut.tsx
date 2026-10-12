@@ -19,6 +19,7 @@ const KEY_TO_SYMBOL: Partial<Record<HotKeyOrModifier, string>> = {
     tab: '⇥',
     space: '␣',
     forwardslash: '/',
+    minus: '−',
     delete: '⌫',
     atsign: '@',
 }

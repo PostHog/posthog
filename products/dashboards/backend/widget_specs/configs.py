@@ -37,6 +37,16 @@ SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
 CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
 NOTEBOOK_WIDGET_TYPE = "notebook_widget"
+CANVAS_APP_WIDGET_TYPE = "canvas_app"
+
+
+class CanvasAppWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    canvasId: UUID | None = Field(
+        default=None,
+        description="Canvas to render in the tile. Null until the user picks one in the widget settings.",
+    )
 
 
 class NotebookWidgetConfig(BaseModel):

@@ -32,6 +32,7 @@ async def create_today_briefing_schedule(client: Client) -> None:
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             execution_timeout=timedelta(minutes=SCHEDULE_WINDOW_MINUTES),
         ),
+        # nosemgrep: schedule-must-avoid-minute-zero -- each run writes the briefings that start in the next window, so an offset shortens how far ahead of 8:00 local a briefing is written
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=SCHEDULE_WINDOW_MINUTES))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

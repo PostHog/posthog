@@ -27,7 +27,7 @@ export const LoopsListQueryParams = () => zod.object({
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Create a loop
  */
 export const LoopsCreateParams = () => zod.object({
@@ -357,7 +357,7 @@ export const LoopsCreateBody = () => zod
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Get a loop
  */
 export const LoopsRetrieveParams = () => zod.object({
@@ -1856,11 +1856,6 @@ export const TasksMeConfigListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const TasksMeConfigListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**

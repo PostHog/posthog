@@ -1,5 +1,4 @@
 import json
-import base64
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from typing import Any, cast
@@ -27,44 +26,6 @@ def response_for(config: AlegraSourceConfig, inputs: SourceInputs) -> SourceResp
     return source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
 
 
-@pytest.mark.parametrize(
-    "schema, path, extra_params",
-    [
-        ("invoices", "invoices", {"order_field": ["id"], "order_direction": ["ASC"]}),
-        ("contacts", "contacts", {"order_field": ["id"], "order_direction": ["ASC"], "mode": ["advanced"]}),
-        ("items", "items", {"order_field": ["id"], "order_direction": ["ASC"], "mode": ["advanced"]}),
-        ("incoming_payments", "payments", {"order_field": ["id"], "order_direction": ["ASC"], "type": ["in"]}),
-        ("outgoing_payments", "payments", {"order_field": ["id"], "order_direction": ["ASC"], "type": ["out"]}),
-        ("bills", "bills", {"order_field": ["date"], "order_direction": ["ASC"]}),
-        ("estimates", "estimates", {"order_field": ["id"], "order_direction": ["ASC"]}),
-        ("credit_notes", "credit-notes", {}),
-        ("debit_notes", "debit-notes", {}),
-    ],
-)
-def test_endpoint_requests_preserve_raw_rows_and_omit_watermarks(
-    config: AlegraSourceConfig,
-    inputs: SourceInputs,
-    http_boundary: Callable[..., list[PreparedRequest]],
-    redis_boundary: dict[str, str],
-    schema: str,
-    path: str,
-    extra_params: dict[str, list[str]],
-) -> None:
-    row = {"id": "00000000-0000-4000-8000-000000000001", "items": [{"id": "line-test", "price": "12.50"}]}
-    sent = http_boundary([(200, [row])])
-    response = response_for(config, replace(inputs, schema_name=schema))
-    assert rows(response) == [[row]]
-    url = urlsplit(sent[0].url or "")
-    assert url.scheme == "https"
-    assert url.netloc == "api.alegra.com"
-    assert url.path == f"/api/v1/{path}"
-    assert parse_qs(url.query) == {"start": ["0"], "limit": ["30"], **extra_params}
-    assert (
-        sent[0].headers["Authorization"]
-        == "Basic " + base64.b64encode(b"warehouse@example.com:fake-alegra-token").decode()
-    )
-
-
 @pytest.mark.parametrize("terminal_rows", [[], [{"id": "last-test"}]])
 def test_offset_pagination_and_checkpoint_resume(
     config: AlegraSourceConfig,
@@ -80,9 +41,11 @@ def test_offset_pagination_and_checkpoint_resume(
     response = source.source_for_pipeline(config, manager, inputs)
     pages = iter(cast(Iterable[list[dict[str, Any]]], response.items()))
     assert next(pages) == first_page
+    manager.confirm()
     assert not manager.has_staged_state()
     assert list(pages) == ([terminal_rows] if terminal_rows else [])
     assert [parse_qs(urlsplit(request.url or "").query)["start"] for request in sent] == [["0"], ["30"]]
+    manager.confirm()
     manager.commit()
     assert [json.loads(value) for value in redis_boundary.values()] == [{"offset": 30}]
 

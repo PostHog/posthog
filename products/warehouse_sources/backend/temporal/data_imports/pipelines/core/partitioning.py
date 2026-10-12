@@ -188,7 +188,15 @@ def append_partition_key_to_table(
 
     partition_array: list[str] = []
 
-    for batch in table.to_batches():
+    # The bucket of a row depends on its key columns alone. A row dict of every column costs one
+    # Python object per cell, which is most of the time and memory of this function on a wide table.
+    key_column_indices = [
+        table.schema.get_all_field_indices(key)[-1]
+        for key in dict.fromkeys(normalized_partition_keys)
+        if key in table.column_names
+    ]
+
+    for batch in table.select(key_column_indices).to_batches():
         for row in batch.to_pylist():
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"

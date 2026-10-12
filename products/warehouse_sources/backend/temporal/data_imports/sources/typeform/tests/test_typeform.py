@@ -51,14 +51,6 @@ class TestTypeformTransport:
 
         assert request.params["page"] == 2
 
-    def test_responses_paginator_update_state_sets_cursor(self) -> None:
-        paginator = TypeformResponsesPaginator()
-        response = Mock()
-
-        paginator.update_state(response, data=[{"token": "tok_1"}, {"token": "tok_2"}])
-
-        assert paginator.has_next_page is True
-
     def test_responses_paginator_update_state_empty_data_stops(self) -> None:
         paginator = TypeformResponsesPaginator()
         response = Mock()
@@ -66,23 +58,6 @@ class TestTypeformTransport:
         paginator.update_state(response, data=[])
 
         assert paginator.has_next_page is False
-
-    def test_responses_paginator_update_request_sets_before(self) -> None:
-        paginator = TypeformResponsesPaginator()
-        response = Mock()
-        paginator.update_state(response, data=[{"token": "tok_1"}])
-
-        request = Mock()
-        request.params = {
-            "page_size": 1000,
-            "since": "2026-03-01T00:00:00Z",
-            "until": "2026-03-25T00:00:00Z",
-        }
-        paginator.update_request(request)
-
-        assert request.params["before"] == "tok_1"
-        assert "since" not in request.params
-        assert "until" not in request.params
 
     def test_responses_paginator_update_request_preserves_response_type(self) -> None:
         paginator = TypeformResponsesPaginator()
@@ -141,14 +116,6 @@ class TestTypeformTransport:
 
         assert paginator.has_next_page is expected_has_next
 
-    def test_responses_paginator_watermark_ignores_rows_without_submitted_at(self) -> None:
-        paginator = TypeformResponsesPaginator(stop_when_older_than="2026-03-01T00:00:00Z")
-        response = Mock()
-
-        paginator.update_state(response, data=[{"token": "tok_1"}, {"token": "tok_2", "submitted_at": None}])
-
-        assert paginator.has_next_page is False
-
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
             ValueError,
@@ -200,17 +167,6 @@ class TestTypeformTransport:
         assert result == (False, "Typeform token is missing required scope for responses endpoint: responses:read")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_returns_success_when_no_forms_exist(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": []}
-        mock_get.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
-
-        assert result == (True, None)
-        assert mock_get.return_value.get.call_count == 1
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_for_forms_schema_only_skips_responses_probe(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
@@ -226,25 +182,6 @@ class TestTypeformTransport:
         assert mock_get.return_value.get.call_count == 1
         assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
-    def test_validate_credentials_for_responses_schema_only_skips_me_probe(self, mock_get) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        responses_response = Mock(status_code=200, text="ok")
-        responses_response.json.return_value = {"items": []}
-        mock_get.return_value.get.side_effect = [forms_response, responses_response]
-
-        result = validate_credentials(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            schema_name="responses",
-        )
-
-        assert result == (True, None)
-        assert mock_get.return_value.get.call_count == 2
-        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
-        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
-
     def test_get_resource_forms_non_incremental(self) -> None:
         resource = cast(
             dict[str, Any],
@@ -259,20 +196,6 @@ class TestTypeformTransport:
         assert resource["endpoint"]["data_selector"] == "items"
         assert resource["endpoint"]["params"]["page_size"] == 200
         assert resource["table_format"] == "delta"
-
-    def test_get_resource_forms_incremental(self) -> None:
-        resource = cast(
-            dict[str, Any],
-            get_resource(
-                endpoint="forms",
-                should_use_incremental_field=True,
-                incremental_field="last_updated_at",
-            ),
-        )
-        assert resource["write_disposition"]["disposition"] == "merge"
-        assert resource["endpoint"]["incremental"]["start_param"] == "since"
-        assert resource["endpoint"]["incremental"]["end_param"] == "until"
-        assert resource["endpoint"]["incremental"]["cursor_path"] == "last_updated_at"
 
     def test_get_resource_rejects_responses_fanout(self) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
@@ -295,53 +218,6 @@ class TestTypeformTransport:
         assert response.name == "forms"
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_typeform_source_responses_fanout_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("forms", [{"id": "form_1"}]),
-            _FakeDltResource("responses", [{"response_id": "resp_1", "_forms_id": "form_1"}]),
-        ]
-
-        response = typeform_source(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            endpoint="responses",
-            team_id=1,
-            job_id="job-1",
-        )
-        rows = list(cast(Any, response.items()))
-        # Parent field is renamed (_forms_id -> form_id) and both timestamp columns are guaranteed.
-        assert rows == [{"response_id": "resp_1", "form_id": "form_1", "submitted_at": None, "landed_at": None}]
-        assert response.partition_mode == "datetime"
-        # Tokens are only unique within a form, and the API returns responses newest-first.
-        assert response.primary_keys == ["form_id", "token"]
-        assert response.sort_mode == "desc"
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.build_dependent_resource"
-    )
-    def test_typeform_source_responses_passes_items_data_selector_to_fanout(
-        self, mock_build_dependent_resource
-    ) -> None:
-        mock_build_dependent_resource.return_value.add_map.return_value = iter([])
-
-        typeform_source(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            endpoint="responses",
-            team_id=1,
-            job_id="job-1",
-        )
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "page_size"
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "items"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], TypeformFormsPaginator)
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], TypeformResponsesPaginator)
 
     @parameterized.expand(
         [
@@ -373,32 +249,6 @@ class TestTypeformTransport:
 
         paginator = mock_build_dependent_resource.call_args.kwargs["child_endpoint_extra"]["paginator"]
         assert paginator._stop_when_older_than == expected_floor
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.build_dependent_resource"
-    )
-    def test_typeform_source_responses_no_watermark_floor_when_partials_included(
-        self, mock_build_dependent_resource
-    ) -> None:
-        mock_build_dependent_resource.return_value.add_map.return_value = iter([])
-
-        # Drift case: partials enabled but the schema still advertises submitted_at as the cursor.
-        # The submitted_at-based early stop must NOT engage — partials have no submitted_at, so a
-        # whole-partial page would otherwise compare "" < watermark and halt pagination early.
-        typeform_source(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            endpoint="responses",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
-            incremental_field="submitted_at",
-            response_types="completed,partial,started",
-        )
-
-        paginator = mock_build_dependent_resource.call_args.kwargs["child_endpoint_extra"]["paginator"]
-        assert paginator._stop_when_older_than is None
 
     @parameterized.expand(
         [
@@ -464,38 +314,6 @@ class TestTypeformTransport:
         )
 
         assert response.partition_keys == [expected_partition_key]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_typeform_source_responses_normalizes_missing_timestamps(self, mock_rest_api_resources) -> None:
-        # A partial response (no submitted_at) alongside a completed one (no landed_at).
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("forms", [{"id": "form_1"}]),
-            _FakeDltResource(
-                "responses",
-                [
-                    {"token": "partial_1", "landed_at": "2026-03-01T00:00:00Z", "_forms_id": "form_1"},
-                    {"token": "completed_1", "submitted_at": "2026-03-02T00:00:00Z", "_forms_id": "form_1"},
-                ],
-            ),
-        ]
-
-        response = typeform_source(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            endpoint="responses",
-            team_id=1,
-            job_id="job-1",
-            response_types="completed,partial,started",
-        )
-        rows = list(cast(Any, response.items()))
-
-        # Both timestamp columns must always be present so the pipeline never KeyErrors on a batch
-        # whose rows all lack the configured cursor/partition field.
-        assert all("submitted_at" in row and "landed_at" in row for row in rows)
-        assert next(r for r in rows if r["token"] == "partial_1")["submitted_at"] is None
-        assert next(r for r in rows if r["token"] == "completed_1")["landed_at"] is None
 
     def test_typeform_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(

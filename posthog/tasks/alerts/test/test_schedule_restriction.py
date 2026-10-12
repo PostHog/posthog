@@ -12,8 +12,8 @@ from posthog.tasks.alerts import schedule_restriction as schedule_restriction_mo
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 
-from products.alerts.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 
 ALERT_ID = UUID("0193f3c6-2a4b-7d2e-8f00-3c1b5d7e9a10")
 HOURLY_OFFSET = alert_check_offset(CalendarInterval.HOURLY, ALERT_ID)

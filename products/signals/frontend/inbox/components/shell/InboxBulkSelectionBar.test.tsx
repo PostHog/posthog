@@ -1,11 +1,14 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { type SignalReport, SignalReportStatus } from '../../types'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, type SignalReport, SignalReportStatus } from '../../types'
 import { InboxBulkSelectionBar } from './InboxBulkSelectionBar'
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
@@ -36,6 +39,8 @@ describe('InboxBulkSelectionBar', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+        // The list scope persists to localStorage, so a test that changes it would leak into the next.
+        localStorage.clear()
     })
 
     // The bar holds a count and no titles, so its dialogs have to count reports at every size. The
@@ -68,5 +73,39 @@ describe('InboxBulkSelectionBar', () => {
         fireEvent.click(screen.getByText('Dismiss'))
 
         expect(await screen.findByText(/The pull request opened for this report is closed/)).toBeInTheDocument()
+    })
+
+    it.each([
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: ['b', 'c'], unassigned: ['b'] },
+        { scope: INBOX_SCOPE_FOR_YOU, sent: ['a', 'b', 'c'], unassigned: ['a', 'b'] },
+    ])('under $scope unassigns $sent and drops only the ones that succeeded', async ({ scope, sent, unassigned }) => {
+        const deleted: string[] = []
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': ({ params }) => {
+                    deleted.push(String(params.id))
+                    return params.id === 'c' ? [500, {}] : [204, null]
+                },
+            },
+        })
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setScope(scope)
+        logic.actions.setSelectedReportIds(['a', 'b', 'c'])
+        render(
+            <InboxBulkSelectionBar
+                reports={[
+                    makeReport('a'),
+                    makeReport('b', { is_suggested_reviewer: true }),
+                    makeReport('c', { is_suggested_reviewer: true }),
+                ]}
+            />
+        )
+
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByText('Unassign me'))
+        })
+            .toDispatchActions([logic.actionCreators.unassignedMe(unassigned), 'bulkUnassignMeSuccess'])
+            .toMatchValues({ selectedReportIds: [] })
+        expect(deleted.sort()).toEqual(sent)
     })
 })

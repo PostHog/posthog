@@ -1,7 +1,11 @@
 import io
+import math
 import time
 import uuid
+import socket
 import importlib
+import urllib.request
+from collections.abc import Callable
 from datetime import (
     UTC,
     datetime,
@@ -35,7 +39,7 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     EvaluationResult,
     SchemaCadence,
     evaluate_due,
-    fetch_in_scope_schemas,
+    fetch_in_scope_schema_page,
     latest_fire_at,
     next_due_after,
     schedule_offset,
@@ -47,7 +51,7 @@ from products.warehouse_sources_queue.backend.core.scheduler_state import (
     DecisionRecord,
     SchedulerStateTable,
 )
-from products.warehouse_sources_queue.backend.sdk import DueSchedule
+from products.warehouse_sources_queue.backend.sdk import DueSchedule, HealthState, start_health_server
 from products.warehouse_sources_queue.backend.testing import ensure_scheduler_tables, get_test_database_url
 
 # The product-structure lint reads a direct import of another product's logic
@@ -185,7 +189,7 @@ class TestScopePredicate:
         source = _create_source(team, **source_overrides)
         schema = _create_schema(team, source, **schema_overrides)
 
-        in_scope_ids = {row.schema_id for row in fetch_in_scope_schemas()}
+        in_scope_ids = {row.schema_id for row in fetch_in_scope_schema_page(None, 100)}
         assert (str(schema.id) in in_scope_ids) == expected_in_scope
 
 
@@ -259,22 +263,91 @@ class TestEvaluateDue:
 
 @pytest.mark.django_db(transaction=True)
 class TestShadowSchedulerTick:
-    def _setup_due_state(self, team_id: int) -> tuple[str, datetime, str]:
+    def _setup_due_states(self, team_id: int, schema_ids: list[str]) -> tuple[datetime, str]:
         db_url = get_test_database_url()
-        schema_id = str(uuid.uuid4())
         due_at = (datetime.now(UTC) - timedelta(minutes=1)).replace(microsecond=0)
         with psycopg.Connection.connect(db_url, autocommit=True) as conn:
             ensure_scheduler_tables(conn)
             conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}, {SCHEDULER_STATE_TABLE}")
-            conn.execute(
-                f"""
-                INSERT INTO {SCHEDULER_STATE_TABLE}
-                    (kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at)
-                VALUES (%s, %s, %s, 3600, 0, %s)
-                """,
-                (SYNC_EXTRACT_KIND, schema_id, team_id, due_at),
-            )
+            for schema_id in schema_ids:
+                conn.execute(
+                    f"""
+                    INSERT INTO {SCHEDULER_STATE_TABLE}
+                        (kind, schedule_key, team_id, interval_seconds, offset_seconds, next_due_at)
+                    VALUES (%s, %s, %s, 3600, 0, %s)
+                    """,
+                    (SYNC_EXTRACT_KIND, schema_id, team_id, due_at),
+                )
+        return due_at, db_url
+
+    def _setup_due_state(self, team_id: int) -> tuple[str, datetime, str]:
+        schema_id = str(uuid.uuid4())
+        due_at, db_url = self._setup_due_states(team_id, [schema_id])
         return schema_id, due_at, db_url
+
+    def _setup_due_schemas(self, team, count: int) -> tuple[set[str], str]:
+        source = _create_source(team)
+        schema_ids = [str(_create_schema(team, source, name=f"table_{i}").id) for i in range(count)]
+        _, db_url = self._setup_due_states(team.pk, schema_ids)
+        return set(schema_ids), db_url
+
+    def _decided_keys(self, db_url: str) -> set[str]:
+        with psycopg.Connection.connect(db_url) as conn:
+            rows = conn.execute(f"SELECT schedule_key FROM {SCHEDULER_DECISION_TABLE}").fetchall()
+        return {row[0] for row in rows}
+
+    def _overdue_keys(self, db_url: str) -> set[str]:
+        with psycopg.Connection.connect(db_url) as conn:
+            rows = conn.execute(
+                f"SELECT schedule_key FROM {SCHEDULER_STATE_TABLE} WHERE next_due_at <= now()"
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    @pytest.mark.parametrize(
+        "schema_count,claim_limit,expected_batches",
+        [
+            pytest.param(0, 2, 1, id="empty"),
+            pytest.param(1, 2, 1, id="under_limit"),
+            pytest.param(4, 2, 3, id="exact_multiple_needs_empty_batch"),
+            pytest.param(5, 2, 3, id="backlog_over_limit"),
+        ],
+    )
+    def test_tick_drains_backlog_and_heartbeats_per_batch(
+        self, team, monkeypatch, schema_count, claim_limit, expected_batches
+    ):
+        schema_ids, db_url = self._setup_due_schemas(team, schema_count)
+        monkeypatch.setattr(
+            scheduler_runner.JobsTable, "try_acquire_sentinel_slot", AsyncMock(side_effect=[True, False])
+        )
+        due_per_tick = MagicMock()
+        monkeypatch.setattr(scheduler_runner, "DUE_PER_TICK", due_per_tick)
+        health_reporter = MagicMock()
+
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, claim_limit=claim_limit))
+        async_to_sync(scheduler._tick)(health_reporter)
+
+        assert self._decided_keys(db_url) == schema_ids
+        assert self._overdue_keys(db_url) == set()
+        due_per_tick.observe.assert_called_once_with(schema_count)
+        assert health_reporter.call_count >= expected_batches
+
+    def test_drain_budget_defers_remaining_backlog_to_next_tick(self, team, monkeypatch):
+        schema_ids, db_url = self._setup_due_schemas(team, 3)
+        monkeypatch.setattr(
+            scheduler_runner.JobsTable,
+            "try_acquire_sentinel_slot",
+            AsyncMock(side_effect=[True, False, True, False]),
+        )
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, claim_limit=2, drain_budget_seconds=0))
+
+        async_to_sync(scheduler._tick)(lambda: None)
+        first_tick_keys = self._decided_keys(db_url)
+        assert len(first_tick_keys) == 2
+        assert self._overdue_keys(db_url) == schema_ids - first_tick_keys
+
+        async_to_sync(scheduler._tick)(lambda: None)
+        assert self._decided_keys(db_url) == schema_ids
+        assert self._overdue_keys(db_url) == set()
 
     def _record(self, schema_id: str, team_id: int, due_at: datetime) -> DecisionRecord:
         return DecisionRecord(
@@ -370,8 +443,152 @@ class TestShadowSchedulerTick:
         duplicate_windows.inc.assert_called_once_with(1)
 
 
+@pytest.mark.django_db(transaction=True)
+class TestShadowSchedulerRefresh:
+    def _refresh(self, db_url: str, page_size: int, health_reporter: Callable[[], None] = lambda: None) -> None:
+        async def run() -> None:
+            scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, refresh_page_size=page_size))
+            async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
+                await scheduler._refresh(conn, health_reporter)
+
+        async_to_sync(run)()
+
+    def _state_keys(self, db_url: str) -> set[str]:
+        with psycopg.Connection.connect(db_url) as conn:
+            rows = conn.execute(
+                f"SELECT schedule_key FROM {SCHEDULER_STATE_TABLE} WHERE kind = %s", (SYNC_EXTRACT_KIND,)
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    def _reset_state(self) -> str:
+        db_url = get_test_database_url()
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}, {SCHEDULER_STATE_TABLE}")
+        return db_url
+
+    @pytest.mark.parametrize("page_size", [1, 2, 3, 100])
+    @pytest.mark.parametrize("schema_count", [0, 1, 2, 5])
+    def test_paged_refresh_upserts_every_in_scope_schema(self, team, monkeypatch, schema_count, page_size):
+        db_url = self._reset_state()
+        source = _create_source(team)
+        schema_ids = {str(_create_schema(team, source, name=f"table_{i}").id) for i in range(schema_count)}
+        _create_schema(team, source, name="out_of_scope", should_sync=False)
+        in_scope_gauge = MagicMock()
+        monkeypatch.setattr(scheduler_runner, "SCHEMAS_IN_SCOPE", in_scope_gauge)
+        health_reporter = MagicMock()
+
+        self._refresh(db_url, page_size, health_reporter)
+
+        assert self._state_keys(db_url) == schema_ids
+        in_scope_gauge.set.assert_called_once_with(schema_count)
+        assert health_reporter.call_count >= math.ceil(schema_count / page_size)
+
+    @pytest.mark.parametrize("page_size", [1, 2, 10])
+    def test_paged_refresh_deletes_schemas_that_left_scope(self, team, page_size):
+        db_url = self._reset_state()
+        source = _create_source(team)
+        schemas = [_create_schema(team, source, name=f"table_{i}") for i in range(5)]
+        self._refresh(db_url, page_size)
+        assert self._state_keys(db_url) == {str(schema.id) for schema in schemas}
+
+        schemas[0].should_sync = False
+        schemas[0].save()
+        ExternalDataSchema.objects.filter(pk=schemas[4].pk).update(deleted=True)
+        self._refresh(db_url, page_size)
+
+        assert self._state_keys(db_url) == {str(schema.id) for schema in schemas[1:4]}
+
+
+class TestSchedulerMetricsEndpoint:
+    def test_metrics_endpoint_serves_scheduler_metrics(self):
+        scheduler_runner.TICKS_TOTAL.labels(outcome="follower").inc()
+        free_port = _free_port()
+        start_health_server(port=free_port, health_state=HealthState(timeout_seconds=60))
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{free_port}/_metrics", timeout=5) as response:
+            body = response.read().decode()
+
+        assert "warehouse_pg_scheduler_ticks_total" in body
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 @pytest.mark.django_db
 class TestShadowReport:
+    @pytest.mark.parametrize(
+        "fired_offset_minutes,due_offset_minutes,expected_matched,expected_temporal_only",
+        [
+            pytest.param(-10, 5, 1, 0, id="pre_window_job_matches"),
+            pytest.param(-10, None, 0, 0, id="unmatched_pre_window_job"),
+            pytest.param(10, None, 0, 1, id="unmatched_in_window_job"),
+        ],
+    )
+    def test_report_counts_jobs_at_window_start(
+        self, team, monkeypatch, fired_offset_minutes, due_offset_minutes, expected_matched, expected_temporal_only
+    ):
+        db_url = get_test_database_url()
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}")
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.management.commands.report_warehouse_scheduler_shadow"
+            ".WAREHOUSE_SOURCES_DATABASE_URL",
+            db_url,
+        )
+
+        source = _create_source(team)
+        schema = _create_schema(team, source)
+        since = (datetime.now(UTC) - timedelta(hours=2)).replace(microsecond=0)
+        if due_offset_minutes is not None:
+            due_at = since + timedelta(minutes=due_offset_minutes)
+            with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+                conn.execute(
+                    f"""
+                    INSERT INTO {SCHEDULER_DECISION_TABLE}
+                        (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                    VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                    """,
+                    {"team_id": team.pk, "kind": SYNC_EXTRACT_KIND, "schedule_key": str(schema.id), "due_at": due_at},
+                )
+
+        fired_at = since + timedelta(minutes=fired_offset_minutes)
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status="Running",
+            workflow_id=f"{schema.id}-{fired_at.isoformat()}",
+        )
+
+        out = io.StringIO()
+        err = io.StringIO()
+        call_command(
+            "report_warehouse_scheduler_shadow",
+            "--since",
+            since.isoformat(),
+            "--team-id",
+            str(team.pk),
+            stdout=out,
+            stderr=err,
+        )
+
+        output = out.getvalue()
+        decision_count = int(due_offset_minutes is not None)
+        assert f"matched: {expected_matched}" in output
+        assert "shadow_only (shadow would fire, no job): 0" in output
+        assert f"temporal_only (schedule-fired job, no decision): {expected_temporal_only}" in output
+        stderr = err.getvalue().splitlines()
+        assert "fetching decisions..." in stderr
+        assert any(line.startswith(f"fetched {decision_count} decisions in ") for line in stderr)
+        assert "fetching jobs..." in stderr
+        assert any(line.startswith("fetched 1 jobs in ") for line in stderr)
+        assert any(line.startswith("matching: done in ") for line in stderr)
+
     def test_report_matches_jobs_and_counts_adhoc(self, team, monkeypatch):
         db_url = get_test_database_url()
         with psycopg.Connection.connect(db_url, autocommit=True) as conn:

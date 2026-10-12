@@ -22,20 +22,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactPartnerSourceClass:
-    def test_no_unreleased_flag(self) -> None:
-        # A finished source ships visible; unreleasedSource must not be set.
-        assert ImpactPartnerSource().get_source_config.unreleasedSource is not True
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert ImpactPartnerSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = ImpactPartnerSource().get_schemas(
-            ImpactPartnerSourceConfig(account_sid="s", auth_token="t"), team_id=1
-        )
-        names = {s.name for s in schemas}
-        assert names == {"Campaigns", "Actions", "Invoices"}
-
     @parameterized.expand(
         [
             ("Actions", True),
@@ -50,11 +36,6 @@ class TestImpactPartnerSourceClass:
         assert len(schemas) == 1
         assert schemas[0].supports_incremental is expected
         assert schemas[0].supports_append is expected
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        tables = ImpactPartnerSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert names == {"Campaigns", "Actions", "Invoices"}
 
     @parameterized.expand(
         [

@@ -442,8 +442,8 @@ function MaterializationContent(): JSX.Element {
                     {hasUnsavedMaterializationChange && (
                         <LemonBanner type="info">
                             {isMaterialized
-                                ? 'Save your changes to start materialization.'
-                                : 'Save your changes to disable materialization.'}
+                                ? 'Materialization will start after you save.'
+                                : 'Materialization will stop after you save.'}
                         </LemonBanner>
                     )}
 

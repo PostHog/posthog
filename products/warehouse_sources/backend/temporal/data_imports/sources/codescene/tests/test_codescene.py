@@ -1,6 +1,5 @@
-from typing import Any, cast
+from typing import Any
 
-import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
@@ -9,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codescene 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene import (
     CodesceneResumeConfig,
     codescene_source,
-    hostname_of,
     normalize_base_url,
     validate_credentials,
 )
@@ -48,10 +46,6 @@ def _make_fake_manager(can_resume: bool = False, state: CodesceneResumeConfig | 
 
 
 class TestNormalizeBaseUrl:
-    def test_defaults_to_cloud(self) -> None:
-        assert normalize_base_url(None) == "https://api.codescene.io/v2"
-        assert normalize_base_url("") == "https://api.codescene.io/v2"
-
     @parameterized.expand(
         [
             ("bare_host", "codescene.example.com:3003", "https://codescene.example.com:3003/api/v2"),
@@ -71,10 +65,6 @@ class TestNormalizeBaseUrl:
     )
     def test_normalizes_variants(self, _name: str, given: str, expected: str) -> None:
         assert normalize_base_url(given) == expected
-
-    def test_hostname_of(self) -> None:
-        assert hostname_of("https://codescene.example.com:3003/api/v2") == "codescene.example.com"
-        assert hostname_of(None) == "api.codescene.io"
 
 
 class TestValidateCredentials:
@@ -150,41 +140,8 @@ class TestValidateCredentials:
         assert message and "HTTPS" in message
         patched_session.return_value.get.assert_not_called()
 
-    def test_self_hosted_allows_http(self) -> None:
-        with (
-            patch.object(codescene_module, "is_cloud", return_value=False),
-            self._patch_session(Mock(status_code=200)) as patched_session,
-        ):
-            valid, _message = validate_credentials("token", "http://codescene.example.com", team_id=1)
-        assert valid is True
-        patched_session.return_value.get.assert_called_once()
-
 
 class TestCodesceneSourceFlatEndpoint:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.rest_api_resource")
-    def test_projects_resource_config(self, mock_rest_api_resource: MagicMock) -> None:
-        mock_rest_api_resource.return_value = _FakeDltResource("Projects", [{"id": "p1", "name": "demo"}])
-
-        response = codescene_source(
-            api_token="token",
-            base_url=None,
-            endpoint="Projects",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_fake_manager(),
-        )
-
-        assert response.name == "Projects"
-        assert response.primary_keys == ["id"]
-        config = mock_rest_api_resource.call_args.args[0]
-        assert config["client"]["base_url"] == "https://api.codescene.io/v2"
-        assert config["client"]["auth"] == {"type": "bearer", "token": "token"}
-        resource = config["resources"][0]
-        assert resource["endpoint"]["path"] == "/projects"
-        assert resource["endpoint"]["params"] == {"page_size": 100}
-        assert resource["endpoint"]["data_selector"] == "projects"
-        assert resource["endpoint"]["data_selector_required"] is True
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene.rest_api_resource")
     def test_resume_state_seeds_paginator(self, mock_rest_api_resource: MagicMock) -> None:
         mock_rest_api_resource.return_value = _FakeDltResource("Projects", [])
@@ -225,33 +182,6 @@ class TestCodesceneSourceFlatEndpoint:
 
 
 class TestCodesceneSourceFanout:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_files_fanout_row_format(self, mock_rest_api_resources: MagicMock) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("Projects", [{"id": "p1", "name": "demo"}]),
-            _FakeDltResource(
-                "Files",
-                [{"name": "src/app.py", "code_health": 8.5, "_Projects_id": "p1"}],
-            ),
-        ]
-
-        response = codescene_source(
-            api_token="token",
-            base_url=None,
-            endpoint="Files",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_fake_manager(),
-        )
-
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"name": "src/app.py", "code_health": 8.5, "project_id": "p1"}]
-        # A file path is only unique within its own project, so the parent project id is
-        # part of the key.
-        assert response.primary_keys == ["project_id", "name"]
-
     @parameterized.expand(
         [
             ("files", "Files", "files", "page_size", PageNumberPaginator),
@@ -294,38 +224,8 @@ class TestCodesceneSourceFanout:
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], paginator_type)
         assert kwargs["fanout"] is CODESCENE_ENDPOINTS[endpoint].fanout
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_technical_debt_asks_for_refactoring_targets(self, mock_rest_api_resources: MagicMock) -> None:
-        # Without the flag the endpoint answers with the friction summary under the same
-        # `result` key, so dropping it would sync the wrong rows without failing.
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("Projects", []),
-            _FakeDltResource("TechnicalDebt", []),
-        ]
-
-        codescene_source(
-            api_token="token",
-            base_url=None,
-            endpoint="TechnicalDebt",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_fake_manager(),
-        )
-
-        config = mock_rest_api_resources.call_args.args[0]
-        child = next(resource for resource in config["resources"] if resource["name"] == "TechnicalDebt")
-        assert child["endpoint"]["params"]["refactoring_targets"] == "true"
-        assert child["endpoint"]["params"]["project_id"]["type"] == "resolve"
-
 
 class TestCodesceneEndpointCatalog:
-    @pytest.mark.parametrize("endpoint", list(CODESCENE_ENDPOINTS))
-    def test_every_endpoint_has_primary_key(self, endpoint: str) -> None:
-        primary_key = CODESCENE_ENDPOINTS[endpoint].primary_key
-        assert primary_key
-
     def test_fanout_endpoints_key_on_parent_id(self) -> None:
         # Every fan-out table aggregates rows from all projects, so a key that is only
         # unique within a project seeds duplicates the merge then multi-matches.

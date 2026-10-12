@@ -11,7 +11,7 @@ import * as zod from 'zod'
 
 /**
  * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * schedule, GitHub events or authenticated API calls.
  * @summary Create a loop
  */
 export const loopsCreateBodyNameMax = 400
@@ -3744,6 +3744,26 @@ export const TasksMeConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
+
+/**
+ * Update your per-project defaults for new tasks. Fields you leave out keep their stored value.
+ */
+export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
+    .object({
+        start_in_plan_mode: zod
+            .boolean()
+            .optional()
+            .describe(
+                'When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.'
+            ),
+        auto_publish_cloud_runs: zod
+            .boolean()
+            .optional()
+            .describe(
+                'When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.'
+            ),
+    })
+    .describe("A partial update of the requesting user's task defaults. Fields left out keep their stored value.")
 
 /**
  * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
