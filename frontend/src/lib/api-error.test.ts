@@ -145,6 +145,7 @@ describe('api-error', () => {
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
+            ['a feature flag gate', { status: 403, code: 'feature_flag_required' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
             ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
             ['a 502', { status: 502 }, false],

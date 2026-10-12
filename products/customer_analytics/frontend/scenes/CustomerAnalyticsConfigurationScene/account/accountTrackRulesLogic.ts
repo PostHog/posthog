@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError } from 'lib/api'
+import { isFeatureFlagGatedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -62,7 +63,7 @@ export interface accountTrackRulesLogicValues {
 export interface accountTrackRulesLogicActions {
     loadConfig: () => { value: true }
     loadConfigSuccess: (config: AccountTrackRulesConfigApi | null) => { config: AccountTrackRulesConfigApi | null }
-    loadConfigFailure: (error: unknown) => { error: unknown }
+    loadConfigFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     saveConfig: () => { value: true }
     saveConfigSuccess: (saveResponse: AccountTrackRulesConfigApi) => { saveResponse: AccountTrackRulesConfigApi }
     saveConfigFailure: (error: unknown) => { error: unknown }
@@ -75,7 +76,7 @@ export interface accountTrackRulesLogicActions {
     setPreviewedDraft: (config: AccountTrackRulesConfigApi) => { config: AccountTrackRulesConfigApi }
     loadRuns: () => { value: true }
     loadRunsSuccess: (runs: AccountTrackRuleRunViewApi[]) => { runs: AccountTrackRuleRunViewApi[] }
-    loadRunsFailure: (error: unknown) => { error: unknown }
+    loadRunsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     startRun: () => { value: true }
     startRunSuccess: (currentRun: AccountTrackRuleRunViewApi) => { currentRun: AccountTrackRuleRunViewApi }
     startRunFailure: (error: unknown) => { error: unknown }
@@ -279,7 +280,10 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
                 actions.setDraft(config)
             }
         },
-        loadConfigFailure: () => {
+        loadConfigFailure: ({ errorObject }) => {
+            if (isFeatureFlagGatedError(errorObject)) {
+                return
+            }
             lemonToast.error('Could not load account track rules')
         },
         saveConfigSuccess: ({ saveResponse }) => {
@@ -357,7 +361,10 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
                 cache.trackRulesRunPollAttempts = 0
             }
         },
-        loadRunsFailure: () => {
+        loadRunsFailure: ({ errorObject }) => {
+            if (isFeatureFlagGatedError(errorObject)) {
+                return
+            }
             lemonToast.error('Could not load track rules run history')
         },
     })),
