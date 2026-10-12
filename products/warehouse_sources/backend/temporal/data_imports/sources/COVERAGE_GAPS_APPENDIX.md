@@ -5376,10 +5376,10 @@ Diffed against: <https://documentation.mailgun.com/docs/mailgun/api-reference/se
 - [x] `GET /v3/{domain}/stats/total and GET /v3/stats/total` — time-bucketed sent/delivered/opened/bounced counts per domain and account (high) — deprecated Stats API, covered by `metrics` and `domain_metrics` from the Metrics API instead
 - [x] `GET /v3/{domain}/tags/{tag}/stats and /stats/aggregates` — per-tag performance; tags are synced but carry no metrics without these (high) — deprecated, covered by `tag_metrics` from the Metrics API instead
 - [x] `GET /v3/{domain}/aggregates/devices, /providers, /countries` — device, mailbox provider and country breakdown dimensions for engagement (high) — deprecated, covered by `recipient_provider_metrics` and `country_metrics` from the Metrics API; the Metrics API documents no device dimension, so devices stay uncovered
-- [ ] `GET /v3/lists/{list_address}/members` — mailing list membership join table; mailing_lists gives only the list headers (high)
-- [ ] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high)
-- [ ] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium)
-- [ ] `GET /v5/accounts/subaccounts` — lookup resolving subaccount ids for multi-tenant sending (medium)
+- [x] `GET /v3/lists/{list_address}/members` — mailing list membership join table; mailing_lists gives only the list headers (high) — synced as `mailing_list_members` from the paged `/v3/lists/{list_address}/members/pages` route
+- [x] `POST /v1/analytics/logs` — the v1 log query API, richer and longer-retained than the v3 events feed already synced (high) — synced as incremental `logs`; it reads the same plan-bounded event store as `events`, so retention is not longer, but it is account-wide with no per-domain fan-out
+- [x] `GET /v3/{domain}/whitelists (allowlist)` — allowlist entries completing the suppression picture alongside bounces/complaints/unsubscribes (medium) — synced as `allowlist`
+- [x] `GET /v5/accounts/subaccounts` — lookup resolving subaccount ids for multi-tenant sending (medium) — synced as `subaccounts`
 - [ ] `GET /v1/bounce-classification/domains/{domain}/events and /stats` — classified bounce reasons, far more analyzable than raw bounce rows (medium)
 - [ ] `GET /v3/{domain}/templates/{name}/versions and /v4/templates/{name}/versions` — template version lookup resolving the version referenced on sends (medium)
 - [ ] `POST /v1/analytics/usage-metrics` — account usage/consumption metrics for cost attribution (medium)
