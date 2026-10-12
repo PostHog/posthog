@@ -23,7 +23,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -273,24 +273,28 @@ def _with_session_files(
     def attach(run_id: UUID) -> dict[str, JsonValue] | None:
         state = before_task_dispatch(run_id) if before_task_dispatch is not None else None
         task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).get()
+        artifact_ids: list[JsonValue] = [uuid4().hex for _ in files]
         artifacts = [
             {
-                "id": uuid4().hex,
+                "id": artifact_id,
                 "name": file.name,
                 "type": SESSION_FILE_ARTIFACT_TYPE,
                 "content_bytes": file.content.encode("utf-8"),
                 "content_type": "text/plain; charset=utf-8",
             }
-            for file in files
+            for artifact_id, file in zip(artifact_ids, files, strict=True)
         ]
         if upload_task_run_artifacts(run_id, task_id, team_id, artifacts=artifacts) is None:
             raise RuntimeError(f"Could not attach session files to run {run_id}")
         # The prompt goes as the pending message, because only that path sends the files with it.
-        return {
+        pending: dict[str, JsonValue] = {
             **(state or {}),
             "pending_user_message": description,
-            "pending_user_artifact_ids": [artifact["id"] for artifact in artifacts],
+            "pending_user_artifact_ids": artifact_ids,
         }
+        # Startup and the pending-message forwarder both deliver this prompt and dedupe on the id.
+        stamp_pending_user_message_id(pending)
+        return pending
 
     return attach
 

@@ -1664,6 +1664,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         manifest = {entry["id"]: entry for entry in persisted.artifacts}
         assert persisted.state["private_ready"] is True
         assert persisted.state["pending_user_message"] == "prompt"
+        assert persisted.state["pending_user_message_id"]
         assert [manifest[artifact_id]["name"] for artifact_id in persisted.state["pending_user_artifact_ids"]] == [
             "main.prompt.md",
             "perf.md",
