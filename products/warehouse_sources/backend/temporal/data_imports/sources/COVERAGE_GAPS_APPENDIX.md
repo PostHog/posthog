@@ -5463,10 +5463,10 @@ Today (5): `actions_summary`, `countries`, `referrers`, `visits`, `visits_summar
 
 Diffed against: <https://demo.matomo.cloud/index.php?module=API&method=API.getReportMetadata&idSite=1&period=day&date=today&format=JSON&token_auth=anonymous>
 
-- [ ] `Actions.getPageUrls` — Page-level traffic report; actions_summary only carries site-wide totals (high)
-- [ ] `Goals.get` — Goal conversions and revenue, Matomo's headline conversion metric (high)
-- [ ] `Goals.getGoals` — Lookup table resolving the goal IDs that conversion reports key on (high)
-- [ ] `Events.getCategory / getAction / getName` — Custom event reports - the closest analogue to PostHog's own event model (high)
+- [x] `Actions.getPageUrls` — Page-level traffic report; actions_summary only carries site-wide totals (high)
+- [x] `Goals.get` — Goal conversions and revenue, Matomo's headline conversion metric (high)
+- [x] `Goals.getGoals` — Lookup table resolving the goal IDs that conversion reports key on (high)
+- [x] `Events.getCategory / getAction / getName` — Custom event reports - the closest analogue to PostHog's own event model (high)
 - [ ] `Actions.getEntryPageUrls / getExitPageUrls` — Entry and exit page breakdowns for landing-page and drop-off analysis (medium)
 - [ ] `Referrers.getReferrerType / getSearchEngines / getWebsites / getSocials` — Channel-level referrer breakdowns; referrers today is only the flat getAll roll-up (medium)
 - [ ] `DevicesDetection.getType / getBrowsers / getOsFamilies` — Device, browser and OS breakdown dimensions (medium)
