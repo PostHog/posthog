@@ -1418,7 +1418,7 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
-    "backend\\.facade.*",
+    "backend\\.logic\\.event_property_purge.*",
     "backend\\.logic\\.placeholder.*",
     "backend\\.models.*",
     "backend\\.property_type.*",

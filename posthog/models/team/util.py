@@ -13,7 +13,7 @@ from posthog.models.async_migration import is_async_migration_complete
 
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.event_definitions.backend.facade.api import delete_event_properties_for_team
+from products.event_definitions.backend.logic.event_property_purge import delete_event_properties_for_team
 
 logger = structlog.get_logger(__name__)
 
