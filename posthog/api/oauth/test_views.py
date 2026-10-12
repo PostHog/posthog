@@ -1746,6 +1746,14 @@ class TestOAuthAPI(APIBaseTest):
                 "terminated abnormally before or while processing the request.",
             ),
             ("connection_failed", "connection failed"),
+            ("starting_up", "FATAL:  the database system is starting up"),
+            ("shutting_down", "FATAL:  the database system is shutting down"),
+            (
+                "pgbouncer_cached_recovery_mode",
+                "server login has been failing, cached error: "
+                "the database system is in recovery mode (server_login_retry)",
+            ),
+            ("recovery_mode", "FATAL:  the database system is in recovery mode"),
         ]
     )
     def test_token_endpoint_returns_temporarily_unavailable_on_transient_db_error(self, _name, error_message):

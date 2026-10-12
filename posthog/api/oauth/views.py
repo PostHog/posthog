@@ -194,6 +194,14 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "query_wait_timeout",
     "server closed the connection unexpectedly",
     "connection failed",
+    # Postgres refuses connections while it restarts or replays WAL after a failover.
+    "the database system is starting up",
+    "the database system is shutting down",
+    "the database system is in recovery mode",
+    # PgBouncer caches a failed backend login and returns it to every client until its
+    # server_login_retry cooldown elapses. PgBouncer then retries the backend itself, so the
+    # error clears without any action from us.
+    "server_login_retry",
 )
 
 
