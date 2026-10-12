@@ -1067,7 +1067,7 @@ class TestCalculateActivity(BaseTest):
         )
         prior = self._recalc(exp, metric_uuids=["m1"])
         prior.status = ExperimentMetricsRecalculation.Status.FAILED
-        prior.completed_at = timezone.now()
+        prior.completed_at = query_to
         if prior_error_recorded:
             prior.metric_errors = {
                 "m1": {
@@ -1075,7 +1075,7 @@ class TestCalculateActivity(BaseTest):
                     "message": "The query timed out.",
                     "error_type": "timeout",
                     "retriable": retriable,
-                    "timestamp": timezone.now().isoformat(),
+                    "timestamp": _QUERY_TO,
                 }
             }
         prior.save()
