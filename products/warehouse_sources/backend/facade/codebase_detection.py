@@ -4,12 +4,22 @@ The wizard projects these declarations into the detector registry it scans codeb
 `products/wizard/backend/tool_catalog/`.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import TypedDict, Unpack, cast
 
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldConfig,
+    SourceFieldCredentialAccountSelectConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+)
 
 
 class Ecosystem(StrEnum):
@@ -30,21 +40,11 @@ class Ecosystem(StrEnum):
     PUB = "pub"
 
 
-class WizardSetupMode(StrEnum):
-    # The agent collects credentials and creates the source from the terminal.
-    IN_CLI = "in-cli"
-    # The wizard opens the app's pre-filled new-source form in the browser.
-    DEEP_LINK = "deep-link"
-
-
-IN_CLI = WizardSetupMode.IN_CLI
-DEEP_LINK = WizardSetupMode.DEEP_LINK
-
-
 @frozen
 class Detection:
-    # None for a tool the wizard detects and reports but never offers as a source.
-    setup_mode: WizardSetupMode | None
+    # Sends the user to the app's new-source form instead of collecting credentials in the terminal.
+    # Only needed where the source's fields allow terminal setup; see `fields_require_ui`.
+    setup_requires_ui: bool
     packages: Mapping[Ecosystem, tuple[str, ...]]
     # Anchored regexes matched against `.env` key names. The wizard compiles them as JavaScript
     # regexes, so they must stay in the subset both engines read the same way.
@@ -63,6 +63,7 @@ class NotDetectable:
 
 
 class _Signals(TypedDict, total=False):
+    setup_requires_ui: bool
     npm: tuple[str, ...]
     pypi: tuple[str, ...]
     rubygems: tuple[str, ...]
@@ -80,11 +81,11 @@ class _Signals(TypedDict, total=False):
     superseded_by: tuple[str, ...]
 
 
-def detect(setup_mode: WizardSetupMode | None, **signals: Unpack[_Signals]) -> Detection:
+def detect(**signals: Unpack[_Signals]) -> Detection:
     # The package keyword names match the Ecosystem values, so a lookup by value finds them.
     by_name = cast(Mapping[str, tuple[str, ...]], signals)
     return Detection(
-        setup_mode=setup_mode,
+        setup_requires_ui=signals.get("setup_requires_ui", False),
         packages={ecosystem: by_name[ecosystem.value] for ecosystem in Ecosystem if by_name.get(ecosystem.value)},
         env_key_patterns=signals.get("env", ()),
         script_hosts=signals.get("script_hosts", ()),
@@ -99,3 +100,32 @@ def not_detectable(reason: str) -> NotDetectable:
 
 SHORT_NAME = "The name is too short to use as a .env key prefix."
 COMMON_WORD = "The name is a common word, so a .env key prefix built from it matches unrelated projects."
+
+
+_UI_ONLY_FIELDS = (
+    SourceFieldOauthConfig,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldCredentialAccountSelectConfig,
+    SourceFieldFileUploadConfig,
+)
+
+
+def _option_requires_ui(option: SourceFieldSelectConfigOption) -> bool:
+    fields = option.fields or []
+    # An option's credential field is often marked optional, but choosing the option means filling it.
+    return any(isinstance(field, _UI_ONLY_FIELDS) for field in fields) or fields_require_ui(fields)
+
+
+def fields_require_ui(fields: Sequence[SourceFieldConfig]) -> bool:
+    """Whether every way through a source's form needs OAuth, a file upload or an account picker."""
+    for field in fields:
+        if isinstance(field, _UI_ONLY_FIELDS) and field.required is not False:
+            return True
+        if (
+            isinstance(field, SourceFieldSelectConfig)
+            and field.required
+            and field.options
+            and all(_option_requires_ui(option) for option in field.options)
+        ):
+            return True
+    return False

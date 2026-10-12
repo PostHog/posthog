@@ -6,7 +6,7 @@ from google.auth.exceptions import RefreshError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -96,7 +96,7 @@ def _property_list_http_error(error: requests.HTTPError) -> str:
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
-    codebase_detection = detect(DEEP_LINK, env=("^SEARCH_CONSOLE_", "^GSC_"))
+    codebase_detection = detect(env=("^SEARCH_CONSOLE_", "^GSC_"))
 
     supported_versions = ("v3",)
     default_version = "v3"

@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,9 +38,7 @@ BREVO_INVALID_API_KEY_MESSAGE = (
 
 @SourceRegistry.register
 class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
-    codebase_detection = detect(
-        IN_CLI, npm=("@getbrevo/brevo", "sib-api-v3-sdk"), pypi=("sib-api-v3-sdk",), env=("^BREVO_",)
-    )
+    codebase_detection = detect(npm=("@getbrevo/brevo", "sib-api-v3-sdk"), pypi=("sib-api-v3-sdk",), env=("^BREVO_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)

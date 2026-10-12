@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -58,7 +58,7 @@ class WebflowSource(
     ResumableSource[WebflowSourceConfig, WebflowResumeConfig],
     WebhookSource[WebflowSourceConfig],
 ):
-    codebase_detection = detect(IN_CLI, npm=("webflow-api",), env=("^WEBFLOW_",))
+    codebase_detection = detect(npm=("webflow-api",), env=("^WEBFLOW_",))
 
     supported_versions = ("v2",)
     default_version = "v2"

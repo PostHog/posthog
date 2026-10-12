@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from posthog.models.integration import Integration, OauthIntegration
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpScoutResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(HELP_SCOUT|HELPSCOUT)_",))
+    codebase_detection = detect(env=("^(HELP_SCOUT|HELPSCOUT)_",))
 
     supported_versions = (HELP_SCOUT_API_VERSION_V2, HELP_SCOUT_API_VERSION_V3)
     default_version = HELP_SCOUT_API_VERSION_V3

@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,9 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
-    codebase_detection = detect(
-        IN_CLI, npm=("plaid",), pypi=("plaid-python", "plaid"), rubygems=("plaid",), env=("^PLAID_",)
-    )
+    codebase_detection = detect(npm=("plaid",), pypi=("plaid-python", "plaid"), rubygems=("plaid",), env=("^PLAID_",))
 
     api_docs_url = "https://plaid.com/docs/api/"
 

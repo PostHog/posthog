@@ -4,7 +4,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
@@ -160,7 +160,6 @@ class GithubSource(
     # 'Github' (not 'GitHub') - matches the ExternalDataSourceType value.
     # Default auth is the GitHub App integration (OAuth), so deep-link.
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("@octokit/rest", "@octokit/core", "@octokit/graphql", "octokit"),
         pypi=("pygithub",),
         rubygems=("octokit",),

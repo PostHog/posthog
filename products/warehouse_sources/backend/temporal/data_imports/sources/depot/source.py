@@ -4,7 +4,7 @@ from typing import ClassVar, Optional, cast
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -53,7 +53,7 @@ class DepotReconciliationCursor:
 
 @SourceRegistry.register
 class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliationCursor]):
-    codebase_detection = detect(DEEP_LINK, env=("^DEPOT_",))
+    codebase_detection = detect(env=("^DEPOT_",))
 
     api_docs_url = "https://depot.dev/docs/api/ci/reference"
     lists_tables_without_credentials = True

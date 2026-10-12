@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,7 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ReferralHeroSource(ResumableSource[ReferralHeroSourceConfig, ReferralHeroResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(REFERRAL_HERO|REFERRALHERO)_",))
+    codebase_detection = detect(env=("^(REFERRAL_HERO|REFERRALHERO)_",))
 
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

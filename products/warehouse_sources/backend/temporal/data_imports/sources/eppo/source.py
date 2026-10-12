@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EppoSource(SimpleSource[EppoSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^EPPO_",))
+    codebase_detection = detect(env=("^EPPO_",))
 
     # Every endpoint here is a static entry in ENDPOINTS with no I/O — safe for public docs.
     lists_tables_without_credentials = True

@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,7 +45,7 @@ FILTERABLE_ENDPOINTS: dict[str, str] = {
 
 @SourceRegistry.register
 class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^OPENALEX_",))
+    codebase_detection = detect(env=("^OPENALEX_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # OpenAlex serves a single unversioned API at api.openalex.org: no version path segment,

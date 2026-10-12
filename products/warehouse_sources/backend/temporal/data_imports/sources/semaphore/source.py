@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SemaphoreSource(ResumableSource[SemaphoreSourceConfig, SemaphoreResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^SEMAPHORE_",))
+    codebase_detection = detect(env=("^SEMAPHORE_",))
 
     lists_tables_without_credentials = True
     # Semaphore Cloud documents v1alpha as its public API despite the version name.

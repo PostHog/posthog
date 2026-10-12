@@ -4,7 +4,7 @@ from typing import Any, Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -74,7 +74,7 @@ class AppleSearchAdsSource(
     CredentialAccountsMixin[AppleSearchAdsSourceConfig],
     OAuthMixin,
 ):
-    codebase_detection = detect(DEEP_LINK, env=("^(APPLE_SEARCH_ADS|APPLESEARCHADS)_",))
+    codebase_detection = detect(env=("^(APPLE_SEARCH_ADS|APPLESEARCHADS)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

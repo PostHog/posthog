@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from asgiref.sync import async_to_sync
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
 @SourceRegistry.register
 class FintocSource(ResumableSource[FintocSourceConfig, FintocResumeState], WebhookSource[FintocSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^FINTOC_",))
+    codebase_detection = detect(env=("^FINTOC_",))
 
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)

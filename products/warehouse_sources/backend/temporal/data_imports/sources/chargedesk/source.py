@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^CHARGEDESK_",))
+    codebase_detection = detect(env=("^CHARGEDESK_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

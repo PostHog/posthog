@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,7 +48,7 @@ _DATA_CENTER_LABELS = {
 
 @SourceRegistry.register
 class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(MO_ENGAGE|MOENGAGE)_",))
+    codebase_detection = detect(env=("^(MO_ENGAGE|MOENGAGE)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # MoEngage versions per endpoint family through the URL path (the V5 campaign search, the

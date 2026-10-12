@@ -1,7 +1,7 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,7 +41,7 @@ _NETWORK_ID_RE = re.compile(r"^[0-9]+$")
 
 @SourceRegistry.register
 class MightyNetworksSource(ResumableSource[MightyNetworksSourceConfig, MightyNetworksResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(MIGHTY_NETWORKS|MIGHTYNETWORKS)_",))
+    codebase_detection = detect(env=("^(MIGHTY_NETWORKS|MIGHTYNETWORKS)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

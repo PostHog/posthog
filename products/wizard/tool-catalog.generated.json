@@ -21,7 +21,7 @@
             "kind": "AbnormalSecurity",
             "label": "Abnormal Security (Abnormal AI)",
             "warehouse_source_type": "AbnormalSecurity",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -34,7 +34,7 @@
             "kind": "Acast",
             "label": "Acast",
             "warehouse_source_type": "Acast",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -47,7 +47,7 @@
             "kind": "Acculynx",
             "label": "AccuLynx",
             "warehouse_source_type": "Acculynx",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -73,7 +73,7 @@
             "kind": "AdRoll",
             "label": "AdRoll",
             "warehouse_source_type": "AdRoll",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -86,7 +86,7 @@
             "kind": "AdobeAnalytics",
             "label": "Adobe Analytics",
             "warehouse_source_type": "AdobeAnalytics",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -99,7 +99,7 @@
             "kind": "AdobeCommerce",
             "label": "Adobe Commerce (Magento)",
             "warehouse_source_type": "AdobeCommerce",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -128,7 +128,7 @@
             "kind": "Aftership",
             "label": "AfterShip",
             "warehouse_source_type": "Aftership",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -141,7 +141,7 @@
             "kind": "AgileCRM",
             "label": "AgileCRM",
             "warehouse_source_type": "AgileCRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -154,7 +154,7 @@
             "kind": "AhaIdeas",
             "label": "Aha! Ideas",
             "warehouse_source_type": "AhaIdeas",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -167,7 +167,7 @@
             "kind": "Ahrefs",
             "label": "Ahrefs",
             "warehouse_source_type": "Ahrefs",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -180,7 +180,7 @@
             "kind": "AirOps",
             "label": "AirOps",
             "warehouse_source_type": "AirOps",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -193,7 +193,7 @@
             "kind": "Airbrake",
             "label": "Airbrake",
             "warehouse_source_type": "Airbrake",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -250,7 +250,7 @@
             "kind": "Aiven",
             "label": "Aiven",
             "warehouse_source_type": "Aiven",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -263,7 +263,7 @@
             "kind": "Alegra",
             "label": "Alegra",
             "warehouse_source_type": "Alegra",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -293,7 +293,7 @@
             "kind": "Alguna",
             "label": "Alguna",
             "warehouse_source_type": "Alguna",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -306,7 +306,7 @@
             "kind": "AlphaVantage",
             "label": "Alpha Vantage",
             "warehouse_source_type": "AlphaVantage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -332,7 +332,7 @@
             "kind": "Amplemarket",
             "label": "Amplemarket",
             "warehouse_source_type": "Amplemarket",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -382,7 +382,7 @@
             "kind": "ApifyDataset",
             "label": "Apify Dataset",
             "warehouse_source_type": "ApifyDataset",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -395,7 +395,7 @@
             "kind": "Apitally",
             "label": "Apitally",
             "warehouse_source_type": "Apitally",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -408,7 +408,7 @@
             "kind": "AppLovin",
             "label": "AppLovin",
             "warehouse_source_type": "AppLovin",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -421,7 +421,7 @@
             "kind": "AppStoreConnect",
             "label": "Apple (App Store Connect)",
             "warehouse_source_type": "AppStoreConnect",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -434,7 +434,7 @@
             "kind": "Appdynamics",
             "label": "Splunk AppDynamics (Cisco)",
             "warehouse_source_type": "Appdynamics",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -447,7 +447,7 @@
             "kind": "Appfigures",
             "label": "Appfigures",
             "warehouse_source_type": "Appfigures",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -460,7 +460,7 @@
             "kind": "Appfollow",
             "label": "AppFollow",
             "warehouse_source_type": "Appfollow",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -473,7 +473,7 @@
             "kind": "AppleSearchAds",
             "label": "Apple Ads",
             "warehouse_source_type": "AppleSearchAds",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -501,7 +501,7 @@
             "kind": "Appsignal",
             "label": "AppSignal",
             "warehouse_source_type": "Appsignal",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -514,7 +514,7 @@
             "kind": "Appstack",
             "label": "Appstack",
             "warehouse_source_type": "Appstack",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -527,7 +527,7 @@
             "kind": "Argocd",
             "label": "Argo CD",
             "warehouse_source_type": "Argocd",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -540,7 +540,7 @@
             "kind": "Asaas",
             "label": "Asaas",
             "warehouse_source_type": "Asaas",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -582,7 +582,7 @@
             "kind": "Asknicely",
             "label": "AskNicely",
             "warehouse_source_type": "Asknicely",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -626,7 +626,7 @@
             "kind": "Auth0",
             "label": "Auth0",
             "warehouse_source_type": "Auth0",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -639,7 +639,7 @@
             "kind": "Automox",
             "label": "Automox",
             "warehouse_source_type": "Automox",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -652,7 +652,7 @@
             "kind": "Avalara",
             "label": "Avalara AvaTax",
             "warehouse_source_type": "Avalara",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -665,7 +665,7 @@
             "kind": "Aviationstack",
             "label": "Aviationstack",
             "warehouse_source_type": "Aviationstack",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -678,7 +678,7 @@
             "kind": "Awin",
             "label": "Awin",
             "warehouse_source_type": "Awin",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -691,7 +691,7 @@
             "kind": "AwsBatch",
             "label": "AWS Batch",
             "warehouse_source_type": "AwsBatch",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -704,7 +704,7 @@
             "kind": "AwsBudgets",
             "label": "AWS Budgets",
             "warehouse_source_type": "AwsBudgets",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -717,7 +717,7 @@
             "kind": "AwsCloudTrail",
             "label": "AWS CloudTrail",
             "warehouse_source_type": "AwsCloudTrail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -730,7 +730,7 @@
             "kind": "AwsComputeOptimizer",
             "label": "AWS Compute Optimizer",
             "warehouse_source_type": "AwsComputeOptimizer",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -743,7 +743,7 @@
             "kind": "AwsConfig",
             "label": "AWS Config",
             "warehouse_source_type": "AwsConfig",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -756,7 +756,7 @@
             "kind": "AwsCostAnomalyDetection",
             "label": "AWS Cost Anomaly Detection",
             "warehouse_source_type": "AwsCostAnomalyDetection",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -769,7 +769,7 @@
             "kind": "AwsCostExplorer",
             "label": "AWS Cost Explorer",
             "warehouse_source_type": "AwsCostExplorer",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -782,7 +782,7 @@
             "kind": "AwsGlueDataCatalog",
             "label": "AWS Glue Data Catalog",
             "warehouse_source_type": "AwsGlueDataCatalog",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -795,7 +795,7 @@
             "kind": "AwsGuardduty",
             "label": "AWS GuardDuty",
             "warehouse_source_type": "AwsGuardduty",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -808,7 +808,7 @@
             "kind": "AwsIamAccessAnalyzer",
             "label": "AWS IAM Access Analyzer",
             "warehouse_source_type": "AwsIamAccessAnalyzer",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -821,7 +821,7 @@
             "kind": "AwsInspector",
             "label": "AWS Inspector",
             "warehouse_source_type": "AwsInspector",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -834,7 +834,7 @@
             "kind": "AwsMacie",
             "label": "AWS Macie",
             "warehouse_source_type": "AwsMacie",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -847,7 +847,7 @@
             "kind": "AwsOrganizations",
             "label": "AWS Organizations",
             "warehouse_source_type": "AwsOrganizations",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -860,7 +860,7 @@
             "kind": "AwsSagemaker",
             "label": "AWS SageMaker",
             "warehouse_source_type": "AwsSagemaker",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -873,7 +873,7 @@
             "kind": "AwsSavingsPlans",
             "label": "AWS Savings Plans",
             "warehouse_source_type": "AwsSavingsPlans",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -886,7 +886,7 @@
             "kind": "AwsSecurityHub",
             "label": "AWS Security Hub",
             "warehouse_source_type": "AwsSecurityHub",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -914,7 +914,7 @@
             "kind": "AwsStepFunctions",
             "label": "AWS Step Functions",
             "warehouse_source_type": "AwsStepFunctions",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -927,7 +927,7 @@
             "kind": "AwsSystemsManager",
             "label": "AWS Systems Manager",
             "warehouse_source_type": "AwsSystemsManager",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -940,7 +940,7 @@
             "kind": "AwsWaf",
             "label": "AWS WAF",
             "warehouse_source_type": "AwsWaf",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -953,7 +953,7 @@
             "kind": "Axiom",
             "label": "Axiom",
             "warehouse_source_type": "Axiom",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -966,7 +966,7 @@
             "kind": "AzureApplicationInsights",
             "label": "Microsoft Azure (Application Insights)",
             "warehouse_source_type": "AzureApplicationInsights",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -979,7 +979,7 @@
             "kind": "AzureCostManagement",
             "label": "Microsoft Azure Cost Management",
             "warehouse_source_type": "AzureCostManagement",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -992,7 +992,7 @@
             "kind": "AzureDevOps",
             "label": "Azure DevOps",
             "warehouse_source_type": "AzureDevOps",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1005,7 +1005,7 @@
             "kind": "Babelforce",
             "label": "Babelforce",
             "warehouse_source_type": "Babelforce",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1018,7 +1018,7 @@
             "kind": "BackMarket",
             "label": "Back Market (Back Market SAS)",
             "warehouse_source_type": "BackMarket",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1046,7 +1046,7 @@
             "kind": "Baserow",
             "label": "Baserow",
             "warehouse_source_type": "Baserow",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1087,7 +1087,7 @@
             "kind": "Bettermode",
             "label": "Bettermode",
             "warehouse_source_type": "Bettermode",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1115,7 +1115,7 @@
             "kind": "BigMailer",
             "label": "BigMailer",
             "warehouse_source_type": "BigMailer",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1144,7 +1144,7 @@
             "kind": "Bigeye",
             "label": "Bigeye",
             "warehouse_source_type": "Bigeye",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1157,7 +1157,7 @@
             "kind": "BillCom",
             "label": "BILL (formerly Bill.com)",
             "warehouse_source_type": "BillCom",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1170,7 +1170,7 @@
             "kind": "Billomat",
             "label": "Billomat",
             "warehouse_source_type": "Billomat",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1198,7 +1198,7 @@
             "kind": "BingWebmasterTools",
             "label": "Bing Webmaster Tools",
             "warehouse_source_type": "BingWebmasterTools",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1226,7 +1226,7 @@
             "kind": "Bitrise",
             "label": "Bitrise",
             "warehouse_source_type": "Bitrise",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1239,7 +1239,7 @@
             "kind": "BlandAI",
             "label": "Bland AI",
             "warehouse_source_type": "BlandAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1252,7 +1252,7 @@
             "kind": "Blogger",
             "label": "Blogger",
             "warehouse_source_type": "Blogger",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1265,7 +1265,7 @@
             "kind": "Bloomerang",
             "label": "Bloomerang",
             "warehouse_source_type": "Bloomerang",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1278,7 +1278,7 @@
             "kind": "Bluesky",
             "label": "Bluesky",
             "warehouse_source_type": "Bluesky",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1291,7 +1291,7 @@
             "kind": "Bluetally",
             "label": "BlueTally",
             "warehouse_source_type": "Bluetally",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1304,7 +1304,7 @@
             "kind": "BoldSign",
             "label": "BoldSign",
             "warehouse_source_type": "BoldSign",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1334,7 +1334,7 @@
             "kind": "Braintrust",
             "label": "Braintrust",
             "warehouse_source_type": "Braintrust",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1363,7 +1363,7 @@
             "kind": "Breezometer",
             "label": "BreezoMeter",
             "warehouse_source_type": "Breezometer",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1405,7 +1405,7 @@
             "kind": "BrowseAI",
             "label": "Browse AI",
             "warehouse_source_type": "BrowseAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1418,7 +1418,7 @@
             "kind": "BrowserUse",
             "label": "Browser Use",
             "warehouse_source_type": "BrowserUse",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1447,7 +1447,7 @@
             "kind": "Bugherd",
             "label": "BugHerd",
             "warehouse_source_type": "Bugherd",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1477,7 +1477,7 @@
             "kind": "BuildBetter",
             "label": "BuildBetter",
             "warehouse_source_type": "BuildBetter",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1490,7 +1490,7 @@
             "kind": "Buildium",
             "label": "Buildium (RealPage)",
             "warehouse_source_type": "Buildium",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1503,7 +1503,7 @@
             "kind": "Buildkite",
             "label": "Buildkite",
             "warehouse_source_type": "Buildkite",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1529,7 +1529,7 @@
             "kind": "Buttondown",
             "label": "Buttondown",
             "warehouse_source_type": "Buttondown",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1542,7 +1542,7 @@
             "kind": "BuyMeACoffee",
             "label": "Buy Me a Coffee",
             "warehouse_source_type": "BuyMeACoffee",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1555,7 +1555,7 @@
             "kind": "Buzzsprout",
             "label": "Buzzsprout",
             "warehouse_source_type": "Buzzsprout",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1581,7 +1581,7 @@
             "kind": "Calendarific",
             "label": "Calendarific",
             "warehouse_source_type": "Calendarific",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1607,7 +1607,7 @@
             "kind": "CallRail",
             "label": "CallRail",
             "warehouse_source_type": "CallRail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1635,7 +1635,7 @@
             "kind": "Campayn",
             "label": "Campayn",
             "warehouse_source_type": "Campayn",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1661,7 +1661,7 @@
             "kind": "CanvasLms",
             "label": "Instructure Canvas LMS",
             "warehouse_source_type": "CanvasLms",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1674,7 +1674,7 @@
             "kind": "CapsuleCRM",
             "label": "Capsule CRM",
             "warehouse_source_type": "CapsuleCRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1687,7 +1687,7 @@
             "kind": "CareQualityCommission",
             "label": "Care Quality Commission",
             "warehouse_source_type": "CareQualityCommission",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1700,7 +1700,7 @@
             "kind": "CastAi",
             "label": "CAST AI",
             "warehouse_source_type": "CastAi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1713,7 +1713,7 @@
             "kind": "Catchpoint",
             "label": "Catchpoint Systems",
             "warehouse_source_type": "Catchpoint",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1726,7 +1726,7 @@
             "kind": "CdcOpenData",
             "label": "CDC Open Data (data.cdc.gov)",
             "warehouse_source_type": "CdcOpenData",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1739,7 +1739,7 @@
             "kind": "Census",
             "label": "Census (Fivetran)",
             "warehouse_source_type": "Census",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1768,7 +1768,7 @@
             "kind": "Chargedesk",
             "label": "Chargedesk",
             "warehouse_source_type": "Chargedesk",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1794,7 +1794,7 @@
             "kind": "ChartHop",
             "label": "ChartHop",
             "warehouse_source_type": "ChartHop",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1836,7 +1836,7 @@
             "kind": "Checkly",
             "label": "Checkly",
             "warehouse_source_type": "Checkly",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1849,7 +1849,7 @@
             "kind": "Checkmarx",
             "label": "Checkmarx (Checkmarx One)",
             "warehouse_source_type": "Checkmarx",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1878,7 +1878,7 @@
             "kind": "ChessCom",
             "label": "Chess.com",
             "warehouse_source_type": "ChessCom",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1891,7 +1891,7 @@
             "kind": "Churnkey",
             "label": "Churnkey",
             "warehouse_source_type": "Churnkey",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1904,7 +1904,7 @@
             "kind": "Cimis",
             "label": "CIMIS",
             "warehouse_source_type": "Cimis",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1930,7 +1930,7 @@
             "kind": "CircleciInsights",
             "label": "CircleCI Insights",
             "warehouse_source_type": "CircleciInsights",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1943,7 +1943,7 @@
             "kind": "CiscoDuo",
             "label": "Cisco Duo",
             "warehouse_source_type": "CiscoDuo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1956,7 +1956,7 @@
             "kind": "CiscoMeraki",
             "label": "Cisco Meraki",
             "warehouse_source_type": "CiscoMeraki",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1969,7 +1969,7 @@
             "kind": "Clari",
             "label": "Clari",
             "warehouse_source_type": "Clari",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -1982,7 +1982,7 @@
             "kind": "Clarifai",
             "label": "Clarifai",
             "warehouse_source_type": "Clarifai",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2046,7 +2046,7 @@
             "kind": "ClickhouseCloud",
             "label": "ClickHouse Cloud (ClickHouse, Inc.)",
             "warehouse_source_type": "ClickhouseCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2059,7 +2059,7 @@
             "kind": "Cliniko",
             "label": "Cliniko",
             "warehouse_source_type": "Cliniko",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2085,7 +2085,7 @@
             "kind": "Clockodo",
             "label": "Clockodo",
             "warehouse_source_type": "Clockodo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2113,7 +2113,7 @@
             "kind": "Cloudability",
             "label": "Apptio Cloudability (IBM)",
             "warehouse_source_type": "Cloudability",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2126,7 +2126,7 @@
             "kind": "Cloudbeds",
             "label": "Cloudbeds",
             "warehouse_source_type": "Cloudbeds",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2155,7 +2155,7 @@
             "kind": "Cloudinary",
             "label": "Cloudinary",
             "warehouse_source_type": "Cloudinary",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2168,7 +2168,7 @@
             "kind": "Cloudsmith",
             "label": "Cloudsmith",
             "warehouse_source_type": "Cloudsmith",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2181,7 +2181,7 @@
             "kind": "Cloudzero",
             "label": "CloudZero",
             "warehouse_source_type": "Cloudzero",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2194,7 +2194,7 @@
             "kind": "Coassemble",
             "label": "Coassemble",
             "warehouse_source_type": "Coassemble",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2220,7 +2220,7 @@
             "kind": "Codacy",
             "label": "Codacy",
             "warehouse_source_type": "Codacy",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2248,7 +2248,7 @@
             "kind": "Codefresh",
             "label": "Codefresh",
             "warehouse_source_type": "Codefresh",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2261,7 +2261,7 @@
             "kind": "Codemagic",
             "label": "Codemagic",
             "warehouse_source_type": "Codemagic",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2274,7 +2274,7 @@
             "kind": "Codescene",
             "label": "CodeScene",
             "warehouse_source_type": "Codescene",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2287,7 +2287,7 @@
             "kind": "Cody",
             "label": "Cody",
             "warehouse_source_type": "Cody",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2316,7 +2316,7 @@
             "kind": "CoinApi",
             "label": "CoinAPI",
             "warehouse_source_type": "CoinApi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2329,7 +2329,7 @@
             "kind": "CoinGecko",
             "label": "CoinGecko",
             "warehouse_source_type": "CoinGecko",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2342,7 +2342,7 @@
             "kind": "CoinMarketCap",
             "label": "CoinMarketCap",
             "warehouse_source_type": "CoinMarketCap",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2371,7 +2371,7 @@
             "kind": "Companycam",
             "label": "CompanyCam",
             "warehouse_source_type": "Companycam",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2384,7 +2384,7 @@
             "kind": "Conekta",
             "label": "Conekta",
             "warehouse_source_type": "Conekta",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2426,7 +2426,7 @@
             "kind": "ConfluentCloud",
             "label": "Confluent Cloud",
             "warehouse_source_type": "ConfluentCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2468,7 +2468,7 @@
             "kind": "Coolify",
             "label": "Coolify",
             "warehouse_source_type": "Coolify",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2494,7 +2494,7 @@
             "kind": "Coralogix",
             "label": "Coralogix",
             "warehouse_source_type": "Coralogix",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2507,7 +2507,7 @@
             "kind": "Coupa",
             "label": "Coupa",
             "warehouse_source_type": "Coupa",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2536,7 +2536,7 @@
             "kind": "Coveralls",
             "label": "Coveralls",
             "warehouse_source_type": "Coveralls",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2549,7 +2549,7 @@
             "kind": "CratesIO",
             "label": "crates.io",
             "warehouse_source_type": "CratesIO",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2562,7 +2562,7 @@
             "kind": "Criteo",
             "label": "Criteo",
             "warehouse_source_type": "Criteo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2575,7 +2575,7 @@
             "kind": "Cronitor",
             "label": "Cronitor",
             "warehouse_source_type": "Cronitor",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2588,7 +2588,7 @@
             "kind": "Crossref",
             "label": "Crossref",
             "warehouse_source_type": "Crossref",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2601,7 +2601,7 @@
             "kind": "Crunchbase",
             "label": "Crunchbase",
             "warehouse_source_type": "Crunchbase",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2614,7 +2614,7 @@
             "kind": "CultureAmp",
             "label": "Culture Amp",
             "warehouse_source_type": "CultureAmp",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2643,7 +2643,7 @@
             "kind": "Customerly",
             "label": "Customerly",
             "warehouse_source_type": "Customerly",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2656,7 +2656,7 @@
             "kind": "DagsterCloud",
             "label": "Dagster+ (Dagster Cloud)",
             "warehouse_source_type": "DagsterCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2669,7 +2669,7 @@
             "kind": "DataForSEO",
             "label": "DataForSEO",
             "warehouse_source_type": "DataForSEO",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2715,7 +2715,7 @@
             "kind": "Datahub",
             "label": "DataHub",
             "warehouse_source_type": "Datahub",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2750,7 +2750,7 @@
             "kind": "Debugbear",
             "label": "DebugBear",
             "warehouse_source_type": "Debugbear",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2763,7 +2763,7 @@
             "kind": "Deel",
             "label": "Deel",
             "warehouse_source_type": "Deel",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2792,7 +2792,7 @@
             "kind": "Deepsource",
             "label": "DeepSource",
             "warehouse_source_type": "Deepsource",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2805,7 +2805,7 @@
             "kind": "Demodesk",
             "label": "Demodesk",
             "warehouse_source_type": "Demodesk",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2818,7 +2818,7 @@
             "kind": "DenoDeploy",
             "label": "Deno Deploy",
             "warehouse_source_type": "DenoDeploy",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2831,7 +2831,7 @@
             "kind": "Depot",
             "label": "Depot",
             "warehouse_source_type": "Depot",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2860,7 +2860,7 @@
             "kind": "Develocity",
             "label": "Develocity",
             "warehouse_source_type": "Develocity",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2873,7 +2873,7 @@
             "kind": "DevinAI",
             "label": "Devin AI",
             "warehouse_source_type": "DevinAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2899,7 +2899,7 @@
             "kind": "DingConnect",
             "label": "DingConnect",
             "warehouse_source_type": "DingConnect",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2912,7 +2912,7 @@
             "kind": "Discourse",
             "label": "Discourse",
             "warehouse_source_type": "Discourse",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2925,7 +2925,7 @@
             "kind": "Dixa",
             "label": "Dixa",
             "warehouse_source_type": "Dixa",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2938,7 +2938,7 @@
             "kind": "DoIt",
             "label": "DoIt",
             "warehouse_source_type": "DoIt",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2951,7 +2951,7 @@
             "kind": "Dockerhub",
             "label": "Docker Hub",
             "warehouse_source_type": "Dockerhub",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -2964,7 +2964,7 @@
             "kind": "Docuseal",
             "label": "DocuSeal",
             "warehouse_source_type": "Docuseal",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3009,7 +3009,7 @@
             "kind": "Donorbox",
             "label": "Donorbox",
             "warehouse_source_type": "Donorbox",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3037,7 +3037,7 @@
             "kind": "Dovetail",
             "label": "Dovetail",
             "warehouse_source_type": "Dovetail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3050,7 +3050,7 @@
             "kind": "Drata",
             "label": "Drata",
             "warehouse_source_type": "Drata",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3078,7 +3078,7 @@
             "kind": "DropboxSign",
             "label": "Dropbox Sign",
             "warehouse_source_type": "DropboxSign",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3107,7 +3107,7 @@
             "kind": "Dynamics365",
             "label": "Microsoft Dynamics 365",
             "warehouse_source_type": "Dynamics365",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3120,7 +3120,7 @@
             "kind": "Dynamics365BusinessCentral",
             "label": "Microsoft Dynamics 365 Business Central",
             "warehouse_source_type": "Dynamics365BusinessCentral",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3149,7 +3149,7 @@
             "kind": "Dynatrace",
             "label": "Dynatrace",
             "warehouse_source_type": "Dynatrace",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3178,7 +3178,7 @@
             "kind": "EZOfficeInventory",
             "label": "EZOfficeInventory",
             "warehouse_source_type": "EZOfficeInventory",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3191,7 +3191,7 @@
             "kind": "Easybill",
             "label": "easybill",
             "warehouse_source_type": "Easybill",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3220,7 +3220,7 @@
             "kind": "Easypromos",
             "label": "Easypromos",
             "warehouse_source_type": "Easypromos",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3233,7 +3233,7 @@
             "kind": "EcbDataPortal",
             "label": "European Central Bank (ECB Data Portal)",
             "warehouse_source_type": "EcbDataPortal",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3276,7 +3276,7 @@
             "kind": "ElectricityMaps",
             "label": "Electricity Maps",
             "warehouse_source_type": "ElectricityMaps",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3318,7 +3318,7 @@
             "kind": "Env0",
             "label": "env0",
             "warehouse_source_type": "Env0",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3331,7 +3331,7 @@
             "kind": "Eppo",
             "label": "Eppo (Datadog)",
             "warehouse_source_type": "Eppo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3344,7 +3344,7 @@
             "kind": "Etsy",
             "label": "Etsy",
             "warehouse_source_type": "Etsy",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3372,7 +3372,7 @@
             "kind": "Eventee",
             "label": "Eventee",
             "warehouse_source_type": "Eventee",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3385,7 +3385,7 @@
             "kind": "Eventzilla",
             "label": "Eventzilla",
             "warehouse_source_type": "Eventzilla",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3398,7 +3398,7 @@
             "kind": "Everhour",
             "label": "Everhour",
             "warehouse_source_type": "Everhour",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3411,7 +3411,7 @@
             "kind": "ExchangeRatesApi",
             "label": "Exchange Rates API",
             "warehouse_source_type": "ExchangeRatesApi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3424,7 +3424,7 @@
             "kind": "Expo",
             "label": "Expo (EAS)",
             "warehouse_source_type": "Expo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3437,7 +3437,7 @@
             "kind": "Faire",
             "label": "Faire",
             "warehouse_source_type": "Faire",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3466,7 +3466,7 @@
             "kind": "Featurebase",
             "label": "Featurebase",
             "warehouse_source_type": "Featurebase",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3479,7 +3479,7 @@
             "kind": "Fieldpulse",
             "label": "FieldPulse",
             "warehouse_source_type": "Fieldpulse",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3492,7 +3492,7 @@
             "kind": "Fillout",
             "label": "Fillout",
             "warehouse_source_type": "Fillout",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3505,7 +3505,7 @@
             "kind": "Finage",
             "label": "Finage",
             "warehouse_source_type": "Finage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3518,7 +3518,7 @@
             "kind": "FinancialModelling",
             "label": "Financial Modeling Prep",
             "warehouse_source_type": "FinancialModelling",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3531,7 +3531,7 @@
             "kind": "Finnhub",
             "label": "Finnhub",
             "warehouse_source_type": "Finnhub",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3544,7 +3544,7 @@
             "kind": "Finnworlds",
             "label": "Finnworlds",
             "warehouse_source_type": "Finnworlds",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3557,7 +3557,7 @@
             "kind": "Fintoc",
             "label": "Fintoc",
             "warehouse_source_type": "Fintoc",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3570,7 +3570,7 @@
             "kind": "FireHydrant",
             "label": "FireHydrant",
             "warehouse_source_type": "FireHydrant",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3630,7 +3630,7 @@
             "kind": "FirstPromoter",
             "label": "FirstPromoter",
             "warehouse_source_type": "FirstPromoter",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3659,7 +3659,7 @@
             "kind": "Fleetio",
             "label": "Fleetio",
             "warehouse_source_type": "Fleetio",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3672,7 +3672,7 @@
             "kind": "Flexmail",
             "label": "Flexmail",
             "warehouse_source_type": "Flexmail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3685,7 +3685,7 @@
             "kind": "FloatApp",
             "label": "Float",
             "warehouse_source_type": "FloatApp",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3698,7 +3698,7 @@
             "kind": "Flowlu",
             "label": "Flowlu",
             "warehouse_source_type": "Flowlu",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3755,7 +3755,7 @@
             "kind": "Fourthwall",
             "label": "Fourthwall",
             "warehouse_source_type": "Fourthwall",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3768,7 +3768,7 @@
             "kind": "Freshcaller",
             "label": "Freshcaller",
             "warehouse_source_type": "Freshcaller",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3781,7 +3781,7 @@
             "kind": "Freshchat",
             "label": "Freshchat",
             "warehouse_source_type": "Freshchat",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3809,7 +3809,7 @@
             "kind": "Freshsales",
             "label": "Freshsales",
             "warehouse_source_type": "Freshsales",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3822,7 +3822,7 @@
             "kind": "Freshservice",
             "label": "Freshservice",
             "warehouse_source_type": "Freshservice",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3848,7 +3848,7 @@
             "kind": "Frontegg",
             "label": "Frontegg",
             "warehouse_source_type": "Frontegg",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3892,7 +3892,7 @@
             "kind": "GNews",
             "label": "GNews",
             "warehouse_source_type": "GNews",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3905,7 +3905,7 @@
             "kind": "GainsightCs",
             "label": "Gainsight CS",
             "warehouse_source_type": "GainsightCs",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3918,7 +3918,7 @@
             "kind": "GainsightPx",
             "label": "Gainsight PX",
             "warehouse_source_type": "GainsightPx",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3931,7 +3931,7 @@
             "kind": "Gcore",
             "label": "Gcore",
             "warehouse_source_type": "Gcore",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3957,7 +3957,7 @@
             "kind": "GenesysCloud",
             "label": "Genesys Cloud",
             "warehouse_source_type": "GenesysCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3970,7 +3970,7 @@
             "kind": "Gerrit",
             "label": "Gerrit",
             "warehouse_source_type": "Gerrit",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3983,7 +3983,7 @@
             "kind": "Getdx",
             "label": "DX (getdx.com)",
             "warehouse_source_type": "Getdx",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -3996,7 +3996,7 @@
             "kind": "Giphy",
             "label": "Giphy",
             "warehouse_source_type": "Giphy",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4056,7 +4056,7 @@
             "kind": "Gitguardian",
             "label": "GitGuardian",
             "warehouse_source_type": "Gitguardian",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4086,7 +4086,7 @@
             "kind": "Givebutter",
             "label": "Givebutter",
             "warehouse_source_type": "Givebutter",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4099,7 +4099,7 @@
             "kind": "Gladly",
             "label": "Gladly",
             "warehouse_source_type": "Gladly",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4112,7 +4112,7 @@
             "kind": "Glassfrog",
             "label": "GlassFrog",
             "warehouse_source_type": "Glassfrog",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4125,7 +4125,7 @@
             "kind": "Gleif",
             "label": "GLEIF (Global Legal Entity Identifier Foundation)",
             "warehouse_source_type": "Gleif",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4155,7 +4155,7 @@
             "kind": "GoLogin",
             "label": "GoLogin",
             "warehouse_source_type": "GoLogin",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4168,7 +4168,7 @@
             "kind": "Goldcast",
             "label": "Goldcast",
             "warehouse_source_type": "Goldcast",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4226,7 +4226,7 @@
             "kind": "GooglePageSpeedInsights",
             "label": "Google PageSpeed Insights",
             "warehouse_source_type": "GooglePageSpeedInsights",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4281,7 +4281,7 @@
             "kind": "GoogleWebfonts",
             "label": "Google Webfonts",
             "warehouse_source_type": "GoogleWebfonts",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4322,7 +4322,7 @@
             "kind": "GrafanaIRM",
             "label": "Grafana IRM",
             "warehouse_source_type": "GrafanaIRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4335,7 +4335,7 @@
             "kind": "Granola",
             "label": "Granola",
             "warehouse_source_type": "Granola",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4361,7 +4361,7 @@
             "kind": "Gridly",
             "label": "Gridly",
             "warehouse_source_type": "Gridly",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4390,7 +4390,7 @@
             "kind": "GrowthBook",
             "label": "GrowthBook",
             "warehouse_source_type": "GrowthBook",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": ["feature_flags", "experiments"],
             "superseded_by": [],
             "signals": {
@@ -4407,7 +4407,7 @@
             "kind": "Gumroad",
             "label": "Gumroad",
             "warehouse_source_type": "Gumroad",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4420,7 +4420,7 @@
             "kind": "Gusto",
             "label": "Gusto",
             "warehouse_source_type": "Gusto",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4433,7 +4433,7 @@
             "kind": "Harness",
             "label": "Harness",
             "warehouse_source_type": "Harness",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4462,7 +4462,7 @@
             "kind": "Healthchecks",
             "label": "Healthchecks.io",
             "warehouse_source_type": "Healthchecks",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4516,7 +4516,7 @@
             "kind": "Hellobaton",
             "label": "Baton",
             "warehouse_source_type": "Hellobaton",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4555,7 +4555,7 @@
             "kind": "Hetzner",
             "label": "Hetzner Cloud",
             "warehouse_source_type": "Hetzner",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4568,7 +4568,7 @@
             "kind": "HeyGen",
             "label": "HeyGen",
             "warehouse_source_type": "HeyGen",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4581,7 +4581,7 @@
             "kind": "HeyReach",
             "label": "HeyReach",
             "warehouse_source_type": "HeyReach",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4594,7 +4594,7 @@
             "kind": "HiBob",
             "label": "HiBob",
             "warehouse_source_type": "HiBob",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4607,7 +4607,7 @@
             "kind": "Hightouch",
             "label": "Hightouch",
             "warehouse_source_type": "Hightouch",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4620,7 +4620,7 @@
             "kind": "Hitpay",
             "label": "HitPay",
             "warehouse_source_type": "Hitpay",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4681,7 +4681,7 @@
             "kind": "HoorayHR",
             "label": "HoorayHR",
             "warehouse_source_type": "HoorayHR",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4709,7 +4709,7 @@
             "kind": "HousecallPro",
             "label": "Housecall Pro",
             "warehouse_source_type": "HousecallPro",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4722,7 +4722,7 @@
             "kind": "Hubplanner",
             "label": "Hub Planner",
             "warehouse_source_type": "Hubplanner",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4767,7 +4767,7 @@
             "kind": "Humanitec",
             "label": "Humanitec",
             "warehouse_source_type": "Humanitec",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4780,7 +4780,7 @@
             "kind": "Humanitix",
             "label": "Humanitix",
             "warehouse_source_type": "Humanitix",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4793,7 +4793,7 @@
             "kind": "Huntr",
             "label": "Huntr",
             "warehouse_source_type": "Huntr",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4806,7 +4806,7 @@
             "kind": "Hyperspell",
             "label": "Hyperspell",
             "warehouse_source_type": "Hyperspell",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4819,7 +4819,7 @@
             "kind": "Hyros",
             "label": "Hyros",
             "warehouse_source_type": "Hyros",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4832,7 +4832,7 @@
             "kind": "IP2Whois",
             "label": "IP2WHOIS",
             "warehouse_source_type": "IP2Whois",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4845,7 +4845,7 @@
             "kind": "ImpactPartner",
             "label": "impact.com Partner",
             "warehouse_source_type": "ImpactPartner",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4858,7 +4858,7 @@
             "kind": "Imperva",
             "label": "Imperva (Thales) Cloud Application Security",
             "warehouse_source_type": "Imperva",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4900,7 +4900,7 @@
             "kind": "Inflowinventory",
             "label": "Inflowinventory",
             "warehouse_source_type": "Inflowinventory",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4955,7 +4955,7 @@
             "kind": "Instana",
             "label": "IBM Instana Observability",
             "warehouse_source_type": "Instana",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -4968,7 +4968,7 @@
             "kind": "Instatus",
             "label": "Instatus",
             "warehouse_source_type": "Instatus",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5013,7 +5013,7 @@
             "kind": "Invoiceninja",
             "label": "Invoice Ninja",
             "warehouse_source_type": "Invoiceninja",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5039,7 +5039,7 @@
             "kind": "JamfPro",
             "label": "Jamf Pro",
             "warehouse_source_type": "JamfPro",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5052,7 +5052,7 @@
             "kind": "Jenkins",
             "label": "Jenkins",
             "warehouse_source_type": "Jenkins",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5065,7 +5065,7 @@
             "kind": "JfrogArtifactory",
             "label": "JFrog (Artifactory / JFrog Platform)",
             "warehouse_source_type": "JfrogArtifactory",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5094,7 +5094,7 @@
             "kind": "JobNimbus",
             "label": "JobNimbus",
             "warehouse_source_type": "JobNimbus",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5122,7 +5122,7 @@
             "kind": "JudgeMeReviews",
             "label": "Judge.me Reviews",
             "warehouse_source_type": "JudgeMeReviews",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5135,7 +5135,7 @@
             "kind": "Jumpcloud",
             "label": "JumpCloud",
             "warehouse_source_type": "Jumpcloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5161,7 +5161,7 @@
             "kind": "JustSift",
             "label": "JustSift",
             "warehouse_source_type": "JustSift",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5174,7 +5174,7 @@
             "kind": "K6Cloud",
             "label": "Grafana Cloud k6",
             "warehouse_source_type": "K6Cloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5187,7 +5187,7 @@
             "kind": "Kafka",
             "label": "Kafka",
             "warehouse_source_type": "Kafka",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5200,7 +5200,7 @@
             "kind": "Kalshi",
             "label": "Kalshi",
             "warehouse_source_type": "Kalshi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5213,7 +5213,7 @@
             "kind": "Kandji",
             "label": "Kandji (Iru Endpoint Management)",
             "warehouse_source_type": "Kandji",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5226,7 +5226,7 @@
             "kind": "KapaAI",
             "label": "kapa.ai",
             "warehouse_source_type": "KapaAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5239,7 +5239,7 @@
             "kind": "Katana",
             "label": "Katana",
             "warehouse_source_type": "Katana",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5252,7 +5252,7 @@
             "kind": "Kestra",
             "label": "Kestra",
             "warehouse_source_type": "Kestra",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5265,7 +5265,7 @@
             "kind": "Kickscale",
             "label": "Kickscale",
             "warehouse_source_type": "Kickscale",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5278,7 +5278,7 @@
             "kind": "Kisi",
             "label": "Kisi",
             "warehouse_source_type": "Kisi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5323,7 +5323,7 @@
             "kind": "Knowbe4",
             "label": "KnowBe4",
             "warehouse_source_type": "Knowbe4",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5336,7 +5336,7 @@
             "kind": "Kommo",
             "label": "Kommo",
             "warehouse_source_type": "Kommo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5349,7 +5349,7 @@
             "kind": "Komodor",
             "label": "Komodor",
             "warehouse_source_type": "Komodor",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5362,7 +5362,7 @@
             "kind": "KongKonnect",
             "label": "Kong Inc. (Kong Konnect)",
             "warehouse_source_type": "KongKonnect",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5375,7 +5375,7 @@
             "kind": "Koyeb",
             "label": "Koyeb",
             "warehouse_source_type": "Koyeb",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5388,7 +5388,7 @@
             "kind": "Kubecost",
             "label": "Kubecost (IBM / Apptio)",
             "warehouse_source_type": "Kubecost",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5414,7 +5414,7 @@
             "kind": "Lacework",
             "label": "Lacework FortiCNAPP (Fortinet)",
             "warehouse_source_type": "Lacework",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5443,7 +5443,7 @@
             "kind": "LambdaLabs",
             "label": "Lambda",
             "warehouse_source_type": "LambdaLabs",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5510,7 +5510,7 @@
             "kind": "Leadfeeder",
             "label": "Leadfeeder",
             "warehouse_source_type": "Leadfeeder",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5523,7 +5523,7 @@
             "kind": "Leexi",
             "label": "Leexi",
             "warehouse_source_type": "Leexi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5564,7 +5564,7 @@
             "kind": "LessAnnoyingCRM",
             "label": "Less Annoying CRM",
             "warehouse_source_type": "LessAnnoyingCRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5577,7 +5577,7 @@
             "kind": "LexwareOffice",
             "label": "Lexware Office (formerly lexoffice), Haufe-Lexware GmbH",
             "warehouse_source_type": "LexwareOffice",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5590,7 +5590,7 @@
             "kind": "Lightdash",
             "label": "Lightdash",
             "warehouse_source_type": "Lightdash",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5603,7 +5603,7 @@
             "kind": "Lightfield",
             "label": "Lightfield",
             "warehouse_source_type": "Lightfield",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5616,7 +5616,7 @@
             "kind": "LightspeedRetail",
             "label": "Lightspeed Retail",
             "warehouse_source_type": "LightspeedRetail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5644,7 +5644,7 @@
             "kind": "Linearb",
             "label": "LinearB",
             "warehouse_source_type": "Linearb",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5657,7 +5657,7 @@
             "kind": "LingoDev",
             "label": "Lingo.dev",
             "warehouse_source_type": "LingoDev",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5683,7 +5683,7 @@
             "kind": "Linkrunner",
             "label": "Linkrunner",
             "warehouse_source_type": "Linkrunner",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5696,7 +5696,7 @@
             "kind": "Linode",
             "label": "Linode",
             "warehouse_source_type": "Linode",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5741,7 +5741,7 @@
             "kind": "Lodgify",
             "label": "Lodgify",
             "warehouse_source_type": "Lodgify",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5754,7 +5754,7 @@
             "kind": "Logicmonitor",
             "label": "LogicMonitor",
             "warehouse_source_type": "Logicmonitor",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5767,7 +5767,7 @@
             "kind": "Logrocket",
             "label": "LogRocket",
             "warehouse_source_type": "Logrocket",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": ["session_replay", "error_tracking"],
             "superseded_by": [],
             "signals": {
@@ -5782,7 +5782,7 @@
             "kind": "LogzIO",
             "label": "Logz.io",
             "warehouse_source_type": "LogzIO",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5795,7 +5795,7 @@
             "kind": "Looker",
             "label": "Looker (Google Cloud)",
             "warehouse_source_type": "Looker",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5808,7 +5808,7 @@
             "kind": "LoopReturns",
             "label": "Loop Returns",
             "warehouse_source_type": "LoopReturns",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5836,7 +5836,7 @@
             "kind": "Lovable",
             "label": "Lovable",
             "warehouse_source_type": "Lovable",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5849,7 +5849,7 @@
             "kind": "Luma",
             "label": "Luma",
             "warehouse_source_type": "Luma",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -5959,7 +5959,7 @@
             "kind": "Mailosaur",
             "label": "Mailosaur",
             "warehouse_source_type": "Mailosaur",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6003,7 +6003,7 @@
             "kind": "Marketstack",
             "label": "Marketstack",
             "warehouse_source_type": "Marketstack",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6044,7 +6044,7 @@
             "kind": "Medusa",
             "label": "Medusa",
             "warehouse_source_type": "Medusa",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6073,7 +6073,7 @@
             "kind": "Membrain",
             "label": "Membrain",
             "warehouse_source_type": "Membrain",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6086,7 +6086,7 @@
             "kind": "MercadoPago",
             "label": "Mercado Pago (Mercado Libre)",
             "warehouse_source_type": "MercadoPago",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6115,7 +6115,7 @@
             "kind": "Metabase",
             "label": "Metabase",
             "warehouse_source_type": "Metabase",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6128,7 +6128,7 @@
             "kind": "Metaplane",
             "label": "Metaplane by Datadog",
             "warehouse_source_type": "Metaplane",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6141,7 +6141,7 @@
             "kind": "Meteostat",
             "label": "Meteostat",
             "warehouse_source_type": "Meteostat",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6154,7 +6154,7 @@
             "kind": "Metorial",
             "label": "Metorial",
             "warehouse_source_type": "Metorial",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6167,7 +6167,7 @@
             "kind": "Mezmo",
             "label": "Mezmo (formerly LogDNA)",
             "warehouse_source_type": "Mezmo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6180,7 +6180,7 @@
             "kind": "MicrosoftClarity",
             "label": "Microsoft Clarity",
             "warehouse_source_type": "MicrosoftClarity",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6193,7 +6193,7 @@
             "kind": "MicrosoftDefenderCloudApps",
             "label": "Microsoft Defender for Cloud Apps",
             "warehouse_source_type": "MicrosoftDefenderCloudApps",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6206,7 +6206,7 @@
             "kind": "MightyNetworks",
             "label": "Mighty Networks",
             "warehouse_source_type": "MightyNetworks",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6219,7 +6219,7 @@
             "kind": "Mintlify",
             "label": "Mintlify",
             "warehouse_source_type": "Mintlify",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6248,7 +6248,7 @@
             "kind": "MixMax",
             "label": "Mixmax",
             "warehouse_source_type": "MixMax",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6278,7 +6278,7 @@
             "kind": "MoEngage",
             "label": "MoEngage",
             "warehouse_source_type": "MoEngage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6291,7 +6291,7 @@
             "kind": "Modal",
             "label": "Modal",
             "warehouse_source_type": "Modal",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6352,7 +6352,7 @@
             "kind": "MonteCarlo",
             "label": "Monte Carlo",
             "warehouse_source_type": "MonteCarlo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6380,7 +6380,7 @@
             "kind": "Moxie",
             "label": "Moxie",
             "warehouse_source_type": "Moxie",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6409,7 +6409,7 @@
             "kind": "MyHours",
             "label": "My Hours",
             "warehouse_source_type": "MyHours",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6454,7 +6454,7 @@
             "kind": "NagerDate",
             "label": "Nager.Date",
             "warehouse_source_type": "NagerDate",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6467,7 +6467,7 @@
             "kind": "NebiusAI",
             "label": "Nebius AI",
             "warehouse_source_type": "NebiusAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6480,7 +6480,7 @@
             "kind": "Neo4j",
             "label": "Neo4j",
             "warehouse_source_type": "Neo4j",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6540,7 +6540,7 @@
             "kind": "NewYorkTimes",
             "label": "New York Times",
             "warehouse_source_type": "NewYorkTimes",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6553,7 +6553,7 @@
             "kind": "NewsApi",
             "label": "NewsAPI",
             "warehouse_source_type": "NewsApi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6566,7 +6566,7 @@
             "kind": "NewsData",
             "label": "NewsData.io",
             "warehouse_source_type": "NewsData",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6579,7 +6579,7 @@
             "kind": "NoCRM",
             "label": "noCRM.io",
             "warehouse_source_type": "NoCRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6592,7 +6592,7 @@
             "kind": "NoaaCdo",
             "label": "NOAA Climate Data Online (NCEI)",
             "warehouse_source_type": "NoaaCdo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6605,7 +6605,7 @@
             "kind": "Northflank",
             "label": "Northflank",
             "warehouse_source_type": "Northflank",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6618,7 +6618,7 @@
             "kind": "NorthpassLMS",
             "label": "Northpass LMS",
             "warehouse_source_type": "NorthpassLMS",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6647,7 +6647,7 @@
             "kind": "NpmRegistry",
             "label": "npm registry",
             "warehouse_source_type": "NpmRegistry",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6660,7 +6660,7 @@
             "kind": "Nuget",
             "label": "NuGet",
             "warehouse_source_type": "Nuget",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6673,7 +6673,7 @@
             "kind": "Nuntly",
             "label": "Nuntly",
             "warehouse_source_type": "Nuntly",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6686,7 +6686,7 @@
             "kind": "OPUSWatch",
             "label": "OPUSWatch",
             "warehouse_source_type": "OPUSWatch",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6699,7 +6699,7 @@
             "kind": "Octolens",
             "label": "Octolens",
             "warehouse_source_type": "Octolens",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6712,7 +6712,7 @@
             "kind": "OctopusDeploy",
             "label": "Octopus Deploy",
             "warehouse_source_type": "OctopusDeploy",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6725,7 +6725,7 @@
             "kind": "Okendo",
             "label": "Okendo",
             "warehouse_source_type": "Okendo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6754,7 +6754,7 @@
             "kind": "Omni",
             "label": "Omni Analytics",
             "warehouse_source_type": "Omni",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6780,7 +6780,7 @@
             "kind": "Oncehub",
             "label": "OnceHub",
             "warehouse_source_type": "Oncehub",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6793,7 +6793,7 @@
             "kind": "OneHundredMs",
             "label": "100ms",
             "warehouse_source_type": "OneHundredMs",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6822,7 +6822,7 @@
             "kind": "Onepagecrm",
             "label": "OnePageCRM",
             "warehouse_source_type": "Onepagecrm",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6835,7 +6835,7 @@
             "kind": "Onfleet",
             "label": "Onfleet",
             "warehouse_source_type": "Onfleet",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6864,7 +6864,7 @@
             "kind": "OpenAIAds",
             "label": "OpenAI Ads",
             "warehouse_source_type": "OpenAIAds",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6877,7 +6877,7 @@
             "kind": "OpenAQ",
             "label": "OpenAQ",
             "warehouse_source_type": "OpenAQ",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6890,7 +6890,7 @@
             "kind": "OpenExchangeRates",
             "label": "Open Exchange Rates",
             "warehouse_source_type": "OpenExchangeRates",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6903,7 +6903,7 @@
             "kind": "OpenFDA",
             "label": "openFDA",
             "warehouse_source_type": "OpenFDA",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6916,7 +6916,7 @@
             "kind": "OpenMeteo",
             "label": "Open-Meteo",
             "warehouse_source_type": "OpenMeteo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6944,7 +6944,7 @@
             "kind": "OpenWeather",
             "label": "OpenWeather",
             "warehouse_source_type": "OpenWeather",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6957,7 +6957,7 @@
             "kind": "Openalex",
             "label": "OpenAlex",
             "warehouse_source_type": "Openalex",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6970,7 +6970,7 @@
             "kind": "Opencorporates",
             "label": "OpenCorporates",
             "warehouse_source_type": "Opencorporates",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6983,7 +6983,7 @@
             "kind": "OpinionStage",
             "label": "Opinion Stage",
             "warehouse_source_type": "OpinionStage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -6996,7 +6996,7 @@
             "kind": "OpnPayments",
             "label": "Opn Payments (formerly Omise)",
             "warehouse_source_type": "OpnPayments",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7054,7 +7054,7 @@
             "kind": "OrcaSecurity",
             "label": "Orca Security",
             "warehouse_source_type": "OrcaSecurity",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7080,7 +7080,7 @@
             "kind": "Oura",
             "label": "Oura",
             "warehouse_source_type": "Oura",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7093,7 +7093,7 @@
             "kind": "Outbrain",
             "label": "Outbrain",
             "warehouse_source_type": "Outbrain",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7106,7 +7106,7 @@
             "kind": "Ownerrez",
             "label": "OwnerRez",
             "warehouse_source_type": "Ownerrez",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7119,7 +7119,7 @@
             "kind": "PabblySubscriptionsBilling",
             "label": "Pabbly Subscription Billing",
             "warehouse_source_type": "PabblySubscriptionsBilling",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7132,7 +7132,7 @@
             "kind": "Packagist",
             "label": "Packagist",
             "warehouse_source_type": "Packagist",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7189,7 +7189,7 @@
             "kind": "Paperform",
             "label": "Paperform",
             "warehouse_source_type": "Paperform",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7202,7 +7202,7 @@
             "kind": "Papersign",
             "label": "Papersign",
             "warehouse_source_type": "Papersign",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7228,7 +7228,7 @@
             "kind": "PartnerStack",
             "label": "PartnerStack",
             "warehouse_source_type": "PartnerStack",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7241,7 +7241,7 @@
             "kind": "Partnerize",
             "label": "Partnerize",
             "warehouse_source_type": "Partnerize",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7254,7 +7254,7 @@
             "kind": "PayFit",
             "label": "PayFit",
             "warehouse_source_type": "PayFit",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7267,7 +7267,7 @@
             "kind": "Paymongo",
             "label": "PayMongo",
             "warehouse_source_type": "Paymongo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7295,7 +7295,7 @@
             "kind": "PeecAI",
             "label": "Peec AI",
             "warehouse_source_type": "PeecAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7323,7 +7323,7 @@
             "kind": "PersistIq",
             "label": "PersistIq",
             "warehouse_source_type": "PersistIq",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7362,7 +7362,7 @@
             "kind": "Pexels",
             "label": "Pexels",
             "warehouse_source_type": "Pexels",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7375,7 +7375,7 @@
             "kind": "PgAnalyze",
             "label": "pganalyze",
             "warehouse_source_type": "PgAnalyze",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7388,7 +7388,7 @@
             "kind": "Phyllo",
             "label": "Phyllo",
             "warehouse_source_type": "Phyllo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7401,7 +7401,7 @@
             "kind": "Picqer",
             "label": "Picqer",
             "warehouse_source_type": "Picqer",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7414,7 +7414,7 @@
             "kind": "Pinecone",
             "label": "Pinecone",
             "warehouse_source_type": "Pinecone",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7427,7 +7427,7 @@
             "kind": "Pingdom",
             "label": "Pingdom",
             "warehouse_source_type": "Pingdom",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7468,7 +7468,7 @@
             "kind": "Pipeliner",
             "label": "Pipeliner",
             "warehouse_source_type": "Pipeliner",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7528,7 +7528,7 @@
             "kind": "PlanetScalePostgres",
             "label": "PlanetScale Postgres",
             "warehouse_source_type": "PlanetScalePostgres",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7541,7 +7541,7 @@
             "kind": "Planhat",
             "label": "Planhat",
             "warehouse_source_type": "Planhat",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7554,7 +7554,7 @@
             "kind": "PlatformSh",
             "label": "Platform.sh",
             "warehouse_source_type": "PlatformSh",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7613,7 +7613,7 @@
             "kind": "PluralsightFlow",
             "label": "Pluralsight Flow",
             "warehouse_source_type": "PluralsightFlow",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7641,7 +7641,7 @@
             "kind": "Polymarket",
             "label": "Polymarket",
             "warehouse_source_type": "Polymarket",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7701,7 +7701,7 @@
             "kind": "PowerBiAdmin",
             "label": "Power BI admin",
             "warehouse_source_type": "PowerBiAdmin",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7714,7 +7714,7 @@
             "kind": "PrefectCloud",
             "label": "Prefect Cloud",
             "warehouse_source_type": "PrefectCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7727,7 +7727,7 @@
             "kind": "Pretix",
             "label": "Pretix",
             "warehouse_source_type": "Pretix",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7766,7 +7766,7 @@
             "kind": "PromptWatch",
             "label": "Promptwatch",
             "warehouse_source_type": "PromptWatch",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7779,7 +7779,7 @@
             "kind": "PromptingCompany",
             "label": "The Prompting Company",
             "warehouse_source_type": "PromptingCompany",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7792,7 +7792,7 @@
             "kind": "ProofpointTap",
             "label": "Proofpoint TAP",
             "warehouse_source_type": "ProofpointTap",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7805,7 +7805,7 @@
             "kind": "Propertyware",
             "label": "Propertyware (RealPage)",
             "warehouse_source_type": "Propertyware",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7818,7 +7818,7 @@
             "kind": "PulumiCloud",
             "label": "Pulumi",
             "warehouse_source_type": "PulumiCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7831,7 +7831,7 @@
             "kind": "PyPI",
             "label": "PyPI",
             "warehouse_source_type": "PyPI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7857,7 +7857,7 @@
             "kind": "Qdrant",
             "label": "Qdrant",
             "warehouse_source_type": "Qdrant",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7870,7 +7870,7 @@
             "kind": "Qonto",
             "label": "Qonto",
             "warehouse_source_type": "Qonto",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7883,7 +7883,7 @@
             "kind": "Qualaroo",
             "label": "Qualaroo",
             "warehouse_source_type": "Qualaroo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7896,7 +7896,7 @@
             "kind": "Qualtrics",
             "label": "Qualtrics",
             "warehouse_source_type": "Qualtrics",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7909,7 +7909,7 @@
             "kind": "QualysVmdr",
             "label": "Qualys VMDR",
             "warehouse_source_type": "QualysVmdr",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7922,7 +7922,7 @@
             "kind": "RKICovid",
             "label": "RKI COVID-19",
             "warehouse_source_type": "RKICovid",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -7961,7 +7961,7 @@
             "kind": "Rapid7Insightvm",
             "label": "Rapid7 InsightVM",
             "warehouse_source_type": "Rapid7Insightvm",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8008,7 +8008,7 @@
             "kind": "RecallAI",
             "label": "Recall.ai",
             "warehouse_source_type": "RecallAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8034,7 +8034,7 @@
             "kind": "Recruitee",
             "label": "Recruitee",
             "warehouse_source_type": "Recruitee",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8093,7 +8093,7 @@
             "kind": "ReferralHero",
             "label": "ReferralHero",
             "warehouse_source_type": "ReferralHero",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8119,7 +8119,7 @@
             "kind": "RentCast",
             "label": "RentCast",
             "warehouse_source_type": "RentCast",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8148,7 +8148,7 @@
             "kind": "ReplyIo",
             "label": "Reply.io",
             "warehouse_source_type": "ReplyIo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8177,7 +8177,7 @@
             "kind": "RetellAI",
             "label": "Retell AI",
             "warehouse_source_type": "RetellAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8190,7 +8190,7 @@
             "kind": "Retently",
             "label": "Retently",
             "warehouse_source_type": "Retently",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8218,7 +8218,7 @@
             "kind": "RevolutMerchant",
             "label": "Revolut Merchant",
             "warehouse_source_type": "RevolutMerchant",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8244,7 +8244,7 @@
             "kind": "Roark",
             "label": "Roark",
             "warehouse_source_type": "Roark",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8257,7 +8257,7 @@
             "kind": "Rocketlane",
             "label": "Rocketlane",
             "warehouse_source_type": "Rocketlane",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8270,7 +8270,7 @@
             "kind": "RoktAds",
             "label": "Rokt Ads",
             "warehouse_source_type": "RoktAds",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8300,7 +8300,7 @@
             "kind": "Rootly",
             "label": "Rootly",
             "warehouse_source_type": "Rootly",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8313,7 +8313,7 @@
             "kind": "Rubygems",
             "label": "RubyGems.org",
             "warehouse_source_type": "Rubygems",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8326,7 +8326,7 @@
             "kind": "RudderStack",
             "label": "RudderStack",
             "warehouse_source_type": "RudderStack",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": ["pipeline_destinations"],
             "superseded_by": [],
             "signals": {
@@ -8342,7 +8342,7 @@
             "kind": "Ruddr",
             "label": "Ruddr",
             "warehouse_source_type": "Ruddr",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8355,7 +8355,7 @@
             "kind": "RunPod",
             "label": "RunPod",
             "warehouse_source_type": "RunPod",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8368,7 +8368,7 @@
             "kind": "SFTP",
             "label": "SFTP",
             "warehouse_source_type": "SFTP",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8381,7 +8381,7 @@
             "kind": "SafetyCulture",
             "label": "SafetyCulture",
             "warehouse_source_type": "SafetyCulture",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8394,7 +8394,7 @@
             "kind": "SageHR",
             "label": "Sage HR",
             "warehouse_source_type": "SageHR",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8407,7 +8407,7 @@
             "kind": "SageIntacct",
             "label": "Sage Intacct",
             "warehouse_source_type": "SageIntacct",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8462,7 +8462,7 @@
             "kind": "SavvyCal",
             "label": "SavvyCal",
             "warehouse_source_type": "SavvyCal",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8475,7 +8475,7 @@
             "kind": "ScaleAI",
             "label": "Scale AI",
             "warehouse_source_type": "ScaleAI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8488,7 +8488,7 @@
             "kind": "Scaleway",
             "label": "Scaleway",
             "warehouse_source_type": "Scaleway",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8501,7 +8501,7 @@
             "kind": "Scalr",
             "label": "Scalr",
             "warehouse_source_type": "Scalr",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8514,7 +8514,7 @@
             "kind": "Secoda",
             "label": "Secoda",
             "warehouse_source_type": "Secoda",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8527,7 +8527,7 @@
             "kind": "Secureframe",
             "label": "Secureframe",
             "warehouse_source_type": "Secureframe",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8556,7 +8556,7 @@
             "kind": "SelectStar",
             "label": "Select Star",
             "warehouse_source_type": "SelectStar",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8569,7 +8569,7 @@
             "kind": "SemanticScholar",
             "label": "Semantic Scholar (Allen Institute for AI)",
             "warehouse_source_type": "SemanticScholar",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8582,7 +8582,7 @@
             "kind": "Semaphore",
             "label": "Semaphore (Semaphore CI)",
             "warehouse_source_type": "Semaphore",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8595,7 +8595,7 @@
             "kind": "Semgrep",
             "label": "Semgrep",
             "warehouse_source_type": "Semgrep",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8608,7 +8608,7 @@
             "kind": "Semrush",
             "label": "Semrush",
             "warehouse_source_type": "Semrush",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8638,7 +8638,7 @@
             "kind": "Sendowl",
             "label": "Sendowl",
             "warehouse_source_type": "Sendowl",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8651,7 +8651,7 @@
             "kind": "Sentinelone",
             "label": "SentinelOne",
             "warehouse_source_type": "Sentinelone",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8681,7 +8681,7 @@
             "kind": "Sequenzy",
             "label": "Sequenzy",
             "warehouse_source_type": "Sequenzy",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8694,7 +8694,7 @@
             "kind": "Serpstat",
             "label": "Serpstat",
             "warehouse_source_type": "Serpstat",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8707,7 +8707,7 @@
             "kind": "ServiceNow",
             "label": "ServiceNow",
             "warehouse_source_type": "ServiceNow",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8720,7 +8720,7 @@
             "kind": "Servicem8",
             "label": "ServiceM8",
             "warehouse_source_type": "Servicem8",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8733,7 +8733,7 @@
             "kind": "Sevdesk",
             "label": "sevDesk (sevDesk GmbH)",
             "warehouse_source_type": "Sevdesk",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8746,7 +8746,7 @@
             "kind": "SevenShifts",
             "label": "7shifts",
             "warehouse_source_type": "SevenShifts",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8759,7 +8759,7 @@
             "kind": "SharePoint",
             "label": "SharePoint",
             "warehouse_source_type": "SharePoint",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8785,7 +8785,7 @@
             "kind": "Shipmail",
             "label": "Shipmail",
             "warehouse_source_type": "Shipmail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8814,7 +8814,7 @@
             "kind": "ShopWired",
             "label": "ShopWired",
             "warehouse_source_type": "ShopWired",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8858,7 +8858,7 @@
             "kind": "Shortio",
             "label": "Shortio",
             "warehouse_source_type": "Shortio",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8871,7 +8871,7 @@
             "kind": "Shutterstock",
             "label": "Shutterstock",
             "warehouse_source_type": "Shutterstock",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8884,7 +8884,7 @@
             "kind": "SigNoz",
             "label": "SigNoz",
             "warehouse_source_type": "SigNoz",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8897,7 +8897,7 @@
             "kind": "SigmaComputing",
             "label": "Sigma Computing",
             "warehouse_source_type": "SigmaComputing",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8910,7 +8910,7 @@
             "kind": "SimFin",
             "label": "SimFin",
             "warehouse_source_type": "SimFin",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8923,7 +8923,7 @@
             "kind": "Similarweb",
             "label": "Similarweb",
             "warehouse_source_type": "Similarweb",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8936,7 +8936,7 @@
             "kind": "SimpleCast",
             "label": "SimpleCast",
             "warehouse_source_type": "SimpleCast",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8949,7 +8949,7 @@
             "kind": "Simplesat",
             "label": "Simplesat",
             "warehouse_source_type": "Simplesat",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8977,7 +8977,7 @@
             "kind": "Skio",
             "label": "Skio",
             "warehouse_source_type": "Skio",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -8990,7 +8990,7 @@
             "kind": "Skyvern",
             "label": "Skyvern",
             "warehouse_source_type": "Skyvern",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9019,7 +9019,7 @@
             "kind": "Sleekplan",
             "label": "Sleekplan",
             "warehouse_source_type": "Sleekplan",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9032,7 +9032,7 @@
             "kind": "Smaily",
             "label": "Smaily",
             "warehouse_source_type": "Smaily",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9045,7 +9045,7 @@
             "kind": "SmartEngage",
             "label": "SmartEngage",
             "warehouse_source_type": "SmartEngage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9058,7 +9058,7 @@
             "kind": "Smartlead",
             "label": "Smartlead",
             "warehouse_source_type": "Smartlead",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9071,7 +9071,7 @@
             "kind": "Smartlook",
             "label": "Smartlook (Smartlook.com s.r.o. / Cisco)",
             "warehouse_source_type": "Smartlook",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9084,7 +9084,7 @@
             "kind": "Smartreach",
             "label": "Smartreach",
             "warehouse_source_type": "Smartreach",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9113,7 +9113,7 @@
             "kind": "Smartwaiver",
             "label": "Smartwaiver",
             "warehouse_source_type": "Smartwaiver",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9187,7 +9187,7 @@
             "kind": "SodaCloud",
             "label": "Soda Data (Soda Cloud)",
             "warehouse_source_type": "SodaCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9200,7 +9200,7 @@
             "kind": "SolarwindsServiceDesk",
             "label": "SolarWinds Service Desk",
             "warehouse_source_type": "SolarwindsServiceDesk",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9213,7 +9213,7 @@
             "kind": "SonarCloud",
             "label": "Sonar Cloud",
             "warehouse_source_type": "SonarCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9226,7 +9226,7 @@
             "kind": "Sonarqube",
             "label": "Sonar (SonarSource) - SonarQube Server",
             "warehouse_source_type": "Sonarqube",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9239,7 +9239,7 @@
             "kind": "SonatypeNexus",
             "label": "Sonatype (Nexus Repository)",
             "warehouse_source_type": "SonatypeNexus",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9265,7 +9265,7 @@
             "kind": "Spacelift",
             "label": "Spacelift",
             "warehouse_source_type": "Spacelift",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9294,7 +9294,7 @@
             "kind": "Speedcurve",
             "label": "SpeedCurve",
             "warehouse_source_type": "Speedcurve",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9323,7 +9323,7 @@
             "kind": "SplunkObservabilityCloud",
             "label": "Splunk Observability Cloud",
             "warehouse_source_type": "SplunkObservabilityCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9336,7 +9336,7 @@
             "kind": "SpotIo",
             "label": "Spot by Flexera (Spotinst)",
             "warehouse_source_type": "SpotIo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9349,7 +9349,7 @@
             "kind": "SpotlerCRM",
             "label": "Spotler CRM",
             "warehouse_source_type": "SpotlerCRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9362,7 +9362,7 @@
             "kind": "Squadcast",
             "label": "Squadcast (SolarWinds Incident Response)",
             "warehouse_source_type": "Squadcast",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9405,7 +9405,7 @@
             "kind": "StackOverflowForTeams",
             "label": "Stack Overflow (Prosus/Stack Exchange)",
             "warehouse_source_type": "StackOverflowForTeams",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9418,7 +9418,7 @@
             "kind": "Statsig",
             "label": "Statsig",
             "warehouse_source_type": "Statsig",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": ["feature_flags", "experiments"],
             "superseded_by": [],
             "signals": {
@@ -9435,7 +9435,7 @@
             "kind": "Statuscake",
             "label": "StatusCake",
             "warehouse_source_type": "Statuscake",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9448,7 +9448,7 @@
             "kind": "Statuspage",
             "label": "Statuspage",
             "warehouse_source_type": "Statuspage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9461,7 +9461,7 @@
             "kind": "Steam",
             "label": "Steam",
             "warehouse_source_type": "Steam",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9489,7 +9489,7 @@
             "kind": "StockData",
             "label": "StockData.org",
             "warehouse_source_type": "StockData",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9502,7 +9502,7 @@
             "kind": "Strato",
             "label": "STRATO",
             "warehouse_source_type": "Strato",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9515,7 +9515,7 @@
             "kind": "StreamElements",
             "label": "StreamElements",
             "warehouse_source_type": "StreamElements",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9561,7 +9561,7 @@
             "kind": "SumoLogic",
             "label": "Sumo Logic",
             "warehouse_source_type": "SumoLogic",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9590,7 +9590,7 @@
             "kind": "SurveyMonkey",
             "label": "SurveyMonkey",
             "warehouse_source_type": "SurveyMonkey",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9603,7 +9603,7 @@
             "kind": "SurveySparrow",
             "label": "SurveySparrow",
             "warehouse_source_type": "SurveySparrow",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9616,7 +9616,7 @@
             "kind": "Survicate",
             "label": "Survicate",
             "warehouse_source_type": "Survicate",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9645,7 +9645,7 @@
             "kind": "Swarmia",
             "label": "Swarmia",
             "warehouse_source_type": "Swarmia",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9658,7 +9658,7 @@
             "kind": "Synthesia",
             "label": "Synthesia",
             "warehouse_source_type": "Synthesia",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9671,7 +9671,7 @@
             "kind": "Systeme",
             "label": "Systeme.io",
             "warehouse_source_type": "Systeme",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9684,7 +9684,7 @@
             "kind": "TMDb",
             "label": "TMDb",
             "warehouse_source_type": "TMDb",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9697,7 +9697,7 @@
             "kind": "TVMaze",
             "label": "TVmaze",
             "warehouse_source_type": "TVMaze",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9710,7 +9710,7 @@
             "kind": "Taboola",
             "label": "Taboola",
             "warehouse_source_type": "Taboola",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9723,7 +9723,7 @@
             "kind": "Tailscale",
             "label": "Tailscale",
             "warehouse_source_type": "Tailscale",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9749,7 +9749,7 @@
             "kind": "Tavus",
             "label": "Tavus",
             "warehouse_source_type": "Tavus",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9762,7 +9762,7 @@
             "kind": "TawkTo",
             "label": "tawk.to",
             "warehouse_source_type": "TawkTo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9775,7 +9775,7 @@
             "kind": "Teachable",
             "label": "Teachable",
             "warehouse_source_type": "Teachable",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9788,7 +9788,7 @@
             "kind": "Teamcity",
             "label": "JetBrains TeamCity",
             "warehouse_source_type": "Teamcity",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9801,7 +9801,7 @@
             "kind": "Teamtailor",
             "label": "Teamtailor",
             "warehouse_source_type": "Teamtailor",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9814,7 +9814,7 @@
             "kind": "TeamupFitness",
             "label": "TeamUp Fitness",
             "warehouse_source_type": "TeamupFitness",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9827,7 +9827,7 @@
             "kind": "Telli",
             "label": "telli",
             "warehouse_source_type": "Telli",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9872,7 +9872,7 @@
             "kind": "TenableVulnerabilityManagement",
             "label": "Tenable Vulnerability Management",
             "warehouse_source_type": "TenableVulnerabilityManagement",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9885,7 +9885,7 @@
             "kind": "Tenjin",
             "label": "Tenjin",
             "warehouse_source_type": "Tenjin",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9898,7 +9898,7 @@
             "kind": "TerraformCloud",
             "label": "HashiCorp (HCP Terraform / Terraform Cloud)",
             "warehouse_source_type": "TerraformCloud",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9911,7 +9911,7 @@
             "kind": "TestDino",
             "label": "TestDino",
             "warehouse_source_type": "TestDino",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9924,7 +9924,7 @@
             "kind": "Testrail",
             "label": "TestRail",
             "warehouse_source_type": "Testrail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9937,7 +9937,7 @@
             "kind": "Thinkific",
             "label": "Thinkific",
             "warehouse_source_type": "Thinkific",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9950,7 +9950,7 @@
             "kind": "ThinkificCourses",
             "label": "Thinkific Courses",
             "warehouse_source_type": "ThinkificCourses",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9963,7 +9963,7 @@
             "kind": "Thousandeyes",
             "label": "Cisco ThousandEyes",
             "warehouse_source_type": "Thousandeyes",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9976,7 +9976,7 @@
             "kind": "TicketTailor",
             "label": "Ticket Tailor",
             "warehouse_source_type": "TicketTailor",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -9989,7 +9989,7 @@
             "kind": "Ticketmaster",
             "label": "Ticketmaster",
             "warehouse_source_type": "Ticketmaster",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10015,7 +10015,7 @@
             "kind": "Tinyemail",
             "label": "tinyEmail",
             "warehouse_source_type": "Tinyemail",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10060,7 +10060,7 @@
             "kind": "Torii",
             "label": "Torii",
             "warehouse_source_type": "Torii",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10073,7 +10073,7 @@
             "kind": "TravisCI",
             "label": "Travis CI (Idera)",
             "warehouse_source_type": "TravisCI",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10129,7 +10129,7 @@
             "kind": "Trino",
             "label": "Trino",
             "warehouse_source_type": "Trino",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10142,7 +10142,7 @@
             "kind": "TrunkIo",
             "label": "Trunk.io (Trunk Technologies, Inc.)",
             "warehouse_source_type": "TrunkIo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10155,7 +10155,7 @@
             "kind": "TrustPilot",
             "label": "Trustpilot",
             "warehouse_source_type": "TrustPilot",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10168,7 +10168,7 @@
             "kind": "Trustradius",
             "label": "TrustRadius",
             "warehouse_source_type": "Trustradius",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10181,7 +10181,7 @@
             "kind": "Turso",
             "label": "Turso",
             "warehouse_source_type": "Turso",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10194,7 +10194,7 @@
             "kind": "TwelveData",
             "label": "Twelve Data",
             "warehouse_source_type": "TwelveData",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10207,7 +10207,7 @@
             "kind": "TwelveLabs",
             "label": "Twelve Labs",
             "warehouse_source_type": "TwelveLabs",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10237,7 +10237,7 @@
             "kind": "Twitter",
             "label": "Twitter",
             "warehouse_source_type": "Twitter",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10263,7 +10263,7 @@
             "kind": "TyntecSMS",
             "label": "Tyntec SMS",
             "warehouse_source_type": "TyntecSMS",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10291,7 +10291,7 @@
             "kind": "USCensus",
             "label": "US Census",
             "warehouse_source_type": "USCensus",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10304,7 +10304,7 @@
             "kind": "Ubidots",
             "label": "Ubidots",
             "warehouse_source_type": "Ubidots",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10317,7 +10317,7 @@
             "kind": "UkCompaniesHouse",
             "label": "Companies House (UK government)",
             "warehouse_source_type": "UkCompaniesHouse",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10346,7 +10346,7 @@
             "kind": "Unstructured",
             "label": "Unstructured",
             "warehouse_source_type": "Unstructured",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10359,7 +10359,7 @@
             "kind": "UpPromote",
             "label": "UpPromote",
             "warehouse_source_type": "UpPromote",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10388,7 +10388,7 @@
             "kind": "Uptimerobot",
             "label": "UptimeRobot",
             "warehouse_source_type": "Uptimerobot",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10401,7 +10401,7 @@
             "kind": "UsBea",
             "label": "US Bureau of Economic Analysis (BEA)",
             "warehouse_source_type": "UsBea",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10414,7 +10414,7 @@
             "kind": "UsEia",
             "label": "US Energy Information Administration (EIA)",
             "warehouse_source_type": "UsEia",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10427,7 +10427,7 @@
             "kind": "UsTreasuryFiscalData",
             "label": "US Treasury Fiscal Data",
             "warehouse_source_type": "UsTreasuryFiscalData",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10440,7 +10440,7 @@
             "kind": "Usersnap",
             "label": "Usersnap",
             "warehouse_source_type": "Usersnap",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10453,7 +10453,7 @@
             "kind": "Uservoice",
             "label": "UserVoice",
             "warehouse_source_type": "Uservoice",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10482,7 +10482,7 @@
             "kind": "Veeqo",
             "label": "Veeqo",
             "warehouse_source_type": "Veeqo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10511,7 +10511,7 @@
             "kind": "Vendr",
             "label": "Vendr (OpenPrice API)",
             "warehouse_source_type": "Vendr",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10524,7 +10524,7 @@
             "kind": "Veracode",
             "label": "Veracode",
             "warehouse_source_type": "Veracode",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10552,7 +10552,7 @@
             "kind": "Vimeo",
             "label": "Vimeo",
             "warehouse_source_type": "Vimeo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10578,7 +10578,7 @@
             "kind": "Vultr",
             "label": "Vultr",
             "warehouse_source_type": "Vultr",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10591,7 +10591,7 @@
             "kind": "Wasabi",
             "label": "Wasabi",
             "warehouse_source_type": "Wasabi",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10604,7 +10604,7 @@
             "kind": "Watchmode",
             "label": "Watchmode",
             "warehouse_source_type": "Watchmode",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10617,7 +10617,7 @@
             "kind": "Waydev",
             "label": "Waydev",
             "warehouse_source_type": "Waydev",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10660,7 +10660,7 @@
             "kind": "WhoGho",
             "label": "World Health Organization Global Health Observatory (GHO)",
             "warehouse_source_type": "WhoGho",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10688,7 +10688,7 @@
             "kind": "WikipediaPageviews",
             "label": "Wikipedia Pageviews",
             "warehouse_source_type": "WikipediaPageviews",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10761,7 +10761,7 @@
             "kind": "Workday",
             "label": "Workday",
             "warehouse_source_type": "Workday",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10774,7 +10774,7 @@
             "kind": "Workiz",
             "label": "Workiz",
             "warehouse_source_type": "Workiz",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10787,7 +10787,7 @@
             "kind": "WorldBank",
             "label": "World Bank Open Data",
             "warehouse_source_type": "WorldBank",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10800,7 +10800,7 @@
             "kind": "Wrike",
             "label": "Wrike",
             "warehouse_source_type": "Wrike",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10813,7 +10813,7 @@
             "kind": "Writesonic",
             "label": "Writesonic",
             "warehouse_source_type": "Writesonic",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10826,7 +10826,7 @@
             "kind": "Wufoo",
             "label": "Wufoo",
             "warehouse_source_type": "Wufoo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10839,7 +10839,7 @@
             "kind": "Xendit",
             "label": "Xendit",
             "warehouse_source_type": "Xendit",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10852,7 +10852,7 @@
             "kind": "Xmatters",
             "label": "xMatters (Everbridge)",
             "warehouse_source_type": "Xmatters",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10865,7 +10865,7 @@
             "kind": "Xsolla",
             "label": "Xsolla",
             "warehouse_source_type": "Xsolla",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10878,7 +10878,7 @@
             "kind": "Ynab",
             "label": "YNAB (You Need A Budget)",
             "warehouse_source_type": "Ynab",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10891,7 +10891,7 @@
             "kind": "Yoco",
             "label": "Yoco",
             "warehouse_source_type": "Yoco",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10904,7 +10904,7 @@
             "kind": "YouSign",
             "label": "Yousign",
             "warehouse_source_type": "YouSign",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10930,7 +10930,7 @@
             "kind": "ZapSign",
             "label": "ZapSign",
             "warehouse_source_type": "ZapSign",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10943,7 +10943,7 @@
             "kind": "ZapierSupportedStorage",
             "label": "Zapier (Storage by Zapier)",
             "warehouse_source_type": "ZapierSupportedStorage",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10972,7 +10972,7 @@
             "kind": "ZendeskSell",
             "label": "Zendesk Sell",
             "warehouse_source_type": "ZendeskSell",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10985,7 +10985,7 @@
             "kind": "ZendeskSunshine",
             "label": "Zendesk Sunshine",
             "warehouse_source_type": "ZendeskSunshine",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -10998,7 +10998,7 @@
             "kind": "Zenduty",
             "label": "Zenduty",
             "warehouse_source_type": "Zenduty",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -11011,7 +11011,7 @@
             "kind": "Zenloop",
             "label": "Zenloop",
             "warehouse_source_type": "Zenloop",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -11040,7 +11040,7 @@
             "kind": "ZohoCRM",
             "label": "Zoho CRM",
             "warehouse_source_type": "ZohoCRM",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -11053,7 +11053,7 @@
             "kind": "ZonkaFeedback",
             "label": "Zonka Feedback",
             "warehouse_source_type": "ZonkaFeedback",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -11066,7 +11066,7 @@
             "kind": "Zoom",
             "label": "Zoom",
             "warehouse_source_type": "Zoom",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {
@@ -11092,7 +11092,7 @@
             "kind": "Zylo",
             "label": "Zylo",
             "warehouse_source_type": "Zylo",
-            "wizard_setup_mode": "deep-link",
+            "wizard_setup_mode": "in-cli",
             "competes_with": [],
             "superseded_by": [],
             "signals": {

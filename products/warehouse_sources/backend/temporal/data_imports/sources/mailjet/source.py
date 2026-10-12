@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -56,7 +56,7 @@ class MailJetSource(
     WebhookSource[MailjetSourceConfig],
 ):
     # Mailjet's documented env convention is MJ_APIKEY_PUBLIC / *_PRIVATE.
-    codebase_detection = detect(IN_CLI, npm=("node-mailjet",), pypi=("mailjet-rest",), env=("^MAILJET_", "^MJ_APIKEY_"))
+    codebase_detection = detect(npm=("node-mailjet",), pypi=("mailjet-rest",), env=("^MAILJET_", "^MJ_APIKEY_"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

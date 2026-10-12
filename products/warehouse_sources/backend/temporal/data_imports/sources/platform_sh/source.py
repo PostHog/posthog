@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 import structlog
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(PLATFORM_SH|PLATFORMSH)_",))
+    codebase_detection = detect(env=("^(PLATFORM_SH|PLATFORMSH)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.platform.sh/docs"

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -60,7 +60,7 @@ def webhook_error(error: HTTPError) -> str:
 
 @SourceRegistry.register
 class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig], WebhookSource[PaymongoSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^PAYMONGO_",))
+    codebase_detection = detect(env=("^PAYMONGO_",))
 
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.paymongo.com/reference/list-all-payments"

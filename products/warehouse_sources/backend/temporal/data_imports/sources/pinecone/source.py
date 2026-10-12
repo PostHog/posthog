@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 @SourceRegistry.register
 class PineconeSource(ResumableSource[PineconeSourceConfig, PineconeResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^PINECONE_",))
+    codebase_detection = detect(env=("^PINECONE_",))
 
     lists_tables_without_credentials = True
     supported_versions = ("2026-07",)

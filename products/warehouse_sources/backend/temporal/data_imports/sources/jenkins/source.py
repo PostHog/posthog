@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from posthog.cloud_utils import is_cloud
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], ValidateDatabaseHostMixin):
-    codebase_detection = detect(DEEP_LINK, env=("^JENKINS_",))
+    codebase_detection = detect(env=("^JENKINS_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

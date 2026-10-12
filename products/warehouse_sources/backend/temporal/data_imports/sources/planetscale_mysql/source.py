@@ -3,7 +3,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -106,7 +106,7 @@ class PlanetScaleMySQLSource(MySQLSource):
     different wire protocol — see `planetscale_postgres`.
     """
 
-    codebase_detection = detect(IN_CLI, npm=("@planetscale/database",), env=("^PLANETSCALE_",))
+    codebase_detection = detect(npm=("@planetscale/database",), env=("^PLANETSCALE_",))
 
     api_docs_url = "https://planetscale.com/docs"
 

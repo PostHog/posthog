@@ -1,7 +1,7 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -62,7 +62,7 @@ class SlackAccess:
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
     # OAuth-only in PostHog (Slack app integration), so deep-link.
     codebase_detection = detect(
-        DEEP_LINK,
+        setup_requires_ui=True,
         npm=("@slack/web-api", "@slack/bolt"),
         pypi=("slack-sdk", "slack-bolt"),
         env=("^SLACK_(BOT|APP|SIGNING|CLIENT)_",),

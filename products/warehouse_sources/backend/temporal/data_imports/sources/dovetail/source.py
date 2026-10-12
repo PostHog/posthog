@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DovetailSource(ResumableSource[DovetailSourceConfig, DovetailResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^DOVETAIL_",))
+    codebase_detection = detect(env=("^DOVETAIL_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Dovetail's API has no versioned path/header (a bare `/v1/` that's never changed and isn't a

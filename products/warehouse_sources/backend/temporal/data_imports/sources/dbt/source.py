@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,7 +42,6 @@ class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
     # Cloud - the source needs dbt Cloud credentials. Local-only dbt users
     # are a known false positive.
     codebase_detection = detect(
-        IN_CLI,
         pypi=("dbt-core", "dbt-snowflake", "dbt-postgres", "dbt-bigquery", "dbt-redshift", "dbt-databricks"),
         env=("^DBT_",),
     )

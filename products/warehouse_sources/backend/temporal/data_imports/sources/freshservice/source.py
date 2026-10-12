@@ -1,7 +1,7 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,7 +44,7 @@ _DOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class FreshserviceSource(ResumableSource[FreshserviceSourceConfig, FreshserviceResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^FRESHSERVICE_",))
+    codebase_detection = detect(env=("^FRESHSERVICE_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

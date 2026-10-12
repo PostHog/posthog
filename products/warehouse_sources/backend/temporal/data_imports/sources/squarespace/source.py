@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,7 +46,7 @@ SQUARESPACE_API_VERSION_V2 = "v2"
 
 @SourceRegistry.register
 class SquarespaceSource(ResumableSource[SquarespaceSourceConfig, SquarespaceResumeConfig]):
-    codebase_detection = detect(IN_CLI, env=("^SQUARESPACE_",))
+    codebase_detection = detect(env=("^SQUARESPACE_",))
 
     supported_versions = (SQUARESPACE_API_VERSION_V1, SQUARESPACE_API_VERSION_V2)
     default_version = SQUARESPACE_API_VERSION_V2

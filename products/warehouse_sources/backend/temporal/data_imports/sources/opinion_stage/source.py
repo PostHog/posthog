@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(OPINION_STAGE|OPINIONSTAGE)_",))
+    codebase_detection = detect(env=("^(OPINION_STAGE|OPINIONSTAGE)_",))
 
     supported_versions = ("v2",)
     default_version = "v2"

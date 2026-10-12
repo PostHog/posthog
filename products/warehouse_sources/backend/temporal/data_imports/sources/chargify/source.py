@@ -1,7 +1,7 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]):
-    codebase_detection = detect(IN_CLI, env=("^CHARGIFY_",))
+    codebase_detection = detect(env=("^CHARGIFY_",))
 
     api_docs_url = "https://developers.maxio.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

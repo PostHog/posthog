@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,7 +48,7 @@ _NO_ORGANIZATION = (
 
 @SourceRegistry.register
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
-    codebase_detection = detect(IN_CLI, npm=("@openrouter/ai-sdk-provider",), env=("^OPENROUTER_",))
+    codebase_detection = detect(npm=("@openrouter/ai-sdk-provider",), env=("^OPENROUTER_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]):
-    codebase_detection = detect(IN_CLI, npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb"), pypi=("pynamodb",))
+    codebase_detection = detect(npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb"), pypi=("pynamodb",))
 
     supported_versions = (DYNAMODB_API_VERSION,)
     default_version = DYNAMODB_API_VERSION

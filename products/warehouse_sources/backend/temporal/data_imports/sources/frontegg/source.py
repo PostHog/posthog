@@ -2,7 +2,7 @@ from typing import cast
 
 from requests import HTTPError
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -49,7 +49,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^FRONTEGG_",))
+    codebase_detection = detect(env=("^FRONTEGG_",))
 
     lists_tables_without_credentials = True
     # The pin selects the users API; roles and permissions have independent endpoint versions.

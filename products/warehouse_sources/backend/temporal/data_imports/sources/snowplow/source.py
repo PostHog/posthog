@@ -4,7 +4,7 @@ import structlog
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SnowplowSource(ResumableSource[SnowplowSourceConfig, SnowplowResumeConfig]):
     codebase_detection = detect(
-        IN_CLI,
         npm=("@snowplow/node-tracker",),
         pypi=("snowplow-tracker",),
         env=("^SNOWPLOW_",),

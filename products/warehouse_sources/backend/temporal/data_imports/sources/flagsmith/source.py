@@ -3,7 +3,7 @@ from typing import Optional, cast
 from posthog.cloud_utils import is_cloud
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -54,7 +54,6 @@ _PARENT_PROBE_PATHS = {
 @SourceRegistry.register
 class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        IN_CLI,
         npm=("flagsmith-nodejs", "flagsmith"),
         pypi=("flagsmith",),
         env=("^FLAGSMITH_",),

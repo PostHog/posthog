@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -40,7 +40,7 @@ class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSour
     # NOTE: these signals also match a self-hosted Temporal cluster, but the
     # source wants Temporal Cloud mTLS certificates.
     codebase_detection = detect(
-        IN_CLI, npm=("@temporalio/client", "@temporalio/worker"), pypi=("temporalio",), env=("^TEMPORAL_",)
+        npm=("@temporalio/client", "@temporalio/worker"), pypi=("temporalio",), env=("^TEMPORAL_",)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

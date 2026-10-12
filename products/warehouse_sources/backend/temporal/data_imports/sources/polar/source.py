@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 import requests
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
-    codebase_detection = detect(IN_CLI, npm=("@polar-sh/sdk", "@polar-sh/nextjs"), env=("^POLAR_",))
+    codebase_detection = detect(npm=("@polar-sh/sdk", "@polar-sh/nextjs"), env=("^POLAR_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

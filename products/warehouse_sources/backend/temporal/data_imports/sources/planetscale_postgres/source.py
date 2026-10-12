@@ -1,6 +1,6 @@
 import re
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -76,7 +76,7 @@ class PlanetScalePostgresSource(PostgresSource):
     see `planetscale_mysql`.
     """
 
-    codebase_detection = detect(DEEP_LINK, env=("^(PLANET_SCALE_POSTGRES|PLANETSCALEPOSTGRES)_",))
+    codebase_detection = detect(env=("^(PLANET_SCALE_POSTGRES|PLANETSCALEPOSTGRES)_",))
 
     api_docs_url = "https://planetscale.com/docs/postgres"
 

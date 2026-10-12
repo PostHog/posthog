@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketCapResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(COIN_MARKET_CAP|COINMARKETCAP)_",))
+    codebase_detection = detect(env=("^(COIN_MARKET_CAP|COINMARKETCAP)_",))
 
     supported_versions = ("v1",)
     default_version = "v1"

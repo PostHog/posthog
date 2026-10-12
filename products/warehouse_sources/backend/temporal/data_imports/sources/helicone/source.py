@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]):
     codebase_detection = detect(
-        IN_CLI, npm=("@helicone/helpers",), env=("^HELICONE_",), competes_with=(ProductKey.LLM_ANALYTICS,)
+        npm=("@helicone/helpers",), env=("^HELICONE_",), competes_with=(ProductKey.LLM_ANALYTICS,)
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

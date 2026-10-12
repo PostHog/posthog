@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # webhook endpoint, so auto-creating ours would clobber any webhook the customer already relies on.
 @SourceRegistry.register
 class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeConfig]):
-    codebase_detection = detect(IN_CLI, env=("^TREMENDOUS_",))
+    codebase_detection = detect(env=("^TREMENDOUS_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)

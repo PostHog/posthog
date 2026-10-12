@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -109,7 +109,6 @@ class StripeSource(
     OAuthMixin,
 ):
     codebase_detection = detect(
-        IN_CLI,
         npm=("stripe", "@stripe/stripe-js", "@stripe/react-stripe-js"),
         pypi=("stripe",),
         rubygems=("stripe",),

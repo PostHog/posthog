@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MonteCarloSource(ResumableSource[MonteCarloSourceConfig, MonteCarloResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(MONTE_CARLO|MONTECARLO)_",))
+    codebase_detection = detect(env=("^(MONTE_CARLO|MONTECARLO)_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

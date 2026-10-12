@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrttoSource(ResumableSource[OrttoSourceConfig, OrttoResumeConfig]):
-    codebase_detection = detect(IN_CLI, env=("^ORTTO_",))
+    codebase_detection = detect(env=("^ORTTO_",))
 
     api_docs_url = "https://help.ortto.com/developer/latest/"
 

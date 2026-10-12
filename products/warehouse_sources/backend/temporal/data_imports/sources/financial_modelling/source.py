@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(FINANCIAL_MODELLING|FINANCIALMODELLING)_",))
+    codebase_detection = detect(env=("^(FINANCIAL_MODELLING|FINANCIALMODELLING)_",))
 
     supported_versions = ("stable",)
     default_version = "stable"

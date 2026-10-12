@@ -4,7 +4,7 @@ from requests import HTTPError
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("statsig-js", "statsig-node", "@statsig/js-client", "@statsig/react-bindings"),
         pypi=("statsig",),
         rubygems=("statsig",),

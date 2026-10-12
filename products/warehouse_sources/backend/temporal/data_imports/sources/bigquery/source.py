@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -74,9 +74,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     # is a file upload, and the terminal prompt collects single-line text, so
     # there is no in-cli path that can accept it. Deep-link to the app's
     # new-source form instead of dead-ending on an unpasteable credential.
-    codebase_detection = detect(
-        DEEP_LINK, npm=("@google-cloud/bigquery",), pypi=("google-cloud-bigquery",), env=("^BIGQUERY_",)
-    )
+    codebase_detection = detect(npm=("@google-cloud/bigquery",), pypi=("google-cloud-bigquery",), env=("^BIGQUERY_",))
 
     # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
     # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default

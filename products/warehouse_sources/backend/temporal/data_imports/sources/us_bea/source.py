@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,7 +42,7 @@ def _has_custom_query(config: UsBeaSourceConfig) -> bool:
 
 @SourceRegistry.register
 class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(US_BEA|USBEA)_",))
+    codebase_detection = detect(env=("^(US_BEA|USBEA)_",))
 
     # Static endpoint catalog with no I/O in get_schemas - safe for public docs.
     lists_tables_without_credentials = True

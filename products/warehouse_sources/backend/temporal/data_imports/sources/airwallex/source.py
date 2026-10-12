@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirwallexSource(ResumableSource[AirwallexSourceConfig, AirwallexResumeConfig]):
-    codebase_detection = detect(IN_CLI, npm=("airwallex-payment-elements",), env=("^AIRWALLEX_",))
+    codebase_detection = detect(npm=("airwallex-payment-elements",), env=("^AIRWALLEX_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Airwallex pins behaviour to a dated version sent as the `x-api-version` header. This is the

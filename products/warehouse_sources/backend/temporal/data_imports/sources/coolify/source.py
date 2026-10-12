@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoolifySource(SimpleSource[CoolifySourceConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^COOLIFY_",))
+    codebase_detection = detect(env=("^COOLIFY_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Coolify's API has a single, never-versioned base (`/api/v1` on every instance) and no

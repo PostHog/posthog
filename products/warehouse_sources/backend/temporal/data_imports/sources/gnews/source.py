@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +47,7 @@ _CATEGORIES = [
 
 @SourceRegistry.register
 class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^(G_NEWS|GNEWS)_",))
+    codebase_detection = detect(env=("^(G_NEWS|GNEWS)_",))
 
     supported_versions = ("v4",)
     default_version = "v4"

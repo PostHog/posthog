@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -59,7 +59,7 @@ DatabricksErrors = {
 @SourceRegistry.register
 class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        IN_CLI, npm=("@databricks/sql",), pypi=("databricks-sql-connector", "databricks-sdk"), env=("^DATABRICKS_",)
+        npm=("@databricks/sql",), pypi=("databricks-sql-connector", "databricks-sdk"), env=("^DATABRICKS_",)
     )
 
     api_docs_url = "https://docs.databricks.com/aws/en/dev-tools/python-sql-connector"

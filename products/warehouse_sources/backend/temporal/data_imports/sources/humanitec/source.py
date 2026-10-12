@@ -1,6 +1,6 @@
 from typing import cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HumanitecSource(ResumableSource[HumanitecSourceConfig, HumanitecResumeConfig]):
-    codebase_detection = detect(DEEP_LINK, env=("^HUMANITEC_",))
+    codebase_detection = detect(env=("^HUMANITEC_",))
 
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL

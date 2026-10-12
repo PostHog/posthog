@@ -2,7 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
     codebase_detection = detect(
-        IN_CLI, npm=("plausible-tracker",), env=("^PLAUSIBLE_",), competes_with=(ProductKey.WEB_ANALYTICS,)
+        npm=("plausible-tracker",), env=("^PLAUSIBLE_",), competes_with=(ProductKey.WEB_ANALYTICS,)
     )
 
     supported_versions = ("v2",)

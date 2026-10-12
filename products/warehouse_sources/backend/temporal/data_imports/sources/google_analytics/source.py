@@ -8,7 +8,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.schema_enums import ProductKey
 
-from products.warehouse_sources.backend.facade.codebase_detection import DEEP_LINK, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -74,7 +74,6 @@ _MISSING_SCOPE_ERROR = (
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
     codebase_detection = detect(
-        DEEP_LINK,
         npm=("react-ga4",),
         pypi=("google-analytics-data",),
         env=("^GOOGLE_ANALYTICS_", "^GA4_"),

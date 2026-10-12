@@ -1,7 +1,7 @@
 import re
 from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,7 +38,7 @@ _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConfig]):
-    codebase_detection = detect(IN_CLI, pypi=("python-freshdesk",), env=("^FRESHDESK_",))
+    codebase_detection = detect(pypi=("python-freshdesk",), env=("^FRESHDESK_",))
 
     supported_versions = ("v2",)
     default_version = "v2"

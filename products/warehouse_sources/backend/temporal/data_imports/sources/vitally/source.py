@@ -3,7 +3,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.facade.codebase_detection import IN_CLI, detect
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -38,7 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
-    codebase_detection = detect(IN_CLI, env=("^VITALLY_",))
+    codebase_detection = detect(env=("^VITALLY_",))
 
     api_docs_url = "https://docs.vitally.io"
 
