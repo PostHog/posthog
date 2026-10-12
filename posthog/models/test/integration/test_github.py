@@ -1800,8 +1800,8 @@ class TestGitHubIntegrationModel(BaseTest):
         assert len(repos) == 130
         assert repos == first_page + second_page
         assert mock_list.call_args_list == [
-            call(page=1, per_page=100),
-            call(page=2, per_page=100),
+            call(page=1, per_page=100, priority=None),
+            call(page=2, per_page=100, priority=None),
         ]
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
@@ -1946,7 +1946,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is True
         assert integration.repository_cache == fetched_repositories
         assert integration.repository_cache_updated_at is not None
-        mock_list_all.assert_called_once_with()
+        mock_list_all.assert_called_once_with(priority=None)
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
@@ -1972,7 +1972,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert repos == stale_repositories
         assert has_more is False
         assert integration.repository_cache == stale_repositories
-        mock_list_all.assert_called_once_with()
+        mock_list_all.assert_called_once_with(priority=None)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
     def test_list_cached_repositories_raises_on_refresh_error_without_cache(self, mock_list_all):
@@ -1988,7 +1988,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.repository_cache == []
         assert integration.repository_cache_updated_at is None
-        mock_list_all.assert_called_once_with()
+        mock_list_all.assert_called_once_with(priority=None)
 
     def test_invalidate_github_repository_caches_for_installation_clears_team_and_personal_rows(self):
         team_integration = self.create_integration(
@@ -2027,7 +2027,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert repos == fetched_repositories[600:625]
         assert has_more is True
-        mock_list_all.assert_called_once_with()
+        mock_list_all.assert_called_once_with(priority=None)
 
     @parameterized.expand(
         [
@@ -2066,7 +2066,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert [repo["id"] for repo in repos] == expected_ids
         assert has_more is expected_has_more
-        mock_list_all.assert_called_once_with()
+        mock_list_all.assert_called_once_with(priority=None)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_repositories")
     def test_count_cached_repositories_counts_the_filtered_set_not_the_page(self, mock_list_all):
@@ -2087,7 +2087,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is True
         assert github.count_cached_repositories(search="posthog") == 2
         assert github.count_cached_repositories() == 3
-        mock_list_all.assert_called_once_with()
+        mock_list_all.assert_called_once_with(priority=None)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")

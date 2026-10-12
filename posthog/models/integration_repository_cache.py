@@ -417,8 +417,8 @@ class GitHubRepositoryFullCache:
     ) -> list[IntegrationRepositoryCacheEntry | BaseException]:
         # 1. Source of truth: the light cache, refreshed when older than the push check allows.
         try:
-            repos = await database_sync_to_async(self.github.sync_repository_cache)(
-                min_refresh_interval_seconds=LISTING_MAX_AGE_SECONDS
+            repos = await database_sync_to_async(self.github.sync_repository_cache, thread_sensitive=False)(
+                min_refresh_interval_seconds=LISTING_MAX_AGE_SECONDS, priority=self.priority
             )
             listing_is_recent = True
         except Exception:

@@ -2412,7 +2412,9 @@ class GitHubIntegrationBase:
             "comments": feedback,
         }
 
-    def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
+    def list_repositories(
+        self, *, page: int = 1, per_page: int = 100, priority: Priority | None = None
+    ) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.
 
         Uses GitHub's ``page`` and ``per_page`` query parameters
@@ -2450,6 +2452,7 @@ class GitHubIntegrationBase:
             "GET",
             f"/installation/repositories?page={page}&per_page={per_page}",
             endpoint="/installation/repositories",
+            priority=priority,
         )
         try:
             body = response.json()
@@ -2472,14 +2475,14 @@ class GitHubIntegrationBase:
         )
         raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
 
-    def list_all_repositories(self) -> list[dict]:
-        """Fetch all accessible repositories, paginating through GitHub's API."""
+    def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
+        """Fetch all accessible repositories, paginating through GitHub's API. ``priority`` overrides the client's lane."""
         all_repositories: list[dict] = []
         page = 1
         per_page = 100
 
         while True:
-            repositories, has_more = self.list_repositories(page=page, per_page=per_page)
+            repositories, has_more = self.list_repositories(page=page, per_page=per_page, priority=priority)
             all_repositories.extend(repositories)
 
             if not has_more or not repositories:
@@ -2677,7 +2680,9 @@ class GitHubIntegrationBase:
             return True
         return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 
-    def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
+    def sync_repository_cache(
+        self, min_refresh_interval_seconds: int | None = None, *, priority: Priority | None = None
+    ) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
         updated_at = self.integration.repository_cache_updated_at
         if (
@@ -2688,7 +2693,7 @@ class GitHubIntegrationBase:
         ):
             return cached_repositories
 
-        repositories = self.list_all_repositories()
+        repositories = self.list_all_repositories(priority=priority)
         refreshed_at = timezone.now()
         update_fields = ["repository_cache_updated_at"]
         if repositories != cached_repositories:
