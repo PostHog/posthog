@@ -1290,3 +1290,7 @@ environment:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
         hidden: true
+    patch:schema:nested:discriminators:
+        bin_script: patch-schema-nested-discriminators.py
+        description: 'TODO: add description for patch-schema-nested-discriminators.py'
+        hidden: true
