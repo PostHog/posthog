@@ -304,8 +304,8 @@ The wizard install flow, the skill-distribution channels, and the in-app onboard
 
 Verified against `master`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and MCP spec `2026-07-28`
 on 2026-08-25. The `services/mcp` pin and the published SDK version were re-checked on
-2026-10-12 (`0.22.2` pinned, `0.22.3` published). Treat versions and open threads as perishable: re-check
-`packages/mcp/CHANGELOG.md`, the pinned alias in `services/mcp/package.json`, and
+2026-10-12 (`0.22.2` pinned, `0.22.3` published). Treat versions and open threads as
+perishable: re-check `packages/mcp/CHANGELOG.md`, the pinned alias in `services/mcp/package.json`, and
 [mega-issue 64016](https://github.com/PostHog/posthog/issues/64016) rather than trusting this
 section.
 
