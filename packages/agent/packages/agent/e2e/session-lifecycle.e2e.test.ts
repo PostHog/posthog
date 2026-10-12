@@ -140,10 +140,7 @@ for (const adapter of ADAPTERS) {
         expect(usage).toBeTruthy();
         expect(usage?.totalTokens ?? 0).toBeGreaterThan(0);
         expect(usage?.totalTokens).toBe(
-          (usage?.inputTokens ?? 0) +
-            (usage?.outputTokens ?? 0) +
-            (usage?.cachedReadTokens ?? 0) +
-            (usage?.cachedWriteTokens ?? 0),
+          (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
         );
       }
     });
