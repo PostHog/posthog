@@ -2015,37 +2015,51 @@ describe('experimentReplayTabLogic', () => {
         {
             failure: 'a refusal the backend states on purpose',
             rejection: Object.assign(new Error('Request failed'), { status: 400, detail: REFUSAL_DETAIL }),
-            status: 400,
+            refused: true,
             message: REFUSAL_DETAIL,
             callsAfterReopen: 1,
         },
         {
+            failure: 'exposures that are still being computed',
+            rejection: Object.assign(new Error('Request failed'), {
+                status: 400,
+                code: 'exposures_not_ready',
+                detail: 'Exposed users for this experiment are still being computed. Try again in a few minutes.',
+            }),
+            refused: false,
+            message: 'Exposed users for this experiment are still being computed. Try again in a few minutes.',
+            callsAfterReopen: 2,
+        },
+        {
             failure: 'a request that may pass on a second attempt',
             rejection: new Error('Failed to fetch'),
-            status: null,
+            refused: false,
             message: 'Failed to fetch',
             callsAfterReopen: 2,
         },
-    ])('keeps the status beside the message for $failure', async ({ rejection, status, message, callsAfterReopen }) => {
-        // The status is what splits the two states the shelf renders, and what decides whether
-        // reopening asks again. A refusal leaves no deltas behind, so without the status the
-        // reopen path sends the same request and gets the same refusal back.
-        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockRejectedValue(rejection)
+    ])(
+        'keeps the refusal beside the message for $failure',
+        async ({ rejection, refused, message, callsAfterReopen }) => {
+            // The refusal is what splits the two states the shelf renders, and what decides whether
+            // reopening asks again. A refusal leaves no deltas behind, so without it the reopen path
+            // sends the same request and gets the same refusal back.
+            ;(experimentsSessionEventDeltasCreate as jest.Mock).mockRejectedValue(rejection)
 
-        await expectLogic(logic, () => {
-            logic.actions.toggleBehaviorComparison()
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.toggleBehaviorComparison()
+            }).toFinishAllListeners()
 
-        expect(logic.values.sessionEventDeltasError).toBe(message)
-        expect(logic.values.sessionEventDeltasErrorStatus).toBe(status)
+            expect(logic.values.sessionEventDeltasError).toBe(message)
+            expect(logic.values.sessionEventDeltasRefused).toBe(refused)
 
-        await expectLogic(logic, () => {
-            logic.actions.toggleBehaviorComparison()
-            logic.actions.toggleBehaviorComparison()
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.toggleBehaviorComparison()
+                logic.actions.toggleBehaviorComparison()
+            }).toFinishAllListeners()
 
-        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(callsAfterReopen)
-    })
+            expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(callsAfterReopen)
+        }
+    )
 
     it('reports the population the comparison covered, not just what it found', async () => {
         // An empty reason on its own cannot be read: 'no_separation' over sixty people and over

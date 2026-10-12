@@ -848,6 +848,7 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                     user=self.user,
                 )
         self.assertIn("still being computed", str(error_context.exception.detail))
+        self.assertEqual(error_context.exception.get_codes(), ["exposures_not_ready"])
 
     def test_activation_mode_scans_live_even_on_precomputing_teams(self) -> None:
         # Activation exposures have no preaggregated form, so on precomputing teams they must

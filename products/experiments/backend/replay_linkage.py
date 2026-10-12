@@ -97,6 +97,9 @@ COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
     "Try again when the cohort is ready."
 )
+# Marks a refusal that passes on its own once the precompute or the cohort calculation finishes,
+# so the client can retry it instead of treating it as final like the other 400s here.
+EXPOSURES_NOT_READY_ERROR_CODE = "exposures_not_ready"
 EXPERIMENT_HAS_NO_FLAG_MESSAGE = "This experiment has no feature flag, so exposures can't be resolved."
 # Written to stand alone next to the scope control's disabled in-session option, which is how the
 # tab surfaces them via :func:`resolve_in_session_exposure_semantics`.
@@ -490,7 +493,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
         # Both reads below see the cohort's partially-inserted membership: a precompute build
         # would freeze the torn snapshot for the frozen-band TTL, and the activation live scan
         # would silently undercount. Transient, so the error says to retry.
-        raise ValidationError(COHORT_NOT_CALCULATED_MESSAGE)
+        raise ValidationError(COHORT_NOT_CALCULATED_MESSAGE, code=EXPOSURES_NOT_READY_ERROR_CODE)
 
     if has_activation_config(experiment.exposure_criteria):
         # The flag-to-activation ordering crosses the per-day cache buckets, so activation
@@ -524,12 +527,12 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
             )
     except Exception:
         logger.exception("exposure_lazy_computation_failed", experiment_id=experiment.id)
-        raise ValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE)
+        raise ValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE, code=EXPOSURES_NOT_READY_ERROR_CODE)
     if not result.ready:
         # Cold long-running experiments converge across successive requests: each ensure
         # call persists the chunk jobs it completed, so retrying eventually succeeds.
         logger.warning("exposure_lazy_computation_not_ready", experiment_id=experiment.id)
-        raise ValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE)
+        raise ValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE, code=EXPOSURES_NOT_READY_ERROR_CODE)
 
     tag_queries(experiment_exposures_path="precomputed")
     return _ExposureRead(

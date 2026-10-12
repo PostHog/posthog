@@ -150,6 +150,7 @@ from products.experiments.backend.metric_events import (
 )
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.replay_linkage import (
+    EXPOSURES_NOT_READY_ERROR_CODE,
     ExperimentExposureLinkage,
     exposed_persons_select,
     resolve_exposure_linkage,
@@ -606,6 +607,9 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     try:
         linkage = resolve_exposure_linkage(team, experiment_id=experiment.pk, variant=None)
     except ValidationError as error:
+        # Kept as the linkage raised it, so its code tells the client to retry later.
+        if error.get_codes() == [EXPOSURES_NOT_READY_ERROR_CODE]:
+            raise
         raise SessionEventDeltasUnavailable(_refusal_message(error))
 
     # The linkage's variant set drops experiment.excluded_variants: an excluded variant is not in

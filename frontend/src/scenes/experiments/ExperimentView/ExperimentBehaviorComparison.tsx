@@ -422,7 +422,7 @@ export function ExperimentBehaviorComparison({
         sessionEventDeltas,
         sessionEventDeltasLoading,
         sessionEventDeltasError,
-        sessionEventDeltasErrorStatus,
+        sessionEventDeltasRefused,
         selectedWatchCard,
         loadedRecordingsById,
     } = useValues(logic)
@@ -436,10 +436,10 @@ export function ExperimentBehaviorComparison({
 
     return (
         <div className="mb-4">
-            {/* A 400 is the backend stating that this experiment cannot have a comparison, so it is
-                shown as an answer. Every other failure could pass on a second attempt, so it keeps
-                the retry. */}
-            {sessionEventDeltasError !== null && sessionEventDeltasErrorStatus === 400 ? (
+            {/* A refusal is the backend stating that this experiment cannot have a comparison, so it
+                is shown as an answer. Every other failure could pass on a second attempt, so it
+                keeps the retry. */}
+            {sessionEventDeltasError !== null && sessionEventDeltasRefused ? (
                 <div className="text-xs text-secondary">{sessionEventDeltasError}</div>
             ) : sessionEventDeltasError !== null ? (
                 <div className="flex items-center gap-2 text-xs text-secondary">

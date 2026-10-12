@@ -18,6 +18,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend import session_event_deltas
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
@@ -1136,6 +1137,20 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "aggregates by group" in response.json()["detail"]
+
+    def test_exposures_still_computing_is_marked_as_not_ready(self) -> None:
+        self._enable_precomputation()
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+
+        with patch(
+            "products.experiments.backend.replay_linkage.ensure_precomputed",
+            return_value=LazyComputationResult(ready=False, job_ids=[]),
+        ):
+            response = self._post_deltas(experiment)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "exposures_not_ready"
+        assert "still being computed" in response.json()["detail"]
 
     @rank_anything
     def test_a_precomputing_team_reads_the_population_from_the_preaggregated_table(self) -> None:
