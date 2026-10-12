@@ -129761,7 +129761,9 @@ export namespace Schemas {
      */
     include_quarantined?: boolean;
     /**
-     * Number of results to return per page.
+     * Number of snapshots to return per page. Defaults to and is capped at 100; a larger value returns that many. Page through the rest with `offset` or the `next` URL.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
