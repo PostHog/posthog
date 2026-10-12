@@ -17,6 +17,8 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.facade import agents as agents_facade
+from products.tasks.backend.facade.api import _public_task_run_state
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     AgentTurnFailed,
@@ -1643,6 +1645,45 @@ class TestCreateTaskAndTriggerForwardsContext:
             assert dispatched_states == []
         else:
             assert dispatched_states[0]["private_ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_session_files_reach_the_run_as_attachments_of_the_first_prompt(self) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+        files = [SessionFile(name="main.prompt.md", content="Review the PR."), SessionFile(name="perf.md", content="Ü")]
+
+        with (
+            patch("posthog.storage.object_storage.write") as write,
+            patch("posthog.storage.object_storage.tag"),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+        ):
+            _, run = await _create_task_and_trigger(
+                "prompt", context, files=files, before_task_dispatch=lambda run_id: {"private_ready": True}
+            )
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=run.id)
+        manifest = {entry["id"]: entry for entry in persisted.artifacts}
+        assert persisted.state["private_ready"] is True
+        assert persisted.state["pending_user_message"] == "prompt"
+        assert persisted.state["pending_user_message_id"]
+        assert [manifest[artifact_id]["name"] for artifact_id in persisted.state["pending_user_artifact_ids"]] == [
+            "main.prompt.md",
+            "perf.md",
+        ]
+        written = {call.args[0]: call.args[1] for call in write.call_args_list}
+        assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
+
+    @pytest.mark.asyncio
+    async def test_codex_thread_limit_reaches_the_state_the_agent_server_reads(self) -> None:
+        # The agent server sees only allowlisted state keys, so a dropped key silently keeps the default limit.
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, codex_max_subagents=9)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            task_run = await agents_facade.create_task_and_trigger("prompt", context)
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+        assert _public_task_run_state(persisted.state)["codex_max_subagents"] == 9
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

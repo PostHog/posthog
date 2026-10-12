@@ -10736,19 +10736,34 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    export type DatePart = typeof DatePart[keyof typeof DatePart];
+
+
+    export const DatePart = {
+      Month: 'month',
+      Quarter: 'quarter',
+      DayOfWeek: 'day_of_week',
+    } as const;
+
+    export interface BILocalFieldDefinition1 {
+      aggregate: boolean;
+      expression: string;
+      kind?: 'expression';
+    }
+
     export interface BICategoryGroup {
       name: string;
       values: string[];
     }
 
-    export interface BILocalFieldDefinition1 {
+    export interface BILocalFieldDefinition2 {
       expression: string;
       groups: BICategoryGroup[];
       kind?: 'groups';
       other: string;
     }
 
-    export interface BILocalFieldDefinition2 {
+    export interface BILocalFieldDefinition3 {
       expression: string;
       kind?: 'bins';
       origin: number;
@@ -10784,9 +10799,11 @@ export namespace Schemas {
 
     export interface BIField {
       dateBucket?: BIDateBucket | null;
+      datePart?: DatePart | null;
       expression: string;
       id: string;
-      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | null;
+      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | null;
+      localFieldId?: string | null;
       name: string;
       source: BIDataSource;
       type: DatabaseSerializedFieldType;
@@ -10925,6 +10942,14 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type Shelf = typeof Shelf[keyof typeof Shelf];
+
+
+    export const Shelf = {
+      Rows: 'rows',
+      Columns: 'columns',
+    } as const;
+
     export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
 
 
@@ -10954,11 +10979,14 @@ export namespace Schemas {
       field: BIField;
       formatting?: ChartSettingsFormatting | null;
       label?: string | null;
+      /** Measures in older worksheets belong to rows. */
+      shelf?: Shelf | null;
       tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
       chartType: ChartDisplayType;
+      colorBy?: string | null;
       columns: BIField[];
       compareFilter?: CompareFilter | null;
       /** Explore only the comparison window, using dateRange as its reference window. */
@@ -71801,6 +71829,13 @@ export namespace Schemas {
       readonly limit_reached: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
+      /**
+         * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+         * @nullable
+         */
+      readonly dashboard_id: number | null;
+      /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+      readonly dashboard_suggested: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -83812,6 +83847,13 @@ export namespace Schemas {
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
+      /**
+         * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+         * @nullable
+         */
+      readonly dashboard_id?: number | null;
+      /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+      readonly dashboard_suggested?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -97974,6 +98016,15 @@ export namespace Schemas {
     export interface ScannerCreatorsResponse {
       /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
       creators: UserBasic[];
+    }
+
+    export interface ScannerDashboardResponse {
+      /** Id of the scanner's dashboard. */
+      dashboard_id: number;
+      /** Name of the dashboard. */
+      name: string;
+      /** True when this call created the dashboard. False when the scanner already had one, which is returned instead. */
+      created: boolean;
     }
 
     /**

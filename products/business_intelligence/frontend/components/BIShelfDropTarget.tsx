@@ -25,15 +25,19 @@ function carriesBIDrag(event: DragEvent<HTMLElement>): 'field' | 'pill' | null {
 /** Accepts fields from the data pane or the database tree, and pills moved from other shelves. */
 export function BIShelfDropTarget({
     shelf,
+    index,
     className,
     children,
 }: {
     shelf: BIShelf
+    index?: number
     className?: string
     children: ReactNode
 }): JSX.Element {
     const { activeDropShelf, dragSessionId } = useValues(biEditorLogic)
-    const { addFieldToShelf, clearActiveDropShelf, moveFieldToShelf, setActiveDropShelf } = useActions(biEditorLogic)
+    const { config } = useValues(biEditorLogic)
+    const { addFieldToShelf, clearActiveDropShelf, moveFieldToShelf, setActiveDropShelf, setMeasureShelf } =
+        useActions(biEditorLogic)
 
     return (
         <div
@@ -42,7 +46,7 @@ export function BIShelfDropTarget({
                 activeDropShelf === shelf && 'bg-accent-highlight-secondary ring-2 ring-inset ring-accent',
                 className
             )}
-            data-attr={`bi-editor-${shelf}-shelf`}
+            data-attr={`bi-editor-${shelf}-${index === undefined ? 'shelf' : 'drop-target'}`}
             onDragEnter={(event) => {
                 if (carriesBIDrag(event)) {
                     setActiveDropShelf(shelf)
@@ -70,17 +74,24 @@ export function BIShelfDropTarget({
                     if (pill.dragSessionId !== dragSessionId) {
                         return
                     }
-                    // Measures sit on the rows strip, so dropping one on rows or columns keeps it a measure
-                    const keepsMeasure = pill.shelf === 'values' && (shelf === 'rows' || shelf === 'columns')
-                    if (!keepsMeasure) {
-                        moveFieldToShelf(pill.shelf, pill.index, shelf)
+                    if (pill.shelf === 'values' && shelf === 'values' && index !== undefined) {
+                        setMeasureShelf(pill.index, config.values[index]?.shelf ?? 'rows')
                     }
+                    moveFieldToShelf(pill.shelf, pill.index, shelf, index)
                     return
                 }
                 const field = parseBIField(event.dataTransfer.getData(BI_FIELD_DRAG_MIME_TYPE))
                 if (field) {
                     const target = getBIDropTarget(field, shelf)
                     addFieldToShelf(target.field, target.shelf)
+                    if (target.shelf === 'values' && (shelf === 'rows' || shelf === 'columns')) {
+                        setMeasureShelf(config.values.length, shelf)
+                    } else if (target.shelf === 'values' && index !== undefined) {
+                        setMeasureShelf(config.values.length, config.values[index]?.shelf ?? 'rows')
+                        moveFieldToShelf('values', config.values.length, 'values', index)
+                    } else if (index !== undefined) {
+                        moveFieldToShelf(target.shelf, config[target.shelf].length, target.shelf, index)
+                    }
                 }
             }}
         >

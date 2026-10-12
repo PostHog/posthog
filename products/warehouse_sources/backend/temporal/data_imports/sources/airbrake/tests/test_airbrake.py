@@ -1,76 +1,36 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
-
 import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake import airbrake
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.airbrake import (
     NOTICES_MAX_PAGES_PER_GROUP,
-    PAGE_LIMIT,
     AirbrakeResumeConfig,
+    AirbrakeRetryableError,
     _build_groups_params,
     _format_start_time,
-    airbrake_source,
-    get_rows,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airbrake import (
+    AirbrakeSourceConfig,
 )
 
 
-class _FakeResumableManager:
-    def __init__(self, state: AirbrakeResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[AirbrakeResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> AirbrakeResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: AirbrakeResumeConfig) -> None:
-        self.saved.append(data)
+def _driver() -> SourceDriver:
+    return SourceDriver(AirbrakeSource(), AirbrakeSourceConfig(api_key="user-key"))
 
 
-def _response_with_status(status_code: int) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    return response
-
-
-class _FakePages:
-    """Fixture keyed by (path, page). Missing keys mean 'empty page' so pagination terminates."""
-
-    def __init__(self, pages: dict[tuple[str, int], Any]) -> None:
-        self.pages = pages
-        self.requests: list[tuple[str, dict[str, Any]]] = []
-
-    def __call__(self, session: Any, url: str, params: dict[str, Any], logger: Any) -> dict[str, Any]:
-        path = url.removeprefix("https://api.airbrake.io")
-        self.requests.append((path, params))
-        result = self.pages.get((path, params["page"]), {})
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-
-def _collect(
-    manager: _FakeResumableManager, monkeypatch: Any, pages: _FakePages, endpoint: str, **kwargs: Any
-) -> list[dict]:
-    monkeypatch.setattr(airbrake, "_fetch_page", pages)
-    rows: list[dict] = []
-    for batch in get_rows(
-        api_key="user-key",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(batch)
-    return rows
+def _page(collection: str, rows: list[dict[str, Any]], count: int | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"count": len(rows) if count is None else count, collection: rows})
 
 
 class TestFormatStartTime:
@@ -108,226 +68,225 @@ class TestBuildGroupsParams:
 
 class TestIterPages:
     def test_max_pages_cap_truncates_collection(self, monkeypatch: Any) -> None:
-        pages = _FakePages({("/p", page): {"count": 999, "notices": [{"id": page}]} for page in range(1, 10)})
-        monkeypatch.setattr(airbrake, "_fetch_page", pages)
-        result = list(airbrake._iter_pages(MagicMock(), "user-key", "/p", "notices", MagicMock(), max_pages=3))
-        assert [page for page, _items in result] == [1, 2, 3]
+        monkeypatch.setattr(airbrake, "NOTICES_MAX_PAGES_PER_GROUP", 3)
+        result = _driver().run(
+            "notices",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "g1"}]),
+                *[_page("notices", [{"id": page}], count=999) for page in range(1, 4)],
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert [request.param("page") for request in result.requests if request.path.endswith("/notices")] == [
+            "1",
+            "2",
+            "3",
+        ]
 
 
 class TestFetchPageRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
     def test_retryable_statuses_are_retried(self, _name: str, status_code: int) -> None:
-        bad = MagicMock()
-        bad.status_code = status_code
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        good.json.return_value = {"projects": []}
+        result = _driver().run("projects", [ScriptedResponse(status=status_code), _page("projects", [])])
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/api/v4/projects", "/api/v4/projects"]
 
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(airbrake._fetch_page.retry, "sleep", lambda *_: None)  # type: ignore[attr-defined]
-            result = airbrake._fetch_page(session, "https://api.airbrake.io/api/v4/projects", {}, MagicMock())
-
-        assert result == {"projects": []}
-        assert session.get.call_count == 2
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
+    def test_persistent_retryable_status_raises_a_retryable_error(self, _name: str, status_code: int) -> None:
+        # The adapter absorbs one failed try, so only a status that persists reaches the source's own check.
+        result = _driver().run("projects", always(ScriptedResponse(status=status_code)))
+        assert isinstance(result.raised, AirbrakeRetryableError)
 
     def test_auth_error_raises_immediately_without_leaking_key(self) -> None:
         # 401 must surface as HTTPError on the first attempt so get_non_retryable_errors can stop
         # the sync — and its message must not carry the ?key= credential, since it is persisted
         # into job errors and logs.
-        response = MagicMock()
-        response.status_code = 401
-        response.ok = False
-        response.reason = "Unauthorized"
-        response.text = '{"code":401,"type":"Unauthorized"}'
-        session = MagicMock()
-        session.get.return_value = response
-
-        with pytest.raises(requests.HTTPError) as exc_info:
-            airbrake._fetch_page(
-                session,
-                "https://api.airbrake.io/api/v4/projects",
-                {"key": "SECRET-KEY", "limit": PAGE_LIMIT, "page": 1},
-                MagicMock(),
-            )
-
-        assert session.get.call_count == 1
-        assert "401 Client Error: Unauthorized for url: https://api.airbrake.io/api/v4/projects" in str(exc_info.value)
-        assert "SECRET-KEY" not in str(exc_info.value)
+        result = _driver().run("projects", [ScriptedResponse(status=401, json={"code": 401, "type": "Unauthorized"})])
+        assert len(result.requests) == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error: Unauthorized for url: https://api.airbrake.io/api/v4/projects" in str(result.raised)
+        assert "user-key" not in str(result.raised)
         # `response` must ride along so fan-out callers can distinguish 404s.
-        assert exc_info.value.response is response
+        assert result.raised.response is not None
+        assert result.raised.response.status_code == 401
 
 
 class TestGroupsFanOut:
-    def test_incremental_run_passes_start_time_to_every_project(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 2, "projects": [{"id": 1}, {"id": 2}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 1, "groups": [{"id": "g1"}]},
-                ("/api/v4/projects/2/groups", 1): {"count": 1, "groups": [{"id": "g2"}]},
-            }
-        )
-        _collect(
-            _FakeResumableManager(),
-            monkeypatch,
-            pages,
+    def test_incremental_run_passes_start_time_to_every_project(self) -> None:
+        result = _driver().run(
             "groups",
+            [
+                _page("projects", [{"id": 1}, {"id": 2}]),
+                _page("groups", [{"id": "g1"}]),
+                _page("groups", [{"id": "g2"}]),
+            ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
-        groups_requests = [params for path, params in pages.requests if path.endswith("/groups")]
+        assert result.raised is None
+        groups_requests = [request for request in result.requests if request.path.endswith("/groups")]
         assert len(groups_requests) == 2
-        for params in groups_requests:
-            assert params["start_time"] == "2026-03-04T02:58:14.000Z"
-            assert params["order"] == "created"
+        for request in groups_requests:
+            assert request.param("start_time") == "2026-03-04T02:58:14.000Z"
+            assert request.param("order") == "created"
 
-    def test_resume_skips_projects_before_bookmark_and_reuses_saved_page(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 3, "projects": [{"id": 1}, {"id": 2}, {"id": 3}]},
+    def test_resume_skips_projects_before_bookmark_and_reuses_saved_page(self) -> None:
+        result = _driver().run(
+            "groups",
+            [
+                _page("projects", [{"id": 1}, {"id": 2}, {"id": 3}]),
                 # Project 1 must not be re-fetched; project 2 resumes at page 3.
-                ("/api/v4/projects/2/groups", 3): {"count": 999, "groups": [{"id": "g2-p3"}]},
-                ("/api/v4/projects/3/groups", 1): {"count": 1, "groups": [{"id": "g3"}]},
-            }
+                _page("groups", [{"id": "g2-p3"}], count=999),
+                _page("groups", []),
+                _page("groups", [{"id": "g3"}]),
+            ],
+            resume_state=AirbrakeResumeConfig(page=3, project_id=2),
         )
-        manager = _FakeResumableManager(AirbrakeResumeConfig(page=3, project_id=2))
-        rows = _collect(manager, monkeypatch, pages, "groups")
-        assert rows == [{"id": "g2-p3"}, {"id": "g3"}]
-        fetched_group_paths = [path for path, _params in pages.requests if path.endswith("/groups")]
-        assert "/api/v4/projects/1/groups" not in fetched_group_paths
+        assert result.raised is None
+        assert result.rows == [{"id": "g2-p3"}, {"id": "g3"}]
+        assert result.paths == [
+            "/api/v4/projects",
+            "/api/v4/projects/2/groups",
+            "/api/v4/projects/2/groups",
+            "/api/v4/projects/3/groups",
+        ]
+        assert result.params("page") == ["1", "3", "4", "1"]
 
-    def test_resume_from_deleted_project_restarts_from_first(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 1, "groups": [{"id": "g1"}]},
-            }
+    def test_resume_from_deleted_project_restarts_from_first(self) -> None:
+        result = _driver().run(
+            "groups",
+            [_page("projects", [{"id": 1}]), _page("groups", [{"id": "g1"}])],
+            resume_state=AirbrakeResumeConfig(page=5, project_id=999),
         )
-        manager = _FakeResumableManager(AirbrakeResumeConfig(page=5, project_id=999))
-        rows = _collect(manager, monkeypatch, pages, "groups")
-        assert rows == [{"id": "g1"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "g1"}]
+        assert result.paths == ["/api/v4/projects", "/api/v4/projects/1/groups"]
+        assert result.params("page") == ["1", "1"]
 
-    def test_state_saved_after_each_page_and_bookmark_advanced_between_projects(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 2, "projects": [{"id": 1}, {"id": 2}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 1, "groups": [{"id": "g1"}]},
-                ("/api/v4/projects/2/groups", 1): {"count": 1, "groups": [{"id": "g2"}]},
-            }
+    def test_state_saved_after_each_page_and_bookmark_advanced_between_projects(self) -> None:
+        result = _driver().run(
+            "groups",
+            [
+                _page("projects", [{"id": 1}, {"id": 2}]),
+                _page("groups", [{"id": "g1"}]),
+                _page("groups", [{"id": "g2"}]),
+            ],
         )
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, pages, "groups")
-        assert manager.saved == [
+        assert result.raised is None
+        assert result.saved_states == [
             AirbrakeResumeConfig(page=2, project_id=1),
             AirbrakeResumeConfig(page=1, project_id=2),
             AirbrakeResumeConfig(page=2, project_id=2),
         ]
 
-    def test_project_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 2, "projects": [{"id": 1}, {"id": 2}]},
-                ("/api/v4/projects/1/groups", 1): requests.HTTPError(response=_response_with_status(404)),
-                ("/api/v4/projects/2/groups", 1): {"count": 1, "groups": [{"id": "g2"}]},
-            }
+    def test_project_deleted_mid_fan_out_is_skipped(self) -> None:
+        result = _driver().run(
+            "groups",
+            [
+                _page("projects", [{"id": 1}, {"id": 2}]),
+                ScriptedResponse(status=404),
+                _page("groups", [{"id": "g2"}]),
+            ],
         )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "groups")
-        assert rows == [{"id": "g2"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "g2"}]
+        assert result.paths[-1] == "/api/v4/projects/2/groups"
 
-    def test_non_404_http_error_propagates(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): requests.HTTPError(response=_response_with_status(500)),
-            }
-        )
-        with pytest.raises(requests.HTTPError):
-            _collect(_FakeResumableManager(), monkeypatch, pages, "groups")
+    def test_non_404_http_error_propagates(self) -> None:
+        result = _driver().run("groups", [_page("projects", [{"id": 1}]), ScriptedResponse(status=403)])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.raised.response is not None
+        assert result.raised.response.status_code == 403
 
 
 class TestDeploysFanOut:
-    def test_project_id_is_injected_into_deploy_rows(self, monkeypatch: Any) -> None:
+    def test_project_id_is_injected_into_deploy_rows(self) -> None:
         # The Airbrake deploy payload carries no project reference; without injection the table
         # can't be joined back to projects.
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 7}]},
-                ("/api/v4/projects/7/deploys", 1): {
-                    "count": 1,
-                    "deploys": [{"environment": "production", "revision": "abc123"}],
-                },
-            }
+        result = _driver().run(
+            "deploys",
+            [
+                _page("projects", [{"id": 7}]),
+                _page("deploys", [{"environment": "production", "revision": "abc123"}]),
+            ],
         )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "deploys")
-        assert rows == [{"environment": "production", "revision": "abc123", "projectId": 7}]
+        assert result.raised is None
+        assert result.rows == [{"environment": "production", "revision": "abc123", "projectId": 7}]
 
 
 class TestNoticesFanOut:
-    def test_resume_skips_groups_before_bookmark(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 2, "groups": [{"id": "g1"}, {"id": "g2"}]},
-                ("/api/v4/projects/1/groups/g2/notices", 2): {"count": 999, "notices": [{"id": "n2-p2"}]},
-            }
+    def test_resume_skips_groups_before_bookmark(self) -> None:
+        result = _driver().run(
+            "notices",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "g1"}, {"id": "g2"}]),
+                _page("notices", [{"id": "n2-p2"}], count=999),
+                _page("notices", []),
+            ],
+            resume_state=AirbrakeResumeConfig(page=2, project_id=1, group_id="g2"),
         )
-        manager = _FakeResumableManager(AirbrakeResumeConfig(page=2, project_id=1, group_id="g2"))
-        rows = _collect(manager, monkeypatch, pages, "notices")
-        assert rows == [{"id": "n2-p2"}]
-        fetched_notice_paths = [path for path, _params in pages.requests if "/notices" in path]
-        assert "/api/v4/projects/1/groups/g1/notices" not in fetched_notice_paths
+        assert result.raised is None
+        assert result.rows == [{"id": "n2-p2"}]
+        assert result.paths[2:] == [
+            "/api/v4/projects/1/groups/g2/notices",
+            "/api/v4/projects/1/groups/g2/notices",
+        ]
+        assert result.params("page")[2:] == ["2", "3"]
 
-    def test_group_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 2, "groups": [{"id": "gone"}, {"id": "g2"}]},
-                ("/api/v4/projects/1/groups/gone/notices", 1): requests.HTTPError(response=_response_with_status(404)),
-                ("/api/v4/projects/1/groups/g2/notices", 1): {"count": 1, "notices": [{"id": "n2"}]},
-            }
+    def test_group_deleted_mid_fan_out_is_skipped(self) -> None:
+        result = _driver().run(
+            "notices",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "gone"}, {"id": "g2"}]),
+                ScriptedResponse(status=404),
+                _page("notices", [{"id": "n2"}]),
+            ],
         )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "notices")
-        assert rows == [{"id": "n2"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "n2"}]
+        assert result.paths[-1] == "/api/v4/projects/1/groups/g2/notices"
 
-    def test_per_group_history_is_capped(self, monkeypatch: Any) -> None:
+    def test_per_group_history_is_capped(self) -> None:
         # One noisy group with unbounded history must not dominate the sync.
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 1, "groups": [{"id": "g1"}]},
-                **{
-                    ("/api/v4/projects/1/groups/g1/notices", page): {"count": 99999, "notices": [{"id": f"n{page}"}]}
-                    for page in range(1, NOTICES_MAX_PAGES_PER_GROUP + 50)
-                },
-            }
+        result = _driver().run(
+            "notices",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "g1"}]),
+                *[
+                    _page("notices", [{"id": f"n{page}"}], count=99999)
+                    for page in range(1, NOTICES_MAX_PAGES_PER_GROUP + 1)
+                ],
+            ],
         )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "notices")
-        assert len(rows) == NOTICES_MAX_PAGES_PER_GROUP
+        assert result.raised is None
+        assert len(result.rows) == NOTICES_MAX_PAGES_PER_GROUP
+        assert result.params("page")[2:] == [str(page) for page in range(1, NOTICES_MAX_PAGES_PER_GROUP + 1)]
 
     def test_group_budget_caps_total_fan_out(self, monkeypatch: Any) -> None:
         # The per-group page cap bounds each group, but only this budget bounds the two-level
         # fan-out as a whole; an account with many groups must stop once it is exhausted.
         monkeypatch.setattr(airbrake, "NOTICES_MAX_GROUPS_PER_SYNC", 2)
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): {
-                    "count": 4,
-                    "groups": [{"id": "g1"}, {"id": "g2"}, {"id": "g3"}, {"id": "g4"}],
-                },
-                **{
-                    (f"/api/v4/projects/1/groups/{g}/notices", 1): {"count": 1, "notices": [{"id": f"n-{g}"}]}
-                    for g in ("g1", "g2", "g3", "g4")
-                },
-            }
+        result = _driver().run(
+            "notices",
+            [
+                _page("projects", [{"id": 1}]),
+                _page("groups", [{"id": "g1"}, {"id": "g2"}, {"id": "g3"}, {"id": "g4"}]),
+                _page("notices", [{"id": "n-g1"}]),
+                _page("notices", [{"id": "n-g2"}]),
+            ],
         )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "notices")
-        assert rows == [{"id": "n-g1"}, {"id": "n-g2"}]
-        fetched_notice_paths = [path for path, _params in pages.requests if "/notices" in path]
-        assert "/api/v4/projects/1/groups/g3/notices" not in fetched_notice_paths
+        assert result.raised is None
+        assert result.rows == [{"id": "n-g1"}, {"id": "n-g2"}]
+        assert result.paths[2:] == [
+            "/api/v4/projects/1/groups/g1/notices",
+            "/api/v4/projects/1/groups/g2/notices",
+        ]
 
 
 class TestSourceResponse:
@@ -344,26 +303,28 @@ class TestSourceResponse:
     ) -> None:
         # Dropping groupId from the notices key multi-matches merges if notice ids repeat across
         # groups; partitioning on a mutable field rewrites partitions every sync.
-        response = airbrake_source(
-            api_key="user-key", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-        )
-        assert response.primary_keys == expected_pks
-        assert response.partition_keys == expected_partition_keys
+        result = _driver().run(endpoint, [_page("projects", [])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == expected_pks
+        assert result.response.partition_keys == expected_partition_keys
         # Watermark persistence must stay deferred to job end: fan-out batches arrive per project,
         # so per-batch asc checkpointing could advance the cursor past projects a crashed run never reached.
-        assert response.sort_mode == "desc"
+        assert result.response.sort_mode == "desc"
 
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("invalid_key", 401, False), ("forbidden", 403, False)])
     def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with patch.object(airbrake, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("user-key") is expected
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/api/v4/projects"
+        assert network.requests_log[0].param("key") == "user-key"
+        assert network.requests_log[0].param("limit") == "1"
 
     def test_network_error_maps_to_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(airbrake, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             assert validate_credentials("user-key") is False
+        # The real stack retries a dropped connection.
+        assert {request.path for request in network.requests_log} == {"/api/v4/projects"}

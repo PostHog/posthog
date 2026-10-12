@@ -9,7 +9,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | File                            | Scene / role                                                                                                                                 |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AutoresearchScene.tsx`         | `/autoresearch` — the model list: a container-query grid of model cards and the "New model" entry point.                                     |
-| `AutoresearchModelCard.tsx`     | One model card: the question as title, a state body (scored, training, draft), and counts. `ModelCardMenu.tsx` holds pause, resume, delete.  |
+| `AutoresearchModelCard.tsx`     | One model card: the question, a headline metric per state (draft, training, awaiting check, confirmed). `ModelCardMenu.tsx` holds actions.   |
 | `pipelineQuestion.ts`           | The model's question in plain words ("Who will do X in the next N days?"), shared by the list cards and the detail header.                   |
 | `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form. Its parts live in `newModel/`.                                                                        |
 | `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: the question header, the lifecycle strip, and four tabs. Each tab lives in `pipeline/`.              |
