@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "expected_current_version_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Current source version observed before requesting the promote (null when the canvas has never been published). A moved head is rejected with 409 version_conflict."
+            "description": "Current source version observed before requesting the promote (null when the canvas has never been published). A moved head is rejected with 409 version_conflict.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "ID of the canvas whose draft to promote.",

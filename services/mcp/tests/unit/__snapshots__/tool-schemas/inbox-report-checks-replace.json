@@ -5,15 +5,8 @@
             "description": "Metric threshold configuration, including a bounded query and comparison.",
             "properties": {
                 "baseline_value": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "The value observed when the check was written, recorded on each result for context."
+                    "description": "The value observed when the check was written, recorded on each result for context.",
+                    "type": ["number", "null"]
                 },
                 "comparison": {
                     "description": "What the measured value must satisfy to pass.",
@@ -44,30 +37,16 @@
                             "type": "string"
                         },
                         "value": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "The bound for `lte` and `gte`; unused by `between`."
+                            "description": "The bound for `lte` and `gte`; unused by `between`.",
+                            "type": ["number", "null"]
                         }
                     },
                     "required": ["operator"],
                     "type": "object"
                 },
                 "metric_id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                    "description": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created.",
+                    "type": ["string", "null"]
                 },
                 "metric_kind": {
                     "anyOf": [

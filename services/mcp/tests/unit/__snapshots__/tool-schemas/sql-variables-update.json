@@ -26,26 +26,12 @@
             "description": "Allowed values for List variables. Null for other variable types."
         },
         "values_query": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels."
+            "description": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+            "type": ["string", "null"]
         },
         "values_query_connection_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of the external data source connection values_query runs against. Null runs it against PostHog."
+            "description": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+            "type": ["string", "null"]
         }
     },
     "required": ["id"],

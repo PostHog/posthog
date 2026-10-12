@@ -128,15 +128,8 @@
             "description": "SAML IdP entity ID (issuer)."
         },
         "saml_x509_cert": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "SAML IdP X.509 signing certificate (PEM)."
+            "description": "SAML IdP X.509 signing certificate (PEM).",
+            "type": ["string", "null"]
         },
         "scim_enabled": {
             "description": "Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.",

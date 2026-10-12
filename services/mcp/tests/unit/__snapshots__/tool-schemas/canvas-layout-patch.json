@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "expected_current_version_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Required optimistic-concurrency guard: the current_version_id the operations are based on (null when the canvas has no layout versions yet). A moved head is rejected with 409 version_conflict — patches cannot apply unguarded."
+            "description": "Required optimistic-concurrency guard: the current_version_id the operations are based on (null when the canvas has no layout versions yet). A moved head is rejected with 409 version_conflict — patches cannot apply unguarded.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "ID of the grid canvas whose layout to patch.",
@@ -25,15 +18,8 @@
                         "description": "For update_placement: the fields to merge into the placement.",
                         "properties": {
                             "component": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Id of the component canvas this placement renders. Required once the placement is live."
+                                "description": "Id of the component canvas this placement renders. Required once the placement is live.",
+                                "type": ["string", "null"]
                             },
                             "config": {
                                 "anyOf": [
@@ -51,15 +37,8 @@
                                 "description": "Per-placement settings, validated against the component's configSchema."
                             },
                             "generationTaskId": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Id of the agent task currently filling this placement, when one is running."
+                                "description": "Id of the agent task currently filling this placement, when one is running.",
+                                "type": ["string", "null"]
                             },
                             "h": {
                                 "description": "Height, in grid rows.",
@@ -84,15 +63,8 @@
                                 "type": "string"
                             },
                             "version": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id."
+                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id.",
+                                "type": ["string", "null"]
                             },
                             "w": {
                                 "description": "Width, in grid columns.",
@@ -170,15 +142,8 @@
                         "description": "For add_placement: the placement to add.",
                         "properties": {
                             "component": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Id of the component canvas this placement renders. Required once the placement is live."
+                                "description": "Id of the component canvas this placement renders. Required once the placement is live.",
+                                "type": ["string", "null"]
                             },
                             "config": {
                                 "anyOf": [
@@ -196,15 +161,8 @@
                                 "description": "Per-placement settings, validated against the component's configSchema."
                             },
                             "generationTaskId": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Id of the agent task currently filling this placement, when one is running."
+                                "description": "Id of the agent task currently filling this placement, when one is running.",
+                                "type": ["string", "null"]
                             },
                             "h": {
                                 "description": "Height, in grid rows.",
@@ -235,15 +193,8 @@
                                 "type": "string"
                             },
                             "version": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id."
+                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id.",
+                                "type": ["string", "null"]
                             },
                             "w": {
                                 "description": "Width, in grid columns.",

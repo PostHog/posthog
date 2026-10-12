@@ -70,26 +70,12 @@
                         "type": "string"
                     },
                     "incremental_field": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Incremental cursor field for incremental or append syncs."
+                        "description": "Incremental cursor field for incremental or append syncs.",
+                        "type": ["string", "null"]
                     },
                     "incremental_field_type": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Type of the incremental cursor field."
+                        "description": "Type of the incremental cursor field.",
+                        "type": ["string", "null"]
                     },
                     "primary_key_columns": {
                         "anyOf": [
@@ -137,15 +123,8 @@
                         "type": "boolean"
                     },
                     "sync_frequency": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Human-readable sync frequency value."
+                        "description": "Human-readable sync frequency value.",
+                        "type": ["string", "null"]
                     },
                     "sync_time_of_day": {
                         "anyOf": [

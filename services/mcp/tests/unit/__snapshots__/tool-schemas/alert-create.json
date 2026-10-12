@@ -31,15 +31,8 @@
                         {
                             "properties": {
                                 "check_ongoing_interval": {
-                                    "anyOf": [
-                                        {
-                                            "type": "boolean"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
+                                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones.",
+                                    "type": ["boolean", "null"]
                                 },
                                 "series_index": {
                                     "description": "Zero-based index of the series in the insight's query to monitor.",
@@ -57,15 +50,8 @@
                         {
                             "properties": {
                                 "column": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column)."
+                                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).",
+                                    "type": ["string", "null"]
                                 },
                                 "evaluation": {
                                     "description": "How to read the result rows — an explicit choice, no implicit default.",
@@ -73,15 +59,8 @@
                                     "type": "string"
                                 },
                                 "label_column": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row)."
+                                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).",
+                                    "type": ["string", "null"]
                                 },
                                 "type": {
                                     "default": "HogQLAlertConfig",
@@ -95,26 +74,12 @@
                         {
                             "properties": {
                                 "check_ongoing_interval": {
-                                    "anyOf": [
-                                        {
-                                            "type": "boolean"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used.",
+                                    "type": ["boolean", "null"]
                                 },
                                 "funnel_step": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
+                                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion).",
+                                    "type": ["number", "null"]
                                 },
                                 "metric": {
                                     "enum": ["conversion_from_start", "conversion_from_previous"],
@@ -132,15 +97,8 @@
                         {
                             "properties": {
                                 "check_ongoing_interval": {
-                                    "anyOf": [
-                                        {
-                                            "type": "boolean"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+                                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.",
+                                    "type": ["boolean", "null"]
                                 },
                                 "type": {
                                     "default": "MetricsAlertConfig",
@@ -176,37 +134,16 @@
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -218,15 +155,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
+                                                        "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "zscore",
@@ -234,15 +164,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size for calculating mean/std (default: 30)"
+                                                        "description": "Rolling window size for calculating mean/std (default: 30)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -254,37 +177,16 @@
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -296,15 +198,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
+                                                        "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "mad",
@@ -312,15 +207,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size for calculating median/MAD (default: 30)"
+                                                        "description": "Rolling window size for calculating median/MAD (default: 30)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -328,52 +216,24 @@
                                             {
                                                 "properties": {
                                                     "multiplier": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"
+                                                        "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -390,15 +250,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size for calculating quartiles (default: 30)"
+                                                        "description": "Rolling window size for calculating quartiles (default: 30)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -406,52 +259,24 @@
                                             {
                                                 "properties": {
                                                     "lower_bound": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Lower bound - values below this are anomalies"
+                                                        "description": "Lower bound - values below this are anomalies",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -468,15 +293,8 @@
                                                         "type": "string"
                                                     },
                                                     "upper_bound": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Upper bound - values above this are anomalies"
+                                                        "description": "Upper bound - values above this are anomalies",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -488,37 +306,16 @@
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -530,15 +327,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "ecod",
@@ -546,15 +336,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -566,37 +349,16 @@
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -608,15 +370,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "copod",
@@ -624,15 +379,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -640,52 +388,24 @@
                                             {
                                                 "properties": {
                                                     "n_estimators": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Number of trees in the forest (default: 100)"
+                                                        "description": "Number of trees in the forest (default: 100)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -697,15 +417,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "isolation_forest",
@@ -713,15 +426,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -741,52 +447,24 @@
                                                         "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                                     },
                                                     "n_neighbors": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Number of neighbors to consider (default: 5)"
+                                                        "description": "Number of neighbors to consider (default: 5)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -798,15 +476,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "knn",
@@ -814,15 +485,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -830,52 +494,24 @@
                                             {
                                                 "properties": {
                                                     "n_bins": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Number of histogram bins (default: 10)"
+                                                        "description": "Number of histogram bins (default: 10)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -887,15 +523,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "hbos",
@@ -903,15 +532,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -919,52 +541,24 @@
                                             {
                                                 "properties": {
                                                     "n_neighbors": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Number of neighbors for LOF (default: 20)"
+                                                        "description": "Number of neighbors for LOF (default: 20)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -976,15 +570,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "lof",
@@ -992,15 +579,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -1008,63 +588,28 @@
                                             {
                                                 "properties": {
                                                     "kernel": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "string"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "SVM kernel type (default: \"rbf\")"
+                                                        "description": "SVM kernel type (default: \"rbf\")",
+                                                        "type": ["string", "null"]
                                                     },
                                                     "nu": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Upper bound on training errors fraction (default: 0.1)"
+                                                        "description": "Upper bound on training errors fraction (default: 0.1)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -1076,15 +621,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "ocsvm",
@@ -1092,15 +630,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -1112,37 +643,16 @@
                                                             {
                                                                 "properties": {
                                                                     "diffs_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                                        "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "lags_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                                        "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     },
                                                                     "smooth_n": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ],
-                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                                        "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                                        "type": ["number", "null"]
                                                                     }
                                                                 },
                                                                 "type": "object"
@@ -1154,15 +664,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Anomaly probability threshold (default: 0.9)"
+                                                        "description": "Anomaly probability threshold (default: 0.9)",
+                                                        "type": ["number", "null"]
                                                     },
                                                     "type": {
                                                         "default": "pca",
@@ -1170,15 +673,8 @@
                                                         "type": "string"
                                                     },
                                                     "window": {
-                                                        "anyOf": [
-                                                            {
-                                                                "type": "number"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ],
-                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                                        "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                                        "type": ["number", "null"]
                                                     }
                                                 },
                                                 "type": "object"
@@ -1208,37 +704,16 @@
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1250,15 +725,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
+                                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "zscore",
@@ -1266,15 +734,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size for calculating mean/std (default: 30)"
+                                    "description": "Rolling window size for calculating mean/std (default: 30)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1286,37 +747,16 @@
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1328,15 +768,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
+                                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "mad",
@@ -1344,15 +777,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size for calculating median/MAD (default: 30)"
+                                    "description": "Rolling window size for calculating median/MAD (default: 30)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1360,52 +786,24 @@
                         {
                             "properties": {
                                 "multiplier": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"
+                                    "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1422,15 +820,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size for calculating quartiles (default: 30)"
+                                    "description": "Rolling window size for calculating quartiles (default: 30)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1438,52 +829,24 @@
                         {
                             "properties": {
                                 "lower_bound": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Lower bound - values below this are anomalies"
+                                    "description": "Lower bound - values below this are anomalies",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1500,15 +863,8 @@
                                     "type": "string"
                                 },
                                 "upper_bound": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Upper bound - values above this are anomalies"
+                                    "description": "Upper bound - values above this are anomalies",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1520,37 +876,16 @@
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1562,15 +897,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "ecod",
@@ -1578,15 +906,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1598,37 +919,16 @@
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1640,15 +940,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "copod",
@@ -1656,15 +949,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1672,52 +958,24 @@
                         {
                             "properties": {
                                 "n_estimators": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Number of trees in the forest (default: 100)"
+                                    "description": "Number of trees in the forest (default: 100)",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1729,15 +987,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "isolation_forest",
@@ -1745,15 +996,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1773,52 +1017,24 @@
                                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                 },
                                 "n_neighbors": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Number of neighbors to consider (default: 5)"
+                                    "description": "Number of neighbors to consider (default: 5)",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1830,15 +1046,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "knn",
@@ -1846,15 +1055,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1862,52 +1064,24 @@
                         {
                             "properties": {
                                 "n_bins": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Number of histogram bins (default: 10)"
+                                    "description": "Number of histogram bins (default: 10)",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -1919,15 +1093,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "hbos",
@@ -1935,15 +1102,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -1951,52 +1111,24 @@
                         {
                             "properties": {
                                 "n_neighbors": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Number of neighbors for LOF (default: 20)"
+                                    "description": "Number of neighbors for LOF (default: 20)",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -2008,15 +1140,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "lof",
@@ -2024,15 +1149,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -2040,63 +1158,28 @@
                         {
                             "properties": {
                                 "kernel": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "SVM kernel type (default: \"rbf\")"
+                                    "description": "SVM kernel type (default: \"rbf\")",
+                                    "type": ["string", "null"]
                                 },
                                 "nu": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Upper bound on training errors fraction (default: 0.1)"
+                                    "description": "Upper bound on training errors fraction (default: 0.1)",
+                                    "type": ["number", "null"]
                                 },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -2108,15 +1191,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "ocsvm",
@@ -2124,15 +1200,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -2144,37 +1213,16 @@
                                         {
                                             "properties": {
                                                 "diffs_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                                                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "lags_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                                                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "smooth_n": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                                                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)",
+                                                    "type": ["number", "null"]
                                                 }
                                             },
                                             "type": "object"
@@ -2186,15 +1234,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Anomaly probability threshold (default: 0.9)"
+                                    "description": "Anomaly probability threshold (default: 0.9)",
+                                    "type": ["number", "null"]
                                 },
                                 "type": {
                                     "default": "pca",
@@ -2202,15 +1243,8 @@
                                     "type": "string"
                                 },
                                 "window": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                                    "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)",
+                                    "type": ["number", "null"]
                                 }
                             },
                             "type": "object"
@@ -2336,37 +1370,16 @@
             "description": "Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables."
         },
         "schedule_start_time": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time."
+            "description": "Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.",
+            "type": ["string", "null"]
         },
         "skip_weekend": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone)."
+            "description": "Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).",
+            "type": ["boolean", "null"]
         },
         "snoozed_until": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze."
+            "description": "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.",
+            "type": ["string", "null"]
         },
         "subscribed_users": {
             "description": "User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
@@ -2386,26 +1399,12 @@
                                 {
                                     "properties": {
                                         "lower": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Alert fires when the value drops below this number."
+                                            "description": "Alert fires when the value drops below this number.",
+                                            "type": ["number", "null"]
                                         },
                                         "upper": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Alert fires when the value exceeds this number."
+                                            "description": "Alert fires when the value exceeds this number.",
+                                            "type": ["number", "null"]
                                         }
                                     },
                                     "type": "object"
@@ -2426,7 +1425,7 @@
                 },
                 "created_at": {
                     "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 "id": {

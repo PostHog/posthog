@@ -6,15 +6,8 @@
                 {
                     "properties": {
                         "id": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "string"
-                                }
-                            ],
-                            "description": "User ID or role UUID to assign the issue to."
+                            "description": "User ID or role UUID to assign the issue to.",
+                            "type": ["number", "string"]
                         },
                         "type": {
                             "description": "Assignment target type: user or role.\n\n* `user` - user\n* `role` - role",

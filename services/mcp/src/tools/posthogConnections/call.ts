@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { buildForwardedContext, resolveConnectionTarget, seedForwardedContext } from '@/lib/connection-forwarding'
 import { ExecCommandError } from '@/lib/errors'
-import { formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
+import { formatInputValidationError, repairToolArguments } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -99,10 +99,10 @@ export function createConnectionCallTool(
             // rather than after a cross-region round trip, as an opaque 400 from the other project.
             const rawArguments = params.arguments ?? {}
             const firstPass = target.schema.safeParse(rawArguments, { reportInput: true })
-            const rewrapped = firstPass.success
+            const repaired = firstPass.success
                 ? undefined
-                : repairArgumentNesting(firstPass.error, rawArguments, target.schema)
-            const parsedArguments = rewrapped ? target.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
+                : repairToolArguments(firstPass.error, rawArguments, target.schema)
+            const parsedArguments = repaired ? target.schema.safeParse(repaired, { reportInput: true }) : firstPass
             if (!parsedArguments.success) {
                 throw new ExecCommandError(
                     formatInputValidationError(target.name, parsedArguments.error, rawArguments, target.schema),

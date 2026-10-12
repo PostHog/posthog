@@ -6,26 +6,12 @@
             "type": "string"
         },
         "date_from": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Start of the date range. Supports relative dates like \"-7d\", \"-24h\" or ISO 8601 format. Default: \"-3d\"."
+            "description": "Start of the date range. Supports relative dates like \"-7d\", \"-24h\" or ISO 8601 format. Default: \"-3d\".",
+            "type": ["string", "null"]
         },
         "date_to": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "End of the date range. Supports relative dates or ISO 8601 format. Default: now."
+            "description": "End of the date range. Supports relative dates or ISO 8601 format. Default: now.",
+            "type": ["string", "null"]
         },
         "filter_test_accounts": {
             "description": "Exclude internal and test users. Default: false.",
@@ -553,15 +539,8 @@
                                         "type": "string"
                                     },
                                     "value": {
-                                        "anyOf": [
-                                            {
-                                                "type": "boolean"
-                                            },
-                                            {
-                                                "type": "string"
-                                            }
-                                        ],
-                                        "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                        "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                                        "type": ["boolean", "string"]
                                     }
                                 },
                                 "required": ["key", "value"],

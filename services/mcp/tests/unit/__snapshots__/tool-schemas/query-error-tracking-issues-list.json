@@ -6,15 +6,8 @@
                 {
                     "properties": {
                         "id": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "number"
-                                }
-                            ],
-                            "description": "User ID or role UUID to filter by."
+                            "description": "User ID or role UUID to filter by.",
+                            "type": ["string", "number"]
                         },
                         "type": {
                             "description": "Assignee target type: user or role.\n\n* `user` - user\n* `role` - role",
@@ -39,15 +32,8 @@
                     "type": "string"
                 },
                 "date_to": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted."
+                    "description": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.",
+                    "type": ["string", "null"]
                 }
             },
             "type": "object"
@@ -162,14 +148,7 @@
                             },
                             {
                                 "items": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "number"
-                                        }
-                                    ]
+                                    "type": ["string", "number"]
                                 },
                                 "type": "array"
                             }

@@ -2,41 +2,20 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "comment": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional comment or reasoning for the review."
+            "description": "Optional comment or reasoning for the review.",
+            "type": ["string", "null"]
         },
         "queue_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared."
+            "description": "Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.",
+            "type": ["string", "null"]
         },
         "scores": {
             "description": "Full desired score set for this review. Omit scorers you want to leave blank.",
             "items": {
                 "properties": {
                     "boolean_value": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Boolean value selected for this score."
+                        "description": "Boolean value selected for this score.",
+                        "type": ["boolean", "null"]
                     },
                     "categorical_values": {
                         "anyOf": [
@@ -59,15 +38,8 @@
                         "type": "string"
                     },
                     "definition_version_id": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Optional immutable scorer version ID. Defaults to the scorer's current version."
+                        "description": "Optional immutable scorer version ID. Defaults to the scorer's current version.",
+                        "type": ["string", "null"]
                     },
                     "numeric_value": {
                         "anyOf": [
