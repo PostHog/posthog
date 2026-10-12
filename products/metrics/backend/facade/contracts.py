@@ -20,6 +20,7 @@ labels, so consumers never branch on "single vs multi series".
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from .enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction, MetricType
@@ -370,3 +371,32 @@ class MetricsOverview:
     series: int
     lookback_seconds: int
     services: tuple[MetricsServiceOverview, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GaugeSample:
+    """One gauge point that PostHog computes on a team's behalf and writes into that team's Metrics.
+
+    `timestamp` is the time the value describes, not the write time. The capture service moves a
+    point older than its past window to the ingest time, so `write_gauges` drops such points instead.
+    """
+
+    name: str
+    value: float
+    timestamp: dt.datetime
+    labels: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        if self.timestamp.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
+class GaugeWriteResult:
+    written: int
+    # Points too old for the capture service to keep at their own timestamp.
+    dropped_stale: int
+
+
+class MetricsIngestNotConfiguredError(Exception):
+    """OTLP_METRICS_INGEST_ENDPOINT is empty, so gauges have nowhere to go."""

@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
@@ -24,6 +26,8 @@ from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
+    GaugeSample,
+    GaugeWriteResult,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
@@ -34,10 +38,12 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryRequest,
     MetricSeries,
+    MetricsIngestNotConfiguredError,
     MetricsOverview,
 )
 from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
+from products.metrics.backend.gauge_writer import write_gauges as _write_gauges
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
 from products.metrics.backend.metric_attributes_query_runner import (
@@ -637,4 +643,23 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         anomaly_to=context.fired_at + context.leadout,
         filters=filters,
         companions=context.companions,
+    )
+
+
+def write_gauges(
+    *, team: Team, samples: Sequence[GaugeSample], service_name: str, now: dt.datetime
+) -> GaugeWriteResult:
+    """Write gauges that PostHog computed for `team` into the team's Metrics, each at its own timestamp.
+
+    Points older than the capture service's past window are dropped and counted, not written.
+    `service_name` becomes the series' `service.name`, so keep it stable per producer.
+    """
+    if not settings.OTLP_METRICS_INGEST_ENDPOINT:
+        raise MetricsIngestNotConfiguredError("Set OTLP_METRICS_INGEST_ENDPOINT to write gauges")
+    return _write_gauges(
+        samples,
+        endpoint=settings.OTLP_METRICS_INGEST_ENDPOINT,
+        token=team.api_token,
+        service_name=service_name,
+        now=now,
     )
