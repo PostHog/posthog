@@ -10,6 +10,7 @@ import { AddressInfo } from 'net'
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
 
+import { FeatureFlagRepository } from '../../../src/cdp/services/feature-flags/feature-flag-repository'
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
@@ -107,6 +108,7 @@ describe('Hog Executor', () => {
                     PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
                     hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
                 ),
+                featureFlagRepository: new FeatureFlagRepository(hub.postgres),
                 hogInputsService,
                 emailService,
                 recipientTokensService,

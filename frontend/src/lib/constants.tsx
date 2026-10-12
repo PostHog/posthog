@@ -641,6 +641,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_DELAY_UNTIL_DATE: 'workflows-delay-until-date', // owner: @dmarchuk #team-workflows
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
+    WORKFLOWS_FEATURE_FLAGS_ACTION: 'workflows-feature-flags-action', // owner: #team-workflows
     WORKFLOWS_GUIDED_ONBOARDING: 'workflows-guided-onboarding', // owner: #team-workflows, first-run path choice and the messaging setup guide
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows

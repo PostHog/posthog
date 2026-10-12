@@ -21,6 +21,7 @@ import { Hub, Team } from '../../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import { FeatureFlagRepository } from '../feature-flags/feature-flag-repository'
 import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
@@ -121,6 +122,7 @@ describe('Hogflow Executor', () => {
                     PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
                     hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
                 ),
+                featureFlagRepository: new FeatureFlagRepository(hub.postgres),
                 hogInputsService,
                 emailService,
                 recipientTokensService,

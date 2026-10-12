@@ -17,6 +17,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
+import { FeatureFlagRepository } from '../../feature-flags/feature-flag-repository'
 import { HogExecutorAsyncService } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
@@ -96,6 +97,7 @@ describe('HogFunctionHandler', () => {
                     PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
                     hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
                 ),
+                featureFlagRepository: new FeatureFlagRepository(hub.postgres),
                 hogInputsService,
                 emailService,
                 recipientTokensService,

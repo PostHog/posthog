@@ -222,6 +222,7 @@ register_supported_function("postHogSendTicketMessage")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
+register_supported_function("postHogGetFeatureFlags")
 
 
 # Async functions that put the invocation on a queue the running consumer cannot serve.

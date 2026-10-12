@@ -183,6 +183,9 @@ export class TemplateTester {
     public mockTeamManager = {
         getTeam: jest.fn().mockResolvedValue({ id: 1 }),
     }
+    public mockFeatureFlagRepository = {
+        list: jest.fn(),
+    }
     constructor(
         private _template: HogFunctionTemplate,
         options: { executionTimeoutMs?: number } = {}
@@ -245,6 +248,7 @@ export class TemplateTester {
                     PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
                     config.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
                 ),
+                featureFlagRepository: this.mockFeatureFlagRepository as any,
                 hogInputsService,
                 emailService,
                 recipientTokensService,

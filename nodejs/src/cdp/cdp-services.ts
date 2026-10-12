@@ -19,6 +19,7 @@ import { CapturedEventsService } from './services/captured-events/captured-event
 import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
 import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
 import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
+import { FeatureFlagRepository } from './services/feature-flags/feature-flag-repository'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -507,6 +508,7 @@ export function createCdpCoreServices(
                 PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
                 config.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
             ),
+            featureFlagRepository: new FeatureFlagRepository(deps.postgres),
             hogInputsService,
             emailService,
             recipientTokensService,

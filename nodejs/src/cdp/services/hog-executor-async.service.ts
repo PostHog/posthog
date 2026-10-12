@@ -23,6 +23,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
+import { FeatureFlagRepository } from './feature-flags/feature-flag-repository'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
@@ -62,6 +63,7 @@ export interface HogExecutorAsyncDependencies {
     teamManager: TeamManager
     conversationsTicketsJwt: ScopedServiceJwt
     customerAnalyticsAccountsJwt: ScopedServiceJwt
+    featureFlagRepository: FeatureFlagRepository
     hogInputsService: HogInputsService
     emailService: EmailService
     recipientTokensService: RecipientTokensService
@@ -272,6 +274,7 @@ export class HogExecutorAsyncService {
                             internalApiBaseUrl: this.config.internalApiBaseUrl,
                             conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
                             customerAnalyticsAccountsJwt: this.deps.customerAnalyticsAccountsJwt,
+                            featureFlagRepository: this.deps.featureFlagRepository,
                             consumeInlineAsyncBudget,
                         },
                         result
