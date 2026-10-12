@@ -605,15 +605,16 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "failed_task,malformed_task,expect_raise",
+    "failed_task,malformed_task,duplicated_task,expect_raise",
     [
-        ("contracts_security_1", None, False),
-        (None, "contracts_security_1", False),
-        ("main_1", None, True),
+        ("contracts_security_1", None, None, False),
+        (None, "contracts_security_1", None, False),
+        (None, None, "contracts_security_1", False),
+        ("main_1", None, None, True),
     ],
 )
 async def test_coordinator_persists_each_sub_agent_under_its_session_key(
-    failed_task: str | None, malformed_task: str | None, expect_raise: bool
+    failed_task: str | None, malformed_task: str | None, duplicated_task: str | None, expect_raise: bool
 ) -> None:
     # Dedup reads each unit by its separate session's key, so a sub-agent stored under another key loses its
     # findings. The persisted lens part needs no sub-agent again, a malformed lens costs only that lens, and
@@ -629,6 +630,7 @@ async def test_coordinator_persists_each_sub_agent_under_its_session_key(
             )
             for task in tasks
         ]
+        + [CoordinatorResult(task=task, status="ok", findings=[]) for task in tasks if task == duplicated_task]
     )
     mock_review = AsyncMock(return_value=review)
     mock_persist = MagicMock()
@@ -660,7 +662,7 @@ async def test_coordinator_persists_each_sub_agent_under_its_session_key(
             ((2002, 1), "flash-lens-contracts-security", "contracts_security_1"),
             ((2002, 2), "flash-lens-contracts-security", "contracts_security_2"),
         ]
-        if task not in (failed_task, malformed_task)
+        if task not in (failed_task, malformed_task, duplicated_task)
     }
 
 

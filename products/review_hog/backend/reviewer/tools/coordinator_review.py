@@ -6,6 +6,7 @@ sub-agent messages in reasonable time.
 """
 
 import logging
+from collections import Counter
 from typing import Literal
 
 from pydantic import BaseModel, JsonValue, ValidationError
@@ -62,8 +63,14 @@ class CoordinatorReview(BaseModel):
     def reviews_by_task(self) -> dict[str, SingleAgentReview]:
         """The review of every sub-agent that finished with valid findings, by task name."""
         reviews: dict[str, SingleAgentReview] = {}
+        counts = Counter(result.task for result in self.results)
         for result in self.results:
             if result.status != "ok":
+                continue
+            if counts[result.task] > 1:
+                logger.warning(
+                    "The coordinator reported sub-agent %s more than once; counting it as failed", result.task
+                )
                 continue
             try:
                 reviews[result.task] = SingleAgentReview.model_validate({"findings": result.findings})
