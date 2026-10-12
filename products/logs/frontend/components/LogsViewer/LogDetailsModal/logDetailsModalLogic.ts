@@ -33,6 +33,13 @@ export interface logDetailsModalLogicActions {
     openLogDetails: (log: ParsedLogMessage) => {
         log: ParsedLogMessage
     }
+    openLogRelatedErrors: (
+        log: ParsedLogMessage,
+        scope: ErrorScope
+    ) => {
+        log: ParsedLogMessage
+        scope: ErrorScope
+    }
     setActiveTab: (tab: LogDetailsTab) => {
         tab: LogDetailsTab
     }
@@ -71,6 +78,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
+        openLogRelatedErrors: (log: ParsedLogMessage, scope: ErrorScope) => ({ log, scope }),
         closeLogDetails: true,
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
@@ -80,6 +88,9 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     listeners(() => ({
         setActiveTab: ({ tab }) => {
             posthog.capture('logs details tab changed', { tab })
+        },
+        openLogRelatedErrors: () => {
+            posthog.capture('logs details tab changed', { tab: 'related-errors' })
         },
     })),
 
@@ -96,6 +107,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             null as ParsedLogMessage | null,
             {
                 openLogDetails: (_, { log }) => log,
+                openLogRelatedErrors: (_, { log }) => log,
                 closeLogDetails: () => null,
             },
         ],
@@ -103,6 +115,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             false,
             {
                 openLogDetails: () => true,
+                openLogRelatedErrors: () => true,
                 closeLogDetails: () => false,
             },
         ],
@@ -116,6 +129,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             null as ErrorScope | null,
             {
                 setRelatedErrorsInitialScope: (_, { scope }) => scope,
+                openLogRelatedErrors: (_, { scope }) => scope,
                 openLogDetails: () => null,
                 closeLogDetails: () => null,
             },
@@ -124,6 +138,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             'details' as LogDetailsTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+                openLogRelatedErrors: () => 'related-errors',
                 openLogDetails: () => 'details',
                 closeLogDetails: () => 'details',
             },

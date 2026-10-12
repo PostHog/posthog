@@ -9,12 +9,13 @@ import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-
 
 import { ErrorTrackingIssueCard } from 'products/error_tracking/frontend/ErrorTrackingIssueCard'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { RELATED_ERRORS_WINDOW_HOURS, parseLogTimestamp } from 'products/logs/frontend/utils'
+import { parseLogTimestamp } from 'products/logs/frontend/utils'
 import {
     TraceErrorsLogicProps,
     TraceErrorsScope,
     traceErrorsLogic,
 } from 'products/tracing/frontend/components/TraceDrawer/traceErrorsLogic'
+import { SESSION_ERRORS_WINDOW_HOURS } from 'products/tracing/frontend/errorCorrelation'
 
 const SCOPE_ORDER: TraceErrorsScope[] = ['span', 'trace', 'session']
 
@@ -40,9 +41,16 @@ const SCOPES: Record<
         label: 'This session',
         where: 'in this session',
         emptyTitle: 'No errors in this session',
-        emptyBody: `No exceptions were found in this session within ${RELATED_ERRORS_WINDOW_HOURS} hours of this log.`,
+        emptyBody: `No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this log.`,
         missingId: 'This log has no session ID. Add one to see errors from the same session.',
     },
+}
+
+// A span ID is only unique inside its trace, so the span scope also needs the trace ID. A log with
+// a span ID and no trace ID must name the trace ID as the missing one.
+function missingIdReason(scope: TraceErrorsScope, availableScopes: TraceErrorsScope[]): string {
+    const missingScope = scope === 'span' && !availableScopes.includes('trace') ? 'trace' : scope
+    return SCOPES[missingScope].missingId
 }
 
 export interface RelatedErrorsTabProps {
@@ -97,7 +105,9 @@ function RelatedErrorsTabContent(): JSX.Element {
                     options={SCOPE_ORDER.map((scope) => ({
                         value: scope,
                         label: SCOPES[scope].label,
-                        disabledReason: availableScopes.includes(scope) ? undefined : SCOPES[scope].missingId,
+                        disabledReason: availableScopes.includes(scope)
+                            ? undefined
+                            : missingIdReason(scope, availableScopes),
                         'data-attr': `logs-related-errors-scope-${scope}`,
                     }))}
                 />
