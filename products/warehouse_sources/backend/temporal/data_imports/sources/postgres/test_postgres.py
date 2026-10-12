@@ -1759,12 +1759,14 @@ class TestPostgresSourceNonRetryableErrors:
             'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+            'invalid input syntax for type uuid: "not-a-uuid"',
+            'InvalidTextRepresentation: invalid input syntax for type uuid: "not-a-uuid"',
         ],
     )
-    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+    def test_column_type_mismatch_is_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
+        assert is_non_retryable, f"Column type mismatch error should be non-retryable: {error_msg}"
 
     def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
