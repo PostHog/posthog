@@ -1104,10 +1104,16 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_title_embeddings,
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
+            dag.inbox_project_vectors,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
-    for leaf in (dag.TITLE_EMBEDDINGS_TABLE, dag.REVIEWERS_TABLE, dag.USER_INTERACTIONS_TABLE):
+    for leaf in (
+        dag.TITLE_EMBEDDINGS_TABLE,
+        dag.REVIEWERS_TABLE,
+        dag.USER_INTERACTIONS_TABLE,
+        dag.PROJECT_VECTORS_TABLE,
+    ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps
 
