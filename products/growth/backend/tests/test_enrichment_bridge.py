@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryResponse
+
 from posthog.models.group.group import Group
 
 from products.growth.backend.enrichment.bridge import (
@@ -17,7 +19,7 @@ _ORGANIZATION_GROUP_TYPES = [{"group_type": "organization", "group_type_index": 
 
 
 class TestEnrichmentBridge(BaseTest):
-    def _read(self, group, group_types=_ORGANIZATION_GROUP_TYPES, region="US"):
+    def _read(self, group, group_types=_ORGANIZATION_GROUP_TYPES, region="US", scan_rows=()):
         with (
             patch("products.growth.backend.enrichment.bridge.get_instance_region", return_value=region),
             patch("products.growth.backend.enrichment.bridge.Team.objects.get", return_value=self.team),
@@ -26,6 +28,10 @@ class TestEnrichmentBridge(BaseTest):
                 return_value=group_types,
             ),
             patch("products.growth.backend.enrichment.bridge.get_group_by_key", return_value=group) as get_group,
+            patch(
+                "products.growth.backend.enrichment.bridge.execute_hogql_query",
+                return_value=HogQLQueryResponse(results=list(scan_rows)),
+            ),
         ):
             return read_organization_bridge_inputs(organization_id="org-1"), get_group
 
@@ -42,10 +48,9 @@ class TestEnrichmentBridge(BaseTest):
                 "icp_est_revenue": 25_000_000,
                 "icp_company_type": "private",
                 "icp_employees": 750,
-                "wizard_ai_sdk_detected": True,
             }
         )
-        inputs, get_group = self._read(group)
+        inputs, get_group = self._read(group, scan_rows=[('["Stripe", "OpenAI"]', None)])
 
         assert inputs == OrganizationBridgeInputs(
             clay=ClayBridgeInputs(est_revenue=25_000_000.0, clay_processed=True),
@@ -53,6 +58,19 @@ class TestEnrichmentBridge(BaseTest):
         )
         assert get_group.call_args.kwargs["group_type_index"] == 3
         assert get_group.call_args.kwargs["group_key"] == "org-1"
+
+    @parameterized.expand(
+        [
+            ("llm_kind", [('["Stripe", "Anthropic"]', None)], True),
+            ("llm_feature", [('["Stripe"]', '["llm"]')], True),
+            ("no_llm", [('["Stripe"]', '["product-analytics"]'), (None, None)], False),
+            ("never_scanned", [], False),
+            ("malformed_property", [("not json", "[")], False),
+        ]
+    )
+    def test_ai_sdk_detection_comes_from_wizard_scan_events(self, _name, scan_rows, expected):
+        inputs, _ = self._read(None, scan_rows=scan_rows)
+        assert inputs.wizard.ai_sdk_detected is expected
 
     def test_org_with_no_group_yet_reads_as_all_absent(self):
         inputs, _ = self._read(None)
@@ -84,10 +102,6 @@ class TestEnrichmentBridge(BaseTest):
     def test_est_revenue_coercion(self, _name, raw, expected):
         inputs, _ = self._read(Group(group_properties={"icp_est_revenue": raw}))
         assert inputs.clay.est_revenue == expected
-
-    def test_non_boolean_wizard_value_reads_as_false(self):
-        inputs, _ = self._read(Group(group_properties={"wizard_ai_sdk_detected": "true"}))
-        assert inputs.wizard == WizardBridgeInputs()
 
     def test_missing_organization_group_type_raises_rather_than_reading_as_absent(self):
         with self.assertRaises(OrganizationGroupTypeMissing):

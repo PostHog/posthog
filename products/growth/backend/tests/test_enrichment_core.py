@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryResponse
+
 from products.growth.backend.enrichment.bridge import ClayBridgeInputs, OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import _MISS_PAYLOAD, enrich_organization
@@ -620,7 +622,7 @@ class TestEnrichmentCore(BaseTest):
 
     def test_recheck_reads_the_organization_group_once_for_both_scores(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
-        group = MagicMock(group_properties={"wizard_ai_sdk_detected": True})
+        group = MagicMock(group_properties={})
         ctx = EnrichmentContext(
             organization_id=str(self.organization.id), domain="acme.com", phase=EnrichmentPhase.RECHECK
         )
@@ -632,6 +634,10 @@ class TestEnrichmentCore(BaseTest):
                 return_value=[{"group_type": "organization", "group_type_index": 3}],
             ),
             patch("products.growth.backend.enrichment.bridge.get_group_by_key", return_value=group) as get_group,
+            patch(
+                "products.growth.backend.enrichment.bridge.execute_hogql_query",
+                return_value=HogQLQueryResponse(results=[('["OpenAI"]', None)]),
+            ) as scan_query,
         ):
             outcome = async_to_sync(enrich_organization)(
                 ctx,
@@ -642,6 +648,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.fit is not None
         assert outcome.fit.flags["wizard_ai_sdk"] is True
         get_group.assert_called_once()
+        scan_query.assert_called_once()
 
     def test_first_attempt_ignores_the_wizard_bridge_input(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
