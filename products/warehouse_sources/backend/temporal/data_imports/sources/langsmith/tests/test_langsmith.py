@@ -296,7 +296,7 @@ class TestExamplesPagination:
     def test_resume_continues_from_saved_dataset_and_offset(self):
         # A resumed run skips datasets already fully read, picks the interrupted dataset up at its
         # saved offset, and reads the remaining datasets from the start.
-        manager = FakeManager(resume=LangSmithResumeConfig(dataset_id="ds-2", offset=100))
+        manager = FakeManager(resume=LangSmithResumeConfig(parent_id="ds-2", offset=100))
         dataset_ids = ["ds-1", "ds-2", "ds-3"]
         example_urls: list[str] = []
 
@@ -317,7 +317,7 @@ class TestExamplesPagination:
     def test_many_short_pages_still_hit_the_page_limit(self):
         # A dataset whose examples fit on a single short page must still cost one request against
         # MAX_PAGES_PER_RUN. Otherwise a host serving many datasets (bounded only by
-        # MAX_DATASET_IDS_BYTES), each with one short page, could page forever without ever
+        # MAX_PARENT_IDS_BYTES), each with one short page, could page forever without ever
         # tripping the per-run limit.
         manager = FakeManager()
         dataset_ids = [f"ds-{i}" for i in range(10)]
@@ -334,8 +334,93 @@ class TestExamplesPagination:
                 _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
 
         assert len(example_urls) == 3
-        assert manager.saved[-1].dataset_id == "ds-3"
+        assert manager.saved[-1].parent_id == "ds-3"
         assert manager.saved[-1].offset == 0
+
+
+class TestAnnotationQueueRunsPagination:
+    def test_pages_each_queue_and_tags_rows_with_the_queue(self):
+        manager = FakeManager()
+        urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            urls.append(url)
+            if "/runs" in url:
+                return [{"id": "run-1", "queue_run_id": "qr-1", "name": "chain", "s3_urls": {"a": "signed"}}]
+            return [{"id": "queue/1"}]
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            rows = _collect(get_rows("key", BASE_URL, "annotation_queue_runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        # The queue id comes from the host, so it must be encoded rather than extend the path.
+        assert urls[1].startswith(f"{BASE_URL}/api/v1/annotation-queues/queue%2F1/runs?")
+        assert rows == [{"id": "run-1", "queue_run_id": "qr-1", "name": "chain", "queue_id": "queue/1"}]
+
+
+class TestThreadsPagination:
+    def test_walks_every_project_with_cursor_and_fixed_window(self):
+        manager = FakeManager()
+        list_urls: list[str] = []
+        bodies: list[dict[str, Any]] = []
+        pages = {
+            ("p-1", None): {"items": [{"thread_id": "t-1"}], "next_cursor": "c-1"},
+            # A page can be empty before the last one; only a missing cursor ends the project.
+            ("p-1", "c-1"): {"items": [], "next_cursor": "c-2"},
+            ("p-1", "c-2"): {"items": [{"thread_id": "t-2"}], "next_cursor": None},
+            ("p-2", None): {"items": [{"thread_id": "t-1"}]},
+        }
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if json_body is None:
+                list_urls.append(url)
+                return [{"id": "p-1"}, {"id": "p-2"}]
+            bodies.append(json_body)
+            return pages[(json_body["project_id"], json_body.get("cursor"))]
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            rows = _collect(get_rows("key", BASE_URL, "threads", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert "reference_free=true" in list_urls[0]
+        assert [(r["project_id"], r["thread_id"]) for r in rows] == [("p-1", "t-1"), ("p-1", "t-2"), ("p-2", "t-1")]
+        assert len(bodies) == 4
+        window_start = bodies[0]["min_start_time"]
+        assert all(body["min_start_time"] == window_start for body in bodies)
+        lookback = datetime.now(UTC) - datetime.fromisoformat(window_start.replace("Z", "+00:00"))
+        assert lookback.days == pytest.approx(LANGSMITH_ENDPOINTS["threads"].default_lookback_days, abs=1)
+
+    def test_resume_continues_from_saved_project_cursor_and_window(self):
+        window_start = "2026-01-01T00:00:00.000000Z"
+        manager = FakeManager(resume=LangSmithResumeConfig(parent_id="p-2", cursor="c-5", window_start=window_start))
+        bodies: list[dict[str, Any]] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if json_body is None:
+                return [{"id": "p-1"}, {"id": "p-2"}, {"id": "p-3"}]
+            bodies.append(json_body)
+            return {"items": [{"thread_id": "t"}]}
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            _collect(get_rows("key", BASE_URL, "threads", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert [(b["project_id"], b.get("cursor"), b["min_start_time"]) for b in bodies] == [
+            ("p-2", "c-5", window_start),
+            ("p-3", None, window_start),
+        ]
+
+
+class TestWorkspaces:
+    def test_full_list_is_fetched_once(self):
+        # GET /workspaces ignores limit/offset, so treating a full list as a full offset page would
+        # fetch the same workspaces again and again.
+        manager = FakeManager()
+        workspaces = [{"id": f"w{i}"} for i in range(LANGSMITH_ENDPOINTS["projects"].page_size)]
+
+        with mock.patch(_FETCH_PAGE, return_value=workspaces) as fetch:
+            rows = _collect(get_rows("key", BASE_URL, "workspaces", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert fetch.call_count == 1
+        assert fetch.call_args.args[1] == f"{BASE_URL}/api/v1/workspaces"
+        assert len(rows) == len(workspaces)
 
 
 class TestPaginationAbuseGuards:

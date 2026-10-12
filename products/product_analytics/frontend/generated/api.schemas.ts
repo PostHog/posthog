@@ -3841,6 +3841,8 @@ export interface HogQLNoticeApi {
     fix?: string | null
     message: string
     start?: number | null
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string | null
 }
 
 export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
@@ -8129,9 +8131,9 @@ export const ValueDisplayApi = {
 } as const
 
 export interface PieChartSettingsApi {
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean | null
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: SliceContentApi | null
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
     valueDisplay?: ValueDisplayApi | null
@@ -8707,6 +8709,8 @@ export interface MetricsQueryFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
@@ -8748,6 +8752,7 @@ export interface DashboardFilterApi {
 
 export interface TileFiltersApi {
     breakdown_filter?: BreakdownFilterApi | null
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null

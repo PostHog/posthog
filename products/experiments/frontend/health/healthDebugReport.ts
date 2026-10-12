@@ -8,7 +8,7 @@ import { getExperimentStatus } from '../experimentStatus'
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
 import { FLAG_STATE_FINDING_CODES, experimentWarningFromHealth } from './experimentHealthFindingEvents'
 import { getTotalExposures } from './exposureHealth'
-import { type HealthPanelFinding, ZERO_EXPOSURES_GRACE_HOURS } from './healthPanelFindings'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 export type HealthDebugSource = 'server' | 'browser rules' | 'exposure answer'
 
@@ -133,6 +133,21 @@ function noMetricChecks(input: HealthDebugInput): HealthDebugCheck[] {
     ]
 }
 
+function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
+    const finding = input.health?.findings.find(({ code }) => code === 'forced_variant_release_condition')
+    return [
+        {
+            check: 'forced_variant_release_condition',
+            source: 'server',
+            result: serverResult(input.health, (code) => code === 'forced_variant_release_condition'),
+            note: finding
+                ? `Pinned condition sets: ${finding.evidence.pinned_condition_sets}. Variants: ${finding.evidence.pinned_variant_keys}. The users they match are not randomly assigned.`
+                : null,
+            differs: false,
+        },
+    ]
+}
+
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const { exposures } = input
     const panelCodes = new Set(input.panelFindings?.map((finding) => finding.code))
@@ -167,7 +182,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
                 ? `${total} users exposed. ${
                       input.hoursSinceStart === null
                           ? 'Not launched.'
-                          : `Started ${Math.floor(input.hoursSinceStart)} hours ago. The finding waits ${ZERO_EXPOSURES_GRACE_HOURS} hours.`
+                          : `Started ${Math.floor(input.hoursSinceStart)} hours ago.`
                   }`
                 : null,
             differs: false,
@@ -199,14 +214,8 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         ...flagStateChecks(input),
+        ...forcedVariantChecks(input),
         ...noMetricChecks(input),
-        {
-            check: 'bias_risk_multiple_excluded',
-            source: 'server',
-            result: serverResult(input.health, (code) => code === 'bias_risk_multiple_excluded'),
-            note: null,
-            differs: false,
-        },
         ...exposureChecks(input),
     ]
 }

@@ -201,6 +201,32 @@ describe("buildAppServerArgs", () => {
     expect(buildAppServerArgs(options, {})).not.toContain(idleTimeoutArg);
   });
 
+  it.each([{}, { IS_SANDBOX: "1" }, { POSTHOG_TASK_RUN_ID: "run-1" }])(
+    "enables memory hooks only in task sandboxes (%j)",
+    (environment) => {
+      const args = buildAppServerArgs(
+        { binaryPath: "/bundle/codex" },
+        environment,
+      );
+      const hooks = args.filter((arg) => arg.startsWith("hooks="));
+      expect(hooks).toHaveLength(1);
+      if (environment.POSTHOG_TASK_RUN_ID) {
+        expect(args).toContain("features.hooks=true");
+        expect(hooks[0]).toContain('PreToolUse = [{ matcher = "Bash|Agent"');
+        expect(hooks[0]).toContain('PostToolUse = [{ matcher = "Bash|Agent"');
+        expect(hooks[0]).toContain('type = "mcp_tool"');
+        expect(hooks[0]).toContain('server = "posthog-code-tools"');
+        expect(hooks[0]).toContain('tool = "sandbox_memory_hook"');
+        expect(hooks[0]).toContain(`tool_input = "\${tool_input}"`);
+        expect(hooks[0]).toContain(`tool_response = "\${tool_response}"`);
+        expect(hooks[0]).not.toContain("agent_id");
+      } else {
+        expect(hooks).toEqual(["hooks={}"]);
+        expect(args).not.toContain("features.hooks=true");
+      }
+    },
+  );
+
   it("pins the cloud BASH_ENV into tool shells for secondary checkouts", () => {
     const args = buildAppServerArgs(
       { binaryPath: "/bundle/codex" },

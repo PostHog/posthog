@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -40,7 +41,14 @@ export function MetricsHistogramQueryNode(props: {
     const unit = props.query.unit
 
     return (
-        <div className="relative flex flex-col w-full h-full min-h-[200px]">
+        // A dashboard tile sets the height, so a minimum would overflow a short tile. Elsewhere the
+        // parent can have no height, and the heatmap then needs the minimum to draw at all.
+        <div
+            className={cn(
+                'relative flex flex-col w-full h-full',
+                props.context.insightProps?.dashboardId == null && 'min-h-[200px]'
+            )}
+        >
             {responseError ? (
                 <InsightErrorState query={props.query} excludeDetail title={responseError} />
             ) : histogram && histogram.times?.length ? (

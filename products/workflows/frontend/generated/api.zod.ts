@@ -2554,6 +2554,18 @@ export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const hogFlowsProposalsRejectCreateBodyReasonMax = 2000
+
+export const HogFlowsProposalsRejectCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(hogFlowsProposalsRejectCreateBodyReasonMax)
+        .optional()
+        .describe(
+            'Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.'
+        ),
+})
+
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
 export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({

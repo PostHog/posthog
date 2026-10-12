@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     NEW_TABLE_NOT_READY_MESSAGE,
     _transient_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
@@ -1668,6 +1669,50 @@ async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(hando
         else:
             with pytest.raises(WorkerShuttingDownError):
                 await import_data_activity_sync(inputs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "preemption_enabled,handoffs_are_free,carry_over_enabled,expected",
+    [
+        pytest.param(
+            True,
+            True,
+            True,
+            PreemptionConfig(quiet_period_seconds=45.0, watermark_carry_over_enabled=True),
+            id="on_for_a_run_with_free_handoffs",
+        ),
+        pytest.param(
+            True,
+            True,
+            False,
+            PreemptionConfig(quiet_period_seconds=45.0, watermark_carry_over_enabled=False),
+            id="carry_over_setting_reaches_the_pipeline",
+        ),
+        # A preempted run that uses a retry attempt for each hand-off fails after a few deploys.
+        pytest.param(True, False, True, None, id="off_when_a_handoff_uses_a_retry_attempt"),
+        pytest.param(False, True, True, None, id="off_by_default"),
+    ],
+)
+async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
+    preemption_enabled: bool,
+    handoffs_are_free: bool,
+    carry_over_enabled: bool,
+    expected: PreemptionConfig | None,
+    settings,
+):
+    settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED = preemption_enabled
+    settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS = 45.0
+    settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED = carry_over_enabled
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock:
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
+
+    assert run_mock.await_args.kwargs["preemption"] == expected
 
 
 @parameterized.expand(

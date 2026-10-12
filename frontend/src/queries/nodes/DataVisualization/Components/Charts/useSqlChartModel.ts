@@ -1,7 +1,13 @@
 import { useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { type ChartTheme, type Series } from '@posthog/quill-charts'
+import {
+    type ChartTheme,
+    type Series,
+    type TooltipConfig,
+    type XAxisConfig,
+    type ChartMargins,
+} from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
@@ -26,8 +32,21 @@ export interface SqlChartModel<TConfig> {
     config: TConfig
 }
 
-export function useSqlChartModel<TConfig extends object>(
-    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines, embedded }: SqlChartProps,
+export function useSqlChartModel<
+    TConfig extends { tooltip?: TooltipConfig; xAxis?: XAxisConfig; margins?: Partial<ChartMargins> },
+>(
+    {
+        xData,
+        yData,
+        visualizationType,
+        chartSettings,
+        dashboardId,
+        goalLines,
+        embedded,
+        directPointClick,
+        xAxis,
+        margins,
+    }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
@@ -49,34 +68,42 @@ export function useSqlChartModel<TConfig extends object>(
 
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
 
-    const config = useChartConfig(
-        () =>
-            xData
-                ? buildConfig({
-                      xData,
-                      chartSettings,
-                      timezone,
-                      goalLines,
-                      visualizationType,
-                      ySeriesData,
-                      series,
-                      legendRenderItem,
-                      embedded,
-                  })
-                : undefined,
-        [
+    const config = useChartConfig(() => {
+        if (!xData) {
+            return undefined
+        }
+        const config = buildConfig({
             xData,
             chartSettings,
             timezone,
             goalLines,
             visualizationType,
-            buildConfig,
             ySeriesData,
             series,
             legendRenderItem,
             embedded,
-        ]
-    )
+        })
+        return {
+            ...config,
+            xAxis: { ...config.xAxis, ...xAxis },
+            margins: { ...config.margins, ...margins },
+            tooltip: { ...config.tooltip, resolveClickToNearestSeries: directPointClick },
+        }
+    }, [
+        xData,
+        chartSettings,
+        timezone,
+        goalLines,
+        visualizationType,
+        buildConfig,
+        ySeriesData,
+        series,
+        legendRenderItem,
+        embedded,
+        directPointClick,
+        xAxis,
+        margins,
+    ])
 
     const labels = useMemo(
         () =>

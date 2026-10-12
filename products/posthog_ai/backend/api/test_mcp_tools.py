@@ -438,6 +438,21 @@ class TestMCPToolsAPI(APIBaseTest):
                 "You may retry with adjusted inputs.",
                 expected_error_code="s3_error",
             ),
+            param(
+                "memory_limit",
+                None,
+                "Query memory limit exceeded",
+                "clickhouse_memory_limit_exceeded",
+                "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+                expected_error_type="memory_limit",
+            ),
+            param(
+                "legacy_memory_message",
+                None,
+                "Query memory limit exceeded",
+                None,
+                "Tool failed: MaxToolRetryableError: Query memory limit exceeded. You may retry with adjusted inputs.",
+            ),
             (
                 "polling_error",
                 ConnectionError("Query status unavailable"),
@@ -462,6 +477,7 @@ class TestMCPToolsAPI(APIBaseTest):
         _mock_sleep: AsyncMock,
         *,
         expected_error_code: str | None = None,
+        expected_error_type: str = "internal",
     ) -> None:
         mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_status.side_effect = polling_error
@@ -480,7 +496,7 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        expected = {"success": False, "content": content, "error_type": "internal"}
+        expected = {"success": False, "content": content, "error_type": expected_error_type}
         if expected_error_code:
             expected["error_code"] = expected_error_code
         self.assertEqual(response.json(), expected)

@@ -22,9 +22,9 @@ WRIKE_SESSION_PATCH = (
 )
 
 
-def _response(body: dict[str, Any]) -> Response:
+def _response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp = Response()
-    resp.status_code = 200
+    resp.status_code = status_code
     resp._content = json.dumps(body).encode()
     return resp
 
@@ -183,6 +183,32 @@ class TestPagination:
 
         assert rows == [{"id": 3}]
         assert params[0]["nextPageToken"] == "resume_tok"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_project_dependencies_fan_out_over_projects(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"kind": "folders", "data": [{"id": "P1"}, {"id": "P2"}]}),
+                _response(
+                    {
+                        "kind": "dependencies",
+                        "data": [{"id": "D1", "predecessorId": "P1", "successorId": "P2"}],
+                    }
+                ),
+                _response({"errorDescription": "Folder not found"}, status_code=404),
+            ],
+        )
+
+        source_response = _source("project_dependencies")
+        rows = _rows(source_response)
+
+        assert params[0] == {"project": "true"}
+        sent_urls = [call.args[0].url for call in session.prepare_request.call_args_list]
+        assert sent_urls[1].endswith("/api/v4/folders/P1/dependencies")
+        assert sent_urls[2].endswith("/api/v4/folders/P2/dependencies")
+        assert rows == [{"id": "D1", "predecessorId": "P1", "successorId": "P2", "projectId": "P1"}]
 
     def test_rejects_non_wrike_host_before_any_request(self) -> None:
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:

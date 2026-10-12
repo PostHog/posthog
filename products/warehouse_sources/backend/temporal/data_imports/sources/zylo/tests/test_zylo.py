@@ -1,21 +1,21 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zylo import ZyloSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source import ZyloSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo import (
     INITIAL_INCREMENTAL_VALUE,
     ZyloResumeConfig,
     _format_zylo_filter_date,
     probe_endpoint_status,
     validate_credentials,
-    zylo_source,
 )
 
 
@@ -36,108 +36,100 @@ class TestFormatZyloFilterDate:
         assert _format_zylo_filter_date("not-a-date") == "not-a-date,gte"
 
 
-def _make_http_response(body: list[dict[str, Any]], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestZyloSourceResumeBehavior:
-    """End-to-end resume behaviour of ``zylo_source`` via ``rest_api_resource``."""
+    """End-to-end resume behaviour of ``ZyloSource``, driven through ``source_for_pipeline``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        incremental_field: str | None = None,
-        db_incremental_field_last_value: Any = None,
-    ) -> list[dict[str, Any]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(ZyloSource(), ZyloSourceConfig(token_id="tok_id", token_secret="tok_secret"))
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = zylo_source(
-                token_id="tok_id",
-                token_secret="tok_secret",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-                incremental_field=incremental_field,
-            )
-            list(cast(Iterable[Any], resource.items()))
-            return sent_params
+    @staticmethod
+    def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
+        return ScriptedResponse(json=rows)
 
     def test_fresh_run_saves_skip_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response([{"id": f"app_{i}"} for i in range(1000)]),
-            _make_http_response([{"id": f"app_{i}"} for i in range(1000, 2000)]),
-            _make_http_response([{"id": "app_last"}]),
-        ]
-        sent_params = self._drive("Applications", manager, responses)
-
-        assert [p.get("skip") for p in sent_params] == [0, 1000, 2000]
-        assert all(p.get("limit") == 1000 for p in sent_params)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [ZyloResumeConfig(next_skip=1000), ZyloResumeConfig(next_skip=2000)]
-
-    def test_resume_seeds_paginator_with_saved_skip(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ZyloResumeConfig(next_skip=2000)
-
-        responses = [_make_http_response([{"id": "app_last"}])]
-        sent_params = self._drive("Applications", manager, responses)
-
-        assert [p.get("skip") for p in sent_params] == [2000]
-        manager.load_state.assert_called_once()
-
-    def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{"id": "a"}])]
-        self._drive("Applications", manager, responses)
-
-        manager.load_state.assert_not_called()
-
-    def test_incremental_request_carries_gte_filter_and_sort(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{"id": "contract_1"}])]
-        sent_params = self._drive(
-            "Contracts",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            incremental_field="zylo_created_at",
-            db_incremental_field_last_value=None,
+        result = self._driver().run(
+            "Applications",
+            [
+                self._page([{"id": f"app_{i}"} for i in range(1000)]),
+                self._page([{"id": f"app_{i}"} for i in range(1000, 2000)]),
+                self._page([{"id": "app_last"}]),
+            ],
         )
 
-        assert sent_params[0]["zylo_created_at"] == f"{INITIAL_INCREMENTAL_VALUE},gte"
-        assert sent_params[0]["sort"] == "+zylo_created_at"
+        assert result.params("skip") == ["0", "1000", "2000"]
+        assert result.params("limit") == ["1000", "1000", "1000"]
+        assert result.saved_states == [ZyloResumeConfig(next_skip=1000), ZyloResumeConfig(next_skip=2000)]
+
+    def test_resume_seeds_paginator_with_saved_skip(self) -> None:
+        result = self._driver().run(
+            "Applications",
+            [self._page([{"id": "app_last"}])],
+            resume_state=ZyloResumeConfig(next_skip=2000),
+        )
+
+        assert result.params("skip") == ["2000"]
+
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = self._driver().run("Applications", [self._page([{"id": "a"}])])
+
+        assert result.params("skip") == ["0"]
+
+    def test_incremental_request_carries_gte_filter_and_sort(self) -> None:
+        result = self._driver().run(
+            "Contracts",
+            [self._page([{"id": "contract_1"}])],
+            incremental_field="zylo_created_at",
+        )
+
+        assert result.requests[0].param("zylo_created_at") == f"{INITIAL_INCREMENTAL_VALUE},gte"
+        assert result.requests[0].param("sort") == "+zylo_created_at"
+
+    def test_executions_fan_out_per_automation_with_incremental_filter(self) -> None:
+        result = self._driver().run(
+            "AutomationExecutions",
+            [
+                self._page([{"id": "auto_1"}, {"id": "auto_2"}]),
+                self._page([{"id": f"exec_{i}", "automation_id": "auto_1"} for i in range(1000)]),
+                self._page([{"id": "exec_last", "automation_id": "auto_1"}]),
+                self._page([{"id": "exec_b", "automation_id": "auto_2"}]),
+            ],
+            incremental_field="zylo_modified_at",
+            db_incremental_field_last_value=datetime(2026, 7, 21, 12, tzinfo=UTC),
+        )
+
+        assert result.paths == [
+            "/v2/automations",
+            "/v2/automations/auto_1/executions",
+            "/v2/automations/auto_1/executions",
+            "/v2/automations/auto_2/executions",
+        ]
+        assert result.requests[0].param("zylo_modified_at") is None
+        assert result.params("skip")[1:] == ["0", "1000", "0"]
+        for request in result.requests[1:]:
+            assert request.param("zylo_modified_at") == "2026-07-21,gte"
+            assert request.param("sort") == "+zylo_modified_at"
+        assert len(result.rows) == 1002
+
+    def test_executions_resume_skips_completed_automations(self) -> None:
+        result = self._driver().run(
+            "AutomationExecutions",
+            [
+                self._page([{"id": "auto_1"}, {"id": "auto_2"}]),
+                self._page([{"id": "exec_b", "automation_id": "auto_2"}]),
+            ],
+            resume_state=ZyloResumeConfig(
+                fanout_state={"completed": ["/v2/automations/auto_1/executions"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.paths == ["/v2/automations", "/v2/automations/auto_2/executions"]
+        saved = result.saved_states[-1]
+        assert saved.next_skip is None
+        assert set(saved.fanout_state["completed"]) == {
+            "/v2/automations/auto_1/executions",
+            "/v2/automations/auto_2/executions",
+        }
 
 
 class TestValidateCredentials:

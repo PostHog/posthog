@@ -149,9 +149,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
+    @mock.patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect):
+    def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect, _mock_flag):
         exp = self._launched_experiment()
         now = timezone.now()
         ExperimentMetricsRecalculation.objects.create(

@@ -2881,6 +2881,16 @@ mod tests {
             }
         }
 
+        #[async_trait::async_trait]
+        impl crate::outputs::PublishPrepared for RejectingSink {
+            async fn publish_prepared(
+                &self,
+                _events: Vec<crate::outputs::PreparedEvent>,
+            ) -> Vec<crate::sinks::sink::SinkResult> {
+                unreachable!("v0 endpoints publish events")
+            }
+        }
+
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -3490,7 +3500,7 @@ mod tests {
 
     /// A `$cookieless_mode` event with heatmap data must produce a redirect
     /// that carries every property the cookieless identity hash reads in
-    /// `nodejs/src/ingestion/cookieless/cookieless-manager.ts`. Without
+    /// `nodejs/src/ingestion/common/cookieless/cookieless-manager.ts`. Without
     /// these, the ingestion pipeline emits `cookieless_missing_user_agent`
     /// against the redirect and silently drops every heatmap/scroll-depth
     /// data point from cookieless-mode customers.
@@ -4047,6 +4057,16 @@ mod tests {
                 _events: Vec<ProcessedEvent>,
             ) -> Result<(), CaptureError> {
                 Err(CaptureError::RetryableSinkError)
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl crate::outputs::PublishPrepared for RejectingSink {
+            async fn publish_prepared(
+                &self,
+                _events: Vec<crate::outputs::PreparedEvent>,
+            ) -> Vec<crate::sinks::sink::SinkResult> {
+                unreachable!("v0 endpoints publish events")
             }
         }
 

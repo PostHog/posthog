@@ -44,6 +44,10 @@ import {
 } from '~/types'
 
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
+import {
+    titleMentionsMCP,
+    tryShowMCPAnalyticsNudge,
+} from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 
@@ -393,9 +397,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result, undefined, setAsHomeTabDashboard, openAI)
-                    tryShowMCPHint('dashboards.create', {
-                        derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
-                    })
+                    if (titleMentionsMCP(result.name)) {
+                        tryShowMCPAnalyticsNudge('dashboard')
+                    } else {
+                        tryShowMCPHint('dashboards.create', {
+                            derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
+                        })
+                    }
                     if (show && redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))

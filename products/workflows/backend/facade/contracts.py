@@ -611,6 +611,7 @@ class WorkflowProposalRecord:
     resolved_at: datetime | None
     resolved_by: "User | None"
     applied_version: int | None
+    rejection_reason: str
 
 
 @frozen

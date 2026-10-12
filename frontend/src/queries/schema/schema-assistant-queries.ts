@@ -26,6 +26,7 @@ import {
     MultipleBreakdownType,
     Node,
     NodeKind,
+    PieChartSettings,
     type RecordingOrder,
     type RecordingOrderDirection,
     RetentionFilterLegacy,
@@ -463,7 +464,6 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
 }
 
 // An allow list, so a new ChartDisplayType (often SQL-only) does not reach agents unless someone adds it here.
-// ActionsProportionBar stays out while the `proportion-bar-chart` flag gates it in the pickers.
 export type AssistantTrendsDisplayType =
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
@@ -477,6 +477,7 @@ export type AssistantTrendsDisplayType =
     | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsProportionBar
     | ChartDisplayType.ActionsTable
     | ChartDisplayType.WorldMap
     // Not in the `display` description: the MCP chart app cannot show calendar_heatmap_data yet.
@@ -516,6 +517,7 @@ export interface AssistantTrendsFilter {
      * `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason".
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsDonut` - total value donut chart; same use as `ActionsPie`.
+     * `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
      * `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.
      * @default ActionsLineGraph
@@ -985,7 +987,11 @@ export interface AssistantRetentionFilter {
      * @default event
      */
     aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+    /** `ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars. */
+    display?: AssistantRetentionDisplayType
 }
+
+export type AssistantRetentionDisplayType = ChartDisplayType.ActionsLineGraph | ChartDisplayType.ActionsBar
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
@@ -1825,9 +1831,12 @@ export interface AssistantInsightVizNode {
  *
  * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `Metric` — big number with a change pill and a sparkline (a KPI or scorecard). Uses the first numeric Y column, one value per row.
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.
  * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
+ * - `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1837,9 +1846,12 @@ export interface AssistantInsightVizNode {
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
     | ChartDisplayType.BoldNumber
+    | ChartDisplayType.Metric
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsDonut
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -1935,6 +1947,11 @@ export interface AssistantDataVisualizationBoxPlotSettings {
     excludeOutliers?: boolean
 }
 
+export interface AssistantDataVisualizationMetricSettings {
+    summary?: 'total' | 'average' | 'latest'
+    showChange?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /**
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
@@ -1963,6 +1980,12 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Settings for `ActionsPie` and `ActionsDonut`. */
+    pie?: PieChartSettings
+    /** Settings for `Metric`. `summary` defaults to `latest`. */
+    metric?: AssistantDataVisualizationMetricSettings
     /** Render each data point's value as a label directly on the series. */
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
@@ -1997,9 +2020,11 @@ export interface AssistantDataVisualizationNode {
      *
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Headline number with its change over time (KPI, scorecard) → `Metric`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Categorical proportions → `ActionsPie`.
+     * - Categorical proportions → `ActionsPie` or `ActionsDonut`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
      * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.

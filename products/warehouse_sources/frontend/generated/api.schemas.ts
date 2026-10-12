@@ -45,6 +45,20 @@ export interface SyncedSourceApi {
     via_table_override: boolean
 }
 
+/**
+ * * `healthy` - Healthy
+ * * `failing` - Failing
+ * * `paused` - Paused
+ */
+export type ExternalDataDestinationStatusEnumApi =
+    (typeof ExternalDataDestinationStatusEnumApi)[keyof typeof ExternalDataDestinationStatusEnumApi]
+
+export const ExternalDataDestinationStatusEnumApi = {
+    Healthy: 'healthy',
+    Failing: 'failing',
+    Paused: 'paused',
+} as const
+
 export interface ExternalDataDestinationApi {
     readonly id: string
     /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -79,6 +93,22 @@ export interface ExternalDataDestinationApi {
     readonly updated_at: string | null
     /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
     readonly synced_sources: readonly SyncedSourceApi[]
+    /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+     *
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused */
+    readonly status: ExternalDataDestinationStatusEnumApi
+    /**
+     * The last delivery error, safe to show to the user. Null if no delivery has failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /**
+     * When the last delivery error occurred.
+     * @nullable
+     */
+    readonly latest_error_at: string | null
 }
 
 export interface PaginatedExternalDataDestinationListApi {
@@ -124,6 +154,22 @@ export interface PatchedExternalDataDestinationApi {
     readonly updated_at?: string | null
     /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
     readonly synced_sources?: readonly SyncedSourceApi[]
+    /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+     *
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused */
+    readonly status?: ExternalDataDestinationStatusEnumApi
+    /**
+     * The last delivery error, safe to show to the user. Null if no delivery has failed.
+     * @nullable
+     */
+    readonly latest_error?: string | null
+    /**
+     * When the last delivery error occurred.
+     * @nullable
+     */
+    readonly latest_error_at?: string | null
 }
 
 export interface AddSourcesRequestApi {
@@ -256,6 +302,15 @@ export const IncrementalSyncBlockedReasonEnumApi = {
     MissingPrimaryKey: 'missing_primary_key',
     DuplicatePrimaryKey: 'duplicate_primary_key',
 } as const
+
+export interface RowFilterColumnApi {
+    /** Column name to use as `column` in a row filter. */
+    name: string
+    /** Column type, which decides the format of the filter value. */
+    data_type: string
+    /** Operators a row filter on this column may use. */
+    operators: string[]
+}
 
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
@@ -421,6 +476,11 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
+    /**
+     * Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.
+     * @nullable
+     */
+    readonly row_filter_columns: readonly RowFilterColumnApi[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
     /** Whether exact source-side column metadata is available for safe source-query projection. */
@@ -606,6 +666,11 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
+    /**
+     * Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.
+     * @nullable
+     */
+    readonly row_filter_columns?: readonly RowFilterColumnApi[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /** Whether exact source-side column metadata is available for safe source-query projection. */
@@ -2044,6 +2109,9 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Arcade` - Arcade
  * * `Neo4j` - Neo4j
  * * `TestDino` - TestDino
+ * * `ChessCom` - ChessCom
+ * * `Userback` - Userback
+ * * `Rewardful` - Rewardful
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3421,6 +3489,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Arcade: 'Arcade',
     Neo4j: 'Neo4j',
     TestDino: 'TestDino',
+    ChessCom: 'ChessCom',
+    Userback: 'Userback',
+    Rewardful: 'Rewardful',
 } as const
 
 /**
@@ -3540,6 +3611,11 @@ export interface ExternalDataSourceSerializersApi {
     readonly api_version: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+     * @nullable
+     */
+    readonly connection_warning: string | null
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -4944,7 +5020,10 @@ export interface ExternalDataSourceCreateApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5059,6 +5138,11 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly api_version?: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+     * @nullable
+     */
+    readonly connection_warning?: string | null
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
@@ -6832,7 +6916,10 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -8289,7 +8376,10 @@ export interface DatabaseSchemaRequestApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9670,7 +9760,10 @@ export interface DirectConnectionSourceOptionApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -11105,7 +11198,10 @@ export interface SourcePreviewRequestApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -12521,7 +12617,10 @@ export interface SourceSetupApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13944,7 +14043,10 @@ export interface SourceCredentialCreateApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

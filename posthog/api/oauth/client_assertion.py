@@ -27,6 +27,7 @@ from jwt import PyJWK, PyJWKSet
 
 from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, fetch_client_json_document
 from posthog.dataclasses import frozen
+from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.oauth import OAuthApplication
 
 logger = structlog.get_logger(__name__)
@@ -41,11 +42,6 @@ class ResolvedClientAssertion:
 
 CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-# Asymmetric signatures only. Allowing an HMAC family here would be a key-confusion hole:
-# the "public" key we fetch is attacker-publishable, so an HS256 assertion signed with that
-# same value as the shared secret would verify. "none" is excluded for the same reason.
-# The selected key's own algorithm is held to this list too, because PyJWT verifies with it.
-ALLOWED_ASSERTION_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
 
 # An assertion is a single-use credential presented immediately, so it needs no real
 # lifetime. Capping it bounds how long a captured assertion is replayable if the jti cache
@@ -283,7 +279,8 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)
-    if key.algorithm_name not in ALLOWED_ASSERTION_ALGORITHMS or not isinstance(
+    # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
+    if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(
         key.key, (RSAPublicKey, EllipticCurvePublicKey)
     ):
         raise ClientAssertionError("Client signing key must be an RSA or EC public key")
