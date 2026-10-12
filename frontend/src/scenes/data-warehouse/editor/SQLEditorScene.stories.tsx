@@ -1435,7 +1435,7 @@ export const BINamedHierarchy: Story = {
     parameters: {
         ...BITableAnalysis.parameters,
         pageUrl: `${urls.businessIntelligence()}#q=${encodeURIComponent(JSON.stringify(BI_HIERARCHY_WORKSHEET))}`,
-        testOptions: { includeNavigationInSnapshot: true },
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
         msw: {
             mocks: {
                 ...BIModeWorksheet.parameters?.msw.mocks,
