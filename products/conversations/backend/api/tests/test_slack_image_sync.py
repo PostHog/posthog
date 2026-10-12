@@ -172,6 +172,51 @@ class TestSlackImageIngest(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("download_fails", False),
+            ("lookup_fails", True),
+        ]
+    )
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.slack._download_slack_image_bytes")
+    def test_extract_slack_files_stub_failure(
+        self, _label: str, lookup_fails: bool, mock_download: MagicMock, mock_save: MagicMock
+    ) -> None:
+        permalink = "https://acme.slack.com/files/U1/F123/test.jpg"
+        fake_client = fake_slack_client()
+        if lookup_fails:
+            fake_client.files_info.side_effect = Exception("slack down")
+        else:
+            mock_download.return_value = None
+            fake_client.files_info.return_value = {
+                "ok": True,
+                "file": {
+                    "id": "F123",
+                    "mimetype": "image/jpeg",
+                    "name": "test.jpg",
+                    "url_private_download": "https://files.slack.com/files-pri/T/F/test.jpg",
+                    "permalink": permalink,
+                },
+            }
+
+        attachments = extract_slack_files(
+            [{"id": "F123", "mode": "file_access", "file_access": "check_file_info"}],
+            fake_slack_team(),
+            fake_client,
+        )
+        split = split_slack_attachments(attachments)
+
+        mock_save.assert_not_called()
+        assert split.images == []
+        if lookup_fails:
+            mock_download.assert_not_called()
+            assert split.files == []
+        else:
+            assert split.files == [
+                {"url": permalink, "name": "test.jpg", "mimetype": "image/jpeg", "unavailable": True}
+            ]
+
+    @parameterized.expand(
+        [
             ("install_predating_scope_records", None),
             ("install_without_files_read", ["chat:write", "files:write"]),
         ]
