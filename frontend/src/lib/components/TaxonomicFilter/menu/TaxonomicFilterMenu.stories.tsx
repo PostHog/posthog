@@ -377,6 +377,44 @@ export const DefaultSurfaceWithRecents: Story = {
     },
 }
 
+// ---- Event name PostHog has not captured yet -----------------------------
+// A caller that sets `allowNonCapturedEvents` (workflow event triggers, the
+// survey event picker, series pickers) lets a person name an event before it
+// arrives. The search below matches nothing, so the list offers the typed name.
+
+function NonCapturedEventContainer(): JSX.Element {
+    return (
+        <TaxonomicFilterHeadless.Root
+            bindRootProps={false}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+            searchQuery="checkout_started_v2"
+            allowNonCapturedEvents
+        >
+            <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
+                <MenuFilterCombobox drillTo={TaxonomicFilterGroupType.Events} onCommit={() => {}} onBack={() => {}} />
+            </div>
+        </TaxonomicFilterHeadless.Root>
+    )
+}
+
+export const NonCapturedEventOption: Story = {
+    // Excluded from the snapshot/flake gate for the same reason as the stories
+    // above: the combobox autofocuses and fetches, so the render is not
+    // pixel-stable. The behaviour is covered by RTL in Combobox.test.tsx.
+    tags: ['test-skip'],
+    // The shared mocks answer every event search with the same three events, so
+    // this story needs an endpoint that finds nothing.
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/event_definitions': { count: 0, results: [] } } })],
+    render: () => <NonCapturedEventContainer />,
+    parameters: {
+        docs: {
+            description: {
+                story: 'Search that matches no captured event. The list offers the typed name so the person can commit it, instead of dead-ending on "No events found".',
+            },
+        },
+    },
+}
+
 // ---- Renamed series selection -------------------------------------------
 // Renders the combobox directly on the `all` scope with a committed selection
 // whose series carries a rename: the promoted first row is labelled with the
