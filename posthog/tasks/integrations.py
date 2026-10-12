@@ -162,7 +162,7 @@ def refresh_github_branch_cache(
             return
         github = GitHubIntegration(integration, source="github_branch_picker", priority=Priority.BATCH)
     try:
-        github.refresh_branch_cache(repo)
+        github.refresh_branch_cache(repo, lock_token)
     except GitHubEgressBudgetExhausted as error:
         if self.request.retries < self.max_retries:
             # The lock stays held, so picker views do not queue a second refresh while this one waits.

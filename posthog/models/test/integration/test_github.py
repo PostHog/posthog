@@ -28,6 +28,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
+    GITHUB_BRANCH_REFRESH_LOCK_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
     PullRequestRef,
@@ -41,6 +42,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.redis import get_client as get_redis_client
 
 
 class TestExtractFailingChecks(SimpleTestCase):
@@ -2144,7 +2146,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert branches == ["main", "develop"]
         assert default_branch == "main"
-        mock_list_all_branches.assert_called_once_with(repo, paced=False)
+        mock_list_all_branches.assert_called_once_with(repo, before_page=None)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
@@ -2221,6 +2223,9 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
         repo = "posthog/posthog"
+        lock_key = GitHubIntegration(integration)._branch_refresh_lock_key(repo)
+        get_redis_client().delete(lock_key)
+        self.addCleanup(get_redis_client().delete, lock_key)
         cache.set(
             GitHubIntegration(integration)._get_branch_cache_key(repo),
             {
@@ -2241,6 +2246,26 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
+
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    def test_refresh_branch_cache_renews_its_lock_on_every_page(
+        self, mock_list_branches: MagicMock, _mock_default_branch: MagicMock
+    ) -> None:
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+        lock_key = github._branch_refresh_lock_key(repo)
+        self.addCleanup(get_redis_client().delete, lock_key)
+        get_redis_client().set(lock_key, "token", ex=5)
+        mock_list_branches.side_effect = [([f"b{i}" for i in range(100)], True), (["main"], False)]
+
+        github.refresh_branch_cache(repo, "token")
+
+        assert get_redis_client().ttl(lock_key) > GITHUB_BRANCH_REFRESH_LOCK_SECONDS - 60
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
@@ -2264,7 +2289,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_default_branch.side_effect = Exception("GitHub is slow")
 
         github = GitHubIntegration(integration)
-        github.refresh_branch_cache(repo)
+        github.refresh_branch_cache(repo, "token")
 
         cached = cache.get(GitHubIntegration(integration)._get_branch_cache_key(repo))
         assert cached["branches"] == ["main", "develop", "feature/test"]

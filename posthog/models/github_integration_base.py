@@ -9,7 +9,7 @@ import re
 import json
 import time
 import uuid
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -31,6 +31,7 @@ from posthog.egress.github.limiter import github_installation_pace_seconds, reme
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
@@ -53,6 +54,20 @@ GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_REFRESH_MAX_WAIT_SECONDS = 60.0
 # Outlives a paced refresh and its retries, so picker views do not queue a second one meanwhile.
 GITHUB_BRANCH_REFRESH_LOCK_SECONDS = 60 * 60
+
+# Token-checked lock operations, so only the refresh that holds the lock renews or releases it.
+_RENEW_OWNED_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("expire", KEYS[1], ARGV[2])
+end
+return 0
+"""
+_RELEASE_OWNED_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
@@ -2577,19 +2592,19 @@ class GitHubIntegrationBase:
 
         return result, has_more
 
-    def list_all_branches(self, repo: str, *, paced: bool = False) -> list[str]:
+    def list_all_branches(self, repo: str, *, before_page: Callable[[], None] | None = None) -> list[str]:
         """Fetch all branches for a repository, paginating through GitHub's API.
 
-        A large repository takes hundreds of pages. ``paced`` waits for room in the installation's
-        budget before each page, so a background refresh does not spend the budget other callers need.
+        A large repository takes hundreds of pages. ``before_page`` runs before each one, so a
+        background refresh can wait for room in the installation's budget and keep its lock alive.
         """
         all_branches: list[str] = []
         offset = 0
         page_size = 100
 
         while True:
-            if paced:
-                self._wait_for_budget()
+            if before_page is not None:
+                before_page()
             branches, has_more = self.list_branches(repo, limit=page_size, offset=offset)
             all_branches.extend(branches)
 
@@ -2813,8 +2828,10 @@ class GitHubIntegrationBase:
         if pace > 0:
             time.sleep(min(pace, GITHUB_BRANCH_REFRESH_MAX_WAIT_SECONDS))
 
-    def sync_branch_cache(self, repo: str, *, paced: bool = False) -> tuple[list[str], str | None]:
-        branches = self.list_all_branches(repo, paced=paced)
+    def sync_branch_cache(
+        self, repo: str, *, before_page: Callable[[], None] | None = None
+    ) -> tuple[list[str], str | None]:
+        branches = self.list_all_branches(repo, before_page=before_page)
         cached = self._get_branch_cache(repo)
         cached_default_branch = None if cached is None else cast(str | None, cached.get("default_branch"))
 
@@ -2851,7 +2868,10 @@ class GitHubIntegrationBase:
 
     def _schedule_branch_cache_refresh(self, repo: str) -> None:
         lock_token = uuid.uuid4().hex
-        if not cache.add(self._branch_refresh_lock_key(repo), lock_token, timeout=GITHUB_BRANCH_REFRESH_LOCK_SECONDS):
+        acquired = get_redis_client().set(
+            self._branch_refresh_lock_key(repo), lock_token, nx=True, ex=GITHUB_BRANCH_REFRESH_LOCK_SECONDS
+        )
+        if not acquired:
             return
         # The tasks module imports the integration models, so a module-level import is circular.
         from posthog.tasks.integrations import refresh_github_branch_cache  # noqa: PLC0415
@@ -2868,14 +2888,21 @@ class GitHubIntegrationBase:
             )
 
     def release_branch_refresh_lock(self, repo: str, lock_token: str) -> None:
-        # Only the owner releases, so a refresh that outlived its lock cannot free a newer refresh's lock.
-        lock_key = self._branch_refresh_lock_key(repo)
-        if cache.get(lock_key) == lock_token:
-            cache.delete(lock_key)
+        # Only the owner releases, and atomically, so a refresh cannot free a newer refresh's lock.
+        get_redis_client().eval(_RELEASE_OWNED_LOCK_SCRIPT, 1, self._branch_refresh_lock_key(repo), lock_token)
 
-    def refresh_branch_cache(self, repo: str) -> None:
+    def refresh_branch_cache(self, repo: str, lock_token: str) -> None:
         """List the branches at the budget's pace and store them, for the background refresh."""
-        self.sync_branch_cache(repo, paced=True)
+        lock_key = self._branch_refresh_lock_key(repo)
+
+        def before_page() -> None:
+            self._wait_for_budget()
+            # A paced refresh of a large repository can outlast the lock, so each page renews it.
+            get_redis_client().eval(
+                _RENEW_OWNED_LOCK_SCRIPT, 1, lock_key, lock_token, str(GITHUB_BRANCH_REFRESH_LOCK_SECONDS)
+            )
+
+        self.sync_branch_cache(repo, before_page=before_page)
 
     def list_cached_branches(
         self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
