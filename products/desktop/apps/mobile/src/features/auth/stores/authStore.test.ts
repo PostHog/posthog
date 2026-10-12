@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { queryClient } from "@/lib/queryClient";
 
 const {
   mockPerformOAuthFlow,
@@ -8,7 +9,6 @@ const {
   mockDeleteTokens,
   mockRegisterAndUpload,
   mockClearPushToken,
-  mockQueryClientClear,
 } = vi.hoisted(() => ({
   mockPerformOAuthFlow: vi.fn(),
   mockRefreshAccessTokenRequest: vi.fn(),
@@ -17,7 +17,6 @@ const {
   mockDeleteTokens: vi.fn(),
   mockRegisterAndUpload: vi.fn(),
   mockClearPushToken: vi.fn(),
-  mockQueryClientClear: vi.fn(),
 }));
 
 vi.mock("@react-native-async-storage/async-storage", () => ({
@@ -63,15 +62,11 @@ vi.mock("@/features/preferences/stores/preferencesStore", () => ({
   },
 }));
 
-vi.mock("@/lib/queryClient", () => ({
-  queryClient: {
-    clear: mockQueryClientClear,
-  },
-}));
-
 import { OAUTH_SCOPE_VERSION } from "../lib/constants";
 import { TokenRefreshError } from "../lib/oauth";
 import { useAuthStore } from "./authStore";
+
+const mockQueryClientClear = vi.spyOn(queryClient, "clear");
 
 function expiredStoredTokens() {
   return {
@@ -93,7 +88,8 @@ describe("authStore", () => {
     mockDeleteTokens.mockReset();
     mockRegisterAndUpload.mockReset();
     mockClearPushToken.mockReset();
-    mockQueryClientClear.mockReset();
+    queryClient.clear();
+    mockQueryClientClear.mockClear();
 
     useAuthStore.setState({
       oauthAccessToken: null,
@@ -104,6 +100,10 @@ describe("authStore", () => {
       isAuthenticated: false,
       isLoading: true,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("stores the current OAuth scope version on login", async () => {
@@ -154,6 +154,48 @@ describe("authStore", () => {
       isLoading: false,
     });
   });
+
+  it.each(["OAuth", "personal API key"])(
+    "removes the previous account's cached user and reports on %s sign-in",
+    async (method) => {
+      vi.stubGlobal("__DEV__", true);
+      useAuthStore.setState({
+        oauthAccessToken: "old-token",
+        cloudRegion: "us",
+        projectId: 42,
+        isAuthenticated: true,
+      });
+      queryClient.setQueryData(["user", "me"], { uuid: "previous-user" });
+      queryClient.setQueryData(["inbox", "signal-reports", "list"], {
+        results: [{ id: "previous-report" }],
+      });
+      mockPerformOAuthFlow.mockResolvedValueOnce({
+        success: true,
+        data: {
+          access_token: "new-token",
+          refresh_token: "new-refresh",
+          expires_in: 3600,
+          scoped_teams: [42],
+        },
+      });
+
+      if (method === "OAuth") {
+        await useAuthStore.getState().loginWithOAuth("us");
+      } else {
+        await useAuthStore.getState().loginWithPersonalApiKey({
+          token: "new-token",
+          projectId: 42,
+          region: "us",
+        });
+      }
+
+      expect(useAuthStore.getState().oauthAccessToken).toBe("new-token");
+      expect(queryClient.getQueryData(["user", "me"])).toBeUndefined();
+      expect(
+        queryClient.getQueryData(["inbox", "signal-reports", "list"]),
+      ).toBeUndefined();
+    },
+  );
 
   it("signs out when refreshing an expired token is rejected as auth_error", async () => {
     mockGetTokens.mockResolvedValueOnce(expiredStoredTokens());

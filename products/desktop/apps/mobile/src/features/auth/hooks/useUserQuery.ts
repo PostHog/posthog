@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { authedFetch, getBaseUrl } from "@/lib/api";
 import { useAuthStore } from "../stores/authStore";
 
@@ -21,22 +21,26 @@ export interface UserData {
   };
 }
 
+export const userQueryOptions = queryOptions({
+  queryKey: ["user", "me"],
+  queryFn: async (): Promise<UserData> => {
+    const response = await authedFetch(`${getBaseUrl()}/api/users/@me/`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch user: ${response.statusText}`);
+    }
+
+    const data: UserData = await response.json();
+    return data;
+  },
+  staleTime: 5 * 60 * 1000, // 5 minutes
+});
+
 export function useUserQuery() {
   const { cloudRegion, oauthAccessToken } = useAuthStore();
 
   return useQuery({
-    queryKey: ["user", "me"],
-    queryFn: async (): Promise<UserData> => {
-      const response = await authedFetch(`${getBaseUrl()}/api/users/@me/`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch user: ${response.statusText}`);
-      }
-
-      const data: UserData = await response.json();
-      return data;
-    },
+    ...userQueryOptions,
     enabled: !!cloudRegion && !!oauthAccessToken,
-    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }

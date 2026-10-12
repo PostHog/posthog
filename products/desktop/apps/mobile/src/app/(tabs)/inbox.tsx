@@ -1,5 +1,8 @@
 import { buildInboxViewedProperties } from "@posthog/core/inbox/engagement";
-import { INBOX_PIPELINE_STATUSES } from "@posthog/core/inbox/reportFiltering";
+import {
+  INBOX_PIPELINE_STATUSES,
+  resolveSuggestedReviewerFilter,
+} from "@posthog/core/inbox/reportFiltering";
 import type { InboxReviewerScope } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -25,10 +28,7 @@ import {
   decidedIds,
   useDismissedReportsStore,
 } from "@/features/inbox/stores/dismissedReportsStore";
-import {
-  resolveSuggestedReviewerFilter,
-  useInboxFilterStore,
-} from "@/features/inbox/stores/inboxFilterStore";
+import { useInboxFilterStore } from "@/features/inbox/stores/inboxFilterStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { ANALYTICS_EVENTS, useAnalytics } from "@/lib/analytics";
 
@@ -144,11 +144,12 @@ export default function InboxScreen() {
   const isOnlyMe =
     suggestedReviewerFilter.length === 1 &&
     suggestedReviewerFilter[0] === currentUser?.uuid;
-  const triageScope: InboxReviewerScope = isOnlyMe
-    ? "for-you"
-    : suggestedReviewerFilter.length > 0
-      ? "teammate"
-      : "entire-project";
+  const triageScope: InboxReviewerScope =
+    isDefaultReviewerScope || isOnlyMe
+      ? "for-you"
+      : suggestedReviewerFilter.length > 0
+        ? "teammate"
+        : "entire-project";
 
   // Bracket tinder mode with triage_started / triage_ended so we can measure
   // how many cards users clear before exiting. The live ref lets the cleanup

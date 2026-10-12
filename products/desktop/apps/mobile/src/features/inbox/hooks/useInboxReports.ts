@@ -3,7 +3,6 @@ import {
   buildPriorityFilterParam,
   buildSignalReportListOrdering,
   buildStatusFilterParam,
-  buildSuggestedReviewerFilterParam,
   INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
   INBOX_DISMISSED_STATUS_FILTER,
   INBOX_REFETCH_INTERVAL_MS,
@@ -31,12 +30,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useAuthStore, useUserQuery } from "@/features/auth";
+import { useAuthStore } from "@/features/auth";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
-import {
-  resolveSuggestedReviewerFilter,
-  useInboxFilterStore,
-} from "../stores/inboxFilterStore";
+import { createInboxReportService } from "../inboxReportService";
+import { useInboxFilterStore } from "../stores/inboxFilterStore";
 
 export const inboxKeys = {
   all: ["inbox", "signal-reports"] as const,
@@ -74,12 +71,11 @@ export function useInboxReports(options?: { enabled?: boolean }) {
     (s) => s.suggestedReviewerFilter,
   );
   const priorityFilter = useInboxFilterStore((s) => s.priorityFilter);
-  const userQuery = useUserQuery();
-  const reviewerFilter = resolveSuggestedReviewerFilter(
-    suggestedReviewerFilter,
-    userQuery.data?.uuid,
+  const queryClient = useQueryClient();
+  const service = useMemo(
+    () => createInboxReportService(queryClient),
+    [queryClient],
   );
-  const waitingForUser = reviewerFilter === null;
 
   const params: SignalReportsQueryParams = {
     status: buildStatusFilterParam(statusFilter),
@@ -89,28 +85,17 @@ export function useInboxReports(options?: { enabled?: boolean }) {
       sourceProductFilter.length > 0
         ? sourceProductFilter.join(",")
         : undefined,
-    suggested_reviewers:
-      reviewerFilter && reviewerFilter.length > 0
-        ? buildSuggestedReviewerFilterParam(reviewerFilter)
-        : undefined,
     priority: buildPriorityFilterParam(priorityFilter),
   };
 
   const query = useInfiniteQuery({
-    queryKey: inboxKeys.list(params),
+    queryKey: [...inboxKeys.list(params), { suggestedReviewerFilter }],
     queryFn: ({ pageParam }) =>
-      getPostHogApiClient().getSignalReports({
-        ...params,
-        limit: REPORTS_PAGE_SIZE,
-        offset: pageParam,
-      }),
-    // The default scope needs the current user's uuid, so hold the query until
-    // it resolves rather than fetching the whole project first.
-    enabled:
-      !!projectId &&
-      !!oauthAccessToken &&
-      !waitingForUser &&
-      (options?.enabled ?? true),
+      service.listReports(
+        { ...params, limit: REPORTS_PAGE_SIZE, offset: pageParam },
+        suggestedReviewerFilter,
+      ),
+    enabled: !!projectId && !!oauthAccessToken && (options?.enabled ?? true),
     refetchInterval: INBOX_REFETCH_INTERVAL_MS,
     initialPageParam: 0,
     getNextPageParam: getReportsNextPageParam,
@@ -124,13 +109,11 @@ export function useInboxReports(options?: { enabled?: boolean }) {
   return {
     reports,
     totalCount: query.data?.pages[0]?.count ?? 0,
-    isLoading: query.isLoading || (waitingForUser && userQuery.isLoading),
+    isLoading: query.isLoading,
     isFetching: query.isFetching,
-    error:
-      query.error?.message ??
-      (waitingForUser ? userQuery.error?.message : undefined) ??
-      null,
-    isReviewerScoped: !!reviewerFilter && reviewerFilter.length > 0,
+    error: query.error?.message ?? null,
+    isReviewerScoped:
+      suggestedReviewerFilter === null || suggestedReviewerFilter.length > 0,
     refetch: query.refetch,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,

@@ -32,10 +32,6 @@ interface InboxFilterActions {
   toggleStatus: (status: SignalReportStatus) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
   clearSourceProductFilter: () => void;
-  toggleSuggestedReviewer: (
-    reviewerUuid: string,
-    currentUserUuid: string | undefined,
-  ) => void;
   setSuggestedReviewerFilter: (reviewerUuids: string[]) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
@@ -53,19 +49,6 @@ type PersistedInboxFilterState = Pick<
   | "suggestedReviewerFilter"
   | "priorityFilter"
 >;
-
-/**
- * The reviewer UUIDs to filter on. Returns `null` while the default scope
- * still waits for the current user, so callers can hold the query instead of
- * fetching the whole project first.
- */
-export function resolveSuggestedReviewerFilter(
-  filter: string[] | null,
-  currentUserUuid: string | undefined,
-): string[] | null {
-  if (filter !== null) return filter;
-  return currentUserUuid ? [currentUserUuid] : null;
-}
 
 /**
  * Version 0 saved `[]` for every user who never touched the reviewer filter,
@@ -113,18 +96,6 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
           return { sourceProductFilter: next };
         }),
       clearSourceProductFilter: () => set({ sourceProductFilter: [] }),
-      toggleSuggestedReviewer: (reviewerUuid, currentUserUuid) =>
-        set((state) => {
-          const current =
-            resolveSuggestedReviewerFilter(
-              state.suggestedReviewerFilter,
-              currentUserUuid,
-            ) ?? [];
-          const next = current.includes(reviewerUuid)
-            ? current.filter((uuid) => uuid !== reviewerUuid)
-            : [...current, reviewerUuid];
-          return { suggestedReviewerFilter: next };
-        }),
       setSuggestedReviewerFilter: (reviewerUuids) =>
         set({
           suggestedReviewerFilter: Array.from(new Set(reviewerUuids)),

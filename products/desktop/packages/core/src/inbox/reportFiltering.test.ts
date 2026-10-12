@@ -9,7 +9,9 @@ import {
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PIPELINE_STATUSES,
   INBOX_REFETCH_INTERVAL_MS,
+  resolveSuggestedReviewerFilter,
   sortInboxReports,
+  toggleSuggestedReviewerFilter,
 } from "./reportFiltering";
 
 describe("inbox pipeline statuses", () => {
@@ -174,6 +176,30 @@ describe("sortInboxReports", () => {
         (report) => report.id,
       ),
     ).toEqual(["newest", "middle", "older"]);
+  });
+});
+
+describe("suggested reviewer selection", () => {
+  const ME = "00000000-0000-0000-0000-000000000001";
+  const TEAMMATE = "00000000-0000-0000-0000-000000000002";
+
+  it.each<[string, string[] | null, string | undefined, string[] | null]>([
+    ["defaults to the current user", null, ME, [ME]],
+    ["waits while the current user loads", null, undefined, null],
+    ["keeps a cleared filter as the whole project", [], ME, []],
+    ["keeps an explicit selection", [TEAMMATE], ME, [TEAMMATE]],
+  ])("%s", (_name, stored, currentUserUuid, expected) => {
+    expect(resolveSuggestedReviewerFilter(stored, currentUserUuid)).toEqual(
+      expected,
+    );
+  });
+
+  it.each<[string, string, string[]]>([
+    ["deselecting yourself shows the whole project", ME, []],
+    ["adding a teammate keeps yourself selected", TEAMMATE, [ME, TEAMMATE]],
+  ])("from the default scope, %s", (_name, toggled, expected) => {
+    const reviewers = resolveSuggestedReviewerFilter(null, ME) ?? [];
+    expect(toggleSuggestedReviewerFilter(reviewers, toggled)).toEqual(expected);
   });
 });
 

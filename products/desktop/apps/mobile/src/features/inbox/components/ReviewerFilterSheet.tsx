@@ -1,5 +1,9 @@
 import { Text } from "@components/text";
 import { buildReviewerOptions } from "@posthog/core/inbox/artefacts";
+import {
+  resolveSuggestedReviewerFilter,
+  toggleSuggestedReviewerFilter,
+} from "@posthog/core/inbox/reportFiltering";
 import { useMemo } from "react";
 import {
   ActivityIndicator,
@@ -12,10 +16,7 @@ import { useUserQuery } from "@/features/auth";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useThemeColors } from "@/lib/theme";
 import { useAvailableSuggestedReviewers } from "../hooks/useInboxReports";
-import {
-  resolveSuggestedReviewerFilter,
-  useInboxFilterStore,
-} from "../stores/inboxFilterStore";
+import { useInboxFilterStore } from "../stores/inboxFilterStore";
 import { ReviewerOptionRow } from "./ReviewerOptionRow";
 
 interface ReviewerFilterSheetProps {
@@ -38,9 +39,6 @@ export function ReviewerFilterSheet({
   const suggestedReviewerFilter =
     resolveSuggestedReviewerFilter(storedReviewerFilter, currentUser?.uuid) ??
     [];
-  const toggleSuggestedReviewer = useInboxFilterStore(
-    (s) => s.toggleSuggestedReviewer,
-  );
   const setSuggestedReviewerFilter = useInboxFilterStore(
     (s) => s.setSuggestedReviewerFilter,
   );
@@ -106,7 +104,12 @@ export function ReviewerFilterSheet({
                     reviewer={reviewer}
                     selected={suggestedReviewerFilter.includes(reviewer.uuid)}
                     onPress={() =>
-                      toggleSuggestedReviewer(reviewer.uuid, currentUser?.uuid)
+                      setSuggestedReviewerFilter(
+                        toggleSuggestedReviewerFilter(
+                          suggestedReviewerFilter,
+                          reviewer.uuid,
+                        ),
+                      )
                     }
                   />
                   {showDivider && (

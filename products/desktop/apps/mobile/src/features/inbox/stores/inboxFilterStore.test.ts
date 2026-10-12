@@ -11,7 +11,6 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 
 import {
   migrateInboxFilterState,
-  resolveSuggestedReviewerFilter,
   useInboxFilterStore,
 } from "./inboxFilterStore";
 
@@ -93,22 +92,10 @@ describe("inboxFilterStore priority filter", () => {
 });
 
 describe("inboxFilterStore suggested reviewer scope", () => {
-  const ME = "00000000-0000-0000-0000-000000000001";
   const TEAMMATE = "00000000-0000-0000-0000-000000000002";
 
   beforeEach(() => {
     useInboxFilterStore.setState(INITIAL_STATE, true);
-  });
-
-  it.each<[string, string[] | null, string | undefined, string[] | null]>([
-    ["defaults to the current user", null, ME, [ME]],
-    ["waits while the current user loads", null, undefined, null],
-    ["keeps a cleared filter as the whole project", [], ME, []],
-    ["keeps an explicit selection", [TEAMMATE], ME, [TEAMMATE]],
-  ])("%s", (_name, stored, currentUserUuid, expected) => {
-    expect(resolveSuggestedReviewerFilter(stored, currentUserUuid)).toEqual(
-      expected,
-    );
   });
 
   it.each<[string, number, string[], string[] | null]>([
@@ -121,15 +108,5 @@ describe("inboxFilterStore suggested reviewer scope", () => {
       version,
     );
     expect(migrated.suggestedReviewerFilter).toEqual(expected);
-  });
-
-  it.each<[string, string, string[]]>([
-    ["deselecting yourself shows the whole project", ME, []],
-    ["adding a teammate keeps yourself selected", TEAMMATE, [ME, TEAMMATE]],
-  ])("from the default scope, %s", (_name, toggled, expected) => {
-    useInboxFilterStore.getState().toggleSuggestedReviewer(toggled, ME);
-    expect(useInboxFilterStore.getState().suggestedReviewerFilter).toEqual(
-      expected,
-    );
   });
 });

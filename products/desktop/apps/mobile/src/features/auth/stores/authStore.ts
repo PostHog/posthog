@@ -161,6 +161,7 @@ export const useAuthStore = create<AuthState>()(
         // Save tokens securely
         await saveTokens(storedTokens);
 
+        queryClient.clear();
         set({
           oauthAccessToken: tokenResponse.access_token,
           oauthRefreshToken: tokenResponse.refresh_token,
@@ -199,6 +200,7 @@ export const useAuthStore = create<AuthState>()(
 
         await saveTokens(storedTokens);
 
+        queryClient.clear();
         set({
           oauthAccessToken: trimmed,
           oauthRefreshToken: null,

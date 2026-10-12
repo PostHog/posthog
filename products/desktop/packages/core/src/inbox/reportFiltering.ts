@@ -188,6 +188,28 @@ export function buildSuggestedReviewerFilterParam(
   return Array.from(new Set(normalizedIds)).join(",");
 }
 
+/**
+ * The reviewer UUIDs to filter on. Returns `null` while the default scope
+ * still waits for the current user, so callers can hold the query instead of
+ * fetching the whole project first.
+ */
+export function resolveSuggestedReviewerFilter(
+  filter: string[] | null,
+  currentUserUuid: string | undefined,
+): string[] | null {
+  if (filter !== null) return filter;
+  return currentUserUuid ? [currentUserUuid] : null;
+}
+
+export function toggleSuggestedReviewerFilter(
+  reviewers: string[],
+  reviewerUuid: string,
+): string[] {
+  return reviewers.includes(reviewerUuid)
+    ? reviewers.filter((uuid) => uuid !== reviewerUuid)
+    : [...reviewers, reviewerUuid];
+}
+
 export function buildPriorityFilterParam(
   priorities: SignalReportPriority[],
 ): string | undefined {
