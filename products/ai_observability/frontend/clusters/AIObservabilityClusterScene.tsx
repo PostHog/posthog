@@ -89,17 +89,7 @@ export function AIObservabilityClusterScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={cluster.title}
-                resourceType={{ type: 'llm_analytics' }}
-                actions={
-                    <Link to={urls.aiObservabilityClusters()}>
-                        <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
-                            Back to clusters
-                        </LemonButton>
-                    </Link>
-                }
-            />
+            <SceneTitleSection name={cluster.title} resourceType={{ type: 'llm_analytics' }} />
 
             {/* Cluster info header */}
             <div
