@@ -175,32 +175,33 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
         "wizard_session_id": scan.session_id,
         "workspace_fingerprint": scan.workspace_fingerprint,
     }
-    for sighting in changes.sightings:
+
+    def report(event: str, properties: dict[str, object]) -> None:
         report_user_or_team_action(
-            "competitor detected",
-            {
-                **scan_properties,
-                "kind": sighting.kind,
-                "competes_with": list(sighting.competes_with),
-                "first_detection": sighting.first_detection,
-                "signal_sources": list(sighting.signal_sources),
-            },
+            event,
+            {**scan_properties, **properties},
             user=user,
             team=team,
             # The user's current organization can differ from the scanned project's.
             organization=team.organization,
         )
+
+    for sighting in changes.sightings:
+        report(
+            "competitor detected",
+            {
+                "kind": sighting.kind,
+                "competes_with": list(sighting.competes_with),
+                "first_detection": sighting.first_detection,
+                "signal_sources": list(sighting.signal_sources),
+            },
+        )
     for removal in changes.removals:
-        report_user_or_team_action(
+        report(
             "competitor removed",
             {
-                **scan_properties,
                 "kind": removal.kind,
                 "competes_with": list(removal.competes_with),
                 "days_detected": removal.days_detected,
             },
-            user=user,
-            team=team,
-            # The user's current organization can differ from the scanned project's.
-            organization=team.organization,
         )
