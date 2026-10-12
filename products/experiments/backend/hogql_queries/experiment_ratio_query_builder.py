@@ -5,7 +5,7 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierH
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
-from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -21,9 +21,9 @@ class RatioQueryBuilder:
     exposure and metric-value helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder", maturity: MaturityGate | None = None):
+    def __init__(self, builder: "ExperimentQueryBuilder", exposure: ExposureQueryBuilder):
         self._b = builder
-        self._maturity = maturity
+        self._exposure = exposure
 
     def build_ratio_query(self) -> ast.SelectQuery:
         assert isinstance(self._b.metric, ExperimentRatioMetric)
@@ -220,7 +220,7 @@ class RatioQueryBuilder:
         denom_entity_field = denom_source_info.entity_key
         denom_timestamp_field = denom_source_info.timestamp_field
 
-        exposure_query = self._b._get_exposure_query(self._maturity)
+        exposure_query = self._exposure.select_query()
         if num_source_info.kind == "datawarehouse" or denom_source_info.kind == "datawarehouse":
             # argMin takes each join key from the first exposure, so each entity_id gets one
             # identifier per component. Do not add the join keys to GROUP BY: a user with

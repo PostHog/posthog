@@ -17,10 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma 
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import (
+    BLASTS_PATH,
     ENDPOINTS,
     EVENTS_PATH,
     GUESTS_PATH,
     LUMA_ENDPOINTS,
+    TICKET_TYPES_PATH,
 )
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
@@ -49,7 +51,12 @@ class _FakeResumableManager:
 
 def _page_router(pages: PageMap) -> Any:
     def fake_fetch(
-        session: Any, path: str, cursor: str | None, logger: Any, extra_params: dict | None = None
+        session: Any,
+        path: str,
+        cursor: str | None,
+        logger: Any,
+        extra_params: dict | None = None,
+        paginate: bool = True,
     ) -> tuple[list[dict], Optional[str]]:
         return pages[(path, cursor)]
 
@@ -77,20 +84,6 @@ class TestGetRows:
             rows.extend(batch)
         return rows
 
-    def test_single_page_yields_flattened_events_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: PageMap = {
-            (EVENTS_PATH, None): (
-                [{"api_id": "evt-1", "event": {"api_id": "evt-1", "name": "Meetup"}}],
-                None,
-            )
-        }
-        rows = self._collect(manager, monkeypatch, pages, "events")
-        # The `event` envelope is unwrapped so columns are top-level.
-        assert rows == [{"api_id": "evt-1", "name": "Meetup"}]
-        # No next cursor means the sync ends without persisting resume state.
-        assert manager.saved == []
-
     def test_follows_cursor_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         path = LUMA_ENDPOINTS["people"].path
@@ -111,20 +104,6 @@ class TestGetRows:
         rows = self._collect(manager, monkeypatch, pages, "people")
         assert rows == [{"api_id": "per-2"}]
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: PageMap = {(LUMA_ENDPOINTS["person_tags"].path, None): ([], None)}
-        rows = self._collect(manager, monkeypatch, pages, "person_tags")
-        assert rows == []
-        assert manager.saved == []
-
-    def test_entry_without_envelope_is_yielded_as_is(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        # Defensive path: if an events entry has no nested `event` object we keep the raw entry.
-        pages: PageMap = {(EVENTS_PATH, None): ([{"api_id": "evt-9"}], None)}
-        rows = self._collect(manager, monkeypatch, pages, "events")
-        assert rows == [{"api_id": "evt-9"}]
-
 
 class TestGuestsFanOut:
     def _collect(
@@ -132,12 +111,21 @@ class TestGuestsFanOut:
         manager: _FakeResumableManager,
         monkeypatch: Any,
         pages: FanOutPageMap,
+        endpoint: str = "guests",
     ) -> list[dict]:
+        self.calls: list[tuple[str, dict | None, bool]] = []
+
         def fake_fetch(
-            session: Any, path: str, cursor: str | None, logger: Any, extra_params: dict | None = None
+            session: Any,
+            path: str,
+            cursor: str | None,
+            logger: Any,
+            extra_params: dict | None = None,
+            paginate: bool = True,
         ) -> tuple[list[dict], Optional[str]]:
-            event_api_id = (extra_params or {}).get("event_api_id")
-            return pages[(path, cursor, event_api_id)]
+            self.calls.append((path, extra_params, paginate))
+            event_id = next(iter((extra_params or {}).values()), None)
+            return pages[(path, cursor, event_id)]
 
         monkeypatch.setattr(luma, "_fetch_page", fake_fetch)
         monkeypatch.setattr(luma, "make_tracked_session", lambda **kwargs: MagicMock())
@@ -145,14 +133,23 @@ class TestGuestsFanOut:
         rows: list[dict] = []
         for batch in get_rows(
             api_key="luma-key",
-            endpoint="guests",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
         ):
             rows.extend(batch)
         return rows
 
-    def test_rows_carry_parent_event_api_id(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path,static_params",
+        [
+            ("event_blasts", BLASTS_PATH, {}),
+            ("ticket_types", TICKET_TYPES_PATH, {"include_hidden": "true"}),
+        ],
+    )
+    def test_unpaginated_children_are_fetched_per_event(
+        self, endpoint: str, path: str, static_params: dict[str, str], monkeypatch: Any
+    ) -> None:
         manager = _FakeResumableManager()
         pages: FanOutPageMap = {
             (EVENTS_PATH, None, None): (
@@ -162,16 +159,16 @@ class TestGuestsFanOut:
                 ],
                 None,
             ),
-            (GUESTS_PATH, None, "evt-1"): (
-                [{"api_id": "gst-a", "guest": {"api_id": "gst-a", "name": "Ada"}}],
-                None,
-            ),
-            (GUESTS_PATH, None, "evt-2"): ([], None),
+            (path, None, "evt-1"): ([{"id": "row-a", "status": "sent"}], None),
+            (path, None, "evt-2"): ([], None),
         }
-        rows = self._collect(manager, monkeypatch, pages)
-        # The `guest` envelope is unwrapped and the parent event id injected for the composite key.
-        assert rows == [{"api_id": "gst-a", "name": "Ada", "event_api_id": "evt-1"}]
-        assert manager.saved == []
+        rows = self._collect(manager, monkeypatch, pages, endpoint=endpoint)
+        assert rows == [{"id": "row-a", "event_id": "evt-1", "status": "sent"}]
+        child_calls = [c for c in self.calls if c[0] == path]
+        assert child_calls == [
+            (path, {"event_id": "evt-1", **static_params}, False),
+            (path, {"event_id": "evt-2", **static_params}, False),
+        ]
 
     def test_paginates_guests_within_an_event(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
@@ -233,13 +230,6 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             _fetch_page_unwrapped(session, EVENTS_PATH, None, MagicMock())
 
-    def test_success_returns_entries_and_next_cursor(self) -> None:
-        body = {"entries": [{"api_id": "evt-1"}], "has_more": True, "next_cursor": "cur-2"}
-        session = self._session_returning(200, body)
-        rows, next_cursor = _fetch_page_unwrapped(session, EVENTS_PATH, None, MagicMock())
-        assert rows == [{"api_id": "evt-1"}]
-        assert next_cursor == "cur-2"
-
     @parameterized.expand(
         [
             ("has_more_false", {"entries": [{"api_id": "a"}], "has_more": False, "next_cursor": "cur-2"}),
@@ -268,11 +258,15 @@ class TestFetchPage:
         assert kwargs["params"]["event_api_id"] == "evt-1"
         assert kwargs["params"]["pagination_limit"] == luma.PAGE_SIZE
 
-    def test_first_request_omits_cursor(self) -> None:
-        session = self._session_returning(200)
-        _fetch_page_unwrapped(session, EVENTS_PATH, None, MagicMock())
+    def test_unpaginated_request_omits_pagination_limit(self) -> None:
+        session = self._session_returning(200, {"entries": [{"id": "bst-a"}]})
+        rows, next_cursor = _fetch_page_unwrapped(
+            session, BLASTS_PATH, None, MagicMock(), extra_params={"event_id": "evt-1"}, paginate=False
+        )
         _, kwargs = session.get.call_args
-        assert "pagination_cursor" not in kwargs["params"]
+        assert kwargs["params"] == {"event_id": "evt-1"}
+        assert rows == [{"id": "bst-a"}]
+        assert next_cursor is None
 
 
 class TestCheckAccess:

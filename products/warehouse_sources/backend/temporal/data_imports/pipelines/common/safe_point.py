@@ -38,7 +38,9 @@ class PipelineSafePointHandler:
         self._last_commit = clock()
 
     def __call__(self) -> None:
-        # The pipeline's `except` path writes the rows it holds and then commits the staged cursor,
+        # A safe point is the source's statement that it holds no row that its cursor skips.
+        self._resumable_source_manager.confirm()
+        # The pipeline's `except` path writes the rows it holds and then commits the confirmed cursor,
         # so a raise here hands the run to another worker without losing progress.
         self._shutdown_monitor.raise_if_is_worker_shutdown()
 

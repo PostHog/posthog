@@ -91,4 +91,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_by": "Reference to the user who created the comment.",
         },
     },
+    "permission_groups": {
+        "description": "A permission group in the Notion workspace, either admin-managed or SCIM-managed.",
+        "docs_url": "https://developers.notion.com/reference/admin/list-permission-groups",
+        "columns": {
+            "id": "Unique identifier for the group.",
+            "object": "Always 'group' for this object.",
+            "name": "The name of the group.",
+        },
+    },
 }

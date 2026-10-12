@@ -9,6 +9,7 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
@@ -22,7 +23,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
+    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
     GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
     GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
@@ -39,18 +41,19 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
-    PersonTombstoneQueueEntry, PersonWithDistinctIds, PersonWithTeamDistinctId,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
-    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
-    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
-    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonWithDistinctIds,
+    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    VersionFloorOutcome as ProtoVersionFloorOutcome,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::storage::types::DeletePersonsMode;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
@@ -60,6 +63,9 @@ const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 // Splits run in a single all-or-nothing transaction holding row locks, so the
 // cap bounds both lock-hold time and payload size — same order as batch lookups.
 const MAX_SPLIT_BATCH_SIZE: usize = 250;
+// Version floors also run in one transaction holding
+// row locks, so they take the same cap as splits.
+const MAX_LOCKED_WRITE_BATCH_SIZE: usize = 250;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -421,21 +427,24 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let mode = match ProtoDeletePersonsMode::try_from(req.mode) {
-            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
-            Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
-            Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
+        match ProtoDeletePersonsMode::try_from(req.mode) {
+            Ok(ProtoDeletePersonsMode::Unspecified | ProtoDeletePersonsMode::Tombstone) => {}
+            Ok(ProtoDeletePersonsMode::Hard) => {
+                return Err(Status::invalid_argument(
+                    "DELETE_PERSONS_MODE_HARD is not supported: tombstone the persons, or delete a deleted team's persons with DeletePersonsBatchForTeam",
+                ))
+            }
             Err(_) => {
                 return Err(Status::invalid_argument(format!(
                     "Unknown DeletePersonsMode {}",
                     req.mode
                 )))
             }
-        };
+        }
 
         let outcome = self
             .storage
-            .delete_persons(req.team_id, &uuids, mode)
+            .delete_persons(req.team_id, &uuids)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
@@ -578,18 +587,35 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
         let req = request.into_inner();
 
-        if req.person_uuids.len() > 1000 {
+        if !req.person_uuids.is_empty() && !req.bounded_persons.is_empty() {
+            return Err(Status::invalid_argument(
+                "Set either person_uuids or bounded_persons, not both",
+            ));
+        }
+        if req.person_uuids.len().max(req.bounded_persons.len()) > 1000 {
             return Err(Status::invalid_argument(
                 "Maximum 1000 person UUIDs per request",
             ));
         }
 
-        let uuids: Vec<Uuid> = req
-            .person_uuids
-            .iter()
-            .map(|s| Uuid::parse_str(s))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+        let parse_uuid = |s: &str| {
+            Uuid::parse_str(s).map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))
+        };
+        let version_guard_applied = !req.bounded_persons.is_empty();
+        let mut targets: Vec<storage::TombstoneTarget> =
+            Vec::with_capacity(req.person_uuids.len() + req.bounded_persons.len());
+        for uuid in &req.person_uuids {
+            targets.push(storage::TombstoneTarget::unbounded(parse_uuid(uuid)?));
+        }
+        for bounded in &req.bounded_persons {
+            if bounded.max_version < 0 {
+                return Err(Status::invalid_argument("max_version must not be negative"));
+            }
+            targets.push(storage::TombstoneTarget {
+                uuid: parse_uuid(&bounded.person_uuid)?,
+                max_version: bounded.max_version,
+            });
+        }
         if req.max_rows < 0 {
             return Err(Status::invalid_argument("max_rows must not be negative"));
         }
@@ -601,13 +627,15 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let outcome = self
             .storage
-            .delete_tombstoned_persons(req.team_id, &uuids, max_rows)
+            .delete_tombstoned_persons(req.team_id, &targets, max_rows)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_tombstoned_persons"))?;
 
         Ok(Response::new(DeleteTombstonedPersonsResponse {
             deleted_count: outcome.deleted,
             skipped_live_count: outcome.skipped_live,
+            version_guard_applied,
+            skipped_version_count: outcome.skipped_version,
             blocked_person_uuids: outcome
                 .blocked_uuids
                 .iter()
@@ -680,6 +708,12 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<UpsertHashKeyOverridesRequest>,
     ) -> Result<Response<UpsertHashKeyOverridesResponse>, Status> {
         let req = request.into_inner();
+
+        if req.hash_key == COOKIELESS_SENTINEL_VALUE {
+            return Err(Status::invalid_argument(format!(
+                "hash_key must not be {COOKIELESS_SENTINEL_VALUE}"
+            )));
+        }
 
         let inserted_count = self
             .storage
@@ -1511,6 +1545,103 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
 
         Ok(Response::new(SetPersonVersionFloorResponse { updated }))
+    }
+
+    // ============================================================
+    // Version floors
+    // ============================================================
+
+    async fn ensure_person_version_floors(
+        &self,
+        request: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
+        let req = request.into_inner();
+
+        check_floor_batch(
+            req.floors
+                .iter()
+                .map(|f| (f.person_uuid.as_str(), f.min_version)),
+        )?;
+        let floors: Vec<(Uuid, i64)> = req
+            .floors
+            .iter()
+            .map(|f| parse_uuid(&f.person_uuid).map(|uuid| (uuid, f.min_version)))
+            .collect::<Result<_, _>>()?;
+        // Two spellings of one UUID pass the string check but lock the same row.
+        let mut seen = HashSet::with_capacity(floors.len());
+        if let Some((uuid, _)) = floors.iter().find(|(uuid, _)| !seen.insert(*uuid)) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {uuid}"
+            )));
+        }
+
+        let results = self
+            .storage
+            .ensure_person_version_floors(req.team_id, &floors)
+            .await
+            .map_err(|e| log_and_convert_error(e, "ensure_person_version_floors"))?;
+
+        Ok(Response::new(EnsurePersonVersionFloorsResponse {
+            results: results
+                .into_iter()
+                .map(|r| PersonVersionFloorResult {
+                    person_uuid: r.uuid.to_string(),
+                    outcome: floor_outcome_to_proto(r.outcome) as i32,
+                    version: r.version,
+                })
+                .collect(),
+        }))
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_uuid(s: &str) -> Result<Uuid, Status> {
+    Uuid::parse_str(s).map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))
+}
+
+#[allow(clippy::result_large_err)]
+fn check_write_batch<'a>(keys: impl ExactSizeIterator<Item = &'a str>) -> Result<(), Status> {
+    if keys.len() > MAX_LOCKED_WRITE_BATCH_SIZE {
+        return Err(Status::invalid_argument(format!(
+            "Maximum {MAX_LOCKED_WRITE_BATCH_SIZE} keys per request"
+        )));
+    }
+    let mut seen = HashSet::with_capacity(keys.len());
+    for key in keys {
+        if !seen.insert(key) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn check_floor_batch<'a>(
+    floors: impl ExactSizeIterator<Item = (&'a str, i64)> + Clone,
+) -> Result<(), Status> {
+    check_write_batch(floors.clone().map(|(key, _)| key))?;
+    for (key, min_version) in floors {
+        if min_version < 0 {
+            return Err(Status::invalid_argument(format!(
+                "min_version must not be negative, got {min_version} for {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn floor_outcome_to_proto(outcome: storage::VersionFloorOutcome) -> ProtoVersionFloorOutcome {
+    match outcome {
+        storage::VersionFloorOutcome::TombstoneInserted => {
+            ProtoVersionFloorOutcome::TombstoneInserted
+        }
+        storage::VersionFloorOutcome::TombstoneRaised => ProtoVersionFloorOutcome::TombstoneRaised,
+        storage::VersionFloorOutcome::TombstoneAtFloor => {
+            ProtoVersionFloorOutcome::TombstoneAtFloor
+        }
+        storage::VersionFloorOutcome::Live => ProtoVersionFloorOutcome::Live,
     }
 }
 

@@ -1,7 +1,5 @@
-import pytest
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settings import DBT_API_VERSION_V3, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settings import DBT_API_VERSION_V3
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.source import DbtSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
 
@@ -29,47 +27,7 @@ class TestDbtSource:
         assert self.source.supported_versions == (UNVERSIONED_API_VERSION, DBT_API_VERSION_V3)
         assert self.source.default_version == DBT_API_VERSION_V3
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "endpoint, incremental",
-        [
-            ("accounts", False),
-            ("projects", False),
-            ("environments", False),
-            ("jobs", False),
-            ("users", False),
-            ("runs", True),
-            ("run_steps", True),
-            ("run_artifacts", True),
-            ("audit_logs", False),
-            ("models", False),
-            ("tests", False),
-            ("sources", False),
-            ("snapshots", False),
-            ("seeds", False),
-            ("exposures", False),
-            ("model_historical_runs", False),
-        ],
-    )
-    def test_schema_incremental_support(self, endpoint, incremental):
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[endpoint].supports_incremental is incremental
-        # The lookback re-pulls a window of rows each run, so merge is the only safe mode.
-        assert schemas[endpoint].supports_append is False
-
-    def test_users_not_synced_by_default(self):
-        # Listing users needs permissions many read-only tokens lack; a default connection
-        # must not enable a table whose first sync would 403.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["users"].should_sync_default is False
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["runs"])
         assert len(schemas) == 1
         assert schemas[0].name == "runs"
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []

@@ -4,8 +4,8 @@ New organizations take FLAG_EVALUATIONS_NEW_ORG_MODE when they are created. This
 the organizations that existed before that setting changed: a list of ids, or every organization
 created after an instant.
 
-Ingestion does not act on mode 2 yet. An organization set to 2 now behaves as mode 1, and it stops
-writing $feature_flag_called to events on its own when that support deploys.
+On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams in
+the ingestion allowlist.
 """
 
 import argparse
@@ -18,6 +18,7 @@ from django.db import transaction
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_evaluations_mode import (
+    FLAG_EVALUATIONS_MODES_HELP,
     UnknownIdsError,
     get_organizations,
     select_organizations,
@@ -43,9 +44,7 @@ class Command(BaseCommand):
             required=True,
             choices=FlagEvaluationsMode.values,
             help=(
-                "0 reads events, 1 reads flag_evaluations, 2 also stops writing flag calls to events. "
-                "Ingestion does not act on mode 2 yet, so an organization on mode 2 behaves as mode 1 "
-                "until that ships. "
+                f"{FLAG_EVALUATIONS_MODES_HELP} "
                 "flag_evaluations holds rows only from the day ingestion started writing them "
                 "(2026-09-09 for PostHog Cloud), so on mode 1 or 2 the Usage tab shows no data for earlier days."
             ),
@@ -69,8 +68,9 @@ class Command(BaseCommand):
             "--allow-downgrade",
             action="store_true",
             help=(
-                "Also lower organizations that are above --mode. Once ingestion acts on mode 2, lowering "
-                "from mode 2 leaves a gap in the events table."
+                "Also lower organizations that are above --mode. Lowering an organization from mode 2 restarts "
+                "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events "
+                "table keeps a gap for those teams for the time the organization spent on 2."
             ),
         )
 
@@ -92,6 +92,7 @@ class Command(BaseCommand):
         self.stdout.write(f"{verb} mode {mode.value} ({mode.label}) on {len(organizations)} organization(s).")
         changed_count = 0
         left_above_count = 0
+        stopped_experiments_count = 0
         with transaction.atomic():
             for organization in organizations:
                 change = set_organization_flag_evaluations_mode(
@@ -99,6 +100,8 @@ class Command(BaseCommand):
                 )
                 changed_count += change.changed
                 left_above_count += change.left_above_mode
+                if change.changed and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+                    stopped_experiments_count += change.running_experiments_on_feature_flag_called
                 outcome = (
                     f"mode {change.current_mode} -> {change.target_mode}"
                     if change.changed
@@ -106,7 +109,8 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(
                     f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "
-                    f"{change.team_count} team(s)): {outcome}"
+                    f"{change.team_count} team(s), "
+                    f"{change.running_experiments_on_feature_flag_called} experiment(s) on $feature_flag_called): {outcome}"
                 )
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
@@ -114,4 +118,9 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
                 "Pass --allow-downgrade to lower them."
+            )
+        if stopped_experiments_count:
+            self.stdout.write(
+                f"{stopped_experiments_count} running experiment(s) count exposures on $feature_flag_called. "
+                "On teams in the ingestion allowlist, those exposures stop on this mode."
             )

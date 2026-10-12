@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product feature_flags
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product feature_flags
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Feature flags
 feature: flags
 url_prefix: /feature_flags
@@ -318,9 +316,6 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
-    feature-flag-request-usage-list:
-        operation: feature_flag_request_usage_list
-        enabled: false
     feature-flag-roll-out-to-everyone:
         operation: feature_flags_roll_out_to_everyone_create
         enabled: true
@@ -528,9 +523,6 @@ tools:
                     - flag_id
                     - feature_flag_id
                     - featureFlagId
-    feature-flags-all-activity-retrieve:
-        operation: feature_flags_all_activity_retrieve
-        enabled: false
     feature-flags-bulk-delete-create:
         operation: feature_flags_bulk_delete_create
         enabled: true
@@ -620,9 +612,6 @@ tools:
             existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left
             untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
             successful and failed copies.
-    feature-flags-create-static-cohort-for-flag-create:
-        operation: feature_flags_create_static_cohort_for_flag_create
-        enabled: false
     feature-flags-dependent-flags-retrieve:
         operation: feature_flags_dependent_flags_list
         enabled: true
@@ -660,9 +649,6 @@ tools:
             no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly
             recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a
             very large payload.
-    feature-flags-matching-ids-retrieve:
-        operation: feature_flags_matching_ids_retrieve
-        enabled: false
     feature-flags-my-flags-retrieve:
         operation: feature_flags_my_flags_retrieve
         enabled: true
@@ -681,45 +667,6 @@ tools:
             specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry
             for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate
             group-based flags.
-    feature-flags-remote-config-retrieve:
-        operation: feature_flags_remote_config_retrieve
-        enabled: false
-    feature-flags-roll-out-to-everyone-create:
-        operation: feature_flags_roll_out_to_everyone_create
-        enabled: false
-    feature-flags-set-release-condition-rollout-create:
-        operation: feature_flags_set_release_condition_rollout_create
-        enabled: false
-    feature-flags-staff-cache-clear-create:
-        operation: feature_flags_staff_cache_clear_create
-        enabled: false
-    feature-flags-staff-cache-entry-retrieve:
-        operation: feature_flags_staff_cache_entry_retrieve
-        enabled: false
-    feature-flags-staff-cache-list:
-        operation: feature_flags_staff_cache_list
-        enabled: false
-    feature-flags-staff-cache-rebuild-create:
-        operation: feature_flags_staff_cache_rebuild_create
-        enabled: false
-    feature-flags-staff-cache-warm-run-cancel-create:
-        operation: feature_flags_staff_cache_warm_run_cancel_create
-        enabled: false
-    feature-flags-staff-cache-warm-run-retrieve:
-        operation: feature_flags_staff_cache_warm_run_retrieve
-        enabled: false
-    feature-flags-staff-team-config-list:
-        operation: feature_flags_staff_team_config_list
-        enabled: false
-    feature-flags-staff-team-config-set-create:
-        operation: feature_flags_staff_team_config_set_create
-        enabled: false
-    feature-flags-staff-team-config-set-flag-evaluations-mode-create:
-        operation: feature_flags_staff_team_config_set_flag_evaluations_mode_create
-        enabled: false
-    feature-flags-staff-teams-list:
-        operation: feature_flags_staff_teams_list
-        enabled: false
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
         enabled: true
@@ -774,9 +721,6 @@ tools:
         validators:
             - validateDistinctIdPersonIdExclusive
         ui_app: feature-flag-testing
-    feature-flags-update:
-        operation: feature_flags_update
-        enabled: false
     feature-flags-user-blast-radius-create:
         operation: feature_flags_user_blast_radius_create
         enabled: true
@@ -790,24 +734,6 @@ tools:
         description: >
             Assess the impact of a feature flag release condition before applying it. Provide a condition object and
             optionally a group_type_index to see how many users would be affected relative to the total user count.
-    feature-flags-versions-retrieve:
-        operation: feature_flags_versions_retrieve
-        enabled: false
-    flag-value-values-retrieve:
-        operation: flag_value_values_retrieve
-        enabled: false
-    org-feature-flags-keys:
-        operation: org_feature_flags_keys
-        enabled: false
-    org-feature-flags-retrieve:
-        operation: org_feature_flags_retrieve
-        enabled: false
-    organizations-projects-evaluation-context-suggestions-create:
-        operation: organizations_projects_evaluation_context_suggestions_create
-        enabled: false
-    organizations-projects-evaluation-context-suggestions-destroy:
-        operation: organizations_projects_evaluation_context_suggestions_destroy
-        enabled: false
     scheduled-changes-create:
         operation: scheduled_changes_create
         enabled: true
@@ -886,9 +812,6 @@ tools:
             settings. Cannot change the target record (record_id) or model type (model_name).
         exclude_params:
             - executed_at
-    scheduled-changes-update-full:
-        operation: scheduled_changes_update
-        enabled: false
     update-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -972,3 +895,4 @@ tools:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
+        hooks: featureFlags/updateFeatureFlagHooks

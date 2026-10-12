@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import type { JSX } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HeatmapHistoryView, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
@@ -136,6 +136,7 @@ export interface heatmapLogicValues {
     heatmapFilters: HeatmapFilters // heatmapDataLogic
     heatmapFixedPositionMode: HeatmapFixedPositionMode // heatmapDataLogic
     heightOverride: number // heatmapDataLogic
+    historyView: HeatmapHistoryView | null // heatmapDataLogic
     isHeightCapped: boolean // heatmapDataLogic
     widthOverride: number // heatmapDataLogic
     currentPagePreflight: PagePreflight | null // heatmapsBrowserLogic
@@ -148,6 +149,10 @@ export interface heatmapLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
     containerWidth: number | null
+    currentLockedWidth: number | null
+    currentScreenshotError: string | null
+    currentScreenshotLoaded: boolean
+    currentScreenshotUrl: string | null
     dataUrlEditDisabledReason: string | null
     desiredNumericWidth: number
     displayUrlIsPattern: boolean
@@ -157,6 +162,10 @@ export interface heatmapLogicValues {
     generatingScreenshot: boolean
     hasUnsavedChanges: boolean
     heatmapId: string | null
+    historyScreenshotStatus: {
+        loaded: boolean
+        url: string
+    } | null
     isDisplayUrlValid: boolean
     isPageUrlDraftValid: boolean
     loading: boolean
@@ -199,6 +208,9 @@ export interface heatmapLogicActions {
     } // exportsLogic
     loadHeatmap: () => {
         value: true
+    } // heatmapDataLogic
+    setHistoryView: (view: HeatmapHistoryView | null) => {
+        view: HeatmapHistoryView | null
     } // heatmapDataLogic
     setWindowWidthOverride: (widthOverride: number | null) => {
         widthOverride: number | null
@@ -269,6 +281,13 @@ export interface heatmapLogicActions {
     setHeatmapId: (id: string | null) => {
         id: string | null
     }
+    setHistoryScreenshotStatus: (
+        url: string,
+        loaded: boolean
+    ) => {
+        loaded: boolean
+        url: string
+    }
     setLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -325,6 +344,8 @@ export interface heatmapLogicProps {
 export interface heatmapLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
+        screenshotUrl: (currentScreenshotUrl: string | null, historyView: HeatmapHistoryView | null) => string | null
+        lockedWidth: (currentLockedWidth: number | null, historyView: HeatmapHistoryView | null) => number | null
         draftSettings: (
             name: string,
             pageUrlDraft: string,
@@ -364,7 +385,27 @@ export interface heatmapLogicMeta {
             iframeBanner: IFrameBanner | null,
             currentPagePreflight: PagePreflight | null
         ) => string | JSX.Element | null
-        previewUnavailable: (previewError: string | JSX.Element | null, generatingScreenshot: boolean) => boolean
+        screenshotLoaded: (
+            currentScreenshotLoaded: boolean,
+            historyScreenshotStatus: {
+                loaded: boolean
+                url: string
+            } | null,
+            historyView: HeatmapHistoryView | null
+        ) => boolean
+        screenshotError: (
+            currentScreenshotError: string | null,
+            historyScreenshotStatus: {
+                loaded: boolean
+                url: string
+            } | null,
+            historyView: HeatmapHistoryView | null
+        ) => string | null
+        previewUnavailable: (
+            previewError: string | JSX.Element | null,
+            generatingScreenshot: boolean,
+            historyView: HeatmapHistoryView | null
+        ) => boolean
         isDisplayUrlValid: (displayUrl: string | null) => boolean
         displayUrlIsPattern: (displayUrl: string | null) => boolean
         isPageUrlDraftValid: (pageUrlDraft: string) => boolean
@@ -413,6 +454,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 'widthOverride',
                 'heightOverride',
                 'isHeightCapped',
+                'historyView',
             ],
         ],
         actions: [
@@ -421,7 +463,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             heatmapsSceneLogic,
             ['loadSavedHeatmaps', 'setSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['loadHeatmap', 'setWindowWidthOverride'],
+            ['loadHeatmap', 'setWindowWidthOverride', 'setHistoryView'],
             exportsLogic,
             ['startHeatmapExport'],
         ],
@@ -449,6 +491,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (width?: number) => ({ width }),
         setHeatmapId: (id: string | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        setHistoryScreenshotStatus: (url: string, loaded: boolean) => ({ url, loaded }),
         setLockedWidth: (lockedWidth: number | null) => ({ lockedWidth }),
         regenerateScreenshot: true,
         generateScreenshot: true,
@@ -469,13 +512,20 @@ export const heatmapLogic = kea<heatmapLogicType>([
         name: ['New heatmap', { setName: (_, { name }) => name }],
         loading: [false, { setLoading: (_, { loading }) => loading }],
         status: ['processing' as HeatmapStatus, { setStatus: (_, { status }) => status }],
-        screenshotUrl: [null as string | null, { setScreenshotUrl: (_, { url }) => url }],
-        screenshotError: [null as string | null, { setScreenshotError: (_, { error }) => error }],
+        currentScreenshotUrl: [null as string | null, { setScreenshotUrl: (_, { url }) => url }],
+        currentScreenshotError: [null as string | null, { setScreenshotError: (_, { error }) => error }],
         generatingScreenshot: [false, { setGeneratingScreenshot: (_, { generating }) => generating }],
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
         heatmapId: [null as string | null, { setHeatmapId: (_, { id }) => id }],
-        screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
+        currentScreenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
+        historyScreenshotStatus: [
+            null as { url: string; loaded: boolean } | null,
+            {
+                setHistoryScreenshotStatus: (_, { url, loaded }) => ({ url, loaded }),
+                setHistoryView: (state, { view }) => (view ? state : null),
+            },
+        ],
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
         blockConsentModals: [false as boolean, { setBlockConsentModals: (_, { value }) => value }],
         pageUrlDraft: [
@@ -486,7 +536,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         userAccessLevel: [null as AccessControlLevel | null, { setUserAccessLevel: (_, { level }) => level }],
-        lockedWidth: [null as number | null, { setLockedWidth: (_, { lockedWidth }) => lockedWidth }],
+        currentLockedWidth: [null as number | null, { setLockedWidth: (_, { lockedWidth }) => lockedWidth }],
     }),
     listeners(({ actions, values, props, cache }) => ({
         load: async () => {
@@ -770,6 +820,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         exportHeatmap: () => {
+            if (values.historyView) {
+                return
+            }
             if (
                 (values.previewType === 'screenshot' && !values.screenshotUrl) ||
                 (!values.displayUrl && !values.dataUrl)
@@ -791,6 +844,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
     })),
     selectors({
+        screenshotUrl: [
+            (s) => [s.currentScreenshotUrl, s.historyView],
+            (url: string | null, view: HeatmapHistoryView | null): string | null => view?.imageUrl ?? url,
+        ],
+        lockedWidth: [
+            (s) => [s.currentLockedWidth, s.historyView],
+            (width: number | null, view: HeatmapHistoryView | null): number | null => view?.width ?? width,
+        ],
         draftSettings: [
             (s) => [s.name, s.pageUrlDraft, s.dataUrl, s.type, s.blockConsentModals],
             (
@@ -909,9 +970,31 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     : message
             },
         ],
+        screenshotLoaded: [
+            (s) => [s.currentScreenshotLoaded, s.historyScreenshotStatus, s.historyView],
+            (
+                current: boolean,
+                status: { url: string; loaded: boolean } | null,
+                view: HeatmapHistoryView | null
+            ): boolean => (view ? status?.url === view.imageUrl && status.loaded : current),
+        ],
+        screenshotError: [
+            (s) => [s.currentScreenshotError, s.historyScreenshotStatus, s.historyView],
+            (
+                current: string | null,
+                status: { url: string; loaded: boolean } | null,
+                view: HeatmapHistoryView | null
+            ): string | null =>
+                view
+                    ? status?.url === view.imageUrl && !status.loaded
+                        ? 'The historical screenshot failed to load.'
+                        : null
+                    : current,
+        ],
         previewUnavailable: [
-            (s) => [s.previewError, s.generatingScreenshot],
-            (error: string | JSX.Element | null, generating: boolean): boolean => !!error || generating,
+            (s) => [s.previewError, s.generatingScreenshot, s.historyView],
+            (error: string | JSX.Element | null, generating: boolean, view: HeatmapHistoryView | null): boolean =>
+                !!error || (generating && !view),
         ],
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
         displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => hasWildcard(displayUrl ?? '')],

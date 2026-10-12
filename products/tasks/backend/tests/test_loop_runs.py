@@ -1,8 +1,8 @@
 from datetime import timedelta
+from uuid import UUID
 
 from unittest.mock import patch
 
-from django.apps import apps
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -13,6 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.logic.services.loop_runs import (
     DISABLED_REASON_REPEATED_FAILURES,
     DISABLED_REASON_USAGE_LIMITED,
@@ -535,10 +536,11 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
-            ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
-            ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
-            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
-            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "xhigh", "gpt-5", None),
+            ("claude_default_resolves_to_sonnet_5_5", "claude", "", None, "claude-sonnet-5-5", None),
+            ("codex_default_resolves_to_gpt_6_1_sol", "codex", "", None, "gpt-6.1-sol", None),
+            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5-5", "high"),
+            ("supported_effort_on_codex_default_model_is_kept", "codex", "", "xhigh", "gpt-6.1-sol", "xhigh"),
+            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "ultracode", "gpt-6.1-sol", None),
             ("pinned_model_keeps_its_supported_effort", "claude", "claude-sonnet-5", "low", "claude-sonnet-5", "low"),
             (
                 "pinned_model_clamps_unsupported_stored_effort",
@@ -794,13 +796,12 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
         )
         self.channel.save()
-        canvas_model = apps.get_model("canvas", "Canvas")
-        canvas_model.objects.unscoped().create(
-            id=self.CANVAS_ID,
-            team=self.team,
-            channel=self.channel,
+        canvas_testing.create_canvas(
+            canvas_id=UUID(self.CANVAS_ID),
+            team_id=self.team.id,
+            channel_id=self.channel.id,
             name="Growth Team",
-            created_by=self.user,
+            created_by_id=self.user.id,
         )
 
     def context_target(self, **outputs) -> dict:

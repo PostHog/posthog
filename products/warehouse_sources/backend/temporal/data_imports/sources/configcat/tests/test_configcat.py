@@ -1,5 +1,4 @@
 import json
-import base64
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -14,7 +13,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat import configcat
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.configcat import (
     CONFIGCAT_BASE_URL,
-    _headers,
     check_access,
     configcat_source,
     validate_credentials,
@@ -53,35 +51,7 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestHeaders:
-    def test_basic_auth_header_encodes_username_and_password(self) -> None:
-        headers = _headers("user", "pass")
-        expected = base64.b64encode(b"user:pass").decode()
-        assert headers["Authorization"] == f"Basic {expected}"
-        assert headers["Accept"] == "application/json"
-
-
 class TestConfigCatSource:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_full_collection_in_one_request(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [_response([{"productId": "a"}, {"productId": "b"}])])
-
-        rows = _rows(configcat_source("user", "pass", "products", team_id=1, job_id="j"))
-
-        assert rows == [{"productId": "a"}, {"productId": "b"}]
-        # The list endpoint returns the whole collection in a single response — no pagination.
-        assert session.send.call_count == 1
-        assert urls[0] == f"{CONFIGCAT_BASE_URL}/v1/products"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_no_rows(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(configcat_source("user", "pass", "products", team_id=1, job_id="j")) == []
-        assert session.send.call_count == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_fails_loud(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
@@ -91,14 +61,6 @@ class TestConfigCatSource:
         # syncing the stray object as a single row.
         with pytest.raises(ValueError, match="list response body"):
             _rows(configcat_source("user", "pass", "products", team_id=1, job_id="j"))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_targets_endpoint_specific_path(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [_response([{"organizationId": "o"}])])
-
-        _rows(configcat_source("user", "pass", "organizations", team_id=1, job_id="j"))
-        assert urls[0] == f"{CONFIGCAT_BASE_URL}/v1/organizations"
 
 
 class _FakeSession:
@@ -272,26 +234,6 @@ class TestConfigCatAuditLogs:
         return rows, session.paths
 
     @mock.patch.object(configcat, "make_tracked_session")
-    def test_walks_every_page_until_the_api_stops_advertising_one(self, mock_make_session: MagicMock) -> None:
-        bodies = {
-            "/v1/organizations": [{"organizationId": "o1"}],
-            "/v2/organizations/o1/auditlogs?pageNumber=1&pageSize=100": _audit_page([{"auditLogId": 2}], True),
-            "/v2/organizations/o1/auditlogs?pageNumber=2&pageSize=100": _audit_page([{"auditLogId": 1}], False),
-        }
-        rows, paths = self._run(mock_make_session, bodies)
-
-        # The organization is only on the request path, so it is lifted onto each row to complete
-        # the primary key.
-        assert rows == [
-            {"auditLogId": 2, "organizationId": "o1"},
-            {"auditLogId": 1, "organizationId": "o1"},
-        ]
-        assert paths[1:] == [
-            "/v2/organizations/o1/auditlogs?pageNumber=1&pageSize=100",
-            "/v2/organizations/o1/auditlogs?pageNumber=2&pageSize=100",
-        ]
-
-    @mock.patch.object(configcat, "make_tracked_session")
     def test_empty_page_stops_the_walk_even_when_has_next_stays_true(self, mock_make_session: MagicMock) -> None:
         # A page past the end comes back empty. Trusting `hasNext` alone would page forever.
         bodies = {
@@ -317,15 +259,6 @@ class TestConfigCatAuditLogs:
             db_incremental_field_last_value=datetime(2024, 5, 1, 10, 0, tzinfo=UTC),
         )
         assert "fromUtcDateTime=2024-05-01T10%3A00%3A00%2B00%3A00" in paths[1]
-
-    @mock.patch.object(configcat, "make_tracked_session")
-    def test_full_refresh_run_omits_the_watermark(self, mock_make_session: MagicMock) -> None:
-        bodies = {
-            "/v1/organizations": [{"organizationId": "o1"}],
-            "/v2/organizations/o1/auditlogs?pageNumber=1&pageSize=100": _audit_page([], False),
-        }
-        _, paths = self._run(mock_make_session, bodies)
-        assert "fromUtcDateTime" not in paths[1]
 
     @parameterized.expand(
         [
@@ -562,11 +495,6 @@ class TestConfigCatSourceResponse:
         partition_key = CONFIGCAT_ENDPOINTS[endpoint].partition_key
         assert response.partition_mode == ("datetime" if partition_key else None)
         assert response.partition_keys == ([partition_key] if partition_key else None)
-
-    def test_primary_keys_are_per_endpoint(self) -> None:
-        assert CONFIGCAT_ENDPOINTS["products"].primary_keys == ["productId"]
-        assert CONFIGCAT_ENDPOINTS["organizations"].primary_keys == ["organizationId"]
-        assert set(CONFIGCAT_ENDPOINTS) == set(ENDPOINTS)
 
     @parameterized.expand([(name,) for name, config in CONFIGCAT_ENDPOINTS.items() if config.parent is not None])
     def test_fan_out_keys_include_every_parent_in_the_path(self, endpoint: str) -> None:

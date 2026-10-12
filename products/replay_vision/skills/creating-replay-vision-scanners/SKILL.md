@@ -42,6 +42,10 @@ confirmation before creating. This is the heart of the skill; the rest is suppor
 
 ### Step 1: What should the scanner do?
 
+If the question, type, or prompt is still vague, run [[designing-replay-vision-scanners]] first. It turns a wish
+into one visible question with a fixed answer shape, a proof rule, and permission to say inconclusive. Come back
+here once those are settled.
+
 Pick a `scanner_type` and write its `scanner_config`. Every type needs a `prompt`; the rest is type-specific:
 
 | Type         | What it produces                                                  | `scanner_config` shape                                                                                                                                                      |
@@ -171,9 +175,8 @@ observations they have to go read.
 - **Notifications and digests.** `vision-alerts-create` (plus a destination) notifies on findings;
   `vision-scanners-scouts-create` adds a scheduled scout that writes a report about the scanner's findings.
 - **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.
-  Tell the user that rating results thumbs up or down with `vision-observations-label-create` turns into a
-  config recommendation they can review on the scanner's Calibration tab. Most scanners are never rated, so
-  they run forever on the first guess. The `exploring-replay-vision-observations` skill covers that loop.
+  Tell the user to rate results thumbs up or down with `vision-observations-label-create`, with a line on
+  what the scanner got wrong or right. Most scanners are never rated, so they run forever on the first guess. The `exploring-replay-vision-observations` skill covers that loop.
 
 ## Updating an existing scanner
 

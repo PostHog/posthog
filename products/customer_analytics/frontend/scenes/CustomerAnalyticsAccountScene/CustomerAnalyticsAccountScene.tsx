@@ -21,8 +21,10 @@ import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountDetailActions } from './AccountDetailActions'
 import { AccountDetailNavigation } from './AccountDetailNavigation'
+import { AccountExternalId } from './AccountExternalId'
 import { AccountPresence } from './AccountPresence'
 import { AccountSidebar } from './AccountSidebar'
+import { AccountStatusTags } from './AccountStatusTags'
 import { AccountViewEditorModal } from './AccountViewEditorModal'
 import { AccountViewTileEditorModal } from './AccountViewTileEditorModal'
 import { ConfigureAccountTabsModal } from './ConfigureAccountTabsModal'
@@ -127,6 +129,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
             <SceneTitleSection
                 name={account.name}
+                nameSuffix={<AccountStatusTags account={account} />}
                 resourceType={{
                     type: 'cohort',
                     forceIcon: <AccountLogo domain={getAccountLogoDomain(account)} name={account.name} />,
@@ -138,6 +141,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                     </>
                 }
             />
+            {account.external_id ? <AccountExternalId externalId={account.external_id} /> : null}
             <SceneDivider />
             <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto -mt-4 -mr-4 [scrollbar-gutter:stable] @min-[60rem]:-ml-4 @min-[60rem]:[scrollbar-gutter:auto]">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:flex-row">

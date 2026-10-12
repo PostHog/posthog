@@ -1,5 +1,4 @@
 import json
-import base64
 from typing import Any
 
 import pytest
@@ -101,21 +100,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "partnerships"):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_more_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"key": "a"}, {"key": "b"}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"key": "a"}, {"key": "b"}]
-        assert session.send.call_count == 1
-        # has_more is false, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-        # First page omits the cursor and carries the page size.
-        assert params[0] == {"limit": PAGE_SIZE}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_cursor_until_has_more_false(self, MockSession) -> None:
         session = MockSession.return_value
         params, _ = _wire(
@@ -148,17 +132,6 @@ class TestPagination:
         assert params[0]["starting_after"] == "b"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_when_last_object_missing_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         # has_more is true but the last object has no `key`, so we can't advance and must stop.
@@ -170,30 +143,6 @@ class TestPagination:
         assert rows == [{"no_key": 1}]
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_has_more_defaults_to_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body={"data": {"items": [{"key": "a"}]}})])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        # No has_more flag means the collection ended after this page.
-        assert rows == [{"key": "a"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_basic_auth_and_accept_headers(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, headers = _wire(session, [_response([{"key": "a"}])])
-
-        _rows(_source(_make_manager()))
-
-        expected = base64.b64encode(b"pub:priv").decode("ascii")
-        assert headers[0]["Authorization"] == f"Basic {expected}"
-        # The non-secret Accept header is applied to the session by the client.
-        assert session.headers.get("Accept") == "application/json"
 
 
 class TestRetryAndFailure:

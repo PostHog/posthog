@@ -49,7 +49,7 @@ class ActivityLogSerializer(serializers.Serializer):
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
     item_id = serializers.CharField(read_only=True)
-    detail = DetailSerializer(required=False)
+    detail = DetailSerializer(source="safe_detail", required=False)
     created_at = serializers.DateTimeField(read_only=True)
     is_system = serializers.BooleanField(
         read_only=True, help_text="Whether the activity was performed by the system rather than a user."

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -16,6 +19,7 @@ import {
     filterSearchParams,
     inboxFiltersLogic,
     InboxFilterState,
+    InboxSortField,
     parseFilterSearchParams,
 } from './inboxFiltersLogic'
 
@@ -30,6 +34,7 @@ const DEFAULT_STATE: InboxFilterState = {
     sortField: 'priority',
     sortDirection: 'asc',
     searchQuery: '',
+    createdWindow: null,
 }
 
 describe('inboxFiltersLogic', () => {
@@ -49,6 +54,10 @@ describe('inboxFiltersLogic', () => {
 
         it('leads with priority for "Priority first"', () => {
             expect(buildSignalReportListOrdering('priority', 'asc')).toBe('priority,status,-updated_at')
+        })
+
+        it('leads with the ranking field for a model sort', () => {
+            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
         })
     })
 
@@ -72,6 +81,7 @@ describe('inboxFiltersLogic', () => {
                     sortField: 'created_at',
                     sortDirection: 'desc',
                     searchQuery: 'checkout crash',
+                    createdWindow: null,
                 },
                 {
                     scope: 'entire-project',
@@ -91,6 +101,7 @@ describe('inboxFiltersLogic', () => {
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
+            ['a created-in window', { ...DEFAULT_STATE, createdWindow: '7d' }, { created: '7d' }],
         ])('round-trips %s through encode/decode', (_name, state, expectedParams) => {
             expect(filterSearchParams(state)).toEqual(expectedParams)
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
@@ -114,6 +125,24 @@ describe('inboxFiltersLogic', () => {
                 sourceProductFilter: ['error_tracking'],
                 priorityFilter: ['P1'],
                 stateFilter: ['monitoring'],
+            })
+        })
+
+        it.each([
+            ['keeps a model sort for a user who can use it', 'ranking_action:desc', true, 'ranking_action', 'desc'],
+            ['falls back to the default sort for a user who cannot', 'ranking_action:desc', false, 'priority', 'asc'],
+            [
+                'falls back to the default sort for a head the menu no longer offers',
+                'ranking_pr_merged:desc',
+                true,
+                'priority',
+                'asc',
+            ],
+        ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
+            expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
+                ...DEFAULT_STATE,
+                sortField,
+                sortDirection,
             })
         })
     })
@@ -179,7 +208,7 @@ describe('inboxFiltersLogic', () => {
         })
     })
 
-    describe('scout filters', () => {
+    describe('filter state', () => {
         let logic: ReturnType<typeof inboxFiltersLogic.build>
 
         beforeEach(() => {
@@ -192,6 +221,15 @@ describe('inboxFiltersLogic', () => {
 
         afterEach(() => {
             logic.unmount()
+        })
+
+        it.each([{}, { search: 'trial search' }])('leaves trial URLs and inbox filters unchanged for %p', (params) => {
+            logic.actions.setFilters({ ...DEFAULT_STATE, searchQuery: 'inbox search' })
+
+            router.actions.push(urls.inboxScoutTrials(), params)
+
+            expect(router.values.searchParams).toEqual(params)
+            expect(logic.values.searchQuery).toBe('inbox search')
         })
 
         it('clears scouts without resetting the other filters', () => {
@@ -208,6 +246,45 @@ describe('inboxFiltersLogic', () => {
                 scoutFilter: [],
                 priorityFilter: ['P1'],
                 searchQuery: 'checkout',
+            })
+        })
+
+        it.each([
+            [
+                'keeps a stored model sort for staff with the flag',
+                'ranking_action',
+                true,
+                true,
+                'ranking_action',
+                'desc',
+            ],
+            ['falls back to the default once the flag is off', 'ranking_action', false, true, 'priority', 'asc'],
+            ['falls back to the default for a non-staff user', 'ranking_action', true, false, 'priority', 'asc'],
+            [
+                'falls back to the default for a stored head the menu no longer offers',
+                'ranking_pr_merged',
+                true,
+                true,
+                'priority',
+                'asc',
+            ],
+        ] as const)('%s', (_name, storedSortField, flagOn, isStaff, activeSortField, activeSortDirection) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
+            // A sort persisted by an older build can name a head the type no longer lists.
+            logic.actions.setSort(storedSortField as InboxSortField, 'desc')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+
+            expect(logic.values).toMatchObject({
+                sortField: storedSortField,
+                activeSortField,
+                activeSortDirection,
             })
         })
     })

@@ -22,11 +22,17 @@ export interface ScoreDefinitionDraft {
     selectionMode: CategoricalSelectionMode
     categoricalMinSelections: string
     categoricalMaxSelections: string
+    categoricalPassingEnabled: boolean
+    categoricalPassingCategories: string[]
     numericMin: string
     numericMax: string
     numericStep: string
+    numericPassingEnabled: boolean
+    numericPassingOperator: 'gte' | 'lte'
+    numericPassingThreshold: string
     trueLabel: string
     falseLabel: string
+    booleanPassing: 'true' | 'false'
 }
 
 export const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: CategoricalSelectionMode }[] = [
@@ -34,8 +40,8 @@ export const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: Categor
     { label: 'Multi-select', value: 'multiple' },
 ]
 
-const DEFAULT_BOOLEAN_TRUE_LABEL = 'Good'
-const DEFAULT_BOOLEAN_FALSE_LABEL = 'Bad'
+const DEFAULT_BOOLEAN_TRUE_LABEL = 'True'
+const DEFAULT_BOOLEAN_FALSE_LABEL = 'False'
 
 export function formatKindLabel(kind: ScoreDefinitionKind): string {
     if (kind === 'categorical') {
@@ -63,6 +69,10 @@ function suggestKey(value: string): string {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
         .replace(/^_+|_+$/g, '')
+}
+
+export function getScoreDefinitionOptionKey(option: ScoreDefinitionOption): string {
+    return option.key.trim() || suggestKey(option.label)
 }
 
 export function getCurrentProjectId(): string {
@@ -150,6 +160,8 @@ export function createDraft(
         kind,
         options: defaultOptions,
         selectionMode: categoricalConfig.selection_mode || 'single',
+        categoricalPassingEnabled: categoricalConfig.passing_rule != null,
+        categoricalPassingCategories: categoricalConfig.passing_rule?.categories ?? [],
         categoricalMinSelections:
             categoricalConfig.min_selections === undefined || categoricalConfig.min_selections === null
                 ? ''
@@ -161,8 +173,12 @@ export function createDraft(
         numericMin: numericConfig.min === undefined || numericConfig.min === null ? '' : String(numericConfig.min),
         numericMax: numericConfig.max === undefined || numericConfig.max === null ? '' : String(numericConfig.max),
         numericStep: numericConfig.step === undefined || numericConfig.step === null ? '' : String(numericConfig.step),
-        trueLabel: booleanConfig.true_label || DEFAULT_BOOLEAN_TRUE_LABEL,
-        falseLabel: booleanConfig.false_label || DEFAULT_BOOLEAN_FALSE_LABEL,
+        numericPassingEnabled: numericConfig.passing_rule != null,
+        numericPassingOperator: numericConfig.passing_rule?.operator ?? 'gte',
+        numericPassingThreshold: numericConfig.passing_rule == null ? '' : String(numericConfig.passing_rule.threshold),
+        trueLabel: booleanConfig.true_label ?? (baseDefinition ? '' : DEFAULT_BOOLEAN_TRUE_LABEL),
+        falseLabel: booleanConfig.false_label ?? (baseDefinition ? '' : DEFAULT_BOOLEAN_FALSE_LABEL),
+        booleanPassing: booleanConfig.true_is_failure ? 'false' : 'true',
     }
 }
 
@@ -170,7 +186,7 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
     if (draft.kind === 'categorical') {
         const categoricalConfig: CategoricalScoreDefinitionConfig = {
             options: draft.options.map((option) => ({
-                key: option.key.trim() || suggestKey(option.label),
+                key: getScoreDefinitionOptionKey(option),
                 label: option.label.trim(),
             })),
         }
@@ -190,6 +206,9 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
             }
         }
 
+        if (draft.categoricalPassingEnabled) {
+            categoricalConfig.passing_rule = { categories: [...draft.categoricalPassingCategories].sort() }
+        }
         return categoricalConfig
     }
 
@@ -208,6 +227,12 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
         if (step !== null) {
             numericConfig.step = step
         }
+        if (draft.numericPassingEnabled) {
+            numericConfig.passing_rule = {
+                operator: draft.numericPassingOperator,
+                threshold: parseOptionalNumber(draft.numericPassingThreshold) ?? NaN,
+            }
+        }
 
         return numericConfig
     }
@@ -219,6 +244,7 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
     if (draft.falseLabel.trim()) {
         booleanConfig.false_label = draft.falseLabel.trim()
     }
+    booleanConfig.true_is_failure = draft.booleanPassing === 'false'
     return booleanConfig
 }
 
@@ -255,6 +281,15 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
             optionKeys.add(normalizedKey)
         }
 
+        if (draft.categoricalPassingEnabled) {
+            if (draft.selectionMode === 'single' && draft.categoricalPassingCategories.length === 0) {
+                return 'Choose at least one passing category.'
+            }
+            if (draft.categoricalPassingCategories.some((key) => !optionKeys.has(key))) {
+                return 'Choose passing categories from the configured options.'
+            }
+        }
+
         if (draft.selectionMode === 'multiple') {
             const selectionValues = [draft.categoricalMinSelections, draft.categoricalMaxSelections]
             if (selectionValues.some((value) => value.trim() && Number.isNaN(parseOptionalInteger(value)))) {
@@ -263,6 +298,14 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
 
             const minimum = parseOptionalInteger(draft.categoricalMinSelections)
             const maximum = parseOptionalInteger(draft.categoricalMaxSelections)
+
+            if (minimum !== null && minimum < 1) {
+                return 'Minimum selections must be at least 1.'
+            }
+
+            if (maximum !== null && maximum < 1) {
+                return 'Maximum selections must be at least 1.'
+            }
 
             if (minimum !== null && minimum > draft.options.length) {
                 return 'Minimum selections cannot exceed the number of options.'
@@ -288,6 +331,19 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
         const maximum = parseOptionalNumber(draft.numericMax)
         if (minimum !== null && maximum !== null && minimum > maximum) {
             return 'Numeric max must be greater than or equal to min.'
+        }
+        const step = parseOptionalNumber(draft.numericStep)
+        if (step !== null && step <= 0) {
+            return 'Set the increment to a number greater than zero.'
+        }
+        if (draft.numericPassingEnabled) {
+            const threshold = parseOptionalNumber(draft.numericPassingThreshold)
+            if (threshold === null || !Number.isFinite(threshold)) {
+                return 'Enter a valid number for the passing threshold.'
+            }
+            if ((minimum !== null && threshold < minimum) || (maximum !== null && threshold > maximum)) {
+                return 'Set the passing threshold within the score bounds.'
+            }
         }
     }
 

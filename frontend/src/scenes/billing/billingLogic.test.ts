@@ -182,8 +182,21 @@ describe('billingLogic', () => {
         }
     )
 
-    it('treats exactly 100% usage as a reached limit alert', async () => {
-        billingState = billingWithProducts([productWithUsage(1)])
+    it.each([
+        {
+            name: 'self-serve billing',
+            billing: {},
+            expectedMessage:
+                'You have reached the usage limit for Product analytics. Please upgrade your plan or data loss may occur.',
+        },
+        {
+            name: 'partner-managed billing',
+            billing: { customer_id: '', billing_managed_by_partner: { partner_name: 'Example Partner' } },
+            expectedMessage:
+                'You have reached the usage limit for Product analytics. Data loss may occur. Billing for this organization is managed by Example Partner. Contact them to change your plan or payment details.',
+        },
+    ])('treats exactly 100% usage as a reached limit alert with $name', async ({ billing, expectedMessage }) => {
+        billingState = { ...billingWithProducts([productWithUsage(1, { subscribed: false })]), ...billing }
         billingLogic.mount()
         await expectLogic(preflightLogic).toFinishAllListeners()
 
@@ -194,7 +207,7 @@ describe('billingLogic', () => {
         expect(billingLogic.values.billingAlert).toMatchObject({
             status: 'error',
             title: 'Usage limit reached',
-            message: expect.stringContaining('You have reached the usage limit for Product analytics.'),
+            message: expectedMessage,
             productKey: ProductKey.PRODUCT_ANALYTICS,
         })
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(true)
@@ -211,6 +224,38 @@ describe('billingLogic', () => {
 
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
     })
+
+    it.each([
+        { name: 'eligible for credits', eligible: true, partnerName: 'Example Partner', shownName: 'Example Partner' },
+        {
+            name: 'not eligible for credits',
+            eligible: false,
+            partnerName: 'Example Partner',
+            shownName: 'Example Partner',
+        },
+        { name: 'blank partner name', eligible: false, partnerName: '', shownName: 'your partner' },
+    ])(
+        'hides the upgrade and credits heroes when a partner manages billing ($name)',
+        async ({ eligible, partnerName, shownName }) => {
+            billingState = {
+                ...billingJson,
+                customer_id: '',
+                billing_managed_by_partner: { partner_name: partnerName },
+            }
+            useMocks({ get: { '/api/billing/credits/overview': [200, { ...creditOverviewResponse, eligible }] } })
+            billingLogic.mount()
+
+            await expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+
+            expect(billingLogic.values).toMatchObject({
+                showCreditCTAHero: false,
+                showBillingHero: false,
+                billingManagedByPartnerNotice: `Billing for this organization is managed by ${shownName}. Contact them to change your plan or payment details.`,
+            })
+        }
+    )
 
     it('clears a stale usage limit alert when refreshed billing data no longer qualifies', async () => {
         billingState = billingWithProducts([productWithUsage(1)])

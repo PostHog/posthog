@@ -124,7 +124,7 @@ async def _run(
             _mock_hogql_table(*batches, value_column=value_column, windows=windows, column_types=column_types),
         ),
         unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view._incremental_enabled",
+            "products.data_modeling.backend.logic.incremental_plan.incremental_enabled",
             return_value=enabled,
         ),
     ):

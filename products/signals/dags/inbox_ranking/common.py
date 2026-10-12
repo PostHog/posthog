@@ -19,6 +19,8 @@ from posthog import settings
 from posthog.dags.common import JobOwners
 from posthog.storage.object_storage import ObjectStorage
 
+from products.signals.backend.models import SignalActorKind
+
 DATASET_VERSION = "v1"
 
 S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
@@ -36,6 +38,25 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+# The resolve button used as a dismissal: the report was resolved, but the problem was not fixed.
+NOT_FIXED_RESOLUTION_REASONS = (
+    "analysis_wrong",
+    "wontfix_intentional",
+    "wontfix_irrelevant",
+    "report_unclear",
+    "wrong_repo",
+)
+# A dismissal that says the problem was real and is fixed somewhere.
+FIXED_DISMISSAL_REASONS = ("already_fixed", "fixed_outside_posthog", "pr_merged")
+# A dismissal that says the problem is real but not worth fixing: a relevance failure, not a precision failure.
+LOW_VALUE_DISMISSAL_REASONS = ("wontfix_irrelevant",)
+
+# Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
+# client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
+# (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
+# internal operational writes, far more frequent than the human ones, and say nothing about intent.
+# A null actor is a legacy or system write, so it is also excluded.
+HUMAN_ACTOR_KINDS = (SignalActorKind.USER, SignalActorKind.AGENT)
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
@@ -113,9 +134,19 @@ def serving_mirror_storage() -> ObjectStorage:
 
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
 ROW_COUNT_METADATA_KEY = "row-count"
+# The FEATURE_SCHEMA_VERSION the labels asset wrote an object under. The refresh sensor rewrites a
+# partition whose stamp is missing or older, so a new label column reaches the whole lookback.
+SCHEMA_VERSION_METADATA_KEY = "feature-schema-version"
 
 
-def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
+def write_parquet(
+    client,
+    bucket: str,
+    key: str,
+    table: pa.Table,
+    snapshot_date: str | None = None,
+    schema_version: int | None = None,
+) -> None:
     """Write one Parquet object at a deterministic key.
 
     Spooled to a temp file and uploaded with `upload_fileobj` rather than held as bytes for
@@ -126,6 +157,8 @@ def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date:
     metadata = {ROW_COUNT_METADATA_KEY: str(table.num_rows)}
     if snapshot_date:
         metadata[SNAPSHOT_DATE_METADATA_KEY] = snapshot_date
+    if schema_version is not None:
+        metadata[SCHEMA_VERSION_METADATA_KEY] = str(schema_version)
     with tempfile.TemporaryFile() as spool:
         pq.write_table(table, spool, compression="zstd")
         spool.seek(0)
@@ -154,6 +187,19 @@ def object_row_count(client, bucket: str, key: str) -> int | None:
             return None
         raise
     stamped = head.get("Metadata", {}).get(ROW_COUNT_METADATA_KEY)
+    return int(stamped) if stamped is not None else None
+
+
+def object_schema_version(client, bucket: str, key: str) -> int | None:
+    """The schema version stamped on an object at write time, or None when the object is missing
+    or predates the stamp."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    stamped = head.get("Metadata", {}).get(SCHEMA_VERSION_METADATA_KEY)
     return int(stamped) if stamped is not None else None
 
 

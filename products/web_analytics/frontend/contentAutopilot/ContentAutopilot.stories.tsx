@@ -1,4 +1,6 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -11,6 +13,7 @@ import type {
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
+import { type ContentAutopilotProposalTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_OPPORTUNITIES,
@@ -122,9 +125,97 @@ export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => (
         <ContentAutopilot />
     </div>
 )
+ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 ActiveRun.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],
         runs: [{ ...EXAMPLE_RUN, run_status: 'generating', completed_at: null }],
     }),
 ]
+
+export const FailedRun: StoryFn<typeof ContentAutopilot> = () => (
+    <div className="p-6">
+        <ContentAutopilot />
+    </div>
+)
+FailedRun.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [
+            {
+                ...EXAMPLE_RUN,
+                run_status: 'failed',
+                errors: [
+                    {
+                        error_code: 'timed_out',
+                        message: 'Drafting took too long. Try fewer opportunities at once.',
+                    },
+                ],
+            },
+        ],
+    }),
+]
+
+const ProposalStory = ({ tab }: { tab?: ContentAutopilotProposalTab }): JSX.Element => {
+    const { profileDataLoaded } = useValues(contentAutopilotLogic)
+    const { selectProposal, setProposalTab } = useActions(contentAutopilotLogic)
+    useEffect(() => {
+        if (profileDataLoaded) {
+            selectProposal(EXAMPLE_PROPOSAL.id)
+            if (tab) {
+                setProposalTab(tab)
+            }
+        }
+    }, [profileDataLoaded, selectProposal, setProposalTab, tab])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const ProposalReview: StoryFn<typeof ContentAutopilot> = () => <ProposalStory tab="changes" />
+ProposalReview.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [EXAMPLE_RUN],
+        proposals: [EXAMPLE_PROPOSAL_LIST],
+        opportunities: EXAMPLE_OPPORTUNITIES,
+    }),
+]
+
+export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => {
+    const { profileDataLoaded } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    useEffect(() => {
+        if (profileDataLoaded) {
+            setWorkspaceTab('drafts')
+        }
+    }, [profileDataLoaded, setWorkspaceTab])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+DraftsTab.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [EXAMPLE_RUN],
+        proposals: [
+            { ...EXAMPLE_PROPOSAL_LIST, id: '00000000-0000-4000-8000-000000000211', lifecycle_status: 'failed' },
+            EXAMPLE_PROPOSAL_LIST,
+            {
+                ...EXAMPLE_PROPOSAL_LIST,
+                id: '00000000-0000-4000-8000-000000000212',
+                proposal_type: 'new_content',
+                lifecycle_status: 'exported',
+                title: 'Does web analytics work without cookies?',
+            },
+        ],
+        opportunities: EXAMPLE_OPPORTUNITIES,
+    }),
+]
+
+export const ProposalPreview: StoryFn<typeof ContentAutopilot> = () => <ProposalStory />
+ProposalPreview.decorators = ProposalReview.decorators

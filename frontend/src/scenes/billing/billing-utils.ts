@@ -8,7 +8,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
-import { wordPluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
@@ -42,6 +42,10 @@ export const calculateFreeTier = (product: BillingProductV2Type | BillingProduct
     return product.free_allocation || 0
 }
 
+// Add-ons never carry the flag, and older billing omits it, so both count as allowing a limit.
+export const canHaveBillingLimit = (product: BillingProductV2Type | BillingProductV2AddonType): boolean =>
+    !('no_billing_limit' in product && product.no_billing_limit === true)
+
 export const createGaugeItems = (
     product: BillingProductV2Type | BillingProductV2AddonType,
     options: {
@@ -55,7 +59,8 @@ export const createGaugeItems = (
         // Billing limit (only for main products, excl. product variants setup)
         options.billingLimitAsUsage &&
         options.billing?.discount_percent !== 100 &&
-        !isProductVariantPrimary(product.type)
+        !isProductVariantPrimary(product.type) &&
+        canHaveBillingLimit(product)
             ? {
                   type: BillingGaugeItemKind.BillingLimit,
                   text: 'Billing limit',
@@ -698,7 +703,8 @@ export function getUsageLimitConsequence(productName: string): string {
 export function buildUsageLimitReachedMessage(
     products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
-    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
+    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin,
+    billingManagedByPartnerNotice: string | null = null
 ): {
     title: string
     message: string
@@ -715,6 +721,14 @@ export function buildUsageLimitReachedMessage(
 
     const productListText = formatProductNames(productNames)
     const consequenceText = consequences.join(' and ')
+    const title = products.length === 1 ? 'Usage limit reached' : 'Usage limits reached'
+
+    if (billingManagedByPartnerNotice && !allSubscribed) {
+        return {
+            title,
+            message: `You have reached the usage limit for ${productListText}. ${capitalizeFirstLetter(consequenceText)}. ${billingManagedByPartnerNotice}`,
+        }
+    }
 
     let actionText: string
     if (hasBillingAccess) {
@@ -727,7 +741,7 @@ export function buildUsageLimitReachedMessage(
     }
 
     return {
-        title: products.length === 1 ? 'Usage limit reached' : 'Usage limits reached',
+        title,
         message: `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
     }
 }

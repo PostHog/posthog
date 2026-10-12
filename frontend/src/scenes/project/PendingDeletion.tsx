@@ -5,6 +5,7 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { OrgSwitcher } from 'lib/components/Account/OrgSwitcher'
+import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { ProjectSwitcher } from 'lib/components/Account/ProjectSwitcher'
 import { HogWelder } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
@@ -26,7 +27,9 @@ export function ProjectPendingDeletion(): JSX.Element {
     const { isProjectSwitcherOpen, isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
     const { openProjectSwitcher, closeProjectSwitcher, openOrgSwitcher, closeOrgSwitcher } =
         useActions(newAccountMenuLogic)
-    const hasOtherOrgs = otherOrganizations.length > 0
+    const { pendingInvites } = useValues(pendingInvitesLogic)
+    // Pending invites are accepted from the organization switcher, so show it for them too
+    const showOrgSwitcher = otherOrganizations.length > 0 || pendingInvites.length > 0
 
     return (
         <div className="max-w-[600px] mx-auto px-2 py-8">
@@ -73,7 +76,7 @@ export function ProjectPendingDeletion(): JSX.Element {
                                 Switch project
                             </LemonButton>
                         </Popover>
-                        {hasOtherOrgs && (
+                        {showOrgSwitcher && (
                             <Popover
                                 visible={isOrgSwitcherOpen}
                                 onClickOutside={closeOrgSwitcher}

@@ -7,6 +7,7 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 
 from __future__ import annotations
 
+import math
 import time
 import asyncio
 from collections.abc import Callable, Coroutine
@@ -40,6 +41,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     CoalesceMember,
     extends_set,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    release_group_table_handle,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -64,17 +71,23 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
+    GAUGE_STATEMENT_TIMEOUT_MS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    ClaimCursor,
     FailedRunRef,
     PendingBatch,
+    QueueDepth,
     _Unset,
+    queue_gauges_slot_key,
 )
 from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     CLAIMABLE_GROUPS,
+    DEPTH_PROBE_TIMEOUTS_TOTAL,
+    DEPTH_SAMPLE_AGE_SECONDS,
     DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
@@ -83,6 +96,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     SERIALIZED_BATCHES,
     SLOT_WAITING_BATCHES,
     TOP_GROUPS_CLAIMABLE_SHARE,
+    clear_queue_sample_gauges,
     observe_queue_query,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
@@ -162,6 +176,12 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    # a role-based AWS destination has no external role configured in this environment — every
+    # retry fails identically until that's fixed, independent of the customer's own role ARN
+    "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set",
+    # a destination's own settings refuse the connection (bad credentials, unknown database,
+    # unroutable host); the next scheduled run tries again after the customer fixes them
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -175,6 +195,8 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # the schema or job was deleted (e.g. the user removed the source) while a batch for it
     # was still in flight — an upstream/customer action, not a pipeline bug
     *DELETION_ERROR_PATTERNS,
+    # a destination the customer configured refuses the connection, which only they can fix
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -225,6 +247,16 @@ class DeltaBatchConsumerAdapter:
         # None/None (the default) means the whole queue — a single-fleet deployment.
         self._claim_sync_types = claim_sync_types
         self._claim_exclude_sync_types = claim_exclude_sync_types
+        # Stable for the life of the consumer, so the gauge-slot holder can renew its own slot.
+        self._gauge_owner_token = str(uuid4())
+        self._gauge_slot_key = queue_gauges_slot_key(
+            sync_types=claim_sync_types, exclude_sync_types=claim_exclude_sync_types
+        )
+        # Last full depth sample and when it was taken (time.monotonic()). Only the gauge
+        # slot holder keeps one; it is re-exported while the depth probe times out.
+        self._depth_sample: QueueDepth | None = None
+        self._depth_sampled_at = 0.0
+        self._claim_cursor = ClaimCursor()
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
         # job_id -> (status, latest_error) for dead jobs only, so the drain decision in
@@ -248,6 +280,7 @@ class DeltaBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
             sync_types=self._claim_sync_types,
             exclude_sync_types=self._claim_exclude_sync_types,
+            cursor=self._claim_cursor,
         )
 
     async def unlock(
@@ -329,7 +362,9 @@ class DeltaBatchConsumerAdapter:
             try:
                 # `to_export_signal()` hands back a dict, so it needs parsing the same way the
                 # delivery path does before anything reads a field off it.
-                await sync_to_async(abort_destinations)(ExportSignalMessage.from_dict(batch.to_export_signal()))
+                await sync_to_async(abort_destinations)(
+                    ExportSignalMessage.from_dict(batch.to_export_signal()), failure_reason=reason
+                )
             except Exception as e:
                 # Best effort by design: a leftover table costs the customer storage, not
                 # correctness, and is not worth failing the fail path over.
@@ -467,9 +502,8 @@ class DeltaBatchConsumerAdapter:
         # which is exactly when concurrent copies on every pod can saturate the
         # queue DB and starve the claim path (the 2026-08-09 loader stall: 36
         # concurrent sweep queries, claim polls timing out fleet-wide). The
-        # freshness probe above deliberately stays outside the slot: every pod
-        # must keep its own gauge current, or max() across the fleet pins stale
-        # values. The token is throwaway — the slot is never verified or
+        # freshness probe above has its own slot, so a long sweep cannot delay
+        # the gauges. The token is throwaway — the slot is never verified or
         # released, it just expires into the next pod's hands.
         if not await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token=str(uuid4())):
             logger.debug("reconcile_sweep_slot_held_elsewhere")
@@ -737,49 +771,132 @@ class DeltaBatchConsumerAdapter:
                     )
                     capture_exception(e)
 
-    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
-        """Report the age of the oldest batch no consumer has picked up yet.
+    async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
+        return await self._observe_queue_freshness(conn)
+
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        await BatchQueue.release_queue_gauges_slot(
+            conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
+        )
+        self._depth_sample = None
+        clear_queue_sample_gauges()
+
+    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> bool:
+        """Report the age of the oldest batch no consumer has picked up yet, and the queue depth.
 
         This is the loader's data-freshness signal: it rises whenever loading
         stalls, no matter why — the alert on it fires even when every other
-        health signal looks green. The probe has its own timeout so it cannot
-        eat the reconcile sweep's budget; on timeout the gauge saturates, since
-        a queue DB too degraded to measure freshness must read as stale. Other
-        failures are swallowed-with-capture so a broken probe can't take the
-        sweep down.
+        health signal looks green.
+
+        The gauges are queue-wide, so only the pod that holds this fleet's gauge
+        slot samples them. Every other pod exports NaN ("no sample"), which max()
+        across the fleet skips. Each pod blanks its gauges before it asks for the
+        slot, so a pod that sampled in an earlier round can never keep exporting
+        that value as if it were fresh.
+
+        Each probe statement has a server-side timeout. Past it, the freshness
+        probe skips its sample and its gauges stay NaN, except that the age gauge
+        saturates on any timeout, because a queue DB too degraded to measure
+        freshness must read as stale. The depth gauges behave differently: the
+        queue is deepest exactly when the depth probe is slowest, so NaN would
+        read as an empty queue on a panel. The slot holder repeats its last good
+        depth sample instead, and ``warehouse_pg_queue_depth_sample_age_seconds``
+        says how old it is. A pod that does not hold the slot drops its sample
+        and exports NaN. The whole probe also has a client timeout,
+        so it cannot eat the reconcile sweep's budget. Other failures are
+        swallowed-with-capture so a broken probe can't take the sweep down.
+
+        Returns True when this pod holds the gauge slot.
         """
+        clear_queue_sample_gauges()
+        holds_slot = False
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                with observe_queue_query("oldest_unclaimed_probe"):
-                    freshness = await BatchQueue.get_queue_freshness(
-                        conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
-                    )
-                # Set immediately, so a failure in the depth probe below can never
-                # blind the age gauge this alert hangs off.
-                OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
-                BLOCKED_BATCHES.set(freshness.blocked_batches)
-                BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
-                # Depth rides the same probe and timeout: age says how stale the head
-                # of the queue is, depth says how much sits behind it — a stall and a
-                # burst are indistinguishable on age alone.
-                with observe_queue_query("claimable_depth_probe"):
-                    depth = await BatchQueue.get_queue_depth(conn)
-                CLAIMABLE_BATCHES.set(depth.claimable_batches)
-                CLAIMABLE_GROUPS.set(depth.claimable_groups)
-                TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
-                SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
-                SERIALIZED_BATCHES.set(depth.serialized_batches)
+                holds_slot = await BatchQueue.try_acquire_queue_gauges_slot(
+                    conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
+                )
+                if not holds_slot:
+                    self._depth_sample = None
+                    logger.debug("queue_gauges_slot_held_elsewhere")
+                    return False
+                await self._sample_queue_gauges(conn)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
                 timeout_seconds=FRESHNESS_PROBE_TIMEOUT_SECONDS,
             )
             OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
-            return
+            if holds_slot:
+                self._export_last_depth_sample()
+            return holds_slot
         except Exception as e:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
+            return holds_slot
+        return True
+
+    async def _sample_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        try:
+            with observe_queue_query("oldest_unclaimed_probe"):
+                freshness = await BatchQueue.get_queue_freshness(
+                    conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
+                )
+        except psycopg.errors.QueryCanceled:
+            logger.info("queue_freshness_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            # The depth probe reads a larger set than this one, so it would time out too.
+            self._export_last_depth_sample()
             return
+        # Set immediately, so a failure in the depth probe below can never
+        # blind the age gauge this alert hangs off.
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
+        BLOCKED_BATCHES.set(freshness.blocked_batches)
+        BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
+        # Depth rides the same slot and timeout: age says how stale the head of
+        # the queue is, depth says how much sits behind it — a stall and a burst
+        # are indistinguishable on age alone.
+        try:
+            with observe_queue_query("claimable_depth_probe"):
+                depth = await BatchQueue.get_queue_depth(conn)
+        except psycopg.errors.QueryCanceled:
+            DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count").inc()
+            logger.info("queue_depth_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            self._export_last_depth_sample()
+            return
+        now = time.monotonic()
+        previous = self._depth_sample
+        if depth.claimable_groups is None:
+            DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="breakdown").inc()
+            logger.info("queue_depth_breakdown_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            # The fresh count still lands. The split keeps its last good value and its age.
+            self._depth_sample = QueueDepth(
+                claimable_batches=depth.claimable_batches,
+                claimable_groups=previous.claimable_groups if previous else None,
+                top_groups_claimable_share=previous.top_groups_claimable_share if previous else None,
+                slot_waiting_batches=previous.slot_waiting_batches if previous else None,
+                serialized_batches=previous.serialized_batches if previous else None,
+            )
+        else:
+            self._depth_sample = depth
+            self._depth_sampled_at = now
+        self._export_last_depth_sample()
+
+    def _export_last_depth_sample(self) -> None:
+        """Set the depth gauges from the last sample; leave NaN for any field never sampled."""
+        sample = self._depth_sample
+        if sample is None:
+            return
+        CLAIMABLE_BATCHES.set(sample.claimable_batches)
+        for gauge, value in (
+            (CLAIMABLE_GROUPS, sample.claimable_groups),
+            (TOP_GROUPS_CLAIMABLE_SHARE, sample.top_groups_claimable_share),
+            (SLOT_WAITING_BATCHES, sample.slot_waiting_batches),
+            (SERIALIZED_BATCHES, sample.serialized_batches),
+        ):
+            if value is not None:
+                gauge.set(value)
+        has_breakdown = sample.claimable_groups is not None
+        DEPTH_SAMPLE_AGE_SECONDS.set(time.monotonic() - self._depth_sampled_at if has_breakdown else math.nan)
 
     async def should_process_batch(
         self,
@@ -984,6 +1101,14 @@ class BatchConsumer(SharedBatchConsumer):
             health_reporter=health_reporter,
             process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
+
+    async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        try:
+            await super()._process_group(key, batches)
+        finally:
+            # The loader keeps the table handle of the last batch for the next batch of this group
+            # run. No batch follows now, so the handle must not hold its file list in memory.
+            release_group_table_handle(*key)
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
         """Sync ownership check for the worker thread: the engine's lease checks bracket

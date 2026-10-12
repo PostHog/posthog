@@ -67,7 +67,11 @@ const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationN
 export const getSqlEditorSourceQuery = (query: QuerySchema): DataVisualizationNode | null => {
     const convertedQuery = convertDataTableNodeToDataVisualizationNode(query)
 
-    if (isDataVisualizationNode(convertedQuery) && isHogQLQuery(convertedQuery.source)) {
+    if (
+        isDataVisualizationNode(convertedQuery) &&
+        convertedQuery.kind === NodeKind.DataVisualizationNode &&
+        isHogQLQuery(convertedQuery.source)
+    ) {
         return withNotebookHogQLTags(convertedQuery)
     }
 

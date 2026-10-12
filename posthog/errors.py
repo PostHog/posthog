@@ -113,6 +113,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
 
     meta = look_up_clickhouse_error_code_meta(err)
     name = meta.name
+    message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
 
     # Naming convention:
     # - Exceptions starting with ClickHouse inherit from APIException and are not sent to error reporting.
@@ -191,13 +192,13 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TOO_MANY_BYTES":
         return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
     elif name == "CANNOT_PARSE_UUID":
-        return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
+        return CHQueryErrorCannotParseUuid(message, code=err.code, code_name="cannot_parse_uuid")
     elif name == "CANNOT_PARSE_BOOL":
-        return CHQueryErrorCannotParseBool(err.message, code=err.code, code_name="cannot_parse_bool")
+        return CHQueryErrorCannotParseBool(message, code=err.code, code_name="cannot_parse_bool")
     elif name == "UNSUPPORTED_METHOD":
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
-        return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
+        return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
 
@@ -205,7 +206,6 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     else:
         name = f"CHQueryError{meta.label}"
         processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-        message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
         return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
 
 
@@ -318,7 +318,7 @@ class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
     pass
 
 
-class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
+class CHQueryErrorInvalidJoinOnExpression(ExposedCHQueryError):
     pass
 
 
@@ -363,15 +363,18 @@ class CHQueryErrorUnknownTable(ExposedCHQueryError):
 # Remember to add back the `user_safe` args though!
 
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
+# ClickHouse can append expressions and query context to any error. Use fixed messages for
+# new exposed codes; auditing the initial throw alone does not establish that raw text is safe.
 CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     0: ErrorCodeMeta("OK"),
     1: ErrorCodeMeta("UNSUPPORTED_METHOD", category=QueryErrorCategory.USER_ERROR),
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
-    # Stays internal: the CH message embeds the failing data value, which would leak stored
-    # data to anonymous viewers of public shared insights. Only user_safe once sanitized.
-    6: ErrorCodeMeta("CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR),
+    6: ErrorCodeMeta(
+        "CANNOT_PARSE_TEXT",
+        user_safe="Cannot parse a value as the requested type. Check your input formats and type conversions.",
+    ),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
@@ -395,10 +398,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", user_safe=True),
     36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
-    38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe=True),
+    38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe="Cannot parse a date. Check your date values and their format."),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
-    41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
+    41: ErrorCodeMeta(
+        "CANNOT_PARSE_DATETIME", user_safe="Cannot parse a date and time. Check your datetime values and their format."
+    ),
     42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta(
@@ -434,8 +439,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
         user_safe="Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
     ),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
-    # 72 stays internal: the CH message embeds the failing data value (see code 6 note).
-    72: ErrorCodeMeta("CANNOT_PARSE_NUMBER", category=QueryErrorCategory.USER_ERROR),
+    72: ErrorCodeMeta(
+        "CANNOT_PARSE_NUMBER", user_safe="Cannot parse a number. Check for non-numeric values in your type conversions."
+    ),
     73: ErrorCodeMeta("UNKNOWN_FORMAT"),
     74: ErrorCodeMeta("CANNOT_READ_FROM_FILE_DESCRIPTOR"),
     75: ErrorCodeMeta("CANNOT_WRITE_TO_FILE_DESCRIPTOR"),
@@ -478,15 +484,28 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     117: ErrorCodeMeta("INCORRECT_DATA"),
     119: ErrorCodeMeta("ENGINE_REQUIRED"),
     120: ErrorCodeMeta("CANNOT_INSERT_VALUE_OF_DIFFERENT_SIZE_INTO_TUPLE"),
-    121: ErrorCodeMeta("UNSUPPORTED_JOIN_KEYS"),
+    121: ErrorCodeMeta(
+        "UNSUPPORTED_JOIN_KEYS",
+        user_safe="Unsupported JOIN keys. Check the expressions and types used to join your tables.",
+    ),
     122: ErrorCodeMeta("INCOMPATIBLE_COLUMNS", user_safe=True),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
     124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
-    125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
+    125: ErrorCodeMeta(
+        "INCORRECT_RESULT_OF_SCALAR_SUBQUERY",
+        user_safe="A scalar subquery returned more than one row, or an empty result that cannot be nullable. "
+        "Make sure the subquery returns a single value.",
+    ),
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
-    128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
+    128: ErrorCodeMeta(
+        "TOO_LARGE_ARRAY_SIZE",
+        user_safe="An array has an invalid or unsupported size. Check array lengths and reduce the number of elements.",
+    ),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
-    130: ErrorCodeMeta("CANNOT_READ_ARRAY_FROM_TEXT"),
+    130: ErrorCodeMeta(
+        "CANNOT_READ_ARRAY_FROM_TEXT",
+        user_safe="Cannot parse an array. Check the format of the values converted to arrays.",
+    ),
     131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
     133: ErrorCodeMeta("AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
     134: ErrorCodeMeta("PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS"),
@@ -527,7 +546,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     184: ErrorCodeMeta("ILLEGAL_AGGREGATION", user_safe=True),
     186: ErrorCodeMeta("UNSUPPORTED_COLLATION_LOCALE"),
     187: ErrorCodeMeta("COLLATION_COMPARISON_FAILED"),
-    190: ErrorCodeMeta("SIZES_OF_ARRAYS_DONT_MATCH"),
+    190: ErrorCodeMeta(
+        "SIZES_OF_ARRAYS_DONT_MATCH",
+        user_safe="Array sizes do not match. Make sure arrays used together have the same number of elements.",
+    ),
     191: ErrorCodeMeta("SET_SIZE_LIMIT_EXCEEDED"),
     192: ErrorCodeMeta("UNKNOWN_USER"),
     193: ErrorCodeMeta("WRONG_PASSWORD"),
@@ -676,7 +698,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     373: ErrorCodeMeta("SESSION_IS_LOCKED"),
     374: ErrorCodeMeta("INVALID_SESSION_TIMEOUT"),
     375: ErrorCodeMeta("CANNOT_DLOPEN"),
-    376: ErrorCodeMeta("CANNOT_PARSE_UUID", user_safe=True),
+    376: ErrorCodeMeta(
+        "CANNOT_PARSE_UUID", user_safe="Cannot parse a UUID. Check the format of the values converted to UUIDs."
+    ),
     377: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_DATA_TYPE", user_safe=True),
     378: ErrorCodeMeta("DATA_TYPE_CANNOT_HAVE_ARGUMENTS"),
     380: ErrorCodeMeta("CANNOT_KILL"),
@@ -704,7 +728,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     400: ErrorCodeMeta("CANNOT_STAT"),
     401: ErrorCodeMeta("FEATURE_IS_NOT_ENABLED_AT_BUILD_TIME"),
     402: ErrorCodeMeta("CANNOT_IOSETUP"),
-    403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION", category=QueryErrorCategory.USER_ERROR),
+    403: ErrorCodeMeta(
+        "INVALID_JOIN_ON_EXPRESSION",
+        user_safe="Invalid JOIN ON expression. Check that the condition uses supported comparisons between the joined tables.",
+    ),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
     406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
     # Fixed message: the raw CH text can format a converted decimal value into the overflow error.
@@ -725,7 +752,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     423: ErrorCodeMeta("CANNOT_GETTIMEOFDAY"),
     424: ErrorCodeMeta("CANNOT_LINK"),
     425: ErrorCodeMeta("SYSTEM_ERROR"),
-    427: ErrorCodeMeta("CANNOT_COMPILE_REGEXP"),
+    427: ErrorCodeMeta(
+        "CANNOT_COMPILE_REGEXP",
+        user_safe="Cannot compile the regular expression. Check RE2 syntax, escaping, and the number of capturing groups.",
+    ),
     429: ErrorCodeMeta("FAILED_TO_GETPWUID"),
     430: ErrorCodeMeta("MISMATCHING_USERS_FOR_PROCESS_AND_DATA"),
     431: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_CODEC_TYPE"),
@@ -737,7 +767,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     437: ErrorCodeMeta("PROTOBUF_FIELD_NOT_REPEATED"),
     438: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_PROMOTED"),
     439: ErrorCodeMeta("CANNOT_SCHEDULE_TASK", category=QueryErrorCategory.RATE_LIMITED),
-    440: ErrorCodeMeta("INVALID_LIMIT_EXPRESSION"),
+    440: ErrorCodeMeta(
+        "INVALID_LIMIT_EXPRESSION",
+        user_safe="Invalid LIMIT or OFFSET expression. Use a constant number in the supported range.",
+    ),
     441: ErrorCodeMeta("CANNOT_PARSE_DOMAIN_VALUE_FROM_STRING"),
     442: ErrorCodeMeta("BAD_DATABASE_FOR_TEMPORARY_TABLE"),
     443: ErrorCodeMeta("NO_COLUMNS_SERIALIZED_TO_PROTOBUF_FIELDS"),
@@ -763,7 +796,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     464: ErrorCodeMeta("CANNOT_PARSE_ELF"),
     465: ErrorCodeMeta("CANNOT_PARSE_DWARF"),
     466: ErrorCodeMeta("INSECURE_PATH"),
-    467: ErrorCodeMeta("CANNOT_PARSE_BOOL", category=QueryErrorCategory.USER_ERROR),
+    467: ErrorCodeMeta(
+        "CANNOT_PARSE_BOOL", user_safe="Cannot parse a boolean. Check for values other than true, false, 1, or 0."
+    ),
     468: ErrorCodeMeta("CANNOT_PTHREAD_ATTR"),
     469: ErrorCodeMeta("VIOLATED_CONSTRAINT"),
     471: ErrorCodeMeta("INVALID_SETTING_VALUE"),
@@ -961,15 +996,20 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     672: ErrorCodeMeta("INVALID_SCHEDULER_NODE"),
     673: ErrorCodeMeta("RESOURCE_ACCESS_DENIED"),
     674: ErrorCodeMeta("RESOURCE_NOT_FOUND"),
-    # IP parse errors stay internal: their CH messages embed the failing data value (see code 6 note).
-    675: ErrorCodeMeta("CANNOT_PARSE_IPV4", category=QueryErrorCategory.USER_ERROR),
-    676: ErrorCodeMeta("CANNOT_PARSE_IPV6", category=QueryErrorCategory.USER_ERROR),
+    675: ErrorCodeMeta(
+        "CANNOT_PARSE_IPV4", user_safe="Cannot parse an IPv4 address. Check the format of your IP addresses."
+    ),
+    676: ErrorCodeMeta(
+        "CANNOT_PARSE_IPV6", user_safe="Cannot parse an IPv6 address. Check the format of your IP addresses."
+    ),
     677: ErrorCodeMeta("THREAD_WAS_CANCELED"),
     678: ErrorCodeMeta("IO_URING_INIT_FAILED"),
     679: ErrorCodeMeta("IO_URING_SUBMIT_ERROR"),
     690: ErrorCodeMeta("MIXED_ACCESS_PARAMETER_TYPES"),
-    # Stays internal: the CH message embeds the offending enum value (see code 6 note).
-    691: ErrorCodeMeta("UNKNOWN_ELEMENT_OF_ENUM", category=QueryErrorCategory.USER_ERROR),
+    691: ErrorCodeMeta(
+        "UNKNOWN_ELEMENT_OF_ENUM",
+        user_safe="A value is not a member of the enum. Check the allowed values of the enum type.",
+    ),
     692: ErrorCodeMeta("TOO_MANY_MUTATIONS"),
     693: ErrorCodeMeta("AWS_ERROR"),
     694: ErrorCodeMeta("ASYNC_LOAD_CYCLE"),
@@ -1049,6 +1089,71 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1003: ErrorCodeMeta("SSH_EXCEPTION"),
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
+
+GENERIC_INTERNAL_CH_ERROR_MESSAGE = "ClickHouse error while executing query."
+
+_TOO_MUCH_DATA_MESSAGE = (
+    "This query reads or returns more data than the limit allows. "
+    "Use a shorter date range, add filters, or add a LIMIT clause. Then run the query again."
+)
+_TOO_COMPLEX_MESSAGE = (
+    "This query is too complex to run. "
+    "Use fewer nested subqueries, conditions, or values in IN lists. Then run the query again."
+)
+_TEMPORARY_FAILURE_MESSAGE = (
+    "The database had a temporary problem while it ran this query. "
+    "Wait a few minutes, then run the query again. If the problem continues, contact support."
+)
+
+# Fixed copy for internal ClickHouse errors. The raw ClickHouse message stays hidden, because it can
+# contain stored data values or server internals.
+INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
+    "TOO_MANY_ROWS": _TOO_MUCH_DATA_MESSAGE,
+    "TOO_MANY_ROWS_OR_BYTES": _TOO_MUCH_DATA_MESSAGE,
+    "SET_SIZE_LIMIT_EXCEEDED": _TOO_MUCH_DATA_MESSAGE,
+    "TOO_MANY_COLUMNS": "This query uses more columns than the limit allows. Select fewer columns, then run the query again.",
+    "TOO_DEEP_SUBQUERIES": _TOO_COMPLEX_MESSAGE,
+    "TOO_DEEP_AST": _TOO_COMPLEX_MESSAGE,
+    "TOO_BIG_AST": _TOO_COMPLEX_MESSAGE,
+    "TOO_DEEP_RECURSION": _TOO_COMPLEX_MESSAGE,
+    "TOO_MANY_PARTS": _TEMPORARY_FAILURE_MESSAGE,
+    "TABLE_IS_READ_ONLY": _TEMPORARY_FAILURE_MESSAGE,
+    "NETWORK_ERROR": _TEMPORARY_FAILURE_MESSAGE,
+    "SOCKET_TIMEOUT": _TEMPORARY_FAILURE_MESSAGE,
+    "ALL_CONNECTION_TRIES_FAILED": _TEMPORARY_FAILURE_MESSAGE,
+    "S3_ERROR": (
+        "PostHog couldn't read from storage while running this query. "
+        "Wait a few minutes, then run the query again. If the problem continues, contact support."
+    ),
+    "UNKNOWN_IDENTIFIER": (
+        "A column in this query doesn't exist in the data. "
+        "Check the column names. If the query uses a view, check that the view still matches its source table."
+    ),
+}
+
+
+# The error name holds no stored data values, so it is safe to show for an error the query caused,
+# even when the full message is not. Server faults and compiler syntax errors stay out, because
+# callers cannot act on them.
+def is_clickhouse_query_rejection(code_name: str) -> bool:
+    code_name = code_name.upper()
+    return code_name != "SYNTAX_ERROR" and any(
+        meta.name == code_name and meta.get_category() == QueryErrorCategory.USER_ERROR
+        for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
+    )
+
+
+def internal_ch_error_user_message(code_name: str | None) -> str | None:
+    """Return user-safe copy for a known internal ClickHouse error, or None for an unknown error."""
+    if not code_name:
+        return None
+    code_name = code_name.upper()
+    if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name):
+        return message
+    if is_clickhouse_query_rejection(code_name):
+        return f"ClickHouse rejected the query with error {code_name}."
+    return None
+
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.

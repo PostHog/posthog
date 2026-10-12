@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
+import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
@@ -240,6 +241,7 @@ describe('llmEvaluationLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -721,6 +723,47 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
+
+            it.each([
+                ['system_one', false, true],
+                ['openrouter', true, true],
+                ['openrouter', false, false],
+            ] as const)(
+                'requires numeric bounds for %s with supportsDecisions=%s: %s',
+                async (provider, supportsDecisions, boundsRequired) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+                    modelPickerLogic.actions.loadByokModelsSuccess([
+                        {
+                            id: 'custom-model',
+                            name: 'Decision model',
+                            provider: 'OpenRouter',
+                            description: '',
+                            providerKeyId: 'key-1',
+                            supportsDecisions,
+                        },
+                    ])
+                    logic.actions.loadEvaluationSuccess({
+                        ...mockEvaluation,
+                        output_type: 'numeric',
+                        output_config: {},
+                        model_configuration: { provider, model: 'custom-model', provider_key_id: 'key-1' },
+                    })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
+
+                    logic.actions.patchOutputConfig({ min: 1, max: 10 })
+                    expect(logic.values.formValid).toBe(true)
+                    logic.actions.patchOutputConfig({ max: null })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
+
+                    logic.actions.setModelConfiguration({
+                        provider: 'openai',
+                        model: 'gpt-5-mini',
+                        provider_key_id: 'key-1',
+                    })
+                    expect(logic.values.formValid).toBe(true)
+                }
+            )
 
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.

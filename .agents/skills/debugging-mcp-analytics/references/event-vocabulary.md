@@ -96,7 +96,7 @@ A `$mcp_tool_call` that named a tool and its arguments (a direct-mode call, `ren
 exec `call`) also carries the call's shape, stamped in `tool-executor.ts` from the raw input before
 any alias is folded away, by the `@posthog/mcp` SDK helper `getToolInputProperties`:
 `$mcp_input_keys` (the top-level argument names the caller sent, never values: declared names and
-aliases first, capped at 20, with undeclared names recorded as one `[redacted]` entry; in exec mode parsed from the `call` command's JSON) and
+aliases first, then undeclared names that look like parameter names (any other name becomes one `[redacted]` entry), capped at 20; in exec mode parsed from the `call` command's JSON) and
 `$mcp_input_aliases_used` (`alias:canonical` tokens such as `experimentId:id`, present only when
 the normaliser filled the canonical from that alias). Exec
 discovery verbs (`tools`, `search`, `info`, `schema`) carry neither, so rate alias use against the

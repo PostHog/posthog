@@ -10,6 +10,7 @@ import {
     HogQuery,
     InsightQueryNode,
     InsightVizNode,
+    MetricsQuery,
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -95,11 +96,15 @@ export const queryFromKind = (
 export const getDefaultQuery = (
     insightType: InsightType,
     filterTestAccountsDefault: boolean
-): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode | MetricsQuery => {
     // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
     // This is a fallback that should rarely be used
     if (insightType === InsightType.WEB_ANALYTICS) {
         throw new Error('Web Analytics insights must be created from Web Analytics tiles')
+    }
+
+    if (insightType === InsightType.METRICS) {
+        return { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } }
     }
 
     if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {

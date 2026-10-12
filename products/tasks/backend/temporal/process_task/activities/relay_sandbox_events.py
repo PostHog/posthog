@@ -20,6 +20,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import agent_plan_steps, phase_for_tool_call, tool_call_from_acp_update
+from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
     is_hogland_sandbox_url,
@@ -60,6 +61,7 @@ from products.tasks.backend.turn_completed import dispatch_turn_completed
 
 from ee.hogai.sandbox import (
     PI_RUNTIME_ERROR_MESSAGE,
+    is_background_turn_complete,
     is_idle_resume_turn_complete,
     is_turn_complete,
     pi_turn_error,
@@ -558,6 +560,7 @@ async def _relay_loop(
                                         # A pi runtime error ends the turn but is not a
                                         # successful completion — fail the run outright rather
                                         # than reporting the turn as answered.
+                                        await asyncio.to_thread(record_run_failure_cause, run_id, "pi_runtime_error")
                                         await _signal_safely(
                                             workflow_handle, "complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]
                                         )
@@ -588,18 +591,22 @@ async def _relay_loop(
                                     and workflow_handle is not None
                                 ):
                                     slack_turn_active[0] = False
-                                    # Awaited in order: the final prose must be recorded before
-                                    # turn_completed, which clears the parent's relay id and would
-                                    # otherwise drop a delta that arrived after it.
-                                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                                    await _signal_safely(
+                                    await _complete_slack_turn(
                                         workflow_handle,
-                                        "turn_completed",
-                                        arg=turn_complete_trace_id(event_data),
+                                        pending_text_parts,
+                                        last_text_flush,
+                                        turn_complete_trace_id(event_data),
                                     )
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
+                            elif is_background_turn_complete(event_data):
+                                if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
+                                    slack_turn_active[0] = False
+                                    # The agent server reports no trace id for a background turn.
+                                    await _complete_slack_turn(
+                                        workflow_handle, pending_text_parts, last_text_flush, None
+                                    )
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
                                 if workflow_handle is not None:
@@ -932,6 +939,18 @@ async def _flush_pending_text(
     if workflow_handle is not None and text:
         await _signal_safely(workflow_handle, "agent_text_delta", arg=text)
     pending_text_parts.clear()
+
+
+async def _complete_slack_turn(
+    workflow_handle: temporalio.client.WorkflowHandle,
+    pending_text_parts: list[str],
+    last_text_flush: list[float],
+    trace_id: str | None,
+) -> None:
+    # Awaited in order: the final prose must be recorded before turn_completed, which clears
+    # the parent's relay id and would otherwise drop a delta that arrived after it.
+    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+    await _signal_safely(workflow_handle, "turn_completed", arg=trace_id)
 
 
 async def _signal_safely(

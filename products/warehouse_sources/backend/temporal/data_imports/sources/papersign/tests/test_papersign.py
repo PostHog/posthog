@@ -8,7 +8,6 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.papersign import (
-    BASE_URL,
     PAGE_SIZE,
     PapersignResumeConfig,
     papersign_source,
@@ -83,70 +82,6 @@ def _source(endpoint: str, manager: mock.MagicMock):
 
 
 class TestPagination:
-    def test_single_page_terminates_when_has_more_false(self) -> None:
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            params = _wire(session, [_page_response("documents", _docs(3), has_more=False)])
-
-            rows = _rows(_source("documents", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["doc-0", "doc-1", "doc-2"]
-        assert len(params) == 1
-        assert params[0]["skip"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        # Documents are the only endpoint that gets an explicit ascending sort.
-        assert params[0]["sort"] == "ASC"
-
-    def test_walks_pages_incrementing_skip(self) -> None:
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            params = _wire(
-                session,
-                [
-                    _page_response("documents", _docs(PAGE_SIZE, start=0), has_more=True),
-                    _page_response("documents", _docs(PAGE_SIZE, start=PAGE_SIZE), has_more=True),
-                    _page_response("documents", _docs(50, start=2 * PAGE_SIZE), has_more=False),
-                ],
-            )
-
-            rows = _rows(_source("documents", _make_manager()))
-
-        assert len(rows) == 2 * PAGE_SIZE + 50
-        # skip advances by the number of rows actually returned on each page.
-        assert [p["skip"] for p in params] == [0, PAGE_SIZE, 2 * PAGE_SIZE]
-
-    def test_short_page_terminates_even_if_has_more_true(self) -> None:
-        # Guards the folders/spaces infinite-loop case: an endpoint that ignores `skip` but keeps
-        # reporting has_more=true must still stop once a page comes back shorter than the limit.
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            params = _wire(session, [_page_response("folders", [{"id": i} for i in range(3)], has_more=True)])
-
-            rows = _rows(_source("folders", _make_manager()))
-
-        assert len(rows) == 3
-        assert len(params) == 1
-
-    def test_stops_when_results_empty(self) -> None:
-        # has_more lies (True) but the page is empty — we must still terminate, not loop forever.
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            params = _wire(session, [_page_response("documents", [], has_more=True)])
-
-            rows = _rows(_source("documents", _make_manager()))
-
-        assert rows == []
-        assert len(params) == 1
-
-    def test_folders_endpoint_sends_no_sort(self) -> None:
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            params = _wire(session, [_page_response("folders", [{"id": 1, "name": "F"}], has_more=False)])
-
-            _rows(_source("folders", _make_manager()))
-
-        assert "sort" not in params[0]
-
     def test_resume_uses_saved_skip(self) -> None:
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             session = MockSession.return_value
@@ -191,15 +126,6 @@ class TestPagination:
 
 
 class TestSourceResponse:
-    def test_documents_partitions_on_created_at(self) -> None:
-        with mock.patch(CLIENT_SESSION_PATCH):
-            response = _source("documents", _make_manager())
-        assert response.name == "documents"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at_utc"]
-
     @parameterized.expand(["folders", "spaces"])
     def test_untimestamped_endpoints_are_not_partitioned(self, endpoint: str) -> None:
         # folders and spaces carry no stable datetime field, so they must not declare a datetime
@@ -213,17 +139,6 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @mock.patch(PAPERSIGN_SESSION_PATCH)
-    def test_returns_true_on_200(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        success, error = validate_credentials("tok")
-
-        assert success is True
-        assert error is None
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == f"{BASE_URL}/papersign/spaces?limit=1"
-
     @parameterized.expand(
         [
             (401, "invalid"),

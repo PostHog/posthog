@@ -1,90 +1,53 @@
-"""Generating a briefing: one read-only sandbox agent run that gathers the person's data over MCP and answers with the text."""
+"""Generating a briefing: PostHog picks the person's top reports, and one LLM call writes the text about them."""
 
-import re
 from datetime import timedelta
-from typing import Protocol
-from uuid import UUID
-
-import structlog
 
 from posthog.dataclasses import frozen
-from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import build_async_openai_client
+from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.facade import api as signals
-from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
 from ..facade.enums import BriefingStatus
 from ..feature_flags import may_get_briefing
 from ..models import DailyBriefing
-from .agent_output import BriefingOutput, problems_with, strict_schema, to_content, to_fact_sheet
 from .briefings import recent_ready_briefings, store_briefing
-from .prompt import PRERANKED_REPORTS, build_prompt
-
-logger = structlog.get_logger(__name__)
+from .content import BriefingContent
+from .fact_sheet import FactSheet, fact_sheet_for_reports
+from .llm_output import BriefingOutput, strict_schema, to_content
+from .prompt import build_prompt
 
 MODEL = "gpt-6-luna"
-RUNTIME_ADAPTER = "codex"
-REASONING_EFFORT = "medium"
-# Answers the agent gets to fix a briefing that broke the writing rules, the first one included.
-WRITE_ATTEMPTS = 3
-# The poll budget of one agent turn. The first turn does the reading; a fix-up turn is short.
-TURN_TIMEOUT = timedelta(minutes=8)
-# The whole run: every turn at its budget plus the sandbox boot. The workflow, the stuck sweep
-# and the page's polling all derive from this.
-RUN_TIMEOUT = TURN_TIMEOUT * WRITE_ATTEMPTS + timedelta(minutes=6)
-# How many of the person's previous briefings the agent sees, so it does not repeat itself.
+MAX_COMPLETION_TOKENS = 8192
+MAX_ITEMS = 5
+CALL_TIMEOUT = timedelta(minutes=2)
+# One activity attempt: the reads, the LLM call and the write.
+ATTEMPT_TIMEOUT = CALL_TIMEOUT + timedelta(minutes=1)
+# Temporal retries the whole attempt, so the LLM client does not retry on its own.
+ATTEMPTS = 3
+RETRY_INTERVAL = timedelta(seconds=10)
+# Every attempt at its budget plus the waits between them. The workflow enforces it, and the
+# stuck sweep and the page's polling derive from it.
+RUN_TIMEOUT = ATTEMPT_TIMEOUT * ATTEMPTS + timedelta(minutes=1)
+# How many of the person's previous briefings the LLM sees, so it does not repeat itself.
 RECENT_BRIEFINGS = 3
-SANDBOX_ENV_NAME = "today-briefing"
-# The login goes into a `gh` command the agent runs, so only a well-formed GitHub login gets through.
-_GITHUB_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
-
-
-class _HasTaskId(Protocol):
-    @property
-    def task_id(self) -> UUID: ...
 
 
 @frozen
 class _PreparedRun:
-    context: CustomPromptSandboxContext
+    fact_sheet: FactSheet
     prompt: str
-    title: str
-
-
-def _title(briefing: DailyBriefing) -> str:
-    return f"Today briefing, {briefing.local_day.isoformat()}"
-
-
-def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
-    """The reports PostHog already ranked for the person. A failure here costs the agent its head start, not the run."""
-    try:
-        return signals.reports_for_briefing(
-            team_id=team.id, user_id=user.id, limit_per_relation=PRERANKED_REPORTS, limit=PRERANKED_REPORTS
-        )
-    except Exception as error:
-        capture_exception(error, {"team_id": team.id, "product": "today"})
-        return []
-
-
-def _github_login(team: Team, user: User) -> str | None:
-    """The person's GitHub login, or None when the sandbox gets no GitHub token to search with.
-
-    The sandbox token belongs to the team's GitHub app installation, not to the person, so `@me` cannot name them.
-    """
-    if not tasks_facade.can_mint_readonly_github_token(team.id):
-        return None
-    login = user.get_github_login()
-    return login if login and _GITHUB_LOGIN.fullmatch(login) else None
+    distinct_id: str
 
 
 def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
-    """The sandbox context and the prompt, or None when the person may not get a briefing.
+    """The items and the prompt, or None when the person may not get a briefing.
 
     Access, credits or the flag can go after the row was created, so the row is deleted then:
-    a briefing nobody can open is not worth a sandbox.
+    a briefing nobody can open is not worth an LLM call. A failure to read the reports fails
+    the attempt, because an empty list would tell the person that nothing needs them.
     """
     briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
     team = Team.objects.select_related("organization").get(id=briefing.team_id)
@@ -94,91 +57,56 @@ def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
         return None
     briefing.status = BriefingStatus.WRITING
     briefing.save(update_fields=["status"])
-    sandbox_environment_id = str(
-        tasks_facade.upsert_internal_sandbox_env(
-            team.id, SANDBOX_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+    # A P0 nobody owns belongs to the project, not to this person, and would sort above every
+    # item that is actually theirs. It stays in the Inbox and in `open_reports_count`.
+    reports = signals.reports_for_briefing(team_id=team.id, user_id=user.id, limit=MAX_ITEMS, include_unowned=False)
+    fact_sheet = fact_sheet_for_reports(reports, team.id)
+    summaries = {item.key: report.summary for item, report in zip(fact_sheet.items, reports, strict=True)}
+    prompt = build_prompt(briefing, user, fact_sheet, summaries, recent_ready_briefings(briefing, RECENT_BRIEFINGS))
+    return _PreparedRun(fact_sheet=fact_sheet, prompt=prompt, distinct_id=str(user.distinct_id))
+
+
+async def _write_text(prepared: _PreparedRun, team_id: int) -> BriefingOutput:
+    async with build_async_openai_client(
+        product="posthog_ai",
+        ai_product="today_briefing",
+        distinct_id=prepared.distinct_id,
+        properties={"team_id": str(team_id)},
+    ).with_options(timeout=CALL_TIMEOUT.total_seconds(), max_retries=0) as client:
+        response = await client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prepared.prompt}],
+            max_completion_tokens=MAX_COMPLETION_TOKENS,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "today_briefing", "strict": True, "schema": strict_schema(BriefingOutput)},
+            },
+            user=prepared.distinct_id,
         )
-    )
-    context = CustomPromptSandboxContext(
-        team_id=team.id,
-        user_id=user.id,
-        sandbox_environment_id=sandbox_environment_id,
-        posthog_mcp_scopes="read_only",
-        # A headless agent that reads untrusted report text must never hold a write-capable GitHub token.
-        github_read_access=True,
-        model=MODEL,
-        runtime_adapter=RUNTIME_ADAPTER,
-        reasoning_effort=REASONING_EFFORT,
-        # Headless: the agent's read tools must run without anyone approving them.
-        initial_permission_mode="full-access",
-    )
-    prompt = build_prompt(
-        briefing,
-        user,
-        _preranked_reports(team, user),
-        recent_ready_briefings(briefing, RECENT_BRIEFINGS),
-        _github_login(team, user),
-    )
-    return _PreparedRun(context=context, prompt=prompt, title=_title(briefing))
+    # The gateway fronts several providers and does not honor a response format the same way on
+    # every route, so a reply in a code fence still parses.
+    return BriefingOutput.model_validate(extract_json_object(response.choices[0].message.content or "") or {})
 
 
-def _fix_message(problems: list[str]) -> str:
-    return (
-        "Your briefing broke these rules. Fix all of them and answer again with the whole briefing in the same shape:\n- "
-        + "\n- ".join(problems)
-    )
+def _store(team_id: int, briefing_id: str, fact_sheet: FactSheet, content: BriefingContent) -> None:
+    briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
+    store_briefing(briefing, fact_sheet, content)
 
 
-def _store(team_id: int, briefing_id: str, output: BriefingOutput) -> list[str]:
-    """Store the agent's answer, or return the rules it broke so the agent can fix them."""
-    problems = problems_with(output, team_id)
-    if not problems:
-        briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
-        store_briefing(briefing, to_fact_sheet(output), to_content(output))
-    return problems
+async def write_briefing(*, team_id: int, briefing_id: str) -> None:
+    """Write the briefing text in one LLM call and store it with the items PostHog picked.
 
-
-async def run_agent(*, team_id: int, briefing_id: str) -> None:
-    """Run the briefing agent to completion and store what it wrote.
-
-    The agent answers in `BriefingOutput`. An answer that breaks the writing rules goes back to it
-    as a follow-up turn in the same sandbox, a few times; after that the run fails.
+    With no items there is no call, and the stored text is empty: the page then says that nothing
+    needs the person.
     """
     prepared = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, briefing_id)
     if prepared is None:
         return
-
-    async def name_the_task(task_run: _HasTaskId) -> None:
-        # The run shows in the person's session list, so it carries a name instead of the prompt's first line.
-        await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
-            task_run.task_id, team_id, prepared.title
-        )
-
-    session, output = await MultiTurnSession.start(
-        prepared.prompt,
-        prepared.context,
-        model=BriefingOutput,
-        step_name="today_briefing",
-        origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
-        ai_stage="today_briefing",
-        ai_agent_name="today-briefing",
-        on_task_run_created=name_the_task,
-        max_poll_seconds=int(TURN_TIMEOUT.total_seconds()),
-        output_schema=strict_schema(BriefingOutput),
-    )
-    try:
-        for attempt in range(1, WRITE_ATTEMPTS + 1):
-            problems = await database_sync_to_async(_store, thread_sensitive=False)(team_id, briefing_id, output)
-            if not problems:
-                break
-            if attempt == WRITE_ATTEMPTS:
-                raise RuntimeError("The agent's briefing kept breaking the rules: " + "; ".join(problems))
-            output = await session.send_followup(_fix_message(problems), BriefingOutput, label=f"fix_{attempt}")
-    except BaseException as error:
-        # Also on cancellation from the activity deadline, so the sandbox does not run on alone.
-        await session.end(status="failed", error=str(error)[:500])
-        raise
-    await session.end()
+    if prepared.fact_sheet.items:
+        content = to_content(await _write_text(prepared, team_id), prepared.fact_sheet)
+    else:
+        content = BriefingContent()
+    await database_sync_to_async(_store, thread_sensitive=False)(team_id, briefing_id, prepared.fact_sheet, content)
 
 
 def mark_failed(*, team_id: int, briefing_id: str, error: str) -> None:

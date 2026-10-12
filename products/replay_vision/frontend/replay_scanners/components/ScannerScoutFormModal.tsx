@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import type { SignalScoutOutputDestinationsApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
-import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { getReplayVisionEditDisabledReason, getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scannerScoutTemplate, scoutBodyPlaceholders } from '../scannerScout'
 import { SCOUT_REPORT_EMITTED_EVENT, webhookUrlError } from '../scannerScoutDelivery'
@@ -147,18 +147,21 @@ export function ScannerScoutFormModal({
         }
     }, [template, seeded, loadedForThisScout, skillPrompt, scoutDelivery])
 
-    // The scanner's name can arrive after the modal opens (the scanner and the scouts list load in
-    // parallel), and the default name leads with it. Until it answers, the scanner logic holds a
-    // team-named placeholder, so a name seeded before it reads wrong. Follow a changed default
-    // until the person edits the name.
-    const nameTouchedRef = useRef(false)
+    // The scanner can arrive after the modal opens (the scanner and the scouts list load in
+    // parallel). Until it answers, the scanner logic holds a team-named placeholder with no type, so
+    // the default name reads wrong and the template falls back to another type's set. Follow a changed
+    // template for each field until the person edits it.
+    const touchedRef = useRef({ name: false, body: false, cron: false })
     useEffect(() => {
-        if (!template || nameTouchedRef.current) {
+        if (!template) {
             return
         }
-        setForm((current) =>
-            current.name === template.defaultName ? current : { ...current, name: template.defaultName }
-        )
+        setForm((current) => ({
+            ...current,
+            name: touchedRef.current.name ? current.name : template.defaultName,
+            body: touchedRef.current.body ? current.body : template.body,
+            cron: touchedRef.current.cron ? current.cron : template.cron,
+        }))
     }, [template])
 
     if (!template && !config) {
@@ -191,9 +194,12 @@ export function ScannerScoutFormModal({
     const scannerLoaded = scanner?.id?.toLowerCase() === scannerId.toLowerCase()
 
     const submitDisabledReason = (): string | undefined => {
-        const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
-        if (editDisabledReason) {
-            return editDisabledReason
+        // Creating also publishes a skill, so it needs skill editor access on top of scanner edit.
+        const permissionDisabledReason = template
+            ? getScoutCreateDisabledReason(scanner?.user_access_level)
+            : getReplayVisionEditDisabledReason(scanner?.user_access_level)
+        if (permissionDisabledReason) {
+            return permissionDisabledReason
         }
         if (template && !scannerLoaded) {
             return 'Loading the scanner'
@@ -250,7 +256,7 @@ export function ScannerScoutFormModal({
                     <LemonInput
                         value={form.name}
                         onChange={(name) => {
-                            nameTouchedRef.current = true
+                            touchedRef.current.name = true
                             patch({ name })
                         }}
                         placeholder={template?.defaultName}
@@ -276,7 +282,10 @@ export function ScannerScoutFormModal({
                                     </span>
                                     <ScoutInstructionsField
                                         value={form.body}
-                                        onChange={(body) => patch({ body })}
+                                        onChange={(body) => {
+                                            touchedRef.current.body = true
+                                            patch({ body })
+                                        }}
                                         minRows={14}
                                         maxRows={20}
                                         dataAttr="vision-scout-form-instructions"
@@ -292,7 +301,15 @@ export function ScannerScoutFormModal({
                         {
                             key: 'schedule',
                             label: 'Schedule',
-                            content: <ScheduleFields cron={form.cron} onChange={(cron) => patch({ cron })} />,
+                            content: (
+                                <ScheduleFields
+                                    cron={form.cron}
+                                    onChange={(cron) => {
+                                        touchedRef.current.cron = true
+                                        patch({ cron })
+                                    }}
+                                />
+                            ),
                         },
                         {
                             key: 'delivery',

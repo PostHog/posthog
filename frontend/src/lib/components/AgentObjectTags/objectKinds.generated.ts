@@ -21,6 +21,7 @@ export interface ObjectKindData {
     block: boolean
     /** The tag body is the object id itself rather than a label (hogql: the SQL). */
     idIsBody: boolean
+    urlAliases: readonly string[]
 }
 
 export const OBJECT_KIND_DATA = {
@@ -31,6 +32,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: true,
         idIsBody: false,
+        urlAliases: ['/i/{id}'],
     },
     hogql: {
         kindLabel: 'SQL query',
@@ -39,6 +41,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: true,
         idIsBody: true,
+        urlAliases: ['/insights/new#q={query}'],
     },
     dashboard: {
         kindLabel: 'Dashboard',
@@ -47,6 +50,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     error: {
         kindLabel: 'Error issue',
@@ -55,6 +59,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     replay: {
         kindLabel: 'Session replay',
@@ -63,6 +68,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: true,
         idIsBody: false,
+        urlAliases: ['/replay/home?sessionRecordingId={id}'],
     },
     flag: {
         kindLabel: 'Feature flag',
@@ -71,6 +77,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: '^\\d+$',
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     experiment: {
         kindLabel: 'Experiment',
@@ -79,6 +86,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     survey: {
         kindLabel: 'Survey',
@@ -87,6 +95,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     ticket: {
         kindLabel: 'Support tickets',
@@ -95,6 +104,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     report: {
         kindLabel: 'Inbox report',
@@ -103,6 +113,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     trace: {
         kindLabel: 'LLM trace',
@@ -111,6 +122,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     eval: {
         kindLabel: 'Evaluation',
@@ -119,6 +131,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     event: {
         kindLabel: 'Events',
@@ -127,6 +140,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}$',
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     cohort: {
         kindLabel: 'Cohort',
@@ -135,6 +149,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     action: {
         kindLabel: 'Action',
@@ -143,6 +158,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
     person: {
         kindLabel: 'Person',
@@ -151,6 +167,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
+        urlAliases: [],
     },
 } satisfies Record<string, ObjectKindData>
 
@@ -174,4 +191,9 @@ export const FALLBACK_OBJECT_KIND_DATA: ObjectKindData = {
     idPattern: null,
     block: false,
     idIsBody: false,
+    urlAliases: [],
 }
+
+export const RESERVED_URL_IDS: readonly string[] = ['new', 'home', 'playlists', 'settings', 'configuration', 'options']
+
+export const APP_HOST_ALIASES: Record<string, string> = { 'app.posthog.com': 'us.posthog.com' }

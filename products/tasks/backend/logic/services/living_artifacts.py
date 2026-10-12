@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -23,6 +24,7 @@ import requests
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.channels import MAX_BUTTON_URL_CHARS, SlackButton, section_block
@@ -33,6 +35,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
+from products.tasks.backend.facade.contracts import LivingArtifactVersionContent
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -373,6 +376,89 @@ def get_task_artifact_for_run(run: TaskRun, artifact_id: str | UUID) -> TaskArti
 
 def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
+
+
+# The app streams a preview through a web worker, so a larger stored version only downloads.
+# Keep in step with LIVING_PREVIEW_MAX_BYTES in the TaskTracker frontend.
+LIVING_VERSION_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+
+
+class LivingArtifactVersionTooLarge(Exception):
+    pass
+
+
+@frozen
+class LivingVersionLocation:
+    record: dict[str, Any]
+    content_type: str
+    # Empty when the version keeps its content as text in the record.
+    storage_path: str
+
+
+def resolve_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingVersionLocation | None:
+    """Find one version and where it keeps its content, or None when the version is unknown or its path is foreign."""
+    record = next(
+        (
+            candidate
+            for candidate in artifact.versions or []
+            if isinstance(candidate, dict) and candidate.get("version") == version
+        ),
+        None,
+    )
+    if record is None:
+        return None
+    raw_location = record.get("location")
+    location = raw_location if isinstance(raw_location, dict) else {}
+    content_type = str(record.get("content_type") or location.get("content_type") or "") or _guess_content_type(
+        artifact.name
+    )
+    storage_path = str(location.get("storage_path") or "")
+    # Every living artifact object sits under its task's prefix. A path outside it is not this artifact's object.
+    if storage_path and not storage_path.startswith(_task_artifact_s3_prefix(artifact)):
+        return None
+    return LivingVersionLocation(record=record, content_type=content_type, storage_path=storage_path)
+
+
+def _stored_version_size(resolved: LivingVersionLocation) -> int | None:
+    size = resolved.record.get("size")
+    if isinstance(size, int):
+        return size
+    head = object_storage.head_object(resolved.storage_path)
+    length = head.get("ContentLength") if head else None
+    return length if isinstance(length, int) else None
+
+
+def read_living_artifact_version(artifact: TaskArtifact, version: int) -> LivingArtifactVersionContent | None:
+    """Return the content of one version, or None when the version is unknown or keeps no content.
+
+    A Slack file version keeps its bytes in object storage. A canvas or message version keeps its
+    text in the version record. A stored version above the preview limit raises
+    LivingArtifactVersionTooLarge. Storage read errors propagate to the caller.
+    """
+    resolved = resolve_living_artifact_version(artifact, version)
+    if resolved is None:
+        return None
+
+    if resolved.storage_path:
+        size = _stored_version_size(resolved)
+        if size is not None and size > LIVING_VERSION_PREVIEW_MAX_BYTES:
+            raise LivingArtifactVersionTooLarge()
+        payload = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
+        if payload is None:
+            return None
+        return LivingArtifactVersionContent(name=artifact.name, content_type=resolved.content_type, content=payload)
+
+    text = resolved.record.get("content")
+    if isinstance(text, str):
+        return LivingArtifactVersionContent(
+            name=artifact.name, content_type=resolved.content_type, content=text.encode("utf-8")
+        )
+    return None
+
+
+# The task part of TaskRun.get_artifact_s3_prefix. Keep the two formats the same.
+def _task_artifact_s3_prefix(artifact: TaskArtifact) -> str:
+    return f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{artifact.team_id}/task_{artifact.task_id}/"
 
 
 def _find_source_artifact(

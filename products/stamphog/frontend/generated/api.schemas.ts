@@ -155,8 +155,8 @@ export interface PaginatedStamphogPullRequestListApi {
 }
 
 /**
- * * `all` - all
- * * `label` - label
+ * * `all` - All pull requests
+ * * `label` - Labeled pull requests
  */
 export type ReviewModeEnumApi = (typeof ReviewModeEnumApi)[keyof typeof ReviewModeEnumApi]
 
@@ -179,8 +179,8 @@ export interface StamphogRepoConfigApi {
     digest_enabled?: boolean
     /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
      *
-     * * `all` - all
-     * * `label` - label */
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests */
     readonly review_mode: ReviewModeEnumApi
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string
@@ -225,8 +225,8 @@ export interface StamphogRepoConfigWriteApi {
     digest_enabled?: boolean
     /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
      *
-     * * `all` - all
-     * * `label` - label */
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests */
     review_mode?: ReviewModeEnumApi
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string
@@ -255,8 +255,8 @@ export interface PatchedStamphogRepoConfigWriteApi {
     digest_enabled?: boolean
     /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
      *
-     * * `all` - all
-     * * `label` - label */
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests */
     review_mode?: ReviewModeEnumApi
     /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
     trigger_label?: string

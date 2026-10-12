@@ -97,6 +97,8 @@ def visible_peer_runs(sender_run: TaskRun) -> QuerySet[TaskRun]:
     Team-wide multiplayer later relaxes this one function (behind a per-team
     setting); nothing else encodes visibility.
     """
+    if sender_run.task.is_scout_experiment:
+        return TaskRun.objects.none()
     creator_id = sender_run.task.created_by_id
     if creator_id is None:
         # No creating user to scope by (bot-created tasks): nothing is visible
@@ -111,6 +113,7 @@ def visible_peer_runs(sender_run: TaskRun) -> QuerySet[TaskRun]:
             task__created_by_id=creator_id,
             task__deleted=False,
         )
+        .exclude(Task.scout_experiment_q(relation="task"))
         .exclude(id=sender_run.id)
         .select_related("task__created_by")
     )

@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -485,6 +486,15 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
     })),
     listeners(({ actions, cache }) => ({
+        submitTextSourceSuccess: () => {
+            posthog.capture('business knowledge source created', { source_type: 'text' })
+        },
+        submitUrlSourceSuccess: () => {
+            posthog.capture('business knowledge source created', { source_type: 'url' })
+        },
+        submitFileSourceSuccess: () => {
+            posthog.capture('business knowledge source created', { source_type: 'file' })
+        },
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadSources()

@@ -109,7 +109,7 @@ def build_query(
     source_id: str,
     pull_requests_table: str,
     workflow_runs_table: str,
-    workflow_jobs_table: str,
+    workflow_jobs_table: workflow_jobs.JobsTable,
     issue_events_table: str | None,
     reviews_table: str | None,
 ) -> str:
@@ -210,7 +210,7 @@ master AS (
         SELECT ifNull(j.workflow_name, '') AS workflow_name,
             {_strip_shard("j.name")} AS job,
             parseDateTimeBestEffort(j.completed_at) AS completed_at
-        FROM {workflow_jobs_table} AS j
+        FROM {workflow_jobs_table.rows} AS j
         INNER JOIN ({runs}) AS mr ON j.run_id = mr.id AND j.ci_engine = mr.ci_engine
         WHERE j.created_at >= {_raw_floor(run_days)}
             AND {workflow_jobs.branch("j", "mr")} IN (SELECT default_branch FROM pr WHERE default_branch != '')

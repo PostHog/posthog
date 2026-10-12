@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -90,7 +91,9 @@ export const businessKnowledgeSettingsLogic = kea<businessKnowledgeSettingsLogic
                 lemonToast.error(
                     (error instanceof ApiError && error.detail) || 'Could not change the setting. Try again.'
                 )
+                return
             }
+            posthog.capture('business knowledge learn from support toggled', { enabled })
         },
     })),
     afterMount(({ actions, values }) => {

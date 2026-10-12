@@ -1,3 +1,5 @@
+from typing import Optional
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -9,7 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _NEON_POOLED_HOST_CDC_ERROR = (
@@ -17,6 +22,12 @@ _NEON_POOLED_HOST_CDC_ERROR = (
     "direct host instead — remove the '-pooler' suffix (e.g. "
     "ep-cool-darkness-123456.us-east-2.aws.neon.tech) — and make sure logical replication is "
     "enabled in your Neon project settings."
+)
+
+# Each Neon branch has its own databases, and the default one is neondb, not postgres.
+_NEON_DATABASE_NOT_FOUND_ERROR = (
+    "That database doesn't exist on this Neon branch. Copy the database name from the Connect dialog "
+    "in your Neon Console, then try again."
 )
 
 
@@ -104,3 +115,18 @@ class NeonSource(PostgresSource):
             require_ssl=require_ssl,
             team_id=team_id,
         )
+
+    def validate_credentials(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
+    ) -> tuple[bool, str | None]:
+        success, error = super().validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
+        if not success and error == _DATABASE_NOT_FOUND_VALIDATION_ERROR:
+            return False, _NEON_DATABASE_NOT_FOUND_ERROR
+        return success, error

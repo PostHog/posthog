@@ -9,6 +9,28 @@ import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
+    it.each([200, 403, 500])('reads privacy only from the API response before handling status %s', async (status) => {
+        const shared = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const suppress = vi.fn()
+        const scoped = shared.withAnalyticsSuppression(suppress)
+        for (const header of [undefined, 'false', 'true']) {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    async () =>
+                        new Response(JSON.stringify({ detail: 'Synthetic response' }), {
+                            status,
+                            headers: header ? { 'X-PostHog-Suppress-Analytics': header } : {},
+                        })
+                )
+            )
+            await scoped.request({ method: 'GET', path: '/api/projects/1/tasks/' }).catch(() => undefined)
+        }
+        expect(suppress).toHaveBeenCalledOnce()
+        expect(shared.config.onPrivateResponse).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
             apiToken: 'test-token',
@@ -568,6 +590,20 @@ describe('ApiClient', () => {
             expect(transportError.attempts).toBe(3)
             expect(transportError.message).toContain('safe to retry')
             expect(mockFetch).toHaveBeenCalledTimes(3)
+        })
+
+        it('retries a token introspection that fails to connect', async () => {
+            const mockFetch = stubFetch(
+                networkError(),
+                new Response(JSON.stringify({ active: true, scope: 'query:read' }), { status: 200 })
+            )
+            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(client.oauth().introspect({ token: 'pha_test' }))
+
+            expect(result).toEqual({ success: true, data: { active: true, scope: 'query:read' } })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(mockFetch.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
         })
 
         it('does not repeat a write whose outcome is unknown', async () => {

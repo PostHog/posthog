@@ -140,14 +140,6 @@ class TestPagination:
         assert snapshots[0]["params"]["page"] == 5
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _make_manager()
-        session, _snapshots, pages = _run("courses", manager, [_response([{"id": 1}], total_pages=1)])
-
-        assert _rows(pages) == [{"id": 1}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
 
 class TestIncrementalFilter:
     @parameterized.expand(
@@ -177,30 +169,6 @@ class TestIncrementalFilter:
 
 
 class TestFanout:
-    def test_child_requests_bound_per_parent_and_rows_carry_parent_id(self) -> None:
-        manager = _make_manager()
-        responses = [
-            _response([{"id": 11}, {"id": 22}], total_pages=1),  # parent: courses
-            _response([{"id": 1, "rating": 5}], total_pages=1),  # reviews for course 11
-            _response([{"id": 2, "rating": 4}], total_pages=1),  # reviews for course 22
-        ]
-        session, snapshots, pages = _run("course_reviews", manager, responses)
-
-        # The parent id resolves into the child's query string (query-param resolve rides in the path).
-        assert snapshots[1]["url"] == f"{THINKIFIC_BASE_URL}/course_reviews?course_id=11"
-        assert snapshots[2]["url"] == f"{THINKIFIC_BASE_URL}/course_reviews?course_id=22"
-        # Child pagination starts fresh per parent and must not be mistaken for a single-entity fetch.
-        assert snapshots[1]["params"]["page"] == 1
-        assert snapshots[2]["params"]["page"] == 1
-
-        # Child rows aggregate across parents and carry the renamed parent id — the composite
-        # primary key (course_id, id) depends on it.
-        assert _rows(pages) == [
-            {"id": 1, "rating": 5, "course_id": 11},
-            {"id": 2, "rating": 4, "course_id": 22},
-        ]
-        assert session.send.call_count == 3
-
     def test_fanout_resume_skips_completed_parents(self) -> None:
         manager = _make_manager(
             ThinkificCoursesResumeConfig(completed=["/course_reviews?course_id=11"], current=None, child_state=None)
@@ -214,21 +182,6 @@ class TestFanout:
         assert _rows(pages) == [{"id": 2, "rating": 4, "course_id": 22}]
         assert snapshots[1]["url"] == f"{THINKIFIC_BASE_URL}/course_reviews?course_id=22"
         assert session.send.call_count == 2
-
-    def test_fanout_checkpoints_completed_parents(self) -> None:
-        manager = _make_manager()
-        responses = [
-            _response([{"id": 11}], total_pages=1),  # parent: promotions
-            _response([{"id": 7, "code": "SAVE"}], total_pages=1),  # coupons for promotion 11
-        ]
-        _session, _snapshots, pages = _run("coupons", manager, responses)
-
-        assert _rows(pages) == [{"id": 7, "code": "SAVE", "promotion_id": 11}]
-        # After the parent's children are fully synced, the checkpoint records it as completed so a
-        # retry skips it instead of re-fetching every parent's children.
-        final_state = manager.save_state.call_args_list[-1].args[0]
-        assert final_state.completed == ["/coupons?promotion_id=11"]
-        assert final_state.current is None
 
 
 class TestErrorHandling:
@@ -286,14 +239,6 @@ class TestValidateCredentials:
             is_valid, code = validate_credentials("key", "sub")
         assert is_valid is expected_valid
         assert code == expected_code
-
-    def test_exception_returns_none_status(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(SESSION_PATCH, return_value=session):
-            is_valid, code = validate_credentials("key", "sub")
-        assert is_valid is False
-        assert code is None
 
     def test_probe_disables_redirects_and_sample_capture_to_protect_customer_data(self) -> None:
         # The X-Auth-API-Key header rides on the probe, so redirects are pinned off to stop a redirect

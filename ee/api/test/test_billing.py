@@ -1,5 +1,6 @@
 import gzip
 import json
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, cast, get_args
 from uuid import uuid4
@@ -26,6 +27,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_in
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -39,6 +41,7 @@ from ee.api.billing import (
     BILLING_PROJECT_ACCESS_DENIED_MESSAGE,
     BillingDateRangeTooLong,
     BillingExportThrottle,
+    BillingNotManagedByPartner,
     BillingQueryRejected,
     BillingQueryTooLarge,
     BillingUsageRequestSerializer,
@@ -50,6 +53,7 @@ from ee.api.billing import (
     _stream_chunks,
 )
 from ee.api.test.base import APILicensedTest
+from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
@@ -301,6 +305,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.json() == {
             "available_product_features": [],
             "products": create_default_products_response()["products"],
+            "billing_managed_by_partner": None,
         }
 
     def test_license_patch_denied_for_members(self):
@@ -482,6 +487,7 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
+            "billing_managed_by_partner": None,
         }
 
     @patch("ee.billing.billing_manager.http_session.get")
@@ -609,6 +615,7 @@ class TestBillingAPI(APILicensedTest):
             "discount_amount_usd": None,
             "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "billing_managed_by_partner": None,
         }
 
     @patch("ee.billing.billing_manager.http_session.get")
@@ -1192,7 +1199,156 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
 
 
-class TestBillingUsageRequestSerializer(TestCase):
+class TestPartnerManagedBillingAPI(APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _provision(
+        self, pays_for_customers: bool | None, partner_name: str = "Example Partner"
+    ) -> OAuthApplication | None:
+        if pays_for_customers is None:
+            OrganizationProvisioning.objects.create(
+                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
+            return None
+        application = OAuthApplication.objects.create(
+            client_id="example-partner",
+            name=partner_name,
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        application.update_provisioning(pays_for_customers=pays_for_customers)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
+        return application
+
+    @parameterized.expand(
+        [
+            ("activate", "post", "/api/billing/activate", "activate_subscription", status.HTTP_200_OK),
+            ("switch_plan", "post", "/api/billing/subscription/switch-plan", "switch_plan", status.HTTP_200_OK),
+            ("portal", "get", "/api/billing/portal", "_get_stripe_portal_url", status.HTTP_302_FOUND),
+            ("purchase_credits", "post", "/api/billing/credits/purchase", "purchase_credits", status.HTTP_200_OK),
+            ("activate_trial", "post", "/api/billing/trials/activate", "activate_trial", status.HTTP_200_OK),
+            ("authorize", "post", "/api/billing/activate/authorize", "authorize", status.HTTP_200_OK),
+            (
+                "activate_for_unnamed_partner",
+                "post",
+                "/api/billing/activate",
+                "activate_subscription",
+                status.HTTP_200_OK,
+                "",
+                "your partner",
+            ),
+        ]
+    )
+    def test_self_serve_billing_action_is_refused_while_the_partner_pays_and_the_org_has_no_stripe_customer(
+        self,
+        _name: str,
+        method: str,
+        url: str,
+        manager_method: str,
+        allowed_status: int,
+        partner_name: str = "Example Partner",
+        named_as: str = "Example Partner",
+    ) -> None:
+        application = self._provision(pays_for_customers=False, partner_name=partner_name)
+        assert application is not None
+        manager_result = "https://billing.stripe.com/p/session/test_1234" if method == "get" else {"success": True}
+
+        with patch.object(BillingManager, manager_method, return_value=manager_result) as mock_manager_method:
+            allowed = getattr(self.client, method)(url)
+            application.update_provisioning(pays_for_customers=True)
+            refused = getattr(self.client, method)(url)
+            self.organization.customer_id = "cus_example"
+            self.organization.save(update_fields=["customer_id"])
+            self_billed = getattr(self.client, method)(url)
+
+        assert (allowed.status_code, refused.status_code, self_billed.status_code) == (
+            allowed_status,
+            status.HTTP_403_FORBIDDEN,
+            allowed_status,
+        )
+        assert refused.json()["detail"] == (
+            f"Billing for this organization is managed by {named_as}. "
+            f"Contact {named_as} to change your plan or payment details."
+        )
+        assert mock_manager_method.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("paying_partner", True, None, {"partner_name": "Example Partner"}),
+            ("paying_partner_org_with_own_stripe_customer", True, "cus_example", None),
+            ("non_paying_partner", False, None, None),
+            ("partner_without_application", None, None, None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_billing_overview_names_the_paying_partner(
+        self,
+        _name: str,
+        pays_for_customers: bool | None,
+        customer_id: str | None,
+        expected: dict[str, str] | None,
+        mock_get_billing: MagicMock,
+    ) -> None:
+        mock_get_billing.return_value = {"available_product_features": [], "products": []}
+        self._provision(pays_for_customers)
+        self.organization.customer_id = customer_id
+        self.organization.save(update_fields=["customer_id"])
+
+        response = self.client.get("/api/billing")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["billing_managed_by_partner"] == expected
+
+
+class TestPartnerBillingLockCoverage(SimpleTestCase):
+    READ_ONLY_ACTIONS = {
+        "list",
+        "period",
+        "get_invoices",
+        "credits_overview",
+        "coupons_overview",
+        "usage",
+        "usage_team_options",
+        "spend",
+        "usage_export",
+        "spend_export",
+    }
+    UNLOCKED_WRITE_ACTIONS = {
+        "deactivate",
+        "cancel_trial",
+        "patch",
+        "license",
+        "authorize_status",
+        "apply_startup_program",
+        "claim_coupon",
+    }
+
+    def test_every_billing_action_is_partner_locked_or_explicitly_exempt(self) -> None:
+        declared_permissions: dict[str, Sequence[object]] = {
+            action.__name__: getattr(action, "kwargs", {}).get("permission_classes", [])
+            for action in BillingViewset.get_extra_actions()
+        }
+        for standard_action in ("list", "create", "retrieve", "update", "partial_update", "destroy"):
+            if hasattr(BillingViewset, standard_action):
+                declared_permissions[standard_action] = BillingViewset.permission_classes
+
+        unlocked = {name for name, classes in declared_permissions.items() if BillingNotManagedByPartner not in classes}
+
+        assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS
+
+
+class TestBillingUsageRequestSerializer(SimpleTestCase):
     def test_valid_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01", "end_date": "2025-01-31"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -1267,11 +1423,30 @@ class TestBillingUsageRequestSerializer(TestCase):
         serializer = BillingUsageRequestSerializer(data={"breakdowns": value})
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
-    def test_empty_and_null_dates_are_valid(self):
-        serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("empty", {"start_date": "", "end_date": ""}),
+            ("null", {"start_date": None, "end_date": None}),
+            ("empty_start", {"start_date": ""}),
+            ("null_end", {"end_date": None}),
+        ]
+    )
+    @time_machine.travel("2025-02-15T00:30:00+14:00", tick=False)
+    def test_missing_empty_and_null_dates_default_to_last_30_complete_utc_days(
+        self, _case_name: str, data: dict[str, str | None]
+    ) -> None:
+        serializer = BillingUsageRequestSerializer(data=data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertIsNone(serializer.validated_data.get("start_date"))
-        self.assertIsNone(serializer.validated_data.get("end_date"))
+        self.assertEqual(serializer.validated_data["start_date"], "2025-01-15")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-13")
+
+    @time_machine.travel("2025-02-15", tick=False)
+    def test_end_date_without_start_date_is_preserved(self) -> None:
+        serializer = BillingUsageRequestSerializer(data={"end_date": "2025-02-14"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertNotIn("start_date", serializer.validated_data)
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
 
 class TestBillingUpstreamValidationErrors(SimpleTestCase):
@@ -1460,6 +1635,21 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
         # No teams_map: names are put into the response on the way out.
         self.assertNotIn("teams_map", passed_params)
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @time_machine.travel("2025-02-15T00:30:00+14:00", tick=False)
+    def test_usage_and_spend_default_date_range_is_sent_to_billing(self, endpoint: str) -> None:
+        manager_method = f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data"
+        mock_data = self.MOCK_USAGE_DATA if endpoint == "usage" else self.MOCK_SPEND_DATA
+
+        with patch(manager_method, return_value=mock_data) as mock_fetch:
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+        passed_params = mock_fetch.call_args[0][1]
+        self.assertEqual(passed_params["start_date"], "2025-01-15")
+        self.assertEqual(passed_params["end_date"], "2025-02-13")
 
     @staticmethod
     def _billing_refusal(upstream_status: int, body: object) -> Exception:

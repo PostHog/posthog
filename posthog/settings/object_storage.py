@@ -101,12 +101,15 @@ INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "
 INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 # Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
 # examples reach, how many trailing days of reports grade a candidate, and whether a winning
-# candidate rewrites the champion pointer on its own. Promotion stays manual until the first shadow
-# read has a frozen champion to read against; the candidate is still trained and graded daily.
+# candidate rewrites the champion pointer on its own. Promotion stays manual by default; the
+# candidate is still trained and graded daily.
 INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 60, type_cast=int)
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
 INBOX_RANKING_AUTO_PROMOTE = get_from_env("INBOX_RANKING_AUTO_PROMOTE", False, type_cast=str_to_bool)
-INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 3, type_cast=int)
+INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 0, type_cast=int)
+# Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
+# partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.
+INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRESH_MAX_RUNS", 6, type_cast=int)
 # The family whose champion the serving manifest serves. The scoring sweep reads the manifest
 # from the deployment's own object store, so this is the only place the served family is chosen.
 INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
@@ -131,10 +134,6 @@ INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
-# Shadow dag (products/signals/dags/inbox_ranking/shadow): how many daily scores partitions back
-# the read looks for a score that already existed when a list was served. A report is scored on
-# the day it is born, so this bounds how old a report can be and still be graded.
-INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS", 60, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs
@@ -192,3 +191,20 @@ REPLAY_VISION_BENCHMARK_PREFIX = os.getenv("REPLAY_VISION_BENCHMARK_PREFIX", "re
 # The labeling suite's benchmark export API (MLHog labeling/replay/EXPORT.md), and a read-scoped `lbl_` token for it.
 REPLAY_VISION_BENCHMARK_LABELING_URL = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_URL", "")
 REPLAY_VISION_BENCHMARK_LABELING_TOKEN = os.getenv("REPLAY_VISION_BENCHMARK_LABELING_TOKEN", "")
+
+# Data deletion staging (posthog/dags/data_deletion_requests.py). Property removal copies each
+# shard's cleaned rows here before it deletes the originals, so between the delete and the reingest
+# these objects are the only copy of those rows. Only the ClickHouse cluster reads and writes them,
+# through `s3(...)`: the cleaned data files and the small per-step progress files alike. The Dagster
+# process never calls S3 for this flow. Nothing deletes the objects, so infra must expire them
+# through the bucket lifecycle policy.
+DATA_DELETION_STAGING_S3_BUCKET = os.getenv("DATA_DELETION_STAGING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+DATA_DELETION_STAGING_S3_PREFIX = os.getenv("DATA_DELETION_STAGING_S3_PREFIX", "data_deletion_staging")
+DATA_DELETION_STAGING_S3_REGION = os.getenv("DATA_DELETION_STAGING_S3_REGION") or OBJECT_STORAGE_REGION
+# Must be an endpoint the ClickHouse cluster can reach; see the IDENTITY_MATCHING_S3_ENDPOINT note above.
+if TEST or DEBUG:
+    DATA_DELETION_STAGING_S3_ENDPOINT: Optional[str] = (
+        os.getenv("DATA_DELETION_STAGING_S3_ENDPOINT", "http://objectstorage:19000") or None
+    )
+else:
+    DATA_DELETION_STAGING_S3_ENDPOINT = os.getenv("DATA_DELETION_STAGING_S3_ENDPOINT", "") or None

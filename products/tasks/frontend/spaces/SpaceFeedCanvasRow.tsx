@@ -1,32 +1,24 @@
-import { IconDocument, IconGraph, IconLineGraph, IconPalette } from '@posthog/icons'
-import { Badge, Card, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Badge, Card, Text, cn } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
-import { TaskAvatarUser, TaskUserAvatar, taskUserName } from './TaskUserAvatar'
-
-const TEMPLATE_ICONS: Record<string, typeof IconGraph> = {
-    'web-analytics': IconLineGraph,
-    blank: IconDocument,
-    freeform: IconPalette,
-}
+import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvasDisplay'
+import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 interface SpaceFeedCanvasRowProps {
     canvas: CanvasApi
     listRow: boolean
 }
 
-/** A canvas in the feed's Canvases view, as a card or a list row, like PostHog Desktop's. It does not open on the web yet. */
+/** A canvas in the feed's Canvases view, as a card or a list row, like PostHog Desktop's. */
 export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps): JSX.Element {
-    const author: TaskAvatarUser = {
-        uuid: canvas.created_by.uuid,
-        email: canvas.created_by.email,
-        first_name: canvas.created_by.first_name ?? '',
-        last_name: canvas.created_by.last_name ?? '',
-    }
-    const TemplateIcon = TEMPLATE_ICONS[canvas.template_id] ?? IconGraph
+    const author = spaceCanvasAuthor(canvas)
+    const TemplateIcon = spaceCanvasTemplateIcon(canvas.template_id)
     const icon = <TemplateIcon className="size-3.5 shrink-0 text-muted-foreground" />
     const age = shortTimeAgo(canvas.updated_at)
     const avatar = (
@@ -34,33 +26,21 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
             <TaskUserAvatar user={author} />
         </span>
     )
-    // A disabled button keeps the canvas on the keyboard's path, and its overlay carries the tooltip across the row.
     const name = (className: string): JSX.Element => (
-        <Tooltip>
-            <TooltipTrigger
-                render={
-                    <button
-                        type="button"
-                        aria-disabled="true"
-                        className={cn(
-                            'min-w-0 cursor-default truncate text-left text-foreground after:absolute after:inset-0',
-                            className
-                        )}
-                        data-attr="today-space-feed-canvas-row"
-                    />
-                }
-            >
-                {canvas.name || 'Untitled canvas'}
-            </TooltipTrigger>
-            <TooltipContent>Opens once canvases are on the web</TooltipContent>
-        </Tooltip>
+        <LinkPrimitive
+            to={urls.canvasDetail(canvas.id)}
+            className={cn('min-w-0 truncate text-foreground after:absolute after:inset-0', className)}
+            data-attr="today-space-feed-canvas-row"
+        >
+            {canvas.name || 'Untitled canvas'}
+        </LinkPrimitive>
     )
 
     if (listRow) {
         return (
-            <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2">
+            <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected has-focus-visible:ring-2 has-focus-visible:ring-ring">
                 {icon}
-                {name('flex-1 text-sm font-medium')}
+                {name('flex-1 text-(length:--text-ui) leading-(--text-ui--line-height) font-medium')}
                 {avatar}
                 <Text render={<span />} size="xs" variant="muted" className="w-8 shrink-0 text-right" translate="no">
                     {age}
@@ -69,7 +49,10 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
         )
     }
     return (
-        <Card size="sm" className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3">
+        <Card
+            size="sm"
+            className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover has-focus-visible:ring-2 has-focus-visible:ring-ring"
+        >
             <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                     <span className="flex translate-y-0.5">{icon}</span>
@@ -79,13 +62,13 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
                     </Text>
                 </div>
                 <Badge className="shrink-0">Canvas</Badge>
+                {avatar}
             </div>
             {canvas.description && (
                 <Text size="xs" variant="muted" className="mt-1 line-clamp-2 leading-normal break-words">
                     {canvas.description}
                 </Text>
             )}
-            <div className="mt-3 flex justify-end">{avatar}</div>
         </Card>
     )
 }

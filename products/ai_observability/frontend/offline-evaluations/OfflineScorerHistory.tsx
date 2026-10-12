@@ -4,14 +4,16 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
-import { ScoreDefinitionVersionButton } from '../scoreDefinitions/ScoreDefinitionVersionButton'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
 import { OfflineScorerHistoryTable } from './OfflineScorerHistoryTable'
@@ -54,7 +56,6 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
         changePage,
         loadOfflineHistoryPrimaryPage,
         loadOfflineHistoryComparisonPage,
-        reloadOfflineHistoryDefinition,
     } = useActions(logic)
 
     const toggleRun = (key: string): void => {
@@ -92,10 +93,18 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 {definition.archived && <LemonTag type="warning">Archived</LemonTag>}
                                 <span className="text-muted">{definition.description}</span>
                             </div>
-                            <ScoreDefinitionVersionButton
-                                definition={definition}
-                                onSuccess={reloadOfflineHistoryDefinition}
-                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    to={urls.aiObservabilityScorer(definition.id)}
+                                    data-attr="offline-history-edit-scorer"
+                                >
+                                    Edit scorer
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                         <div className="flex flex-wrap gap-2 items-end">
                             <div>

@@ -1,5 +1,6 @@
 """Distinct metric names for a team's picker UI."""
 
+import math
 import datetime as dt
 from collections.abc import Sequence
 from hashlib import sha256
@@ -12,6 +13,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
@@ -89,14 +91,16 @@ class MetricNamesQueryRunner:
             right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
         )
 
-    def _build_query(self) -> ast.SelectQuery:
+    def _names_query(self) -> ast.SelectQuery:
         if not self.search:
             # A separate query, because ClickHouse reads a constant sort key as a column position.
             query = parse_select(
                 """
                     SELECT
-                        metric_name AS name,
-                        uniqExact(service_name) AS matching_services
+                        metric_name,
+                        uniqExact(service_name) AS matching_services,
+                        -- Rows written before the names table had a type read ''.
+                        anyIf(metric_type, metric_type != '') AS name_metric_type
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
                     GROUP BY metric_name
@@ -111,8 +115,10 @@ class MetricNamesQueryRunner:
             query = parse_select(
                 """
                     SELECT
-                        metric_name AS name,
-                        uniqExact(service_name) AS matching_services
+                        metric_name,
+                        uniqExact(service_name) AS matching_services,
+                        -- Rows written before the names table had a type read ''.
+                        anyIf(metric_type, metric_type != '') AS name_metric_type
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
                       AND metric_name ILIKE {search_pattern}
@@ -151,30 +157,60 @@ class MetricNamesQueryRunner:
             query.where = ast.And(exprs=[query.where, self._services_expr()])
         return query
 
-    def _details_query(self, names: Sequence[str]) -> ast.SelectQuery:
+    def _build_query(self) -> ast.SelectQuery:
+        # One round trip: the names pick the page, and the series join adds type, unit and last seen.
+        names_query = self._names_query()
         # Not aliased `last_seen`: HogQL would resolve the WHERE's `last_seen` to the aggregate.
         query = parse_select(
             """
                 SELECT
-                    metric_name AS name,
-                    any(metric_type) AS metric_type,
-                    any(unit) AS unit,
-                    max(last_seen) AS last_seen_at
-                FROM posthog.metric_series
-                WHERE last_seen >= {lookback_start}
-                  AND metric_name IN {names}
-                GROUP BY metric_name
+                    names.metric_name AS name,
+                    details.metric_type AS metric_type,
+                    details.unit AS unit,
+                    if(details.matched = 1, details.last_seen_at, NULL) AS last_seen_at
+                FROM {names} AS names
+                LEFT JOIN (
+                    SELECT
+                        metric_name AS series_metric_name,
+                        -- An unmatched row reads 0 here, even for a metric named ''.
+                        1 AS matched,
+                        any(metric_type) AS metric_type,
+                        any(unit) AS unit,
+                        max(last_seen) AS last_seen_at
+                    FROM posthog.metric_series
+                    WHERE last_seen >= {lookback_start}
+                      AND metric_name IN (SELECT metric_name FROM {page_names})
+                    GROUP BY metric_name
+                ) AS details ON details.series_metric_name = names.metric_name
             """,
             placeholders={
+                "names": names_query,
+                "page_names": clone_expr(names_query),
                 "lookback_start": self._lookback_start(),
-                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        assert query.where is not None
         if self.services:
-            query.where = ast.And(exprs=[query.where, self._services_expr()])
+            assert query.select_from is not None and query.select_from.next_join is not None
+            details = query.select_from.next_join.table
+            assert isinstance(details, ast.SelectQuery) and details.where is not None
+            details.where = ast.And(exprs=[details.where, self._services_expr()])
+        # A join does not keep the page order, so the outer query sorts by the same keys.
+        query.order_by = [clone_expr(order) for order in names_query.order_by or []]
+        # Without its own LIMIT, the outer query gets the HogQL default and cuts a larger page.
+        query.limit = clone_expr(names_query.limit) if names_query.limit else None
         return query
+
+    def run_picker(self) -> list[dict[str, str]]:
+        """Names and types only. Reads `metric_names` alone, which is much smaller than `metric_series`."""
+        response = execute_hogql_query(
+            query_type="MetricNamesQuery",
+            query=self._names_query(),
+            team=self.team,
+            workload=Workload.LOGS,
+            settings=_SPARKLINE_QUERY_SETTINGS if self.names else _QUERY_SETTINGS,
+        )
+        return [{"name": name, "metric_type": metric_type} for name, _services, metric_type in response.results]
 
     def run(self) -> list[dict[str, Any]]:
         settings = _SPARKLINE_QUERY_SETTINGS if self.names else _QUERY_SETTINGS
@@ -185,33 +221,22 @@ class MetricNamesQueryRunner:
             workload=Workload.LOGS,
             settings=settings,
         )
-        names = [row[0] for row in response.results]
-        if not names:
+        if not response.results:
             return []
 
-        details_response = execute_hogql_query(
-            query_type="MetricNamesDetailsQuery",
-            query=self._details_query(names),
-            team=self.team,
-            workload=Workload.LOGS,
-            settings=settings,
-        )
-        details = {row[0]: row[1:] for row in details_response.results}
+        names = [row[0] for row in response.results]
         sparklines = self._sparklines(names) if self.include_sparklines else {}
 
-        rows = []
-        for name in names:
-            metric_type, unit, last_seen = details.get(name, ("", "", None))
-            rows.append(
-                {
-                    "name": name,
-                    "metric_type": metric_type,
-                    "unit": unit,
-                    "last_seen": _isoformat(last_seen),
-                    "sparkline": sparklines.get(name, []),
-                }
-            )
-        return rows
+        return [
+            {
+                "name": name,
+                "metric_type": metric_type or "",
+                "unit": unit or "",
+                "last_seen": _isoformat(last_seen),
+                "sparkline": sparklines.get(name, []),
+            }
+            for name, metric_type, unit, last_seen in response.results
+        ]
 
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         if not names:
@@ -252,6 +277,9 @@ class MetricNamesQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+        # One row per name and bucket. Without an explicit LIMIT, the HogQL default cuts the batch after a few names.
+        # The extra bucket covers a point on the window's end.
+        query.limit = ast.Constant(value=len(names) * (SPARKLINE_MAX_POINTS + 1))
 
         response = execute_hogql_query(
             query_type="MetricNamesSparklineQuery",
@@ -263,7 +291,9 @@ class MetricNamesQueryRunner:
 
         sparklines: dict[str, list[float]] = {}
         for name, _bucket_start, bucket_value in response.results:
-            sparklines.setdefault(name, []).append(float(bucket_value))
+            value = float(bucket_value)
+            if math.isfinite(value):
+                sparklines.setdefault(name, []).append(value)
         return sparklines
 
     def _series_scope_subquery(self, names: Sequence[str]) -> ast.SelectQuery:

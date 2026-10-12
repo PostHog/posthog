@@ -2,7 +2,7 @@
 
 The envelope is the small JSON the sandbox POSTs to the backend callback:
 `{status, columns, row_count, first_page, result_id, error?}`. It carries a
-bounded preview only — never the full result (see sql_v2_result_delivery.md).
+bounded preview only — never the full result.
 """
 
 import math
@@ -79,6 +79,7 @@ def from_python_execution(
     has_more: bool = False,
     media: list[dict[str, str]] | None = None,
     result_id: str | None = None,
+    result_text: str = "",
 ) -> dict[str, Any]:
     """Envelope for a Python node run.
 
@@ -101,4 +102,6 @@ def from_python_execution(
         envelope["error"] = error
     if result_id is not None:
         envelope["result_id"] = result_id
+    if result_text:
+        envelope["result_text"] = result_text
     return envelope

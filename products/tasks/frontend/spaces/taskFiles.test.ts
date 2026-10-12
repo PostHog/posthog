@@ -25,6 +25,17 @@ describe('taskFiles', () => {
                 artifact('skill.zip', { type: 'skill_bundle' }),
                 artifact('reference', { storage_path: undefined }),
                 artifact('old.csv', { dismissed_at: '2026-01-02T00:00:00Z' }),
+                artifact('Weekly signups', {
+                    type: 'reference',
+                    storage_path: undefined,
+                    metadata: {
+                        reference_type: 'posthog_object',
+                        object_kind: 'insight',
+                        object_id: 'abc123',
+                        source_message_ids: ['message-1'],
+                        occurrence_count: 1,
+                    },
+                }),
             ],
             [],
         ],
@@ -38,11 +49,11 @@ describe('taskFiles', () => {
             ['summary.md', 'chart.html'],
         ],
     ])('lists %s', (_, artifacts, expected) => {
-        expect(taskFiles('task-1', artifacts).map((file) => file.name)).toEqual(expected)
+        expect(taskFiles('task-1', { id: 'run-1', artifacts }).map(({ file }) => file.name)).toEqual(expected)
     })
 
     it('links a file to its session with the file selected', () => {
-        expect(taskFiles('task-1', [artifact('q3 revenue.md')])[0].url).toEqual(
+        expect(taskFiles('task-1', { id: 'run-1', artifacts: [artifact('q3 revenue.md')] })[0].url).toEqual(
             '/ai?task=task-1&artifact=q3%20revenue.md'
         )
     })

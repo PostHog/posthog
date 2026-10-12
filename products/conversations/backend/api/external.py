@@ -59,6 +59,9 @@ class ExternalTicketProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthent
     such a key is indistinguishable from an unknown token."""
 
     activity_credential_type = "project_secret_key"
+    # A migrated legacy token (#63111) must keep the legacy path: PATCH accepts it there
+    # but refuses PSAKs, and the legacy-usage counters would otherwise go silent.
+    defer_migrated_team_tokens = True
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)

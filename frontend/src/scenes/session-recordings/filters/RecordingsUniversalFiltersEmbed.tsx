@@ -43,11 +43,9 @@ import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/compone
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -74,14 +72,14 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
-import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { useHideRecordingsMenuItems, useTimestampFormatMenuItems } from '../playlist/listViewMenuItems'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
@@ -121,33 +119,7 @@ const RECORDING_METRIC_KEYS = new Set([
 
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
-    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const items = [
-        {
-            label: hideRecordingsMenuLabelFor(false),
-            onClick: () => setHideViewedRecordings(false),
-            active: !hideViewedRecordings,
-            'data-attr': 'hide-viewed-recordings-show-all',
-        },
-        {
-            label: hideRecordingsMenuLabelFor('current-user'),
-            onClick: () => setHideViewedRecordings('current-user'),
-            active: hideViewedRecordings === 'current-user',
-            'data-attr': 'hide-viewed-recordings-hide-current-user',
-        },
-    ]
-
-    // If the person wished to be excluded from the hide recordings menu, we don't show the option to hide recordings that other people have watched
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]) {
-        items.push({
-            label: hideRecordingsMenuLabelFor('any-user'),
-            onClick: () => setHideViewedRecordings('any-user'),
-            active: hideViewedRecordings === 'any-user',
-            'data-attr': 'hide-viewed-recordings-hide-any-user',
-        })
-    }
+    const items = useHideRecordingsMenuItems()
 
     return (
         <SettingsMenu
@@ -178,7 +150,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
-    const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const timestampFormatItems = useTimestampFormatMenuItems()
+    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
 
     useAttachedContext([
         { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
@@ -281,36 +254,19 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     data-attr="refresh-recordings-list"
                 />
             </div>
-            <div className="flex gap-2 mt-2 justify-between">
-                <HideRecordingsMenu />
-                <SettingsMenu
-                    data-attr="filters-timestamp-format-menu"
-                    highlightWhenActive={false}
-                    items={[
-                        {
-                            label: 'UTC',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                            'data-attr': 'filters-timestamp-utc',
-                            active: playlistTimestampFormat === TimestampFormat.UTC,
-                        },
-                        {
-                            label: 'Device',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                            'data-attr': 'filters-timestamp-device',
-                            active: playlistTimestampFormat === TimestampFormat.Device,
-                        },
-                        {
-                            label: 'Relative',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                            'data-attr': 'filters-timestamp-relative',
-                            active: playlistTimestampFormat === TimestampFormat.Relative,
-                        },
-                    ]}
-                    icon={<IconClock />}
-                    label={TimestampFormatToLabel[playlistTimestampFormat]}
-                    rounded={true}
-                />
-            </div>
+            {!consolidatedControls && (
+                <div className="flex gap-2 mt-2 justify-between">
+                    <HideRecordingsMenu />
+                    <SettingsMenu
+                        data-attr="filters-timestamp-format-menu"
+                        highlightWhenActive={false}
+                        items={timestampFormatItems}
+                        icon={<IconClock />}
+                        label={TimestampFormatToLabel[playlistTimestampFormat]}
+                        rounded={true}
+                    />
+                </div>
+            )}
         </>
     )
 }
@@ -335,7 +291,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const { activeFilterTab, templatesInFiltersPanel } = useValues(playlistFiltersLogic)
+    const { activeFilterTab } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     const { savedFilters } = useValues(sessionRecordingSavedFiltersLogic)
@@ -362,26 +318,22 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
             content: <SavedFilters setFilters={props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-        ...(templatesInFiltersPanel
-            ? [
-                  {
-                      key: 'templates',
-                      label: <div className="px-2">Templates</div>,
-                      content: (
-                          <div className="p-2">
-                              <FilterTemplates
-                                  source="filters_panel"
-                                  onApply={(filters) => {
-                                      props.setFilters(filters)
-                                      setActiveFilterTab('filters')
-                                  }}
-                              />
-                          </div>
-                      ),
-                      'data-attr': 'session-recordings-templates-tab',
-                  },
-              ]
-            : []),
+        {
+            key: 'templates',
+            label: <div className="px-2">Templates</div>,
+            content: (
+                <div className="p-2">
+                    <FilterTemplates
+                        source="filters_panel"
+                        onApply={(filters) => {
+                            props.setFilters(filters)
+                            setActiveFilterTab('filters')
+                        }}
+                    />
+                </div>
+            ),
+            'data-attr': 'session-recordings-templates-tab',
+        },
     ]
 
     return (
@@ -492,8 +444,6 @@ const SaveFiltersModal = ({
 
     const [savedFilterName, setSavedFilterName] = useState('')
 
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-
     const closeSaveFiltersModal = (): void => {
         setIsOpen(false)
         setSavedFilterName('')
@@ -501,10 +451,9 @@ const SaveFiltersModal = ({
 
     const addSavedFilter = async (): Promise<void> => {
         const f = await createPlaylist(
-            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters', creation_method: 'new' },
             false
         )
-        reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setIsOpen(false)
         setSavedFilterName('')
@@ -665,7 +614,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
     // clicking the pill from a closed state opens its menu AND focuses the input (which
     // opens the surrounding popover); the popover portal mounts last and ends up
     // visually on top of the menu.
-    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} />
+    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} joinedToInput />
 
     const closePopover = (): void => {
         setIsPopoverVisible(false)
@@ -687,11 +636,13 @@ export function RecordingsUniversalFilterAddFilterPopover({
             visible={isPopoverVisible}
             onClickOutside={closePopover}
         >
-            <div className="w-full max-w-[600px] shrink grow-0 @container">
+            <div className="w-full max-w-[600px] shrink grow-0">
                 <LemonInput
+                    className="TaxonomicFilter__search-input--with-category @container"
                     type="search"
                     size="small"
                     fullWidth
+                    suffixAfterClear
                     data-attr="replay-filters-add-filter-input"
                     inputRef={inputRef}
                     prefix={<IconSearch />}

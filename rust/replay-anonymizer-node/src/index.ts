@@ -315,3 +315,8 @@ export function canonicalizeUrl(url: string): CanonicalUrl | null {
     const verdict = tryCanonicalizeUrl(url)
     return verdict.ok ? verdict.url : null
 }
+
+/** The same bytes as `zlib.brotliCompress` at this quality with a size hint of `data.length`. */
+export function compressBrotli(data: Buffer, quality: number): Promise<Buffer> {
+    return native.compressBrotli(data, quality)
+}

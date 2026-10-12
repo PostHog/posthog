@@ -91,7 +91,7 @@ export function getBlastRadiusErrorMessage(error: BlastRadiusError, pluralName: 
 // surfaced inline instead of failing with an opaque 400 on submit.
 function getPropertyValueError(property: AnyPropertyFilter): string | undefined {
     if (isEmptyProperty(property)) {
-        return "Property filters can't be empty"
+        return 'Add a value or remove this filter'
     }
     if (isPropertyFilterWithOperator(property) && isOperatorSemver(property.operator)) {
         const allowWildcard = property.operator === PropertyOperator.SemverWildcard

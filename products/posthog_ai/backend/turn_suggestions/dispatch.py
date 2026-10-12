@@ -1,0 +1,91 @@
+import uuid
+from typing import TYPE_CHECKING, Any
+
+import structlog
+
+from posthog.redis import get_client
+
+from products.tasks.backend.facade.task_run_signals import TaskOriginProduct
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
+
+logger = structlog.get_logger(__name__)
+
+# The proxy callback reports over its own channel and can beat the ingest writes of the turn's last
+# frames, so the read waits for them instead of judging a turn whose answer has not landed.
+TURN_SETTLE_SECONDS = 2
+# The proxy callback, the event ingest and the sandbox relay can each report the same turn, within
+# moments of each other. A report that lands while a job waits is covered by that job, which reads
+# the conversation's latest turn when it runs. Past the wait, a report can be a later turn, so it
+# queues its own job.
+ENQUEUE_DEDUP_SECONDS = TURN_SETTLE_SECONDS
+# Every PostHog AI turn queues a job, so a stalled worker must not drain a backlog of late cards.
+TURN_SUGGESTION_EXPIRES_SECONDS = TURN_SETTLE_SECONDS + 30
+
+
+# A broker call can outlast the reservation, so a failed call releases only the reservation it made,
+# never one a later report took after it expired.
+_RELEASE_OWN_RESERVATION_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
+
+
+def _enqueue_dedup_key(run_id: str) -> str:
+    return f"turn_suggestion:{run_id}"
+
+
+def _reserve_report(run_id: str) -> str | None:
+    """A token for this report's reservation of the turn, or ``None`` when another report holds it."""
+    token = uuid.uuid4().hex
+    try:
+        reserved = get_client().set(_enqueue_dedup_key(run_id), token, nx=True, ex=ENQUEUE_DEDUP_SECONDS)
+    except Exception:
+        # The offer ledger still refuses a second claim of the same turn, so a duplicate only costs a read.
+        logger.warning("posthog_ai_turn_suggestion_dedup_failed", run_id=run_id, exc_info=True)
+        return token
+    return token if reserved else None
+
+
+def _release_report(run_id: str, token: str) -> None:
+    try:
+        get_client().eval(_RELEASE_OWN_RESERVATION_SCRIPT, 1, _enqueue_dedup_key(run_id), token)
+    except Exception:
+        logger.warning("posthog_ai_turn_suggestion_dedup_release_failed", run_id=run_id, exc_info=True)
+
+
+def enqueue_turn_suggestion(task_run: "TaskRun") -> bool:
+    """Queue the end-of-turn suggestion for a PostHog AI run. Never raises: the turn completion that
+    calls this must not fail because a nudge could not be scheduled."""
+    try:
+        if task_run.origin_product != TaskOriginProduct.POSTHOG_AI:
+            return False
+        run_id = str(task_run.id)
+        token = _reserve_report(run_id)
+        if token is None:
+            return False
+        from products.posthog_ai.backend.tasks import (
+            generate_turn_suggestion_task,  # noqa: PLC0415 — keeps the judge and drafter clients off the Django startup path
+        )
+
+        try:
+            generate_turn_suggestion_task.apply_async(
+                kwargs={"run_id": run_id, "team_id": task_run.team_id},
+                countdown=TURN_SETTLE_SECONDS,
+                expires=TURN_SUGGESTION_EXPIRES_SECONDS,
+            )
+        except Exception:
+            # Another report of the turn can still queue it.
+            _release_report(run_id, token)
+            raise
+    except Exception:
+        logger.warning("posthog_ai_turn_suggestion_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+        return False
+    return True
+
+
+def enqueue_turn_suggestion_on_turn_completed(sender: type, task_run: "TaskRun", **kwargs: Any) -> None:
+    enqueue_turn_suggestion(task_run)

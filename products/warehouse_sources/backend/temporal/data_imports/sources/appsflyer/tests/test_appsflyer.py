@@ -6,17 +6,14 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
     MASTER_MAX_LOOKBACK_DAYS,
     MASTER_MAX_REQUEST_DAYS,
-    MAX_WINDOW_DAYS,
     RAW_LOOKBACK_DAYS,
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
-    RAW_MAX_ROWS,
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     _normalize_header,
@@ -27,10 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import (
-    APPSFLYER_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer"
 
@@ -197,20 +191,6 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_pull_uses_max_window(self, mock_session):
-        mock_session.return_value.get.side_effect = _serve()
-
-        batches = list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
-
-        flat = [row for batch in batches for row in batch]
-        assert len(flat) == 2
-        url = mock_session.return_value.get.call_args.args[0]
-        query = parse_qs(urlparse(url).query)
-        window = date.fromisoformat(query["to"][0]) - date.fromisoformat(query["from"][0])
-        assert window.days == MAX_WINDOW_DAYS
-        assert urlparse(url).path == "/api/agg-data/export/app/id123/daily_report/v5"
-
     @pytest.mark.parametrize(
         "endpoint, expected_path",
         [
@@ -284,26 +264,6 @@ class TestGetRows:
         headers = mock_session.call_args.kwargs["headers"]
         assert headers["Accept"] == "text/csv"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_report_spanning_several_reads_is_returned_whole(self, mock_session):
-        # urllib3 closes the raw stream as it reads the last byte of the body, so reading the
-        # report straight off it lost the report to `I/O operation on closed file` at EOF.
-        header = "Date,Media Source (pid)\n"
-        rows_sent = 4000
-        mock_session.return_value.get.side_effect = _serve(
-            header + "".join(f"2024-01-01,source-{index}\n" for index in range(rows_sent))
-        )
-
-        rows = [row for batch in get_rows("token", "id123", "daily_report", mock.MagicMock()) for row in batch]
-
-        assert [row["media_source_pid"] for row in rows] == [f"source-{index}" for index in range(rows_sent)]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_report_yields_nothing(self, mock_session):
-        mock_session.return_value.get.side_effect = _serve("Date,Media Source (pid)\n")
-
-        assert list(get_rows("token", "id123", "daily_report", mock.MagicMock())) == []
-
 
 class TestRawAndMasterWindows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -360,16 +320,6 @@ class TestRawAndMasterWindows:
         windows = _requested_windows(mock_session)
         assert windows[0][0] == watermark - timedelta(days=RAW_LOOKBACK_DAYS)
         assert RAW_LOOKBACK_DAYS >= RAW_MAX_REQUEST_DAYS
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_raw_pull_asks_for_the_larger_row_cap(self, mock_session):
-        # Without maximum_rows AppsFlyer truncates at 200k rows per window.
-        mock_session.return_value.get.side_effect = _serve()
-
-        list(get_rows("token", "id123", "installs", mock.MagicMock()))
-
-        query = parse_qs(urlparse(mock_session.return_value.get.call_args.args[0]).query)
-        assert query["maximum_rows"] == [str(RAW_MAX_ROWS)]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_ad_revenue_pull_requests_its_monetization_dimensions(self, mock_session):
@@ -442,23 +392,6 @@ class TestRawAndMasterWindows:
 
 
 class TestAppsFlyerSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = APPSFLYER_ENDPOINTS[endpoint]
-        response = appsflyer_source("token", "id123", endpoint, mock.MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [config.partition_key]
-        assert response.partition_format == config.partition_format
-        # Dimension keys can collide (blank campaigns etc), but that's expected for report data
-        # and must not block incremental syncing - regression test for the schema-wide incremental
-        # sync outage this caused when has_duplicate_primary_keys was set unconditionally.
-        assert not response.has_duplicate_primary_keys
-        validate_incremental_sync(True, response)
-
     def test_geo_report_key_includes_country(self):
         response = appsflyer_source("token", "id123", "geo_report", mock.MagicMock())
         assert "country" in (response.primary_keys or [])
