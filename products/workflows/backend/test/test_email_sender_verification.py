@@ -1,11 +1,15 @@
+from datetime import timedelta
 from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 import dns.resolver
 from botocore.exceptions import EndpointConnectionError
-from parameterized import parameterized
+from parameterized import param, parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -19,15 +23,77 @@ class TestEmailSenderVerification(APIBaseTest):
         Team.workflows_config.fget.cache_clear()
         self.addCleanup(Team.workflows_config.fget.cache_clear)
 
+    def _create_sender(self, domain: str, local_part: str = "sender", **config: Any) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=f"{local_part}@{domain}",
+            config={
+                "email": f"{local_part}@{domain}",
+                "domain": domain,
+                "name": "Example sender",
+                "provider": "ses",
+                "mail_from_subdomain": "feedback",
+                "verified": False,
+                **config,
+            },
+        )
+
+    def _mock_ses(
+        self,
+        mock_boto_client: MagicMock,
+        mock_resolver: MagicMock,
+        *,
+        dkim_status: str = "Success",
+        has_dmarc: bool = True,
+        has_tenant: bool = True,
+        mail_from_domain: str | None = None,
+    ) -> MagicMock:
+        ses = mock_boto_client.return_value
+        ses.get_identity_verification_attributes.side_effect = lambda Identities: {
+            "VerificationAttributes": {domain: {"VerificationStatus": "Success"} for domain in Identities}
+        }
+        ses.get_identity_dkim_attributes.side_effect = lambda Identities: {
+            "DkimAttributes": {domain: {"DkimVerificationStatus": dkim_status} for domain in Identities}
+        }
+        ses.get_identity_mail_from_domain_attributes.side_effect = lambda Identities: {
+            "MailFromDomainAttributes": {
+                domain: {"MailFromDomainStatus": "Success", "MailFromDomain": mail_from_domain or f"feedback.{domain}"}
+                for domain in Identities
+            }
+        }
+        ses.get_caller_identity.return_value = {"Account": "123456789012"}
+        ses.list_resource_tenants.return_value = {
+            "ResourceTenants": [{"TenantName": f"team-{self.team.id}"}] if has_tenant else []
+        }
+        mock_resolver.return_value.resolve.return_value = [SimpleNamespace(strings=[b"v=DMARC1; p=none;"])]
+        if not has_dmarc:
+            mock_resolver.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
+        ses.verify_domain_identity.side_effect = RuntimeError("Background checks must not create SES identities")
+        ses.verify_domain_dkim.side_effect = RuntimeError("Background checks must not change DKIM")
+        ses.set_identity_mail_from_domain.side_effect = RuntimeError("Background checks must not change MAIL FROM")
+        return ses
+
+    def _verified(self, *senders: Integration) -> list[bool]:
+        return [
+            self.client.get(f"/api/projects/{self.team.id}/integrations/{sender.id}/").json()["config"]["verified"]
+            for sender in senders
+        ]
+
+    def _default_sender_id(self) -> int | None:
+        return self.client.get(f"/api/environments/{self.team.id}/").json()["workflows_config"][
+            "default_email_integration_id"
+        ]
+
     @parameterized.expand(
         [
-            ("verified", "Success", True, True, "feedback.example.com", False, False, True),
-            ("dkim_pending", "Pending", True, True, "feedback.example.com", False, False, False),
-            ("dmarc_missing", "Success", False, True, "feedback.example.com", False, False, False),
-            ("tenant_missing", "Success", True, False, "feedback.example.com", False, False, False),
-            ("mail_from_changed", "Success", True, True, "other.example.com", False, False, False),
-            ("sender_edited_during_check", "Success", True, True, "feedback.example.com", True, False, False),
-            ("overlapping_sweeps", "Success", True, True, "feedback.example.com", False, True, True),
+            param("verified", expected_verified=True),
+            param("dkim_pending", dkim_status="Pending"),
+            param("dmarc_missing", has_dmarc=False),
+            param("tenant_missing", has_tenant=False),
+            param("mail_from_changed", mail_from_domain="other.example.com"),
+            param("mail_from_differs_in_case", mail_from_domain="Feedback.Example.com.", expected_verified=True),
+            param("stale_sender", age=timedelta(days=8)),
         ]
     )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
@@ -35,208 +101,126 @@ class TestEmailSenderVerification(APIBaseTest):
     def test_background_verification_updates_sender_status_without_ui(
         self,
         _name: str,
-        dkim_status: str,
-        has_dmarc: bool,
-        has_tenant: bool,
-        mail_from_domain: str,
-        edit_during_check: bool,
-        reenter_during_check: bool,
-        expected_verified: bool,
         mock_boto_client: MagicMock,
         mock_resolver: MagicMock,
+        dkim_status: str = "Success",
+        has_dmarc: bool = True,
+        has_tenant: bool = True,
+        mail_from_domain: str | None = None,
+        age: timedelta = timedelta(),
+        expected_verified: bool = False,
     ) -> None:
-        integration = Integration.objects.create(
-            team=self.team,
-            kind="email",
-            integration_id="sender@example.com",
-            config={
-                "email": "sender@example.com",
-                "domain": "example.com",
-                "name": "Example sender",
-                "provider": "ses",
-                "mail_from_subdomain": "feedback",
-                "verified": False,
-            },
+        sender = self._create_sender("example.com")
+        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - age)
+        ses = self._mock_ses(
+            mock_boto_client,
+            mock_resolver,
+            dkim_status=dkim_status,
+            has_dmarc=has_dmarc,
+            has_tenant=has_tenant,
+            mail_from_domain=mail_from_domain,
         )
-        ses = mock_boto_client.return_value
-        ses.verify_domain_identity.return_value = {"VerificationToken": "example-token"}
-        ses.verify_domain_dkim.return_value = {"DkimTokens": ["example-dkim"]}
-        ses.get_identity_verification_attributes.return_value = {
-            "VerificationAttributes": {"example.com": {"VerificationStatus": "Success"}}
-        }
-        if reenter_during_check:
-            Integration.objects.create(
-                team=self.team,
-                kind="email",
-                integration_id="sender@later.example.com",
-                config={"domain": "later.example.com", "provider": "ses", "verified": False},
-            )
-            entered = False
-
-            def reenter_sweep(**kwargs: list[str]) -> dict[str, dict[str, dict[str, str]]]:
-                nonlocal entered
-                if not entered:
-                    entered = True
-                    refresh_pending_email_senders()
-                    assert ses.get_identity_verification_attributes.call_count == 1
-                return {"VerificationAttributes": {"example.com": {"VerificationStatus": "Success"}}}
-
-            ses.get_identity_verification_attributes.side_effect = reenter_sweep
-        ses.get_identity_dkim_attributes.return_value = {
-            "DkimAttributes": {"example.com": {"DkimVerificationStatus": dkim_status}}
-        }
-        ses.get_identity_mail_from_domain_attributes.return_value = {
-            "MailFromDomainAttributes": {
-                "example.com": {"MailFromDomainStatus": "Success", "MailFromDomain": mail_from_domain}
-            }
-        }
-        ses.get_caller_identity.return_value = {"Account": "123456789012"}
-        ses.list_resource_tenants.return_value = {
-            "ResourceTenants": [{"TenantName": f"team-{self.team.id}"}] if has_tenant else []
-        }
-        if edit_during_check:
-            sibling = Integration.objects.create(
-                team=self.team,
-                kind="email",
-                integration_id="sibling@example.com",
-                config={**integration.config, "email": "sibling@example.com"},
-            )
-
-            def edit_sender(**kwargs: str) -> dict[str, list[dict[str, str]]]:
-                Integration.objects.filter(id=integration.id).update(
-                    config={**integration.config, "mail_from_subdomain": "updated"}
-                )
-                return {"ResourceTenants": [{"TenantName": f"team-{self.team.id}"}]}
-
-            ses.list_resource_tenants.side_effect = edit_sender
-        mock_resolver.return_value.resolve.return_value = [SimpleNamespace(strings=[b"v=DMARC1; p=none;"])]
-        if not has_dmarc:
-            mock_resolver.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
-        ses.verify_domain_identity.side_effect = RuntimeError("Background checks must not create SES identities")
-        ses.verify_domain_dkim.side_effect = RuntimeError("Background checks must not change DKIM")
-        ses.set_identity_mail_from_domain.side_effect = RuntimeError("Background checks must not change MAIL FROM")
-
-        url = f"/api/projects/{self.team.id}/integrations/{integration.id}/"
-        assert self.client.get(url).json()["config"]["verified"] is False
 
         refresh_pending_email_senders()
 
-        response = self.client.get(url)
-        assert response.status_code == 200
-        assert response.json()["config"]["verified"] is expected_verified
-        project = self.client.get(f"/api/environments/{self.team.id}/")
-        assert project.status_code == 200
-        expected_default = integration.id if expected_verified else None
-        assert project.json()["workflows_config"]["default_email_integration_id"] == expected_default
-        if edit_during_check:
-            assert (
-                self.client.get(f"/api/projects/{self.team.id}/integrations/{sibling.id}/").json()["config"]["verified"]
-                is True
-            )
-        checked_domains = [
-            call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list
-        ]
-        expected_domains = [["example.com"], ["later.example.com"]] if reenter_during_check else [["example.com"]]
-        assert checked_domains == expected_domains
+        assert self._verified(sender) == [expected_verified]
+        assert self._default_sender_id() == (sender.id if expected_verified else None)
+        expected_reads = [] if age else [["example.com"]]
+        assert [call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list] == (
+            expected_reads
+        )
 
-        if expected_verified and not reenter_during_check:
+        if expected_verified:
             mock_boto_client.reset_mock()
             refresh_pending_email_senders()
             mock_boto_client.assert_not_called()
 
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_sender_edited_during_check_still_verifies_siblings_on_the_checked_subdomain(
+        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    ) -> None:
+        sender = self._create_sender("example.com")
+        sibling = self._create_sender("example.com", local_part="sibling")
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+
+        def edit_sender(**kwargs: str) -> dict[str, list[dict[str, str]]]:
+            Integration.objects.filter(id=sender.id).update(config={**sender.config, "mail_from_subdomain": "updated"})
+            return {"ResourceTenants": [{"TenantName": f"team-{self.team.id}"}]}
+
+        ses.list_resource_tenants.side_effect = edit_sender
+
+        refresh_pending_email_senders()
+
+        assert self._verified(sender, sibling) == [False, True]
+        assert self._default_sender_id() is None
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_overlapping_sweep_returns_without_checking(
+        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    ) -> None:
+        sender = self._create_sender("example.com")
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+        read_statuses = ses.get_identity_verification_attributes.side_effect
+
+        def overlap_sweep(Identities: list[str]) -> dict[str, dict[str, dict[str, str]]]:
+            ses.get_identity_verification_attributes.side_effect = read_statuses
+            refresh_pending_email_senders()
+            return read_statuses(Identities=Identities)
+
+        ses.get_identity_verification_attributes.side_effect = overlap_sweep
+
+        refresh_pending_email_senders()
+
+        assert ses.get_identity_verification_attributes.call_count == 1
+        assert self._verified(sender) == [True]
+
     @parameterized.expand(
         [
-            ("provider_failure", False, [False, True], [True, True]),
-            ("budget_exhausted", True, [False, False], [False, True]),
+            param("provider_failure", fail_first=True, first_sweep=[False, True], second_sweep=[True, True]),
+            param("budget_exhausted", slow_checks=True, first_sweep=[True, False], second_sweep=[True, True]),
         ]
     )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
-    def test_provider_failure_does_not_block_other_senders_and_recovers_on_next_sweep(
+    def test_interrupted_sweep_does_not_block_other_senders_and_recovers_on_next_sweep(
         self,
         _name: str,
-        interrupt_sweep: bool,
-        first_sweep_statuses: list[bool],
-        second_sweep_statuses: list[bool],
         mock_boto_client: MagicMock,
         mock_resolver: MagicMock,
+        first_sweep: list[bool],
+        second_sweep: list[bool],
+        fail_first: bool = False,
+        slow_checks: bool = False,
     ) -> None:
-        senders = [
-            Integration.objects.create(
-                team=self.team,
-                kind="email",
-                integration_id=f"sender@{domain}",
-                config={
-                    "email": f"sender@{domain}",
-                    "domain": domain,
-                    "provider": "ses",
-                    "mail_from_subdomain": "feedback",
-                    "verified": False,
-                },
-            )
-            for domain in ["first.example.com", "second.example.com"]
-        ]
-        ses = mock_boto_client.return_value
-        identity_attributes = {
-            "VerificationAttributes": {sender.config["domain"]: {"VerificationStatus": "Success"} for sender in senders}
-        }
+        senders = [self._create_sender(domain) for domain in ["first.example.com", "second.example.com"]]
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+        clock = {"now": 0.0}
 
-        def get_identity_attributes(**kwargs: list[str]) -> dict[str, dict[str, dict[str, str]]]:
-            if kwargs["Identities"] == ["first.example.com"]:
+        def check_tenants(ResourceArn: str) -> dict[str, list[dict[str, str]]]:
+            if slow_checks:
+                clock["now"] += 200
+            if fail_first and ResourceArn.endswith("/first.example.com"):
                 raise EndpointConnectionError(endpoint_url="https://ses.example.com")
-            return identity_attributes
+            return {"ResourceTenants": [{"TenantName": f"team-{self.team.id}"}]}
 
-        ses.get_identity_verification_attributes.side_effect = get_identity_attributes
-        ses.get_identity_dkim_attributes.return_value = {
-            "DkimAttributes": {sender.config["domain"]: {"DkimVerificationStatus": "Success"} for sender in senders}
-        }
-        ses.get_identity_mail_from_domain_attributes.return_value = {
-            "MailFromDomainAttributes": {
-                sender.config["domain"]: {
-                    "MailFromDomainStatus": "Success",
-                    "MailFromDomain": f"feedback.{sender.config['domain']}",
-                }
-                for sender in senders
-            }
-        }
-        ses.get_caller_identity.return_value = {"Account": "123456789012"}
-        ses.list_resource_tenants.return_value = {"ResourceTenants": [{"TenantName": f"team-{self.team.id}"}]}
-        mock_resolver.return_value.resolve.return_value = [SimpleNamespace(strings=[b"v=DMARC1; p=none;"])]
-
-        if interrupt_sweep:
-            with patch(
-                "products.workflows.backend.services.email_sender_verification.monotonic",
-                side_effect=[0.0, 0.0, 241.0],
-            ):
-                refresh_pending_email_senders()
-        else:
-            refresh_pending_email_senders()
-
-        urls = [f"/api/projects/{self.team.id}/integrations/{sender.id}/" for sender in senders]
-        assert [self.client.get(url).json()["config"]["verified"] for url in urls] == first_sweep_statuses
-
-        ses.get_identity_verification_attributes.side_effect = None
-        ses.get_identity_verification_attributes.return_value = identity_attributes
-        if interrupt_sweep:
-            Integration.objects.create(
-                team=self.team,
-                kind="email",
-                integration_id="sender@new.example.com",
-                config={"domain": "new.example.com", "provider": "ses", "verified": False},
-            )
-            with patch(
-                "products.workflows.backend.services.email_sender_verification.monotonic",
-                side_effect=[0.0, 0.0, 241.0],
-            ):
-                refresh_pending_email_senders()
-        else:
-            refresh_pending_email_senders()
-
-        assert [self.client.get(url).json()["config"]["verified"] for url in urls] == second_sweep_statuses
+        ses.list_resource_tenants.side_effect = check_tenants
 
         with patch(
-            "products.workflows.backend.services.email_sender_verification.monotonic",
-            side_effect=[0.0, 0.0, 241.0],
+            "products.workflows.backend.services.email_sender_verification.monotonic", side_effect=lambda: clock["now"]
         ):
             refresh_pending_email_senders()
-        assert [self.client.get(url).json()["config"]["verified"] for url in urls] == [True, True]
+            assert self._verified(*senders) == first_sweep
+            assert [call.kwargs["Identities"] for call in ses.get_identity_verification_attributes.call_args_list] == [
+                ["first.example.com", "second.example.com"]
+            ]
+
+            fail_first = False
+            arrival = self._create_sender("new.example.com")
+            ses.get_identity_verification_attributes.reset_mock()
+            refresh_pending_email_senders()
+            assert self._verified(*senders, arrival) == [*second_sweep, not slow_checks]
+
+            refresh_pending_email_senders()
+            assert self._verified(*senders, arrival) == [True, True, True]

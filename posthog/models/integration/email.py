@@ -123,7 +123,7 @@ class EmailIntegration:
 
         return self.integration
 
-    def _apply_verification(self, verification_result: "EmailDomainVerification") -> "EmailDomainVerification":
+    def apply_verification(self, verification_result: "EmailDomainVerification") -> "EmailDomainVerification":
         if verification_result.get("status") == "success":
             mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
             matching_mail_from = Q(config__mail_from_subdomain=mail_from_subdomain)
@@ -158,16 +158,6 @@ class EmailIntegration:
 
         return verification_result
 
-    def refresh_verification(self) -> "EmailDomainVerification":
-        from products.workflows.backend.facade.email import get_ses_email_domain_verification
-
-        verification_result = get_ses_email_domain_verification(
-            self.integration.config["domain"],
-            mail_from_subdomain=self.integration.config.get("mail_from_subdomain", "feedback"),
-            team_id=self.integration.team_id,
-        )
-        return self._apply_verification(verification_result)
-
     def verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
@@ -195,7 +185,7 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: {provider}")
 
-        return self._apply_verification(verification_result)
+        return self.apply_verification(verification_result)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)

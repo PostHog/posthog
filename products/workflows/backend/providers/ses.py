@@ -5,7 +5,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from itertools import batched
-from time import monotonic
+from time import monotonic, sleep
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -27,6 +27,7 @@ from products.workflows.backend.facade.contracts import (
 
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
+    from types_boto3_ses.type_defs import IdentityMailFromDomainAttributesTypeDef
     from types_boto3_sesv2.client import SESV2Client
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
@@ -75,6 +76,41 @@ RECOMMENDATIONS_PAGE_SIZE = 100
 # The account findings walk runs in a background task, so it can wait out SES throttling. Adaptive
 # mode adds a client-side rate limiter that slows the following pages after a throttle response.
 RECOMMENDATIONS_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 8})
+
+IDENTITY_ATTRIBUTES_BATCH_SIZE = 100
+IDENTITY_ATTRIBUTES_MIN_INTERVAL_SECONDS = 2
+
+BACKGROUND_CONNECT_TIMEOUT_SECONDS = 2
+BACKGROUND_READ_TIMEOUT_SECONDS = 5
+BACKGROUND_MAX_ATTEMPTS = 2
+BACKGROUND_CALL_WORST_CASE_SECONDS = (
+    BACKGROUND_CONNECT_TIMEOUT_SECONDS + BACKGROUND_READ_TIMEOUT_SECONDS
+) * BACKGROUND_MAX_ATTEMPTS
+BACKGROUND_CLIENT_CONFIG = Config(
+    connect_timeout=BACKGROUND_CONNECT_TIMEOUT_SECONDS,
+    read_timeout=BACKGROUND_READ_TIMEOUT_SECONDS,
+    retries={"mode": "adaptive", "max_attempts": BACKGROUND_MAX_ATTEMPTS},
+)
+
+
+def _same_domain(left: str | None, right: str) -> bool:
+    return left is not None and left.lower().rstrip(".") == right.lower().rstrip(".")
+
+
+@frozen
+class SESIdentityStatus:
+    verification: str = "Unknown"
+    dkim: str = "Unknown"
+    mail_from: str = "Unknown"
+    mail_from_domain: str | None = None
+
+    def mail_from_status_for(self, mail_from_domain: str) -> str:
+        if self.mail_from != "Unknown" and not _same_domain(self.mail_from_domain, mail_from_domain):
+            return "Pending"
+        return self.mail_from
+
+    def is_ready_for(self, mail_from_domain: str) -> bool:
+        return self.verification == self.dkim == self.mail_from_status_for(mail_from_domain) == "Success"
 
 
 @frozen
@@ -282,25 +318,28 @@ class SESProvider:
     ses_v2_metrics_client: "SESV2Client"
     ses_v2_recommendations_client: "SESV2Client"
 
-    def __init__(self):
-        # Initialize the boto3 clients
+    def __init__(self, client_config: Config | None = None):
+        self._next_identity_attributes_read_at = 0.0
         self.sts_client = boto3.client(
             "sts",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            config=client_config,
         )
         self.ses_client = boto3.client(
             "ses",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            config=client_config,
         )
         self.ses_v2_client = boto3.client(
             "sesv2",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            config=client_config,
         )
         # Separate client for the metric fan-out only, so bounding it cannot slow identity and
         # tenant calls, which are allowed to take longer.
@@ -558,6 +597,7 @@ class SESProvider:
         *,
         verification_token: str | None = None,
         dkim_tokens: Sequence[str] = (),
+        identity_status: SESIdentityStatus | None = None,
     ) -> EmailDomainVerification:
         dns_records: list[EmailDomainDnsRecord] = []
         if verification_token:
@@ -626,35 +666,10 @@ class SESProvider:
             }
         )
 
-        # Current verification / DKIM statuses to compute overall status & per-record statuses ---
-        verification_status: str = "Unknown"
-        try:
-            id_attrs = self.ses_client.get_identity_verification_attributes(Identities=[domain])
-            id_for_domain = id_attrs["VerificationAttributes"].get(domain)
-            if id_for_domain is not None:
-                verification_status = id_for_domain["VerificationStatus"]
-        except ClientError:
-            pass
-
-        dkim_status: str = "Unknown"
-        try:
-            dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=[domain])
-            dkim_for_domain = dkim_attrs["DkimAttributes"].get(domain)
-            if dkim_for_domain is not None:
-                dkim_status = dkim_for_domain["DkimVerificationStatus"]
-        except ClientError:
-            pass
-
-        mail_from_status: str = "Unknown"
-        try:
-            mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
-            mail_from_for_domain = mail_from_attrs["MailFromDomainAttributes"].get(domain)
-            if mail_from_for_domain is not None:
-                mail_from_status = mail_from_for_domain["MailFromDomainStatus"]
-                if mail_from_for_domain.get("MailFromDomain") != f"{mail_from_subdomain}.{domain}":
-                    mail_from_status = "Pending"
-        except ClientError:
-            pass
+        status = identity_status or self.get_identity_statuses([domain])[domain]
+        verification_status = status.verification
+        dkim_status = status.dkim
+        mail_from_status = status.mail_from_status_for(f"{mail_from_subdomain}.{domain}")
 
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
         dmarc_status = "Pending"
@@ -741,6 +756,51 @@ class SESProvider:
         return {
             "status": overall,
             "dnsRecords": dns_records,
+        }
+
+    def get_identity_statuses(self, domains: Sequence[str]) -> dict[str, SESIdentityStatus]:
+        statuses = dict.fromkeys(domains, SESIdentityStatus())
+        for batch in batched(dict.fromkeys(domains), IDENTITY_ATTRIBUTES_BATCH_SIZE, strict=False):
+            self._wait_for_identity_attributes_slot()
+            statuses.update(self._read_identity_statuses(list(batch)))
+        return statuses
+
+    def _wait_for_identity_attributes_slot(self) -> None:
+        wait_seconds = self._next_identity_attributes_read_at - monotonic()
+        if wait_seconds > 0:
+            sleep(wait_seconds)
+        self._next_identity_attributes_read_at = monotonic() + IDENTITY_ATTRIBUTES_MIN_INTERVAL_SECONDS
+
+    def _read_identity_statuses(self, domains: list[str]) -> dict[str, SESIdentityStatus]:
+        verification: dict[str, str] = {}
+        try:
+            id_attrs = self.ses_client.get_identity_verification_attributes(Identities=domains)
+            verification = {d: a["VerificationStatus"] for d, a in id_attrs["VerificationAttributes"].items()}
+        except ClientError:
+            pass
+
+        dkim: dict[str, str] = {}
+        try:
+            dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=domains)
+            dkim = {d: a["DkimVerificationStatus"] for d, a in dkim_attrs["DkimAttributes"].items()}
+        except ClientError:
+            pass
+
+        mail_from: dict[str, IdentityMailFromDomainAttributesTypeDef] = {}
+        try:
+            mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=domains)
+            mail_from = dict(mail_from_attrs["MailFromDomainAttributes"])
+        except ClientError:
+            pass
+
+        return {
+            domain: SESIdentityStatus(
+                verification=verification.get(domain, "Unknown"),
+                dkim=dkim.get(domain, "Unknown"),
+                mail_from=mail_from[domain]["MailFromDomainStatus"] if domain in mail_from else "Unknown",
+                mail_from_domain=mail_from[domain].get("MailFromDomain") if domain in mail_from else None,
+            )
+            for domain in domains
         }
 
     def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
