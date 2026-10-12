@@ -12,6 +12,8 @@ import { CyclotronJobInputSchemaType } from '~/types'
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './steps/batchTriggerLogic'
+import { MissingRecipientEmailBanner } from './steps/components/MissingRecipientEmailBanner'
+import { recipientEmailProperties } from './steps/recipientEmail'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -27,13 +29,14 @@ const TriggerPopover = ({
     const isAccountAudience =
         workflow?.trigger?.type === 'batch' && workflow.trigger.filters?.audience_type === 'accounts'
 
-    const { blastRadius, blastRadiusLoading } = useValues(
+    const { blastRadius, blastRadiusLoading, recipientsWithoutEmail } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
             // Account audiences carry no person, so email dedup never applies to them.
             dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
             sendsEmail: hogFlowSendsEmail(workflow),
+            recipientEmailProperties: isAccountAudience ? [] : recipientEmailProperties(workflow),
         })
     )
 
@@ -108,6 +111,14 @@ const TriggerPopover = ({
     return (
         <div className="flex flex-col gap-4 p-3 min-w-80 max-w-96">
             {variablesSection}
+            {Object.entries(recipientsWithoutEmail).map(([property, missing]) => (
+                <MissingRecipientEmailBanner
+                    key={property}
+                    property={property}
+                    missing={missing}
+                    audienceSize={blastRadius?.affected}
+                />
+            ))}
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"

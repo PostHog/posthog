@@ -11,9 +11,19 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
+    MailgunSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun import mailgun as mailgun_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
     FORBIDDEN_ERROR,
     INVALID_KEY_ERROR,
+    METRICS_PAGE_SIZE,
     UNREACHABLE_ERROR,
     MailgunResumeConfig,
     MailgunRetryableError,
@@ -37,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.se
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source import MailgunSource
 
 US_BASE = "https://api.mailgun.net"
 POSTHOG_URL = "https://us.posthog.com/public/webhooks/abc"
@@ -382,6 +393,120 @@ class TestGetRows:
         batches = list(get_rows("key", "us", "mailing_lists", mock.MagicMock(), manager))
 
         assert [row["address"] for batch in batches for row in batch] == ["a@x.com"]
+
+
+def _metrics_item(day: date, tag: str) -> dict[str, Any]:
+    return {
+        "dimensions": [
+            {"dimension": "time", "value": f"{day.strftime('%a, %d %b %Y')} 00:00:00 +0000", "display_value": ""},
+            {"dimension": "tag", "value": tag, "display_value": tag.title()},
+        ],
+        "metrics": {"delivered_count": 3, "opened_rate": "66.67"},
+    }
+
+
+def _request_day(request: RecordedRequest) -> date:
+    return datetime.strptime(request.json()["start"], "%a, %d %b %Y %H:%M:%S %z").date()
+
+
+# Short enough for the driver's request limit; production walks a full year of days.
+METRICS_LOOKBACK_DAYS = 20
+
+
+class TestMetricsRows:
+    @pytest.fixture(autouse=True)
+    def _short_lookback(self):
+        with mock.patch.object(mailgun_module, "METRICS_LOOKBACK_DAYS", METRICS_LOOKBACK_DAYS):
+            yield
+
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(MailgunSource(), MailgunSourceConfig(api_key="key-123", region="us"))
+
+    def test_walks_one_day_per_request_and_pages_within_a_busy_day(self):
+        today = datetime.now(UTC).date()
+        busy_day = today - timedelta(days=10)
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            body = request.json()
+            if _request_day(request) != busy_day:
+                return ScriptedResponse(json={"items": []})
+            count = METRICS_PAGE_SIZE if body["pagination"]["skip"] == 0 else 2
+            return ScriptedResponse(json={"items": [_metrics_item(busy_day, f"tag-{i}") for i in range(count)]})
+
+        result = self._driver().run("tag_metrics", respond)
+
+        assert result.raised is None
+        assert {request.method for request in result.requests} == {"POST"}
+        assert {request.path for request in result.requests} == {"/v1/analytics/metrics"}
+        days = [_request_day(request) for request in result.requests]
+        assert days[0] == today - timedelta(days=METRICS_LOOKBACK_DAYS - 1)
+        assert days[-1] == today
+        assert len(days) == METRICS_LOOKBACK_DAYS + 1
+        busy_requests = [request.json() for request in result.requests if _request_day(request) == busy_day]
+        assert [body["pagination"]["skip"] for body in busy_requests] == [0, METRICS_PAGE_SIZE]
+        assert busy_requests[0]["dimensions"] == ["time", "tag"]
+        assert busy_requests[0]["pagination"]["sort"] == "tag:asc"
+        assert len(result.rows) == METRICS_PAGE_SIZE + 2
+        assert result.rows[0] == {
+            "delivered_count": 3,
+            "opened_rate": "66.67",
+            "time": datetime.combine(busy_day, datetime.min.time(), tzinfo=UTC),
+            "tag": "tag-0",
+            "tag_display_value": "Tag-0",
+        }
+
+    @pytest.mark.parametrize(
+        "watermark_days_ago, expected_first_day_ago",
+        [
+            (5, 7),
+            # A watermark older than the lookback starts at the lookback edge instead.
+            (METRICS_LOOKBACK_DAYS + 30, METRICS_LOOKBACK_DAYS - 1),
+        ],
+    )
+    def test_incremental_sync_starts_shortly_before_the_watermark(self, watermark_days_ago, expected_first_day_ago):
+        today = datetime.now(UTC).date()
+        watermark = datetime.combine(today - timedelta(days=watermark_days_ago), datetime.min.time(), tzinfo=UTC)
+
+        result = self._driver().run(
+            "metrics",
+            lambda _request: ScriptedResponse(json={"items": []}),
+            incremental_field="time",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        days = [_request_day(request) for request in result.requests]
+        assert days[0] == today - timedelta(days=expected_first_day_ago)
+        assert days[-1] == today
+        assert result.requests[0].json()["dimensions"] == ["time"]
+
+    def test_a_day_that_never_stops_returning_full_pages_moves_on_at_the_row_cap(self):
+        today = datetime.now(UTC).date()
+        full_page = ScriptedResponse(
+            json={"items": [_metrics_item(today, f"tag-{i}") for i in range(METRICS_PAGE_SIZE)]}
+        )
+
+        with mock.patch.object(mailgun_module, "MAX_METRICS_ROWS_PER_DAY", METRICS_PAGE_SIZE):
+            result = self._driver().run("tag_metrics", lambda _request: full_page)
+
+        assert result.raised is None
+        assert len(result.requests) == METRICS_LOOKBACK_DAYS
+        assert {request.json()["pagination"]["skip"] for request in result.requests} == {0}
+
+    def test_resume_continues_from_the_saved_day_and_offset(self):
+        today = datetime.now(UTC).date()
+
+        result = self._driver().run(
+            "domain_metrics",
+            lambda _request: ScriptedResponse(json={"items": []}),
+            resume_state=MailgunResumeConfig(metrics_day=today.isoformat(), metrics_skip=METRICS_PAGE_SIZE),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert _request_day(result.requests[0]) == today
+        assert result.requests[0].json()["pagination"]["skip"] == METRICS_PAGE_SIZE
 
 
 class TestMailgunSourceResponse:

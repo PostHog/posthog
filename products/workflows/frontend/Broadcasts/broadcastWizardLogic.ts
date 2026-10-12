@@ -15,7 +15,16 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter, Breadcrumb, IntegrationType, ResourceEditedEvent, TeamPublicType, TeamType } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    IntegrationType,
+    PropertyFilterType,
+    PropertyOperator,
+    ResourceEditedEvent,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
@@ -40,6 +49,8 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { EMAIL_PREFILL_PARAM, messageDraftEmail, parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import type { MissingRecipientEmailBannerProps } from '../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import {
     DEFAULT_STATE,
     ONE_TIME_RRULE,
@@ -50,6 +61,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from './audience/audienceList'
 import {
@@ -242,9 +254,13 @@ export interface broadcastWizardLogicValues {
     isReadOnly: boolean
     launching: boolean
     linkAudienceRejected: boolean
+    missingRecipientEmail: MissingRecipientEmailBannerProps | null
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
+    recipientEmailProperty: string | null
+    recipientsWithoutEmail: number | null
+    recipientsWithoutEmailLoading: boolean
     recurringRepeating: boolean
     recurringStartsAt: string | null
     saving: boolean
@@ -307,6 +323,12 @@ export interface broadcastWizardLogicActions {
     hydrateFromBroadcast: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
     }
+    landOnPrefilledStep: () => {
+        value: true
+    }
+    landOnStep: (step: BroadcastWizardStep) => {
+        step: BroadcastWizardStep
+    }
     launchBroadcast: () => {
         value: true
     }
@@ -360,6 +382,21 @@ export interface broadcastWizardLogicActions {
     }
     loadExternalEdit: () => {
         value: true
+    }
+    loadRecipientsWithoutEmail: (_: any) => any
+    loadRecipientsWithoutEmailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecipientsWithoutEmailSuccess: (
+        recipientsWithoutEmail: number | null,
+        payload?: any
+    ) => {
+        recipientsWithoutEmail: number | null
+        payload?: any
     }
     moveToDraft: () => {
         value: true
@@ -496,6 +533,12 @@ export interface broadcastWizardLogicMeta {
         ) => BroadcastStatus
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
+        recipientEmailProperty: (email: BroadcastEmailValue) => string | null
+        missingRecipientEmail: (
+            recipientEmailProperty: string | null,
+            recipientsWithoutEmail: number | null,
+            blastRadius: BlastRadiusApi | null
+        ) => MissingRecipientEmailBannerProps | null
         selectedSender: (email: BroadcastEmailValue, integrations: IntegrationType[] | null) => IntegrationType | null
         stepValidationErrors: (
             goalEnabled: boolean,
@@ -557,6 +600,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     actions({
         setStep: (step: BroadcastWizardStep) => ({ step }),
+        landOnStep: (step: BroadcastWizardStep) => ({ step }),
+        landOnPrefilledStep: true,
         nextStep: true,
         prevStep: true,
         continueStep: true,
@@ -609,7 +654,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         duplicateBroadcastFinished: true,
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         broadcast: [
             null as HogFlowApi | null,
             {
@@ -632,6 +677,42 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         filters: { properties: values.audienceProperties },
                         dedupe_key: 'email',
                     })
+                },
+            },
+        ],
+        recipientsWithoutEmail: [
+            null as number | null,
+            {
+                loadRecipientsWithoutEmail: async (_, breakpoint) => {
+                    await breakpoint(300)
+                    const key = values.recipientEmailProperty
+                    cache.checkedRecipientEmailProperty = key
+                    // Checked only right before launch, and never for an unfiltered audience: its size is a
+                    // cached total, and this count would be a scan of every person in the project.
+                    if (
+                        !values.currentProjectId ||
+                        !key ||
+                        values.currentStep !== 'review' ||
+                        values.audienceProperties.length === 0
+                    ) {
+                        return null
+                    }
+                    try {
+                        const missing = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
+                            filters: {
+                                properties: [
+                                    ...values.audienceProperties,
+                                    { key, type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+                                ],
+                            },
+                        })
+                        breakpoint()
+                        return missing.affected
+                    } catch {
+                        breakpoint()
+                        // A failed check must not block the send; it only drops the warning.
+                        return null
+                    }
                 },
             },
         ],
@@ -672,6 +753,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             'recipients' as BroadcastWizardStep,
             {
                 setStep: (_, { step }) => step,
+                landOnStep: (_, { step }) => step,
                 nextStep: (state) => {
                     const index = BROADCAST_WIZARD_STEPS.indexOf(state)
                     return BROADCAST_WIZARD_STEPS[Math.min(index + 1, BROADCAST_WIZARD_STEPS.length - 1)]
@@ -782,6 +864,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL,
             {
                 setEmail: (_, { email }) => email,
+                prefillFromLink: (state, { prefill }) =>
+                    prefill.email ? { ...state, ...messageDraftEmail(prefill.email) } : state,
                 defaultSenderApplied: (state, { integrationId }) =>
                     state.from?.integrationId ? state : { ...state, from: { ...state.from, integrationId } },
                 applyExternalEdit: (state, { broadcast }) => {
@@ -988,6 +1072,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null): string =>
                 scheduleTimezone ?? currentTeam?.timezone ?? dayjs.tz.guess(),
         ],
+        recipientEmailProperty: [
+            (s) => [s.email],
+            (email: BroadcastEmailValue): string | null => recipientEmailProperty(email.to?.email),
+        ],
+        missingRecipientEmail: [
+            (s) => [s.recipientEmailProperty, s.recipientsWithoutEmail, s.blastRadius],
+            (
+                property: string | null,
+                missing: number | null,
+                blastRadius: BlastRadiusApi | null
+            ): MissingRecipientEmailBannerProps | null =>
+                property && missing ? { property, missing, audienceSize: blastRadius?.affected } : null,
+        ],
         selectedSender: [
             (s) => [s.email, s.integrations],
             (email: BroadcastEmailValue, integrations: IntegrationType[] | null): IntegrationType | null =>
@@ -1171,8 +1268,41 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // pinned: analytics event name
             posthog.capture('email sender preselected', { surface: 'broadcast', reason: sender.reason })
         },
-        [integrationsLogic.actionTypes.loadIntegrationsSuccess]: () => actions.applyDefaultSender(),
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => actions.applyDefaultSender(),
+        [integrationsLogic.actionTypes.loadIntegrationsSuccess]: () => {
+            actions.applyDefaultSender()
+            actions.landOnPrefilledStep()
+        },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            actions.applyDefaultSender()
+            actions.landOnPrefilledStep()
+        },
+        landOnPrefilledStep: () => {
+            // A link that filled the audience skips ahead to the first step that still needs input,
+            // or to Review when nothing does. It waits for the senders, because the default sender
+            // decides whether the email is complete, and it runs once.
+            if (!cache.landOnPrefilledStep || values.integrations === null || values.integrationsLoading) {
+                return
+            }
+            if (!values.currentTeam) {
+                return
+            }
+            cache.landOnPrefilledStep = false
+            if (values.currentStep !== 'recipients') {
+                return
+            }
+            const step = values.firstInvalidStep ?? 'review'
+            if (step !== 'recipients') {
+                actions.landOnStep(step)
+            }
+        },
+        landOnStep: ({ step }) => {
+            // Unlike setStep, this doesn't create a draft on the content step: following a link must
+            // not leave one behind. Continue or launch saves it.
+            if (step === 'review') {
+                actions.loadBlastRadius()
+            }
+            actions.reportReviewVisit()
+        },
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
         },
@@ -1636,6 +1766,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     audience_filter_count: values.audienceProperties.length,
                     has_goal: values.goalEnabled,
                     entry_source: values.entrySource ?? loadEntrySource(broadcastId),
+                    ...(cache.prefilledEmail
+                        ? { prefilled_email_edited: !prefilledEmailUnchanged(cache.prefilledEmail, values.email) }
+                        : {}),
                     seconds_since_created: activated
                         ? Math.round((Date.now() - new Date(activated.created_at).getTime()) / 1000)
                         : null,
@@ -1792,7 +1925,21 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    listeners(({ actions, values, cache }) => ({
+        loadBlastRadius: () => {
+            actions.loadRecipientsWithoutEmail(null)
+        },
+        setEmail: () => {
+            if (
+                values.currentStep === 'review' &&
+                values.recipientEmailProperty !== cache.checkedRecipientEmailProperty
+            ) {
+                actions.loadRecipientsWithoutEmail(null)
+            }
+        },
+    })),
+
+    afterMount(({ actions, props, cache }) => {
         if (props.id !== 'new') {
             actions.loadBroadcast()
             return
@@ -1802,32 +1949,40 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             [AUDIENCE_PREFILL_PARAM]: audience,
             [NAME_PREFILL_PARAM]: name,
             [SOURCE_PREFILL_PARAM]: source,
-            ...searchParams
+            [EMAIL_PREFILL_PARAM]: emailParam,
         } = router.values.searchParams
         const properties = parseBroadcastAudiencePrefill(audience)
-        if (audience !== undefined || name !== undefined || source !== undefined) {
+        const email = parseMessageDraftPrefill(emailParam)
+        const fromLink =
+            audience !== undefined || name !== undefined || source !== undefined || emailParam !== undefined
+        if (fromLink) {
             const prefill: BroadcastPrefill = {
                 properties: properties ?? [],
                 name: typeof name === 'string' ? name : undefined,
                 source: typeof source === 'string' ? source : undefined,
+                email: email ?? undefined,
             }
             // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
             actions.prefillFromLink(prefill)
+            if (email) {
+                cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(email) }
+            }
             if (properties) {
+                cache.landOnPrefilledStep = true
                 // pinned: analytics event name
                 posthog.capture('broadcast prefilled from link', {
                     entry_source: prefill.source ?? null,
                     audience_filter_count: properties.length,
+                    has_email: !!email,
                 })
             }
         }
         if (audience !== undefined && !properties) {
             actions.rejectLinkAudience()
         }
-        if (audience !== undefined || name !== undefined || source !== undefined) {
-            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        }
+        // The link stays in the URL until the draft exists, so a reload before Continue opens the same prefill.
         actions.loadBlastRadius()
+        actions.landOnPrefilledStep()
     }),
 ])
 
@@ -2054,4 +2209,8 @@ export function buildBroadcastPayload(values: {
             { from: EMAIL_ACTION_ID, to: EXIT_ACTION_ID, type: 'continue' },
         ],
     }
+}
+
+function prefilledEmailUnchanged(prefilled: BroadcastEmailValue, current: BroadcastEmailValue): boolean {
+    return prefilled.subject === current.subject && prefilled.html === current.html && prefilled.text === current.text
 }
