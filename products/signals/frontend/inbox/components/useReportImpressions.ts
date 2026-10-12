@@ -76,7 +76,10 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const settled = selectedSections.every(
         (key) => (sections[key].isLoaded || sections[key].reportsLoadFailed) && !sections[key].reportsResponseLoading
     )
-    const contextKey = JSON.stringify(selectedSections.map((key) => [key, sections[key].loadedQueryKey]))
+    // The ranker is in the key because `sort=recommended` keeps the same query when the server switches rankers.
+    const contextKey = JSON.stringify(
+        selectedSections.map((key) => [key, sections[key].loadedQueryKey, sections[key].loadedRanker])
+    )
 
     const impressedIdsRef = useRef(new Set<string>())
     const impressionContextKeyRef = useRef('')

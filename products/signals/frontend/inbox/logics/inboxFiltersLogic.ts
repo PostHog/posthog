@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -366,6 +367,9 @@ export interface inboxFiltersLogicActions {
     migrateLegacyDefaultSort: () => {
         value: true
     }
+    resetUnavailableSort: () => {
+        value: true
+    }
     searchAvailableReviewers: (query: string) => {
         query: string
     }
@@ -494,6 +498,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Moves a user still on the old Priority first default to Recommended. Not a user choice, so
         // it is not a query change and does not rewrite the URL.
         migrateLegacyDefaultSort: true,
+        // Resets a stored model sort the user can no longer use, so the lists reload in the default order.
+        resetUnavailableSort: true,
         setCreatedWindow: (createdWindow: InboxCreatedWindow | null) => ({ createdWindow }),
         // Set by a model sort, not by the user, so it is not a query change of its own.
         applyDefaultCreatedWindow: (createdWindow: InboxCreatedWindow) => ({ createdWindow }),
@@ -641,6 +647,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 setSort: (_, { field }) => field,
                 setFilters: (_, { filters }) => filters.sortField,
                 migrateLegacyDefaultSort: () => DEFAULT_SORT_FIELD,
+                resetUnavailableSort: () => DEFAULT_SORT_FIELD,
             },
         ],
         sortDirection: [
@@ -650,6 +657,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 setSort: (_, { direction }) => direction,
                 setFilters: (_, { filters }) => filters.sortDirection,
                 migrateLegacyDefaultSort: () => DEFAULT_SORT_DIRECTION,
+                resetUnavailableSort: () => DEFAULT_SORT_DIRECTION,
             },
         ],
         // Whether the stored sort is a choice: one the user picked, or one a shared link set. Users
@@ -800,6 +808,16 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
     }),
 
+    subscriptions(({ actions, values }) => ({
+        // Rows loaded with a model sort carry no merge key. Without a reload, the Recommended merge
+        // would show them in an arbitrary order.
+        modelSortAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
+            if (wasAvailable && !available && isRankingSortField(values.sortField)) {
+                actions.resetUnavailableSort()
+            }
+        },
+    })),
+
     // Before `urlToAction`, so a shared link still wins over the migrated sort.
     afterMount(({ actions, values }) => {
         if (!values.hasUserChosenSort && isLegacyDefaultSort(values.sortField, values.sortDirection)) {
@@ -816,6 +834,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setScope: toUrl,
             applyDefaultScope: toUrl,
             setSort: toUrl,
+            resetUnavailableSort: toUrl,
             setCreatedWindow: toUrl,
             applyDefaultCreatedWindow: toUrl,
             toggleSourceProduct: toUrl,

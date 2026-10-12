@@ -284,8 +284,9 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
     return Math.max(0, Math.round(hours * 10) / 10)
 }
 
-// The ranker that ordered the list in view, from the latest list response. Report actions and
-// sort changes read it, so the ranking test can join them to the ranker without each caller passing it.
+// The ranker that ordered the Inbox list in view, from the latest list response. Inbox report actions
+// and sort changes read it, so the ranking test can join them to the ranker without each caller
+// passing it. The Inbox scene clears it on unmount.
 let servedInboxRankerId: string | null = null
 
 /** Record the ranker of the latest list response. Null when the sort is not Recommended. */
@@ -573,7 +574,8 @@ export function captureInboxReportAction(params: {
         surface: params.surface,
         is_bulk: params.isBulk ?? false,
         bulk_size: params.bulkSize ?? 1,
-        ranker_id: servedInboxRankerId,
+        // Today lists reports in its own order, so its actions never belong to an Inbox ranker.
+        ranker_id: params.surface === 'today' ? null : servedInboxRankerId,
         ...params.extra,
     })
 }

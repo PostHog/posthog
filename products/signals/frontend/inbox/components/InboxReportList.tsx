@@ -161,8 +161,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         if (!listVisible || !isLoaded || totalCount === null || loadedQueryKey === null || loadedContext === null) {
             return
         }
-        if (loadedQueryKey !== impressionQueryKeyRef.current) {
-            impressionQueryKeyRef.current = loadedQueryKey
+        // The ranker is in the key because `sort=recommended` keeps the same query when the server switches rankers.
+        const impressionKey = `${loadedQueryKey}|${loadedRanker}`
+        if (impressionKey !== impressionQueryKeyRef.current) {
+            impressionQueryKeyRef.current = impressionKey
             impressedIdsRef.current = new Set<string>()
         }
         const fresh = reports

@@ -272,37 +272,59 @@ describe('inboxFiltersLogic', () => {
                 true,
                 true,
                 'ranking_action',
+                'ranking_action',
                 'desc',
             ],
-            ['falls back to the default once the flag is off', 'ranking_action', false, true, 'recommended', 'asc'],
-            ['falls back to the default for a non-staff user', 'ranking_action', true, false, 'recommended', 'asc'],
+            // The reset reloads the lists, so rows loaded with the model sort do not stay on screen.
+            [
+                'resets the stored sort once the flag is off',
+                'ranking_action',
+                false,
+                true,
+                'recommended',
+                'recommended',
+                'asc',
+            ],
+            [
+                'resets the stored sort for a non-staff user',
+                'ranking_action',
+                true,
+                false,
+                'recommended',
+                'recommended',
+                'asc',
+            ],
             [
                 'falls back to the default for a stored head the menu no longer offers',
                 'ranking_pr_merged',
                 true,
                 true,
+                'ranking_pr_merged',
                 'recommended',
                 'asc',
             ],
-        ] as const)('%s', (_name, storedSortField, flagOn, isStaff, activeSortField, activeSortDirection) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
-                [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
-            })
-            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
-            // A sort persisted by an older build can name a head the type no longer lists.
-            logic.actions.setSort(storedSortField as InboxSortField, 'desc')
+        ] as const)(
+            '%s',
+            (_name, storedSortField, flagOn, isStaff, sortField, activeSortField, activeSortDirection) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                    [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
+                })
+                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
+                // A sort persisted by an older build can name a head the type no longer lists.
+                logic.actions.setSort(storedSortField as InboxSortField, 'desc')
 
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
-                [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
-            })
-            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                    [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
+                })
+                userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
 
-            expect(logic.values).toMatchObject({
-                sortField: storedSortField,
-                activeSortField,
-                activeSortDirection,
-            })
-        })
+                expect(logic.values).toMatchObject({
+                    sortField,
+                    activeSortField,
+                    activeSortDirection,
+                })
+            }
+        )
     })
 
     describe('stored sort migration', () => {

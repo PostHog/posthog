@@ -194,6 +194,12 @@ describe('inboxAnalytics', () => {
         })
     })
 
+    it('never attributes a Today action to the Inbox ranker', () => {
+        setInboxServedRanker('fixed')
+        captureInboxReportAction({ report: makeReport(), actionType: 'discuss', surface: 'today' })
+        expect(lastCapture(INBOX_EVENTS.REPORT_ACTION)?.ranker_id).toBeNull()
+    })
+
     it('emits a bulk action with a null report and the selection size', () => {
         captureInboxReportAction({
             actionType: 'dismiss',

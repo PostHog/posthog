@@ -33,6 +33,7 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,
+    setInboxServedRanker,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
     InboxReportLinkSource,
@@ -1228,6 +1229,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         beforeUnmount: () => {
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
             flushOpenReport(cache, 'unmount')
+            setInboxServedRanker(null)
         },
     })),
 
