@@ -144,7 +144,7 @@ def test_threshold_detector_scores_a_single_row():
     assert len(result.series[0].points) == 1
     evaluation = evaluate_with_detector(result, config)
     assert evaluation.value == 500.0
-    assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
+    assert evaluation.breaches and "Threshold exceeded" in evaluation.breaches[0]
 
 
 def test_empty_result_is_zero():
