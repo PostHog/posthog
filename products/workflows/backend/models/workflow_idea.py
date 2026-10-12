@@ -21,6 +21,8 @@ class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
         constraints = [
             # Suggesting the same idea twice to one project would undo a dismissal.
             models.UniqueConstraint(fields=["team", "key"], name="unique_workflow_idea_key"),
+            # A blank key would collide with every other blank key and be skipped without an error.
+            models.CheckConstraint(condition=models.Q(key__regex=r"\S"), name="workflow_idea_key_not_blank"),
         ]
         indexes = [
             models.Index(fields=["team", "status"], name="workflow_idea_status_idx"),

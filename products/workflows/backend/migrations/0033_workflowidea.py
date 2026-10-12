@@ -142,7 +142,12 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [models.Index(fields=["team", "status"], name="workflow_idea_status_idx")],
-                "constraints": [models.UniqueConstraint(fields=("team", "key"), name="unique_workflow_idea_key")],
+                "constraints": [
+                    models.UniqueConstraint(fields=("team", "key"), name="unique_workflow_idea_key"),
+                    models.CheckConstraint(
+                        condition=models.Q(("key__regex", "\\S")), name="workflow_idea_key_not_blank"
+                    ),
+                ],
             },
         ),
     ]
