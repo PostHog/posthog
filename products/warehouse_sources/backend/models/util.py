@@ -913,6 +913,7 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
 
     if normalized_hostname == _AWS_CONSOLE_HOST or normalized_hostname.endswith(f".{_AWS_CONSOLE_HOST}"):
         return False, _AWS_CONSOLE_URL
+
     # Runs before the generic SSRF check below so a URL aimed at our own storage always reports
     # that, rather than whatever the internal hostname happens to resolve to.
     is_valid, error_message = _validate_url_pattern_is_not_posthog_storage(
