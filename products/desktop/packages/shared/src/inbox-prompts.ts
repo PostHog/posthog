@@ -28,6 +28,9 @@ export function buildLocalCodeSnapshotPrompt(
   return `${prompt}\n\nThis run uses the selected local folder directly. Treat its code context as limited to the folder state during this run and possibly stale. Explain that connecting GitHub enables ongoing background investigations.${omitted}\n\n${CODE_CONTEXT_DISCLOSURE}`;
 }
 
+const REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS =
+  "As the conversation develops, watch for durable feedback: a correction, a preference, context the report missed, or a fact you verified that it lacks. When something is worth keeping, offer to save a concise summary. Use `scout-notes-create` to steer the report's scout, or `inbox-report-artefacts-create` to add a note to this report's work log. Confirm the proposed text and destination with the user before writing; wait for their agreement. For a scout note, verify the author's exact `skill_name` from the report and scout roster; if you cannot identify it, offer the report work log instead of a fleet-wide note. If a scout note is unavailable or refused, explain that and offer the work-log entry instead, asking again before changing the destination. Skip the offer for pure Q&A or when nothing durable emerges. Saving feedback does not resolve or suppress the report.";
+
 export function buildDiscussReportPrompt({
   reportId,
   reportLink,
@@ -46,6 +49,7 @@ export function buildDiscussReportPrompt({
       "This first turn is automated: stick to read-only tools (fetching and reading). Don't create, change, or run anything until a person in this session asks for it.",
       CODE_CONTEXT_DISCLOSURE,
       NO_CHECKOUT_DISCLOSURE,
+      REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS,
       "--- BEGIN REPORT ---",
       reportContext,
       "--- END REPORT ---",
@@ -59,5 +63,5 @@ export function buildDiscussReportPrompt({
   const body = trimmedQuestion
     ? `${intro} then answer this first: ${trimmedQuestion}`
     : `${intro} then give me a brief readout and ask what I want to dig into.`;
-  return `${body}${guard} ${CODE_CONTEXT_DISCLOSURE} ${NO_CHECKOUT_DISCLOSURE}`;
+  return `${body}${guard} ${CODE_CONTEXT_DISCLOSURE} ${NO_CHECKOUT_DISCLOSURE}\n\n${REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS}`;
 }
