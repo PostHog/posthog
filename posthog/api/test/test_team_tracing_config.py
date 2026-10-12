@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -21,7 +22,7 @@ from products.tracing.backend.facade.team_extension import (
 )
 
 # Both routes resolve to the same handler — /api/projects/ is canonical, /api/environments/
-# remains as the back-compat alias. See `handle_tracing_config` in posthog/api/team.py.
+# remains as the back-compat alias. See `handle_tracing_config` in posthog/api/team/integration_config.py.
 URL_PREFIXES = [("projects", "api/projects"), ("environments", "api/environments")]
 
 DEFAULT_CONFIG = {
@@ -226,7 +227,14 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         self.organization.save()
 
     def test_patch_free_tier_records_the_update_time(self):
-        response = self.client.patch(self.url, {"retention_days": 14}, format="json")
+        transaction_depth = len(connection.savepoint_ids)
+
+        def flag_enabled(*args: object, **kwargs: object) -> bool:
+            self.assertEqual(len(connection.savepoint_ids), transaction_depth)
+            return True
+
+        with patch("posthog.api.team.posthog_feature_flag_enabled", side_effect=flag_enabled):
+            response = self.client.patch(self.url, {"retention_days": 14}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         config = get_or_create_team_extension(self.team, TeamTracingConfig)
@@ -261,11 +269,16 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         response = self.client.patch(self.url, {"retention_days": 17}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_second_change_within_24_hours_is_refused(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_second_change_within_24_hours_is_refused(self, stale_config: bool) -> None:
         self._grant_30d_retention()
+        config = get_or_create_team_extension(self.team, TeamTracingConfig)
         self.assertEqual(self.client.patch(self.url, {"retention_days": 30}, format="json").status_code, 200)
 
-        second = self.client.patch(self.url, {"retention_days": 14}, format="json")
+        if not stale_config:
+            config.refresh_from_db()
+        with patch("posthog.api.team.get_or_create_team_extension", return_value=config):
+            second = self.client.patch(self.url, {"retention_days": 14}, format="json")
         self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("once per 24 hours", str(second.json()))
 
