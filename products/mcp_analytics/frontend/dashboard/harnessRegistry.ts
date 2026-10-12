@@ -20,6 +20,7 @@ import piLogo from '../harness-logos/pi.svg'
 import replitLogo from '../harness-logos/replit.svg'
 import vscodeLogo from '../harness-logos/vscode.svg'
 import windsurfLogo from '../harness-logos/windsurf.svg'
+import { AI_LAB_COLORS } from './modelColors'
 
 export interface HarnessLogo {
     src: string
@@ -27,8 +28,8 @@ export interface HarnessLogo {
 }
 
 const HARNESS_BRAND_COLORS = {
-    claude: '#d97757',
-    openai: '#74aa9c',
+    claude: AI_LAB_COLORS.Anthropic,
+    openai: AI_LAB_COLORS.OpenAI,
     vscode: '#007acc',
     coderabbit: '#ff570a',
     kimchi: '#ff521d',

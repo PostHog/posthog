@@ -17,7 +17,7 @@ import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
-import { modelColor } from '../dashboard/modelColors'
+import { labColor, modelColor } from '../dashboard/modelColors'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
 import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
@@ -79,6 +79,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
 
     const modelColorOf = useCallback((label: string) => modelColor(theme, label), [theme])
+    const labColorOf = useCallback((label: string) => labColor(theme, label), [theme])
     const paletteColorOf = useCallback(
         (label: string, index: number) =>
             label === 'Other' ? theme.axisColor : theme.colors[index % theme.colors.length],
@@ -180,7 +181,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
-                        colorOf={paletteColorOf}
+                        colorOf={labColorOf}
                     />
                     <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                 </TwoColumns>
