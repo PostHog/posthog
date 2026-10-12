@@ -107,3 +107,19 @@ tools:
             - scope
             - emoji
             - hidden_in_user_interface
+    change-feed-list:
+        operation: change_feed_list
+        enabled: true
+        scopes:
+            - annotation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List recent production changes
+        description: >
+            List the changes that can affect production in a time window, newest first: feature flag and experiment
+            edits, error tracking releases, and annotations. Use this first when you investigate an error spike, a
+            latency regression, or a metric drop, to find what changed just before it. Set `date_from` and `date_to`
+            (ISO 8601) around the incident. The default is the last 24 hours. When `has_more` is true, narrow the
+            window. Changes the user has no access to are left out.

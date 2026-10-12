@@ -1,0 +1,205 @@
+from datetime import datetime
+from uuid import UUID
+
+from django.db import models
+from django.db.models import Q
+
+from posthog.dataclasses import frozen
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+
+from products.annotations.backend.models.annotation import Annotation
+from products.error_tracking.backend.facade import api as error_tracking_api
+
+MAX_NAME_LENGTH = 280
+
+
+class ChangeKind(models.TextChoices):
+    FEATURE_FLAG = "feature_flag", "Feature flag"
+    EXPERIMENT = "experiment", "Experiment"
+    RELEASE = "release", "Release"
+    ANNOTATION = "annotation", "Annotation"
+
+
+ACTIVITY_SCOPES: dict[ChangeKind, str] = {
+    ChangeKind.FEATURE_FLAG: "FeatureFlag",
+    ChangeKind.EXPERIMENT: "Experiment",
+}
+
+
+@frozen
+class ChangeWindow:
+    start: datetime
+    end: datetime
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError("start must not be after end")
+
+
+@frozen
+class KindVisibility:
+    # When set, the user may see only these object ids. Otherwise they may see all except blocked_ids.
+    allowed_ids: frozenset[str] | None = None
+    blocked_ids: frozenset[str] = frozenset()
+
+    def allows(self, item_id: str) -> bool:
+        if self.allowed_ids is not None:
+            return item_id in self.allowed_ids
+        return item_id not in self.blocked_ids
+
+
+@frozen
+class Change:
+    kind: ChangeKind
+    timestamp: datetime
+    item_id: str
+    name: str | None
+    activity: str
+    changed_fields: list[str]
+    service: str | None
+    actor_name: str | None
+
+
+@frozen
+class ChangeFeed:
+    results: list[Change]
+    has_more: bool
+
+
+def _actor_name(user: User | None) -> str | None:
+    if user is None:
+        return None
+    return user.first_name or user.email
+
+
+def _truncate(text: str | None) -> str | None:
+    if text is None or len(text) <= MAX_NAME_LENGTH:
+        return text
+    return text[: MAX_NAME_LENGTH - 1] + "…"
+
+
+def _changed_fields(detail: dict | None) -> list[str]:
+    fields: list[str] = []
+    for change in (detail or {}).get("changes") or []:
+        field = change.get("field") if isinstance(change, dict) else None
+        if field and field not in fields:
+            fields.append(field)
+    return fields
+
+
+def _activity_changes(
+    *, team_id: int, user: User, kind: ChangeKind, window: ChangeWindow, visibility: KindVisibility, limit: int
+) -> list[Change]:
+    queryset = ActivityLog.objects.select_related("user").filter(
+        team_id=team_id,
+        scope=ACTIVITY_SCOPES[kind],
+        created_at__gte=window.start,
+        created_at__lte=window.end,
+    )
+    queryset = apply_activity_visibility_restrictions(queryset, user)
+    if visibility.allowed_ids is not None:
+        queryset = queryset.filter(item_id__in=visibility.allowed_ids)
+    elif visibility.blocked_ids:
+        queryset = queryset.exclude(item_id__in=visibility.blocked_ids)
+
+    return [
+        Change(
+            kind=kind,
+            timestamp=log.created_at,
+            item_id=str(log.item_id),
+            name=_truncate((log.detail or {}).get("name")),
+            activity=log.activity,
+            changed_fields=_changed_fields(log.detail),
+            service=None,
+            actor_name=_actor_name(log.user),
+        )
+        for log in queryset.order_by("-created_at")[:limit]
+    ]
+
+
+def _release_changes(*, team_id: int, window: ChangeWindow, visibility: KindVisibility, limit: int) -> list[Change]:
+    releases = error_tracking_api.list_releases_created_between(
+        team_id, start=window.start, end=window.end, limit=limit
+    )
+    return [
+        Change(
+            kind=ChangeKind.RELEASE,
+            timestamp=release.created_at,
+            item_id=str(release.id),
+            name=release.version,
+            activity="released",
+            changed_fields=[],
+            service=release.project,
+            actor_name=None,
+        )
+        for release in releases
+        if visibility.allows(str(release.id))
+    ]
+
+
+def _annotation_changes(
+    *, team_id: int, organization_id: UUID, window: ChangeWindow, visibility: KindVisibility, limit: int
+) -> list[Change]:
+    queryset = (
+        Annotation.objects.select_related("created_by")
+        .filter(Q(scope=Annotation.Scope.ORGANIZATION, organization_id=organization_id) | Q(team_id=team_id))
+        .filter(deleted=False, date_marker__gte=window.start, date_marker__lte=window.end)
+        # Matches the annotations list: a note on a soft-deleted insight or dashboard is hidden.
+        .exclude(scope=Annotation.Scope.INSIGHT, dashboard_item__deleted=True)
+        .exclude(scope=Annotation.Scope.DASHBOARD, dashboard__deleted=True)
+    )
+    if visibility.allowed_ids is not None:
+        queryset = queryset.filter(id__in=visibility.allowed_ids)
+    elif visibility.blocked_ids:
+        queryset = queryset.exclude(id__in=visibility.blocked_ids)
+
+    return [
+        Change(
+            kind=ChangeKind.ANNOTATION,
+            timestamp=annotation.date_marker,
+            item_id=str(annotation.id),
+            name=_truncate(annotation.content),
+            activity="annotated",
+            changed_fields=[],
+            service=None,
+            actor_name=_actor_name(annotation.created_by),
+        )
+        for annotation in queryset.order_by("-date_marker", "-id")[:limit]
+        if annotation.date_marker is not None
+    ]
+
+
+def list_changes(
+    *,
+    team_id: int,
+    organization_id: UUID,
+    user: User,
+    window: ChangeWindow,
+    visibility: dict[ChangeKind, KindVisibility],
+    limit: int,
+) -> ChangeFeed:
+    """Merge recent production changes from every source the user may see, newest first.
+
+    A kind missing from `visibility` is left out. Each source reads one row past `limit`,
+    so `has_more` is true when any source has rows past the page.
+    """
+    changes: list[Change] = []
+    for kind, kind_visibility in visibility.items():
+        if kind in ACTIVITY_SCOPES:
+            changes += _activity_changes(
+                team_id=team_id, user=user, kind=kind, window=window, visibility=kind_visibility, limit=limit + 1
+            )
+        elif kind == ChangeKind.RELEASE:
+            changes += _release_changes(team_id=team_id, window=window, visibility=kind_visibility, limit=limit + 1)
+        elif kind == ChangeKind.ANNOTATION:
+            changes += _annotation_changes(
+                team_id=team_id,
+                organization_id=organization_id,
+                window=window,
+                visibility=kind_visibility,
+                limit=limit + 1,
+            )
+
+    changes.sort(key=lambda change: (change.timestamp, change.kind, change.item_id), reverse=True)
+    return ChangeFeed(results=changes[:limit], has_more=len(changes) > limit)
