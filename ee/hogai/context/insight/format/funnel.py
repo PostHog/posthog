@@ -169,6 +169,9 @@ class FunnelResultsFormatter:
         hogql = self._query.funnelsFilter.funnelAggregateByHogQL if self._query.funnelsFilter else None
         if isinstance(hogql, Enum):
             hogql = hogql.value
+        if hogql:
+            # The expression goes into a pipe-delimited table, so a newline or pipe must not split rows or cells.
+            hogql = " ".join(hogql.split()).replace("|", "\\|")
         if not hogql or hogql == "person_id":
             return FunnelAggregation(
                 count_label="Total person count", distribution_label="User distribution", unit="users"

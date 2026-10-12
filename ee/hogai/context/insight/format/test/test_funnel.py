@@ -249,6 +249,13 @@ class TestFunnelResultsFormatter(BaseTest):
                 "Total unique value count (aggregated by properties.account_id)",
                 "unique values of properties.account_id",
             ),
+            (
+                "custom_expression_with_table_delimiters",
+                "concat(a,\n'x')||b",
+                None,
+                "Total unique value count (aggregated by concat(a, 'x')\\|\\|b)",
+                "unique values of concat(a, 'x')\\|\\|b",
+            ),
         ]
     )
     def test_funnel_steps_count_label_follows_aggregation(
