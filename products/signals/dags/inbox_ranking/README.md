@@ -15,6 +15,7 @@ inbox_ranking/
 │   ├── heads.py      # the v0 outcome heads
 │   ├── train.py      # per-head XGBoost fit + holdout/null metrics
 │   └── promotion.py  # the champion promotion rule
+├── multihead/        # dev-only: offline multi-head network prototype, no dag
 └── tests/
 ```
 
@@ -314,6 +315,22 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
    ```
 
 Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
+
+### The multi-head prototype
+
+`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up:
+
+```bash
+DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead --output multihead.json
+```
+
+The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints AUC, average precision and ECE per head for three models on each head's own holdout rows:
+
+- `champion_recipe` is the `XGB_PARAMS` booster, refit on the head's train rows.
+- `nn_report` is the network over the report vector only.
+- `nn_report_project` is the network over the report vector plus the `typical`, `open`, `action` and `dismiss` vectors from `project_vectors()`. A report born on day D reads them as of D 00:00 UTC.
+
+The network leaves out every report that is in any head's holdout, so the comparison is conservative for it. A run holds one embeddings snapshot: the title embeddings are never read, and the project vectors are computed from the same table as the report vectors. Results vary with `--seed`, so compare a few seeds before you read a small AUC gap as a result.
 
 ## Configuration
 
