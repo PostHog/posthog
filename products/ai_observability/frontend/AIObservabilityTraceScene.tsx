@@ -1542,7 +1542,7 @@ const EventContent = React.memo(
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { effectiveEventId } = useValues(traceDataLogic)
-        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
+        const { handleTextViewFallback, setViewMode } = useActions(traceLogic)
         const { sessionId, selectedNode } = useValues(traceDataLogic)
 
         const aggregation = selectedNode?.aggregation || null
@@ -1803,7 +1803,6 @@ const EventContent = React.memo(
                                                         trace={trace}
                                                         lineNumber={lineNumber}
                                                         onFallback={handleTextViewFallback}
-                                                        onCopyPermalink={copyLinePermalink}
                                                     />
                                                 ) : !isLLMEvent(event) ? (
                                                     <TextViewDisplay
@@ -1811,7 +1810,6 @@ const EventContent = React.memo(
                                                         tree={tree}
                                                         lineNumber={lineNumber}
                                                         onFallback={handleTextViewFallback}
-                                                        onCopyPermalink={copyLinePermalink}
                                                     />
                                                 ) : null
                                             ) : (

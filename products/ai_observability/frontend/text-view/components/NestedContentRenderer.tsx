@@ -19,8 +19,6 @@ interface NestedContentRendererProps {
     setPopoutSegment: (index: number | string | null) => void
     activeLineNumber?: number | null
     lineNumberPadding?: number
-    onCopyPermalink?: (lineNumber: number) => void
-    enableLineActions?: boolean
 }
 
 export function NestedContentRenderer({
@@ -33,8 +31,6 @@ export function NestedContentRenderer({
     setPopoutSegment,
     activeLineNumber,
     lineNumberPadding,
-    onCopyPermalink,
-    enableLineActions = false,
 }: NestedContentRendererProps): JSX.Element {
     const nestedSegments = parseTruncatedSegments(content)
 
@@ -69,8 +65,6 @@ export function NestedContentRenderer({
                                 traceId={traceId}
                                 activeLineNumber={activeLineNumber}
                                 lineNumberPadding={lineNumberPadding}
-                                onCopyPermalink={onCopyPermalink}
-                                enableLineActions={enableLineActions}
                             />
                         </span>
                     )
@@ -116,8 +110,6 @@ export function NestedContentRenderer({
                                         traceId={traceId}
                                         activeLineNumber={activeLineNumber}
                                         lineNumberPadding={lineNumberPadding}
-                                        onCopyPermalink={onCopyPermalink}
-                                        enableLineActions={enableLineActions}
                                     />
                                     {'\n\n'}
                                 </span>
@@ -141,8 +133,6 @@ export function NestedContentRenderer({
                                                         traceId={traceId}
                                                         activeLineNumber={activeLineNumber}
                                                         lineNumberPadding={lineNumberPadding}
-                                                        onCopyPermalink={onCopyPermalink}
-                                                        enableLineActions={enableLineActions}
                                                     />
                                                     {'\n\n'}
                                                 </span>
@@ -165,8 +155,6 @@ export function NestedContentRenderer({
                                     traceId={traceId}
                                     activeLineNumber={activeLineNumber}
                                     lineNumberPadding={lineNumberPadding}
-                                    onCopyPermalink={onCopyPermalink}
-                                    enableLineActions={enableLineActions}
                                 />
                                 <button
                                     onClick={() => toggleNestedSegment(nestedIdx)}
