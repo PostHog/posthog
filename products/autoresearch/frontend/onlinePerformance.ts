@@ -75,6 +75,8 @@ export interface AccuracyStat {
 /** The four headline stats for the champion's newest checked date. Each stat names that date. */
 export function accuracyStats(row: OnlinePerformanceRowApi, target: string): AccuracyStat[] {
     const date = `scored on ${dayjs(row.prediction_date).format('MMM D')}`
+    // Lift has no meaning when no one did the target, and the backend reports 0 then.
+    const lift = row.n_positive > 0 ? row.lift_at_10 : null
     const quality = modelQuality({
         holdoutAuc: null,
         realizedAuc: row.realized_auc,
@@ -93,8 +95,13 @@ export function accuracyStats(row: OnlinePerformanceRowApi, target: string): Acc
         {
             key: 'lift',
             label: 'Top 10% lift',
-            value: row.lift_at_10 != null ? `${row.lift_at_10.toFixed(1)}×` : '—',
-            detail: row.lift_at_10 != null ? `Against everyone, ${date}` : `No one did it, ${date}`,
+            value: lift != null ? `${lift.toFixed(1)}×` : '—',
+            detail:
+                row.n_positive === 0
+                    ? `No one did it, ${date}`
+                    : lift != null
+                      ? `Against everyone, ${date}`
+                      : `Not measured, ${date}`,
             tooltip: `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored.`,
         },
         {

@@ -104,12 +104,22 @@ describe('onlinePerformance', () => {
         },
         {
             name: 'a checked date where no one did it',
-            overrides: { realized_auc: null, lift_at_10: null, mean_p_y: null, n_positive: 0, base_rate: 0 },
+            overrides: { realized_auc: null, lift_at_10: 0, mean_p_y: null, n_positive: 0, base_rate: 0 },
             expected: [
                 ['—', 'No AUC, scored on Feb 10'],
                 ['—', 'No one did it, scored on Feb 10'],
                 ['0.0%', 'scored on Feb 10'],
                 ['47,000', '0 did it, scored on Feb 10'],
+            ],
+        },
+        {
+            name: 'a checked date with outcomes but no lift',
+            overrides: { lift_at_10: null, mean_p_y: 0.033 },
+            expected: [
+                ['Strong', 'AUC 0.80, scored on Feb 10'],
+                ['—', 'Not measured, scored on Feb 10'],
+                ['3.0%', 'Predicted 3.3%, scored on Feb 10'],
+                ['47,000', '1,410 did it, scored on Feb 10'],
             ],
         },
     ])('accuracyStats names the scored date on every stat for $name', ({ overrides, expected }) => {
