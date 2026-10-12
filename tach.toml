@@ -244,6 +244,8 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.notifications",
+    # Batch export runs emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -429,6 +431,8 @@ depends_on = [
     "posthog",
     "ee",
     "products.feature_flags", "products.access_control",
+    # Enrollment changes emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -925,6 +929,8 @@ depends_on = [
     "products.product_analytics",
     "products.signals",
     "products.tasks", "products.access_control",
+    # Slack triggers emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
