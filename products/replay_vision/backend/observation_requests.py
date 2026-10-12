@@ -8,10 +8,10 @@ Nothing here checks consent or access; the caller does, as with `scanning`.
 import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid5
 
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -30,6 +30,7 @@ from products.cdp.backend.internal_events import (
     flush_internal_events_producer,
     produce_internal_event,
 )
+from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, cap_value, emit_workflow_step_resume
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
@@ -38,13 +39,14 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.session_last_activity import fetch_session_last_activity
-from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
+from products.replay_vision.backend.scanner_access import accessible_observations, can_read_targeted_experiment
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 
 logger = structlog.get_logger(__name__)
 
 COMPLETED_EVENT = "$replay_vision_request_completed"
+
 
 _SWEEP_PAGE_SIZE = 500
 
@@ -61,6 +63,10 @@ MAX_CHECKS_PER_TICK = 200
 # start-to-close timeout, so a slow start sweep can't starve the completion sweep or the reverse.
 START_SWEEP_BUDGET_SECONDS = 15
 COMPLETION_SWEEP_BUDGET_SECONDS = 20
+
+# Matches the `max_wait` the workflow step parks with (posthog-replay-vision.template.ts): the
+# longest wait for the sessions to end plus the scan itself.
+WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
 
@@ -90,6 +96,21 @@ _STARTUP_GRACE = timedelta(minutes=10)
 
 class IdempotencyKeyConflict(Exception):
     """The key already names a request someone else made, so it can't be handed back to this caller."""
+
+
+@frozen
+class WorkflowScanCaps:
+    """The most scan requests one workflow, and all of a project's workflows, may make in 24 hours."""
+
+    per_workflow: int
+    per_team: int
+
+
+class WorkflowScanCapReached(Exception):
+    def __init__(self, scope: Literal["workflow", "team"], cap: int) -> None:
+        super().__init__(f"The {scope} reached its daily cap of {cap} scans")
+        self.scope = scope
+        self.cap = cap
 
 
 @frozen
@@ -128,6 +149,7 @@ def create_observation_request(
     idempotency_key: str | None,
     reference: str,
     wait_for_session_end: bool = False,
+    workflow_caps: WorkflowScanCaps | None = None,
 ) -> tuple[ReplayObservationRequest, bool]:
     """Start scans for the sessions and record them as one request. Returns (request, created).
 
@@ -139,6 +161,9 @@ def create_observation_request(
     timeout never pays twice. The row is inserted before any scan starts, which makes the unique index
     the arbiter between two concurrent calls with the same key. A key is only handed back to the same
     caller: another one gets `IdempotencyKeyConflict`, never a request it may not be allowed to read.
+
+    With `workflow_caps`, `reference` names the workflow, and a request over either cap raises
+    `WorkflowScanCapReached`. A replayed key never counts against a cap.
     """
     if (scanner is None) == (inline is None):
         raise ValueError("Pass exactly one of scanner or inline.")
@@ -148,6 +173,8 @@ def create_observation_request(
             return _same_caller(existing, team, source, user), False
     try:
         with transaction.atomic():
+            if workflow_caps is not None:
+                _check_workflow_caps(team.id, reference, workflow_caps)
             request = ReplayObservationRequest.objects.for_team(team.id).create(
                 team=team,
                 scanner=scanner,
@@ -175,6 +202,19 @@ def create_observation_request(
         request.delete()
         raise
     return request, True
+
+
+def _check_workflow_caps(team_id: int, hog_flow_id: str, caps: WorkflowScanCaps) -> None:
+    # Serializes the count and the insert, so two concurrent runs can't both take the last scan.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"replay-vision-workflow-scans:{team_id}"])
+    recent = ReplayObservationRequest.objects.for_team(team_id).filter(
+        source=ObservationRequestSource.WORKFLOW, created_at__gte=timezone.now() - timedelta(days=1)
+    )
+    if recent.filter(reference=hog_flow_id).count() >= caps.per_workflow:
+        raise WorkflowScanCapReached("workflow", caps.per_workflow)
+    if recent.count() >= caps.per_team:
+        raise WorkflowScanCapReached("team", caps.per_team)
 
 
 def _inline_config(inline: InlineScanSpec | None) -> dict[str, Any] | None:
@@ -257,6 +297,20 @@ def start_waiting_requests(*, now: datetime | None = None, budget_seconds: float
     return started
 
 
+def recording_viewer_access(user: User | None, team: Team) -> UserAccessControl | None:
+    """The user's access in the project, when they are active, a member and can view its recordings."""
+    if user is None or not user.is_active:
+        return None
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
+        return None
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access.has_project_access:
+        return None
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return None
+    return access
+
+
 def _creator_still_allowed(request: ReplayObservationRequest) -> bool:
     """Whether the person a waiting request runs as can still start it, hours after asking.
 
@@ -265,16 +319,9 @@ def _creator_still_allowed(request: ReplayObservationRequest) -> bool:
     """
     if request.source == ObservationRequestSource.PROJECT_SECRET_API_KEY:
         return True
-    user = request.created_by
-    if user is None or not user.is_active:
-        return False
     team = request.team
-    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
-        return False
-    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    if not access.has_project_access:
-        return False
-    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+    access = recording_viewer_access(request.created_by, team)
+    if access is None:
         return False
     if request.scanner is not None:
         return access.check_access_level_for_object(request.scanner, "editor") is True and can_read_targeted_experiment(
@@ -415,6 +462,10 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
     for request in page:
         if not progress[request.id].settled:
             continue
+        # The wake goes first, so a wake that fails leaves the request open without announcing it twice.
+        if request.source == ObservationRequestSource.WORKFLOW and request.idempotency_key:
+            if not _wake_workflow_step(request, progress[request.id], now):
+                continue
         try:
             sent.append(
                 (
@@ -445,10 +496,75 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
     )
 
 
+_STEP_ANSWER_BUDGET = RESULT_BYTE_CAP - 512
+
+
+def step_result(request: ReplayObservationRequest, progress: RequestProgress) -> dict[str, Any]:
+    """The answer for the step's one session, sized to fit the step result whichever way it returns.
+
+    Unlike the internal event, this stays inside the project's own workflow, so it carries the answer. The
+    owner's access is checked again here, because hours can pass between the start and the answer.
+    """
+    team = request.team
+    session = progress.sessions[0] if progress.sessions else None
+    access = recording_viewer_access(request.created_by, team)
+    if access is None or session is None:
+        return _step_answer("failed", None, ["The workflow's owner can no longer view session recordings."])
+    observation = session.observation
+    if observation is not None and not (
+        accessible_observations(
+            access, team.id, ReplayObservation.objects.filter(team_id=team.id, id=observation.id)
+        ).exists()
+    ):
+        return _step_answer("failed", None, ["The workflow's owner can't read this scanner's answers."])
+    output = (
+        (observation.scanner_result or {}).get("model_output")
+        if observation is not None and session.state == RequestSessionState.SUCCEEDED
+        else None
+    )
+    return _step_answer(session.state.value, output, [])
+
+
+def _step_answer(state: str, output: Any, warnings: list[str]) -> dict[str, Any]:
+    capped = cap_value(output, _STEP_ANSWER_BUDGET) if output is not None else None
+    if capped != output:
+        cut = [key for key in output if (capped or {}).get(key) != output[key]] if isinstance(output, dict) else []
+        warnings = [*warnings, "The answer was cut to fit the step result" + (f": {', '.join(cut)}" if cut else ".")]
+    return {"state": state, "output": capped, "warnings": warnings or None}
+
+
+def _state_counts(progress: RequestProgress) -> dict[str, int]:
+    states = [s.state for s in progress.sessions]
+    return {
+        "session_count": len(states),
+        **{
+            f"{state.value}_count": states.count(state)
+            for state in RequestSessionState
+            if state not in _UNSETTLED_STATES
+        },
+    }
+
+
+def _wake_workflow_step(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> bool:
+    """Wake the workflow step waiting on this request. False leaves the request open for the next tick."""
+    try:
+        emit_workflow_step_resume(
+            team_id=request.team_id,
+            origin_key=request.idempotency_key or "",
+            status="completed",
+            result=step_result(request, progress),
+            raise_on_error=True,
+        )
+    except Exception:
+        logger.exception("replay_vision.observation_request.step_resume_failed", request_id=str(request.id))
+        # Past the step's own wait nobody is parked to take the wake, so the request stops retrying.
+        return now - request.created_at > WORKFLOW_STEP_MAX_WAIT
+    return True
+
+
 def _completed_event(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> InternalEventEvent:
     # Counts only: anyone who can add a destination receives this, so session ids and answers stay
     # behind the recording access that `GET /vision/requests/{id}/` enforces.
-    states = [s.state for s in progress.sessions]
     return InternalEventEvent(
         event=COMPLETED_EVENT,
         distinct_id=replay_vision_distinct_id(request.team_id),
@@ -460,11 +576,6 @@ def _completed_event(request: ReplayObservationRequest, progress: RequestProgres
             # The caller writes `reference`, so Slack gets it escaped and can't be made to ping a channel.
             "label_mrkdwn": escape_slack_mrkdwn(request.reference or str(request.id)),
             "scanner_id": str(request.scanner_id) if request.scanner_id else None,
-            "session_count": len(progress.sessions),
-            **{
-                f"{state.value}_count": states.count(state)
-                for state in RequestSessionState
-                if state not in _UNSETTLED_STATES
-            },
+            **_state_counts(progress),
         },
     )

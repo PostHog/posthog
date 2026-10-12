@@ -319,14 +319,13 @@ class TestCompleteSettledRequests(APIBaseTest):
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
-    def _request(self, outcomes: dict[str, str]) -> ReplayObservationRequest:
+    def _request(self, outcomes: dict[str, str], **fields: Any) -> ReplayObservationRequest:
         return ReplayObservationRequest.objects.for_team(self.team.id).create(
             team=self.team,
             scanner=self.scanner,
             session_ids=list(outcomes),
             start_outcomes=[{"session_id": sid, "scan_outcome": outcome} for sid, outcome in outcomes.items()],
-            reference="job-7",
-            source="project_secret_api_key",
+            **{"reference": "job-7", "source": "project_secret_api_key", **fields},
         )
 
     @parameterized.expand(
@@ -379,6 +378,46 @@ class TestCompleteSettledRequests(APIBaseTest):
         first.refresh_from_db()
         second.refresh_from_db()
         self.assertEqual((first.completed_at is None, second.completed_at is not None), (True, True))
+
+    @parameterized.expand(
+        [
+            ("workflow_woken", "workflow", None, True, 1, True, "skipped"),
+            ("workflow_owner_lost_access", "workflow", None, False, 1, True, "failed"),
+            ("workflow_wake_failed", "workflow", RuntimeError("engine down"), True, 1, False, None),
+            ("api", "project_secret_api_key", None, True, 0, True, None),
+        ]
+    )
+    @patch("products.replay_vision.backend.observation_requests.emit_workflow_step_resume")
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_wakes_only_the_workflow_step_that_started_it(
+        self,
+        _name: str,
+        source: str,
+        wake_error: Exception | None,
+        owner_active: bool,
+        wakes: int,
+        completes: bool,
+        state: str | None,
+        produce: MagicMock,
+        resume: MagicMock,
+    ) -> None:
+        resume.side_effect = wake_error
+        self.user.is_active = owner_active
+        self.user.save()
+        request = self._request(
+            {"s1": "skipped_quota"}, source=source, idempotency_key="run:step:1", created_by=self.user
+        )
+
+        complete_settled_requests()
+
+        request.refresh_from_db()
+        self.assertEqual((resume.call_count, request.completed_at is not None), (wakes, completes))
+        self.assertEqual(produce.call_count, 0 if wake_error else 1)
+        if state is not None:
+            kwargs = resume.call_args.kwargs
+            self.assertEqual((kwargs["origin_key"], kwargs["status"]), ("run:step:1", "completed"))
+            self.assertEqual(kwargs["result"]["state"], state)
+            self.assertIsNone(kwargs["result"]["output"])
 
 
 class TestStartWaitingRequests(APIBaseTest):
