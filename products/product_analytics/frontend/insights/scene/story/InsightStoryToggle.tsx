@@ -24,7 +24,7 @@ export function InsightStoryToggle({ insightProps }: { insightProps: InsightLogi
             data-attr="quill-insight-story-toggle"
         >
             <IconSparkles />
-            Walk me through it
+            Explain this chart
         </Button>
     )
 }
