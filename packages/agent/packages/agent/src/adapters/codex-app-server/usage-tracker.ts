@@ -99,6 +99,12 @@ export class UsageTracker {
     this.previousTotal = undefined;
   }
 
+  /** Adopt replayed thread totals as the delta baseline without counting them as turn usage. */
+  setCumulativeBaseline(params: unknown): void {
+    const total = readTokenUsage(params)?.total;
+    if (total) this.previousTotal = requestUsage(total);
+  }
+
   /** Ingest a `thread/tokenUsage/updated` payload; returns the live usage_update, or null if unusable. */
   ingest(params: unknown): UsageUpdate | null {
     const reading = readTokenUsage(params);

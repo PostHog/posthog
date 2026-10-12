@@ -4291,6 +4291,52 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("keeps a resumed thread's replayed usage out of the next turn's totals", async () => {
+    const historical = tokenUsage(
+      { inputTokens: 400, outputTokens: 80, totalTokens: 480 },
+      { inputTokens: 900, outputTokens: 200, totalTokens: 1100 },
+    );
+    const replay = { threadId: "t1", ...historical };
+    const stub = makeStubRpc({
+      "thread/resume": () => {
+        // Same stdout chunk as the response: dispatched before setup resumes.
+        stub.emit("thread/tokenUsage/updated", replay);
+        return { thread: { id: "t1" } };
+      },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.resumeSession({
+      sessionId: "t1",
+      cwd: "/r",
+      mcpServers: [],
+    } as unknown as Parameters<typeof agent.resumeSession>[0]);
+
+    const turn = agent.prompt({
+      sessionId: "t1",
+      prompt: [{ type: "text", text: "a" }],
+    } as unknown as PromptRequest);
+    stub.emit("thread/tokenUsage/updated", replay);
+    stub.emit("thread/tokenUsage/updated", {
+      threadId: "t1",
+      ...tokenUsage(
+        { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        { inputTokens: 1000, outputTokens: 220, totalTokens: 1220 },
+      ),
+    });
+    stub.emit("turn/completed", {
+      threadId: "t1",
+      turn: { status: "completed" },
+    });
+
+    await expect(turn).resolves.toMatchObject({
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+    });
+  });
+
   it("signals compaction start (_posthog/status) when a contextCompaction item begins", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client, extNotifications } = makeFakeClient();
