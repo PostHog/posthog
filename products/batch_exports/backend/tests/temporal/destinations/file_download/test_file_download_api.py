@@ -27,7 +27,7 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.batch_exports.backend.file_downloads import (
+from products.batch_exports.backend.logic.file_downloads import (
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
@@ -167,7 +167,7 @@ def override_file_download_settings(aws_role_arn, s3_bucket):
 def mock_start_file_download_export():
     """Mock starting the Temporal workflow so create tests don't reach Temporal."""
     with unittest.mock.patch(
-        "products.batch_exports.backend.file_downloads.start_file_download_batch_export"
+        "products.batch_exports.backend.logic.file_downloads.start_file_download_batch_export"
     ) as mock_start:
         yield mock_start
 
@@ -350,7 +350,7 @@ async def test_file_download_download_resolves_part(
     await async_client.aforce_login(user)
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.file_downloads._generate_s3_pre_signed_url",
+        "products.batch_exports.backend.logic.file_downloads._generate_s3_pre_signed_url",
         return_value="https://example.com/download",
     ) as pre_sign:
         response = await async_client.get(
@@ -677,7 +677,7 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch("products.batch_exports.backend.file_downloads.sync_connect") as mocked_connect:
+    with unittest.mock.patch("products.batch_exports.backend.logic.file_downloads.sync_connect") as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
@@ -1246,7 +1246,7 @@ class TestFileDownloadHogQL:
     ):
         await async_client.aforce_login(user)
 
-        with unittest.mock.patch("products.batch_exports.backend.file_downloads.execute_hogql_query") as execute:
+        with unittest.mock.patch("products.batch_exports.backend.logic.file_downloads.execute_hogql_query") as execute:
             response = await async_client.post(
                 f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
                 body,
@@ -1278,7 +1278,7 @@ class TestFileDownloadHogQL:
         await async_client.aforce_login(user)
 
         with unittest.mock.patch(
-            "products.batch_exports.backend.file_downloads.execute_hogql_query",
+            "products.batch_exports.backend.logic.file_downloads.execute_hogql_query",
             side_effect=ClickHouseQueryTimeOut(),
         ):
             response = await async_client.post(

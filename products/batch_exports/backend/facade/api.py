@@ -128,7 +128,7 @@ def _hogql_source() -> ModuleType:
 
 def _file_downloads() -> ModuleType:
     """Import the file download module at call time. See the module docstring for why."""
-    from products.batch_exports.backend import file_downloads
+    from products.batch_exports.backend.logic import file_downloads
 
     return file_downloads
 
