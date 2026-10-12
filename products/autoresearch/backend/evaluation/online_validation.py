@@ -45,16 +45,17 @@ from products.autoresearch.backend.dataset.labeling import (
 from products.autoresearch.backend.evaluation.history import latest_validation_runs
 from products.autoresearch.backend.evaluation.maturity import matures_at
 from products.autoresearch.backend.evaluation.segment_thresholds import BASE_RATE_DATES, segment_thresholds
+from products.autoresearch.backend.inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does one bounded query per model plus the labels query, and a scoring run
-# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
-# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
-STALE_RUN_AFTER = timedelta(hours=6)
+# The inference and validation workflows both end by this timeout, so a RUNNING row older than
+# this belongs to a worker that died mid-run and the exception handler never ran. Neither kind
+# may hold a date forever.
+STALE_RUN_AFTER = INFERENCE_WORKFLOW_TIMEOUT
 
 # A live run stamps its events at emission time, which can cross midnight UTC before the
 # batch goes out; a backfill stamps noon UTC of the date. Both fall within this many days

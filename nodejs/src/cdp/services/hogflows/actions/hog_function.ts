@@ -428,6 +428,40 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        // This check runs last because it also records the send against the cap. If it ran before the
+        // opt-out, suppression or bounce checks, a send that one of them skips would still use a slot.
+        if (
+            !hogExecutorOptions?.isTest &&
+            (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
+        ) {
+            return {
+                finished: true,
+                skipped: true,
+                invocation: hogFunctionInvocation,
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Skipping send: recipient reached the frequency cap.',
+                    },
+                ],
+                metrics: [
+                    {
+                        team_id: hogFunctionInvocation.teamId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                        instance_id: action.id,
+                        metric_kind: 'other',
+                        metric_name: 'message_frequency_capped',
+                        count: 1,
+                    },
+                ],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            }
+        }
+
         return instrumentFn({ key: 'hogFlow.action.hogFunction.executeWithAsyncFunctions', sendException: false }, () =>
             this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
         )

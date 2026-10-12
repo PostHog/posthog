@@ -8,6 +8,7 @@ describe('modelCardState', () => {
         experiment_count: 2,
         best_holdout_score: 0.72,
         latest_agent_description: 'baseline',
+        latest_summary: null,
     }
 
     test.each([

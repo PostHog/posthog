@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -33,11 +34,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
@@ -1345,8 +1347,8 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
 # --- Single-agent review (the main Flash session and its lens sessions) ---------------------------
 
 
-def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool) -> str:
-    """The task prompt of the main session, or of one lens session on lens part `chunk_id`."""
+def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
+    """The prompt of the main session, or of one lens session on lens part `chunk_id`."""
     snapshot = load_pr_snapshot(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
     )
@@ -1366,6 +1368,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
+        guidelines=guidelines,
         scope_files=scope_files,
         for_lens=for_lens,
     ).render()
@@ -1377,7 +1380,7 @@ async def _run_single_agent_session(
     pass_number: int,
     chunk_id: int,
     source: str,
-    system_prompt: str,
+    guidelines: str,
     step_name: str,
     for_lens: bool,
 ) -> None:
@@ -1399,7 +1402,7 @@ async def _run_single_agent_session(
         logger.info("Reusing the persisted %s result for this turn", step_name)
         return
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input, chunk_id, for_lens
+        input, chunk_id, for_lens, guidelines
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         try:
@@ -1409,7 +1412,8 @@ async def _run_single_agent_session(
                 repository=input.repository,
                 branch=input.branch,
                 prompt=prompt,
-                system_prompt=system_prompt,
+                # The guidelines sit inside the prompt, after the part sibling sessions share.
+                system_prompt="",
                 model_to_validate=SingleAgentReview,
                 step_name=step_name,
                 workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
@@ -1443,7 +1447,7 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
         pass_number=SINGLE_AGENT_PASS_NUMBER,
         chunk_id=SINGLE_AGENT_CHUNK_ID,
         source=SINGLE_AGENT_SOURCE,
-        system_prompt=load_core_prompt(),
+        guidelines=load_core_prompt(),
         step_name="single-agent-review",
         for_lens=False,
     )
@@ -1460,7 +1464,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
         pass_number=lens.pass_number,
         chunk_id=input.chunk_id,
         source=lens.source,
-        system_prompt=load_prompt_file(lens_prompt_path(lens.prompt_file)),
+        guidelines=load_prompt_file(lens_prompt_path(lens.prompt_file)),
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
     )
@@ -1618,7 +1622,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
-            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
+            app_login = await database_sync_to_async(posthog_app_login, thread_sensitive=False)()
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments, app_login)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1873,6 +1878,13 @@ def _publish(input: PublishInput) -> PublishResult:
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
+def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
+    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
+    if error.retry_after is None:
+        return error
+    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1882,29 +1894,35 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_publish, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
-    try:
-        github_api_request(
-            "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/reviewhog",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-            installation_id=installation_id,
-        )
-    except GitHubAPIError as error:
-        if error.status != 404:
-            raise
+    # The run does not know which label started it, and a label added during the run joins it, so the
+    # run removes every review label.
+    for label in sorted(REVIEW_LABELS):
+        try:
+            github_api_request(
+                "DELETE",
+                f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{label}",
+                token=token,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+                installation_id=installation_id,
+            )
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the label that started a label-triggered review, if it is still present."""
+    """Remove the review labels that started a label-triggered review, if they are still present."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
@@ -2251,7 +2269,10 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    try:
+        await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
 
 
 def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:

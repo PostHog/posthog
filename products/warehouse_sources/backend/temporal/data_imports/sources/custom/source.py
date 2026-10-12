@@ -199,6 +199,9 @@ def _without_retry_limit_overrides(client: dict[str, Any]) -> dict[str, Any]:
 class _ManifestClient(BaseModel):
     base_url: str = Field(min_length=1)
     auth: _ManifestAuth | None = None
+    # Modelled only so a non-object `headers` is rejected here. The probe and the REST
+    # engine both spread it into a dict, which raises a TypeError the sync would retry.
+    headers: dict[str, Any] | None = None
 
 
 class _ManifestEndpoint(BaseModel):
@@ -961,6 +964,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
             # The message omits the URL, which carries the customer's hostname.
             "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
+            # The upstream account's plan doesn't cover this endpoint. The plan only changes on the
+            # customer's side, so every retry gets the same refusal.
+            "402 Client Error": "Your API provider requires a paid plan for this data. Upgrade or reactivate your plan with them, or turn off syncing for this table, then re-enable the sync.",
             # A network proxy rejected the request before it reached the upstream API. On PostHog
             # Cloud this is the egress proxy refusing a URL it isn't allowed to reach (a private or
             # internal address); it can also be an upstream proxy in front of the customer's API

@@ -695,7 +695,13 @@ class TestVerifyGroupLeaseSync:
                 )
 
         connect.assert_called_once()
-        assert _sync_connection_pool(_db_url, 5).idle_count == 1
+        pool = _sync_connection_pool(_db_url, 5)
+        assert pool.idle_count == 1
+        # The queue DB sits behind a transaction pooler: psycopg's default prepare_threshold
+        # would server-prepare a statement after 5 identical executions on this long-lived
+        # pooled connection, and a later Bind can land on a backend that never parsed it
+        # ("unable to bind ... cannot get parse message").
+        assert pool._idle[0].prepare_threshold is None
 
     @pytest.mark.asyncio
     async def test_a_dropped_pooled_connection_is_replaced_not_reported_as_a_lost_lease(self, conn, _db_url):
