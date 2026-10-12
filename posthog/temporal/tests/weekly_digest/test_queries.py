@@ -16,16 +16,20 @@ pytestmark = pytest.mark.django_db
 
 
 def _create_issue(
-    team, name: str, created_at: datetime, status: ErrorTrackingIssueStatus = ErrorTrackingIssueStatus.ACTIVE
+    team,
+    name: str,
+    created_at: datetime,
+    status: ErrorTrackingIssueStatus = ErrorTrackingIssueStatus.ACTIVE,
+    description: str | None = None,
 ) -> UUID:
-    return create_issue(team_id=team.id, name=name, status=status, created_at=created_at)
+    return create_issue(team_id=team.id, name=name, status=status, created_at=created_at, description=description)
 
 
 def test_query_new_error_issues_window_boundaries_and_status(team):
     period_end = datetime(2024, 1, 8, tzinfo=UTC)
     period_start = period_end - timedelta(days=7)
 
-    in_window = _create_issue(team, "in window", period_start + timedelta(days=1))
+    in_window = _create_issue(team, "Error", period_start + timedelta(days=1), description="checkout failed")
     at_period_end = _create_issue(team, "at period end", period_end)
     _create_issue(team, "at period start", period_start)  # excluded: window is exclusive at the start
     _create_issue(team, "before window", period_start - timedelta(seconds=1))
@@ -43,6 +47,7 @@ def test_query_new_error_issues_window_boundaries_and_status(team):
     # Only active issues created within the window, newest first
     assert [r["id"] for r in results] == [at_period_end, in_window]
     assert all(r["team_id"] == team.id for r in results)
+    assert [r["description"] for r in results] == [None, "checkout failed"]
 
 
 @pytest.mark.parametrize("with_organization", [False, True])

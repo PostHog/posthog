@@ -126,14 +126,31 @@ class DigestSurvey(BaseModel):
     start_date: datetime
 
 
+# Issue descriptions are exception messages from client input, so they can be very long.
+DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS = 200
+
+
 class DigestErrorIssue(BaseModel):
+    # The name is the exception type (often a generic "Error"), so the description carries
+    # the message that tells the reader what broke.
     name: str = "Untitled issue"
+    description: str | None = None
     id: UUID
 
     @field_validator("name", mode="before")
     @classmethod
     def _default_name(cls, value: str | None) -> str:
         return value or "Untitled issue"
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _trim_description(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        text = " ".join(value.split())
+        if len(text) <= DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS:
+            return text or None
+        return text[: DIGEST_ERROR_ISSUE_DESCRIPTION_MAX_CHARS - 1].rstrip() + "…"
 
 
 class UsageTrendMetric(BaseModel):
