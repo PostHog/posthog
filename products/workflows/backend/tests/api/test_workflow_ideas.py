@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.workflows.backend.facade.contracts import NewWorkflowIdea
-from products.workflows.backend.facade.workflow_ideas import create_ideas
+from products.workflows.backend.facade.workflow_ideas import create_ideas, notify_new_ideas
 from products.workflows.backend.models import HogFlow, WorkflowIdea
 
 
@@ -161,3 +161,12 @@ class TestWorkflowIdeasAPI(APIBaseTest):
         stored_other = _stored(other.id)
         assert first_seen is not None and stored_own.first_viewed_at == first_seen
         assert stored_other.first_viewed_at is None
+
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *a, **kw: flag == "real-time-notifications")
+    def test_the_project_hears_about_new_ideas_once(self, _flag):
+        ideas = create_ideas(team_id=self.team.id, items=[_idea("one"), _idea("two")], source="manual")
+        ids = [idea.id for idea in ideas]
+
+        assert notify_new_ideas(team_id=self.team.id, idea_ids=ids) is True
+        assert all(_stored(idea_id).notified_at is not None for idea_id in ids)
+        assert notify_new_ideas(team_id=self.team.id, idea_ids=ids) is False

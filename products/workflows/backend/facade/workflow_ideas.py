@@ -13,6 +13,7 @@ from products.workflows.backend.services.workflow_ideas import (
     dismiss_idea,
     list_open_ideas,
     mark_viewed,
+    notify_new_ideas,
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "list_open_ideas",
     "mark_viewed",
     "new_idea_from_draft",
+    "notify_new_ideas",
     "people_reached_since",
 ]
