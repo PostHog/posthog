@@ -304,6 +304,15 @@ class AgentDefinitionSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(default=True)
 
 
+class IgnoreUnknownChoiceField(serializers.ChoiceField):
+    def to_internal_value(self, data: Any) -> Any:
+        try:
+            return super().to_internal_value(data)
+        except serializers.ValidationError:
+            # A newer agent can send a cause that the choices do not list. The status write must still succeed.
+            return None
+
+
 class TaskRunUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
@@ -336,7 +345,7 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
-    error_type = serializers.ChoiceField(
+    error_type = IgnoreUnknownChoiceField(
         choices=TASK_RUN_FAILURE_ERROR_TYPES,
         required=False,
         allow_null=True,

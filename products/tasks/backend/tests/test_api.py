@@ -7921,6 +7921,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         [
             ("with_error_type", {"error_type": "agent_declined"}, "agent_declined"),
             ("without_error_type", {}, None),
+            ("with_unknown_error_type", {"error_type": "bogus"}, None),
         ]
     )
     @patch("posthog.temporal.common.client.sync_connect")
@@ -7931,13 +7932,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         handle.signal = AsyncMock()
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"status": "failed", "error_message": "Something went wrong", "error_type": "bogus"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
