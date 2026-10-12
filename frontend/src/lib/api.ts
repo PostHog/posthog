@@ -7107,14 +7107,35 @@ const warnedSharedViewLeaks = new Set<string>()
  * connectivity failure produces, so this flag is the only way `handleFetch` can tell the two apart.
  * `pagehide` also fires when the page enters the back/forward cache, hence the reset on `pageshow`:
  * a restored page is live again and its requests are expected to succeed.
+ *
+ * On a reload or a navigation the browser cancels those fetches when the navigation starts, which is
+ * before `pagehide` fires, so the flag is set on `beforeunload` as well. A `beforeunload` is not a
+ * promise that the page goes away: the user can stay on a "Leave site?" prompt, stop a slow
+ * navigation, or follow a link that only starts a download. So a flag set by `beforeunload` clears
+ * after `UNLOAD_SETTLE_MS`, and a page that is still alive classifies its failures normally again.
  */
+export const UNLOAD_SETTLE_MS = 5000
 let documentUnloading = false
+let unloadSettleTimer: ReturnType<typeof setTimeout> | undefined
+function setDocumentUnloading(unloading: boolean): void {
+    documentUnloading = unloading
+    clearTimeout(unloadSettleTimer)
+}
 if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+        setDocumentUnloading(true)
+        // The browser shows a "Leave site?" prompt after the listeners return and blocks this page's
+        // event loop until the user answers. The zero-delay timer runs after the answer, so the settle
+        // time starts when the navigation really starts.
+        setTimeout(() => {
+            unloadSettleTimer = setTimeout(() => setDocumentUnloading(false), UNLOAD_SETTLE_MS)
+        }, 0)
+    })
     window.addEventListener('pagehide', () => {
-        documentUnloading = true
+        setDocumentUnloading(true)
     })
     window.addEventListener('pageshow', () => {
-        documentUnloading = false
+        setDocumentUnloading(false)
     })
 }
 

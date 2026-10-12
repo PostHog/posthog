@@ -19,7 +19,7 @@ import { lazyLoaders, loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, NetworkError, UNLOAD_SETTLE_MS } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
@@ -1136,6 +1136,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         error.queryId = queryId
                         if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
+                        }
+                        // The browser cancelled the request because the page is unloading. Keep the
+                        // loading state instead of an error that flashes before the page goes away.
+                        // If the page stays, the error shows after the same settle time.
+                        if (error instanceof NetworkError && error.reason === 'navigating') {
+                            await breakpoint(UNLOAD_SETTLE_MS)
                         }
                         breakpoint()
                         throw error
