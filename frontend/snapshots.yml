@@ -6562,6 +6562,34 @@ snapshots:
         hash: v1.k794b7964.ec5636bb061b046741a42c6ce3faa30704b2b4203947e956c5d7966bada33fd5.pMIwCFfVjMdfrr_RckXkoewH1hbCy3Veditgtv4hx_k
     products-autoresearch-lifecycle-strip--validated-champion--light:
         hash: v1.k794b7964.131ecc736b38defef5b8ba34fa9836f1d2d5132e1d109e4b995b9591a5d9255c.759giT71A_8sdMCqx-FasPgdZzZWHgRvaoUmqVtYYKw
+    products-autoresearch-model-card--awaiting-check--dark:
+        hash: v1.k794b7964.d0c4b837aed2340580cd64fcaea327145813c7059755c0d1ecb8ac37db523c9c.EDQGSSHmD19QsqrAXbeRBy2xQ_ncxQ0uEi1Vurn2GTM
+    products-autoresearch-model-card--awaiting-check--light:
+        hash: v1.k794b7964.5bf4a652830591e22ba932b205c1b9fc971ccca7cc8998e3b5b12e80789dc644.x3Zss-7B1weoMuvViz6vQDL5zzT5tCVeBhm6__eX4Pk
+    products-autoresearch-model-card--awaiting-check-long-horizon--dark:
+        hash: v1.k794b7964.f5f88b6745f7bfacf9bfd3ef83dbf938d92be62492f0ab4ed576c92aef541d7b.xUxsBctJvFgDLdGVYEW5u93I4hsqF9jeoZU5_SUBs6g
+    products-autoresearch-model-card--awaiting-check-long-horizon--light:
+        hash: v1.k794b7964.6cfc41c038fff8f43911ff67989e922de4519d80b7dce505e88274cf9fb14dff.VCMAfDPJBS14sTWlxUMPTg00ZvnbQ1cvOvi75YHy7vU
+    products-autoresearch-model-card--awaiting-check-without-likely-count--dark:
+        hash: v1.k794b7964.fa9128a2c665e012372016fe6de76e472ce39693299398e521787df9145c01a2.Tzva3cwDscvroRQDNmGTaNZFuKh1Xk3IpLVKp40Akm8
+    products-autoresearch-model-card--awaiting-check-without-likely-count--light:
+        hash: v1.k794b7964.facd8b0a9f18a67b5201de155edaa7a2c525f761ccc76f7487412884985bcd60.kq612Xhu2k_A_Q9gQpUqqsDbfytVIe_QcHHRmdxZIVc
+    products-autoresearch-model-card--confirmed--dark:
+        hash: v1.k794b7964.c8a65abbd3ce09b8b0f00d978c43bd083e2fc4a2a4bbd04841d16297d286b7ec.95EPpNIJb_jAY8Q5-gKw9f8deLfpD36ZjkCocJoYw60
+    products-autoresearch-model-card--confirmed--light:
+        hash: v1.k794b7964.933313db18507b0065864ec7ff98f7b2cff1692348b155e93adfcea14f72ed7f.11puCCTL4IP0fCXV_oOb3z5SIOeMBf0GbVvS_W5vhtw
+    products-autoresearch-model-card--confirmed-retraining--dark:
+        hash: v1.k794b7964.5021416edf991c93cc0e91bd0718a9d4ad90d01423d2ff1c4e74c5677fb81bb3.Po7UU9vxVppgHMgZU9EaahuM1ZLgC7ueUA8CnK3gYus
+    products-autoresearch-model-card--confirmed-retraining--light:
+        hash: v1.k794b7964.571893710d8f09efe512dbe906d1265f33f7cf7e537807dd2b3d5f0dc2faed91.4CbLaR4dEKjeP4Lc8cHqGHssgQlGo-LlDQYRgvFezbs
+    products-autoresearch-model-card--draft--dark:
+        hash: v1.k794b7964.c5cd95350db692fbff81d2f5049547a5a2a06bbbc8c7445654e5c0f1a3c4ca8e.AObIoQAoS70zxfPfmLnNY0kZPAUiygI5TwRnYKpkMlw
+    products-autoresearch-model-card--draft--light:
+        hash: v1.k794b7964.5fe35a8ac4491a88eb83b822301eff24e6f0bd6da0db81d0e7a8c0760f1468d3.IYNg7FBpccTnNYl04nGAnBGnKOmhgMbB4X4l0c3YvC4
+    products-autoresearch-model-card--training--dark:
+        hash: v1.k794b7964.88f39e3d0fbb43768a2cc61642017cb712ba6dbda2c40e1d99be11dbd87d198e.iAXGkjxlkUg5I1g5gl5H-XTbduzQFWYZfAvgZG60FzA
+    products-autoresearch-model-card--training--light:
+        hash: v1.k794b7964.8e81700643972d08ca45a0abc5e0b82b9b0a88566cc308b48c219301d42d8e5f.VhTJ3bXOU3KzsyClYUCH41SjpCm4bgfA4pAnCC5DMvI
     products-autoresearch-model-detail-scene--accuracy--narrow--dark:
         hash: v1.k794b7964.bba5cd4781b922d63c9ec2892f96e47be92348f60b13c89e4c27589e1f9bc19f.1LLSE4lMVlwoDHZhRR1CV5rQPwOUbKaTil-AwyfPJF8
     products-autoresearch-model-detail-scene--accuracy--narrow--light:
