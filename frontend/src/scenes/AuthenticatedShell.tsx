@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'
+import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -47,6 +48,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(globalSetupLogic)
     useMountedLogic(webmcpLogic)
     useMountedLogic(billingLogic)
+    // Resolves product setup statuses on idle, so gated scenes open without a spinner.
+    useMountedLogic(productSetupPreloadLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
