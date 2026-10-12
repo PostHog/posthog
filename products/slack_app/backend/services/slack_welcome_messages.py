@@ -209,7 +209,7 @@ def _done(text: str) -> dict:
     return context_block(f":white_check_mark: {text}")
 
 
-def _github_connect_url(team_id: int) -> str:
+def github_connect_url(team_id: int) -> str:
     """GitHub OAuth entry that returns to Slack — one flow connects the team install and the user's personal GitHub."""
     return _public_url(f"/integrations/connect/github/?project_id={team_id}&connect_from=slack")
 
@@ -229,7 +229,7 @@ def _github_blocks(integration: Integration, *, done: bool) -> list[dict]:
     button = {
         "type": "button",
         "text": {"type": "plain_text", "text": "Connect GitHub"},
-        "url": _github_connect_url(integration.team_id),
+        "url": github_connect_url(integration.team_id),
         "style": "primary",
     }
     blocks.append({"type": "actions", "elements": [button]})
