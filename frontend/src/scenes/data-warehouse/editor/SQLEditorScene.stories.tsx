@@ -616,10 +616,12 @@ export const BICalculatedMeasureEditor: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const addMeasure = await canvas.findByText('Add calculated measure', {}, { timeout: 15000 })
-        await waitFor(() => expect(addMeasure.closest('button')).toBeEnabled())
+        const addMeasure = await canvas.findByRole('button', { name: 'Add calculated field' }, { timeout: 15000 })
+        await waitFor(() => expect(addMeasure).toBeEnabled())
         await userEvent.click(addMeasure)
         const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByLabelText('Calculated field role'))
+        await userEvent.click(await modal.findByText('Measure · aggregate each group'))
         await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
     },
 }
