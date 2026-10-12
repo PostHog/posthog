@@ -29244,6 +29244,11 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "calculation": {
+                    "description": "Recalculate from returned chart marks. An absent calculation uses the fixed value.",
+                    "enum": ["fixed", "mean", "median", "min", "max"],
+                    "type": "string"
+                },
                 "displayIfCrossed": {
                     "type": "boolean"
                 },
@@ -29255,6 +29260,11 @@
                 },
                 "position": {
                     "enum": ["start", "end"],
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "SQL chart calculations use the primary axis, across all series or separately per series.",
+                    "enum": ["all", "series"],
                     "type": "string"
                 },
                 "value": {
