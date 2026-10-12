@@ -7351,6 +7351,68 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
+class TestReplayVisionActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-replay-vision"
+        template["name"] = "Replay Vision"
+        template["inputs_schema"] = [
+            {"key": "session_id", "type": "string", "label": "Session ID", "secret": False, "required": True},
+            {"key": "analysis", "type": "replay_vision_scan", "label": "Analysis", "secret": False, "required": True},
+        ]
+        sync_template_to_db(template)
+
+    @parameterized.expand(
+        [
+            ("can_view_recordings", "viewer", {"type": "monitor", "prompt": "did they rage click?"}, None),
+            ("cannot_view_recordings", "none", {"type": "monitor", "prompt": "did they rage click?"}, "template_id"),
+            ("incomplete_setup", "viewer", {"type": "classifier", "prompt": "intent?"}, "inputs"),
+        ]
+    )
+    def test_the_step_needs_recording_access_and_a_complete_setup(
+        self, _name: str, recording_access: str, analysis: dict, error_attr: str | None
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-replay-vision",
+                "inputs": {
+                    "session_id": {"value": "{event.properties.$session_id}"},
+                    "analysis": {"value": analysis},
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        if error_attr is None:
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert error_attr in str(response.json()), response.json()
+
+
 class TestRunScoutActionValidation(APIBaseTest):
     """Save-time check specific to the "Run scout" step: it used to fail only on the first run,
     once per fire, in a child environment. This locks in that the same misconfiguration is now

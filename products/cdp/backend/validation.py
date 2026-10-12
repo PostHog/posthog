@@ -621,6 +621,7 @@ class _TemplatingChoiceField(serializers.ChoiceField):
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
+    # nosemgrep: choices-need-a-class -- existing input-type list; this change only adds one value to it
     type = serializers.ChoiceField(
         choices=[
             "string",
@@ -645,6 +646,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_mcp_installations",
             "signals_scout",
             "task_skills",
+            "replay_vision_scan",
         ]
     )
     key = serializers.CharField()
@@ -836,6 +838,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "replay_vision_scan":
+            if not isinstance(value, dict) or not isinstance(value.get("type"), str):
+                raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})
