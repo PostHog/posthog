@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from repo_invariant_scan_scope import ScanScope
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
 # Vendor directories live in the product and in the `products/warehouse_sources/sources/` tree.
@@ -42,7 +44,7 @@ Check = Callable[[ast.Module], list[str]]
 
 
 def _source_files(pattern: str) -> list[tuple[Path, Path]]:
-    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
+    return ScanScope.from_environment().walk(REPO_ROOT, SOURCE_ROOTS, pattern)
 
 
 def _own_nodes(node: ast.AST) -> list[ast.AST]:
@@ -309,7 +311,12 @@ def read_baseline(file_name: str) -> list[str]:
 def test_source_functions_match_the_baseline(check: str) -> None:
     collector, words, file_name, explanation = CHECKS[check]
     scanned = collect(collector, words)
-    recorded = read_baseline(file_name)
+    scope = ScanScope.from_environment()
+    recorded = [
+        line
+        for line in read_baseline(file_name)
+        if scope.covers_root_relative(REPO_ROOT, SOURCE_ROOTS, line.split("::")[0])
+    ]
     if scanned == recorded:
         return
 

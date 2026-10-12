@@ -595,6 +595,19 @@ ignore_imports = [
     "products.warehouse_sources.sources.conftest -> products.**",
 ]
 
+# Vendors do not import each other, in code or in tests. tach covers vendor code only, and the
+# contract above ignores imports inside the shared package. Independence expands the wildcard to
+# one module per vendor, so a vendor that imports a sibling fails here. Imports of the SDK are
+# allowed, and so are imports inside one vendor.
+[[tool.importlinter.contracts]]
+name = "sources vendors do not import each other"
+type = "independence"
+modules = ["products.warehouse_sources.sources.*"]
+ignore_imports = [
+    "products.warehouse_sources.sources.** -> products.warehouse_sources.sources.sdk",
+    "products.warehouse_sources.sources.** -> products.warehouse_sources.sources.sdk.**",
+]
+
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.
 # This catches any new internal modules (cache.py, helpers.py, etc.)

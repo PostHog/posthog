@@ -2236,6 +2236,7 @@ test('test-selection scripts claim the lanes of the suite they select for', () =
         'tools/snob_backend_test_selection_shadow.py',
         'tools/test_selection_verdict.py',
         'tools/dagster_test_selection.py',
+        'tools/warehouse_sources_vendor_selection.py',
         'tools/testmon_high_fanout_files.txt',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)

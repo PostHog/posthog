@@ -66,6 +66,7 @@ jobs:
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
+            warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -208,6 +209,21 @@ jobs:
                         - '.semgrep/rules/devex/prefer-codegen-api-namespaced.yaml'
                         - 'hogli.yaml'
                         - .github/workflows/ci-python.yml
+                      # The warehouse source vendors, their SDK and the product code the
+                      # SDK re-exports.
+                      warehouse_sources:
+                        - 'products/warehouse_sources/sources/**'
+                        - 'products/warehouse_sources/backend/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'pytest.ini'
+                        - 'conftest.py'
+                        - 'tach.toml'
+                        - .github/workflows/ci-python.yml
+                        - .github/actions/setup-python-cached/**
+                        - .github/actions/setup-uv/**
+                        - tools/warehouse_sources_vendor_selection.py
+                        - tools/test_warehouse_sources_vendor_selection.py
 
     code-quality:
         needs: changes
@@ -547,11 +563,143 @@ jobs:
                   fi
                   ./bin/hogli lint:api-ratchet
 
+    # The warehouse source vendors under products/warehouse_sources/sources/ need no service:
+    # no Postgres, ClickHouse, Redis or Kafka. So a pull request that changes only vendors
+    # runs this job, and Backend CI does not start (its `backend` filter excludes that
+    # directory). code-quality already runs ruff, mypy and ty on the vendors.
+    warehouse-sources:
+        needs: changes
+        # Skipped on master push: the merge queue already ran this for every landed commit,
+        # and the hourly scheduled run tests every vendor. The scheduled run also catches a
+        # posthog/ change that breaks a vendor through the SDK, which no filter above sees.
+        if: needs.changes.outputs.warehouse_sources == 'true' && github.event_name != 'push'
+        name: Warehouse sources checks and tests
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # The pull request merge commit and its first parent, the base, so the
+                  # vendor selection below can diff the two without the GitHub API.
+                  fetch-depth: 2
+                  persist-credentials: false
+
+            - name: Set up Python
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
+
+            - name: Install uv
+              id: setup-uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install SAML dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            # A broken selector must fail here, before it narrows a run.
+            - name: Test the vendor selector
+              run: python tools/test_warehouse_sources_vendor_selection.py
+
+            # A pull request diff that stays inside vendor directories runs only those vendors.
+            # A vendor cannot import another vendor (tach and import-linter enforce that), so the
+            # other vendors cannot change. Any other file (the SDK, the conftest.py and other
+            # files at the top of the plugin directory, the product, a manifest, this workflow)
+            # selects the full run. The merge queue, the
+            # hourly run and a manual run have no pull request diff to narrow by, so they also
+            # take the full run.
+            - name: Select vendors
+              id: select
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REF: ${{ github.head_ref }}
+              run: |
+                  if [ "$EVENT_NAME" != "pull_request" ] || [[ "$HEAD_REF" == trunk-merge/* ]]; then
+                      python tools/warehouse_sources_vendor_selection.py --full
+                  else
+                      git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
+                  fi | tee -a "$GITHUB_OUTPUT"
+
+            - name: Check module boundaries (tach)
+              run: ./bin/hogli lint:tach
+
+            # tach leaves test files out of its dependency pass. The import-linter contracts
+            # for the vendors also check the vendor tests, and one of them fails a vendor that
+            # imports a sibling vendor.
+            - name: Check vendor imports (import-linter)
+              run: lint-imports
+
+            # The Django matrix runs every repo invariant, but it does not start for a vendor-only
+            # diff. So this job runs the ones that walk the vendor tree. The full run takes all
+            # of them. A vendors run takes the ones that check code a vendor writes, and scopes
+            # their walk to the changed vendor directories. The others look for calls into
+            # posthog/, products/ or DRF, which a vendor cannot import, so a vendor diff cannot
+            # break them. The lists are explicit: a new invariant that walks products/ has to be
+            # added here by hand.
+            - name: Run repo invariants that scan the vendors
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  SCAN_SCOPE: ${{ steps.select.outputs.scan_scope }}
+              run: |
+                  vendor_invariants=(
+                      test_warehouse_source_static_contract.py
+                      test_warehouse_source_test_shapes.py
+                      test_resume_state_staged_before_yield.py
+                      test_resume_state_saved_by_the_source_generator.py
+                      test_dataclass_defaults.py
+                      test_dataclass_secret_fields.py
+                      test_database_free_test_classes.py
+                  )
+                  if [ "$MODE" = "vendors" ]; then
+                      REPO_INVARIANTS_SCAN_SCOPE="$SCAN_SCOPE" pytest -p no:cacheprovider "${vendor_invariants[@]/#/posthog/test/repo_invariants/}"
+                      exit 0
+                  fi
+                  full_invariants=(
+                      "${vendor_invariants[@]}"
+                      test_authentication_credential_types.py
+                      test_feature_flag_gated_writes.py
+                      test_feature_flag_raw_reads.py
+                      test_local_kafka_consumers.py
+                      test_rbac_shadow_resolver_callers.py
+                  )
+                  pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"
+
+            # These tests load the full vendor catalog, so a change to one vendor can fail them.
+            # A vendors run keeps the tests of the whole catalog and runs the tests that check one
+            # source at a time only for the selected vendors.
+            - name: Run vendor catalog tests
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  VENDORS: ${{ steps.select.outputs.vendors }}
+              run: |
+                  narrow=()
+                  if [ "$MODE" = "vendors" ]; then
+                      narrow=("--source-vendors=${VENDORS// /,}")
+                  fi
+                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
+
+            - name: Run vendor tests
+              if: steps.select.outputs.mode == 'full' || steps.select.outputs.vendors != ''
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  VENDORS: ${{ steps.select.outputs.vendors }}
+              run: |
+                  plugin_dir=products/warehouse_sources/sources
+                  targets=("$plugin_dir/")
+                  if [ "$MODE" = "vendors" ]; then
+                      read -ra vendors <<< "$VENDORS"
+                      targets=("${vendors[@]/#/$plugin_dir/}")
+                  fi
+                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short
+
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always
     # runs and reports success, allowing PRs to merge.
     python_tests:
-        needs: [changes, code-quality, api-ratchet]
+        needs: [changes, code-quality, api-ratchet, warehouse-sources]
         name: Python code quality checks
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -569,6 +717,13 @@ jobs:
                   # own filter, so it can run on a pull request that touches no Python.
                   if [[ "${{ needs.api-ratchet.result }}" != "success" && "${{ needs.api-ratchet.result }}" != "skipped" ]]; then
                     echo "lib/api.ts codegen ratchet did not succeed (result: ${{ needs.api-ratchet.result }})."
+                    exit 1
+                  fi
+
+                  # Checked before the no-Python-changes exit below for the same reason: the job
+                  # has its own filter, and a vendor change with no Python file still runs it.
+                  if [[ "${{ needs.warehouse-sources.result }}" != "success" && "${{ needs.warehouse-sources.result }}" != "skipped" ]]; then
+                    echo "Warehouse sources checks and tests did not succeed (result: ${{ needs.warehouse-sources.result }})."
                     exit 1
                   fi
 

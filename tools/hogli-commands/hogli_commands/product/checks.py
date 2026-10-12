@@ -1281,7 +1281,9 @@ class OrphanedTestFilesCheck(ProductCheck):
         # ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
-        "warehouse_sources": ("backend/temporal/",),
+        # backend/temporal/ is the Temporal segment above. sources/ holds the vendor plugins, which
+        # the "Warehouse sources checks and tests" job in ci-python.yml runs.
+        "warehouse_sources": ("backend/temporal/", "sources/"),
         "signals": ("backend/emission/",),
         # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
         # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest

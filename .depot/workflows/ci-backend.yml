@@ -494,6 +494,10 @@ jobs:
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
+                        # Warehouse source vendors have their own job in ci-python.yml. They
+                        # match 'products/**/*.py' above, so a vendor-only diff would start this
+                        # suite too. The product code the vendors build on stays under backend/.
+                        - '!products/warehouse_sources/sources/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
