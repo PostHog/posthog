@@ -57,25 +57,25 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         _create_person(team=self.team, distinct_ids=["b-newer"], properties={"email": "grace@example.com"})
         flush_persons_and_events()
         rows: list[dict[str, str]] = [
-            {"Email": "ada@example.com", "Distinct ID": "user-1", "Plan": "Pro", " ": ""},
-            {"Email": "Grace@Example.com", "Plan": "Free"},
-            {"Email": "new@example.com", "Distinct ID": "user-9", "Plan": "Team"},
-            {"Email": "lead@example.com", "Plan": "Trial"},
-            {"Email": "not-an-email", "Plan": "Free"},
-            {"Email": "LEAD@example.com", "Plan": "Duplicate"},
-            {"Email": "big@example.com", "Plan": "x" * 5000},
-            {"Email": "other@example.com", "Distinct ID": "user-1", "Plan": "Same person twice"},
+            {"Email": "ada@example.com", "Distinct ID": "user-1", "subscriptionPlan": "Pro", " ": ""},
+            {"Email": "Grace@Example.com", "subscriptionPlan": "Free"},
+            {"Email": "new@example.com", "Distinct ID": "user-9", "subscriptionPlan": "Team"},
+            {"Email": "lead@example.com", "subscriptionPlan": "Trial"},
+            {"Email": "not-an-email", "subscriptionPlan": "Free"},
+            {"Email": "LEAD@example.com", "subscriptionPlan": "Duplicate"},
+            {"Email": "big@example.com", "subscriptionPlan": "x" * 5000},
+            {"Email": "other@example.com", "Distinct ID": "user-1", "subscriptionPlan": "Same person twice"},
         ]
 
         summary = start_people_import(team=self.team, user=self.user, name="Spring sale", rows=rows)
 
         assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [
-            ("user-1", {"email": "ada@example.com", "plan": "Pro"}),
-            ("b-newer", {"email": "Grace@Example.com", "plan": "Free"}),
-            ("user-9", {"email": "new@example.com", "plan": "Team"}),
-            ("lead@example.com", {"email": "lead@example.com", "plan": "Trial"}),
+            ("user-1", {"email": "ada@example.com", "subscriptionPlan": "Pro"}),
+            ("b-newer", {"email": "Grace@Example.com", "subscriptionPlan": "Free"}),
+            ("user-9", {"email": "new@example.com", "subscriptionPlan": "Team"}),
+            ("lead@example.com", {"email": "lead@example.com", "subscriptionPlan": "Trial"}),
         ]
-        assert (summary.row_count, summary.new_people, summary.columns) == (4, 2, ["email", "plan"])
+        assert (summary.row_count, summary.new_people, summary.columns) == (4, 2, ["email", "subscriptionPlan"])
         assert (summary.dropped_invalid_email, summary.dropped_duplicate_email, summary.dropped_too_large) == (1, 2, 1)
         cohort = Cohort.objects.get(pk=summary.cohort_id)
         assert (cohort.team_id, cohort.name, cohort.is_static, cohort.is_calculating) == (
@@ -90,7 +90,13 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         [
             ("no_email_column", [{"name": "Ada"}], 'column named "email"', None),
             ("no_valid_email", [{"email": "nope"}], "No row has a valid email", None),
-            ("non_ascii_header", [{"email": "a@example.com", "会社": "Hedgebox"}], 'column "会社" needs a name', None),
+            (
+                "illegal_distinct_id",
+                [{"email": "a@example.com", "distinct_id": "Anonymous"}],
+                'Row 2 has the distinct_id "Anonymous"',
+                None,
+            ),
+            ("long_distinct_id", [{"email": "a@example.com", "distinct_id": "x" * 201}], "longer than 200 bytes", None),
             ("blank_header_with_data", [{"email": "a@example.com", "   ": "Hedgebox"}], "has no name", None),
             (
                 "two_columns_with_one_name",
@@ -98,7 +104,7 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
                 'both named "email"',
                 None,
             ),
-            ("read_only_property", [{"email": "a@example.com", "Plan": "Pro"}], "can't change these", "plan"),
+            ("read_only_property", [{"email": "a@example.com", "plan": "Pro"}], "can't change these", "plan"),
         ]
     )
     def test_rejects_unusable_files(
@@ -120,6 +126,39 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             start_people_import(team=self.team, user=self.user, name="List", rows=rows)
         assert message in str(error.exception)
         assert not Cohort.objects.filter(team_id=self.team.id).exists()
+
+    def test_matches_by_email_with_the_importing_users_property_access(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-1"], properties={"email": "ada@example.com"})
+        flush_persons_and_events()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=email,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+        )
+
+        start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "ada@example.com"}])
+
+        assert [person["distinct_id"] for person in self.stored_people()] == ["user-1"]
+
+    def test_ends_the_import_when_staging_fails(self) -> None:
+        with patch.object(self.storage, "write", side_effect=ConnectionError("storage is down")):
+            with self.assertRaises(ConnectionError):
+                start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "a@example.com"}])
+
+        cohort = Cohort.objects.get(team_id=self.team.id)
+        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
+        self.dispatch.assert_not_called()
 
 
 class TestPeopleImportTasks(_StorageMixin, BaseTest):
@@ -166,20 +205,35 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert key not in self.storage.objects
         fill.assert_not_called()
 
-    @parameterized.expand([("still_missing", {}, True), ("all_found", {"user-1": object()}, False)])
+    @parameterized.expand(
+        [
+            ("still_missing", ([], set()), 0, "waits"),
+            ("all_found", ([], {"user-1"}), 0, "fills"),
+            ("lookup_fails", ConnectionError("personhog is down"), 0, "waits"),
+            ("lookup_fails_on_the_last_attempt", ConnectionError("personhog is down"), 7, "fails"),
+        ]
+    )
     @patch("products.workflows.backend.tasks.people_import.calculate_cohort_from_list.delay")
     @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
     def test_fill_waits_for_ingestion(
-        self, _name: str, found: dict, waits: bool, reschedule: MagicMock, calculate: MagicMock
+        self,
+        _name: str,
+        lookup: tuple[list[str], set[str]] | Exception,
+        attempt: int,
+        outcome: str,
+        reschedule: MagicMock,
+        calculate: MagicMock,
     ) -> None:
         cohort_id, key = self._stage()
 
-        with patch.object(people_import_tasks, "get_persons_mapped_by_distinct_id", return_value=found):
-            fill_people_import_cohort(team_id=self.team.id, cohort_id=cohort_id, storage_key=key, attempt=0)
+        with patch.object(people_import, "get_person_uuids_and_matched_distinct_ids", side_effect=[lookup]):
+            fill_people_import_cohort(team_id=self.team.id, cohort_id=cohort_id, storage_key=key, attempt=attempt)
 
-        assert reschedule.called is waits
-        assert calculate.called is not waits
-        assert (key in self.storage.objects) is waits
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert reschedule.called is (outcome == "waits")
+        assert calculate.called is (outcome == "fills")
+        assert (key in self.storage.objects) is (outcome == "waits")
+        assert cohort.is_calculating is (outcome != "fails")
 
 
 class TestPeopleImportAPI(_StorageMixin, ClickhouseTestMixin, APIBaseTest):

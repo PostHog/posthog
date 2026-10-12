@@ -7,6 +7,10 @@ from typing import TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
+from django.db.models import F
+from django.utils import timezone
+
+from structlog import get_logger
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -16,7 +20,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition
-from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.storage import object_storage
@@ -25,6 +29,8 @@ from products.access_control.backend.property_access_control import get_non_writ
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
 
+logger = get_logger(__name__)
+
 MAX_PEOPLE_IMPORT_ROWS = 50_000
 # Person properties are stored per person, so one row must not grow a profile without bound.
 MAX_PEOPLE_IMPORT_ROW_BYTES = 4096
@@ -32,6 +38,36 @@ MAX_PEOPLE_IMPORT_ROW_BYTES = 4096
 EMAIL_LOOKUP_CHUNK_SIZE = 10_000
 # Bounds each personhog lookup of distinct IDs.
 PERSON_LOOKUP_CHUNK_SIZE = 1000
+
+# Capture rejects longer distinct IDs (CAPTURE_V1_DISTINCT_ID_MAX_SIZE in rust/capture).
+MAX_DISTINCT_ID_BYTES = 200
+# Capture turns off person processing for these (ILLEGAL_DISTINCT_IDS in rust/capture), so no person would exist.
+ILLEGAL_DISTINCT_IDS = frozenset(
+    {
+        "0",
+        "00000000-0000-0000-0000-000000000000",
+        "[object object]",
+        "anonymous",
+        "anonymous-user",
+        "backend",
+        "distinct_id",
+        "distinctid",
+        "email",
+        "false",
+        "guest",
+        "id",
+        "nan",
+        "none",
+        "not_authenticated",
+        "null",
+        "system",
+        "true",
+        "undefined",
+        "user",
+    }
+)
+# Only these headers are matched loosely. Every other header is a person property name, kept as written.
+_IDENTITY_HEADERS = ("email", "distinct_id")
 
 _STORAGE_FOLDER = "workflows_people_imports"
 _HEADER_SEPARATORS = re.compile(r"[^a-z0-9]+")
@@ -64,7 +100,7 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
         raise PeopleImportInvalid("No row has a valid email address.")
     _check_writable_columns(team, user, cleaned.columns)
 
-    distinct_ids = _resolve_distinct_ids(team, cleaned.rows)
+    distinct_ids = _resolve_distinct_ids(team, user, cleaned.rows)
     people: list[StagedPerson] = []
     seen_distinct_ids: set[str] = set()
     dropped_duplicate_distinct_id = 0
@@ -77,15 +113,20 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
         seen_distinct_ids.add(resolved)
         people.append({"distinct_id": resolved, "properties": row})
 
-    existing = _existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
+    existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
     cohort = Cohort.objects.create(team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user)
     storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{cohort.pk}-{uuid.uuid4()}.json"
-    object_storage.write(storage_key, json.dumps(people))
 
     # The task module imports this one, so a module-level import would be circular.
     from products.workflows.backend.tasks.people_import import capture_people_import  # noqa: PLC0415
 
-    capture_people_import.delay(team_id=team.id, cohort_id=cohort.pk, storage_key=storage_key)
+    try:
+        object_storage.write(storage_key, json.dumps(people))
+        capture_people_import.delay(team_id=team.id, cohort_id=cohort.pk, storage_key=storage_key)
+    except Exception:
+        # No task would finish this cohort, and the stuck-cohort sweep skips uploads.
+        fail_people_import(team.id, cohort.pk, storage_key)
+        raise
 
     return PeopleImportSummary(
         cohort_id=cohort.pk,
@@ -107,33 +148,56 @@ def delete_people(storage_key: str) -> None:
     object_storage.delete(storage_key)
 
 
+def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
+    """Ends an import that can't finish: the cohort stops calculating and shows an error."""
+    Cohort.objects.filter(pk=cohort_id, team_id=team_id).update(
+        is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=timezone.now()
+    )
+    try:
+        delete_people(storage_key)
+    except Exception:
+        logger.exception("people_import_cleanup_failed", team_id=team_id, cohort_id=cohort_id)
+
+
+def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
+    found: set[str] = set()
+    for start in range(0, len(distinct_ids), PERSON_LOOKUP_CHUNK_SIZE):
+        _, matched = get_person_uuids_and_matched_distinct_ids(
+            team_id, distinct_ids[start : start + PERSON_LOOKUP_CHUNK_SIZE]
+        )
+        found.update(matched)
+    return found
+
+
 def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
     kept: list[dict[str, str]] = []
     columns: dict[str, None] = {}
     seen_emails: set[str] = set()
     has_email_column = False
     dropped_invalid_email = dropped_duplicate_email = dropped_too_large = 0
-    for raw in rows:
+    for line, raw in enumerate(rows, start=2):
         row: dict[str, str] = {}
         for header, value in raw.items():
-            key = _normalize_header(header)
-            # Skipping a column that holds data would lose that data without saying so.
-            if not key and str(header).strip():
-                raise PeopleImportInvalid(
-                    f'The column "{header}" needs a name with letters or numbers in it. Rename it and try again.'
-                )
-            if not key and str(value).strip():
-                raise PeopleImportInvalid("A column with data in it has no name. Name it and try again.")
+            key = _column_key(header)
+            if not key:
+                # Skipping a column that holds data would lose that data without saying so.
+                if str(value).strip():
+                    raise PeopleImportInvalid("A column with data in it has no name. Name it and try again.")
+                continue
             if key in row:
                 # Keeping either value would set the wrong property without saying so.
                 raise PeopleImportInvalid(f'Two columns are both named "{key}". Rename one and try again.')
-            if key:
-                row[key] = str(value).strip()
+            row[key] = str(value).strip()
         has_email_column = has_email_column or "email" in row
+        _check_distinct_id(row.get("distinct_id", ""), line)
         email = row.get("email", "")
         try:
             validate_email(email)
         except DjangoValidationError:
+            dropped_invalid_email += 1
+            continue
+        if not row.get("distinct_id") and len(email.encode()) > MAX_DISTINCT_ID_BYTES:
+            # A row without a distinct_id may become a person keyed by its email, which capture would refuse.
             dropped_invalid_email += 1
             continue
         if email.lower() in seen_emails:
@@ -156,6 +220,20 @@ def _clean_rows(rows: list[dict[str, str]]) -> _CleanedRows:
     )
 
 
+def _check_distinct_id(distinct_id: str, line: int) -> None:
+    if not distinct_id:
+        return
+    if len(distinct_id.encode()) > MAX_DISTINCT_ID_BYTES:
+        raise PeopleImportInvalid(
+            f"The distinct_id on row {line} is longer than {MAX_DISTINCT_ID_BYTES} bytes. Shorten it and try again."
+        )
+    if distinct_id.lower() in ILLEGAL_DISTINCT_IDS:
+        raise PeopleImportInvalid(
+            f'Row {line} has the distinct_id "{distinct_id}", which PostHog can\'t use for a person. '
+            "Use the person's ID from your app, or leave it empty to match by email."
+        )
+
+
 def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -> None:
     non_writable = get_non_writable_property_names(
         team_id=team.id, user=user, property_type=PropertyDefinition.Type.PERSON
@@ -167,12 +245,12 @@ def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -
         )
 
 
-def _resolve_distinct_ids(team: Team, rows: list[dict[str, str]]) -> list[str | None]:
+def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, str]]) -> list[str | None]:
     """The distinct ID each row writes to: its own column first, then an existing person with the email."""
     emails = [row["email"].lower() for row in rows if not row.get("distinct_id")]
     by_email: dict[str, str] = {}
     for start in range(0, len(emails), EMAIL_LOOKUP_CHUNK_SIZE):
-        by_email.update(_distinct_ids_by_email(team, emails[start : start + EMAIL_LOOKUP_CHUNK_SIZE]))
+        by_email.update(_distinct_ids_by_email(team, user, emails[start : start + EMAIL_LOOKUP_CHUNK_SIZE]))
     resolved: list[str | None] = []
     for row in rows:
         distinct_id = row.pop("distinct_id", "")
@@ -180,7 +258,7 @@ def _resolve_distinct_ids(team: Team, rows: list[dict[str, str]]) -> list[str | 
     return resolved
 
 
-def _distinct_ids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
+def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> dict[str, str]:
     if not emails:
         return {}
     # The lowest person ID per email is the same person the email dedupe of a filtered audience picks.
@@ -197,16 +275,13 @@ def _distinct_ids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
         placeholders={"emails": ast.Constant(value=emails), "limit": ast.Constant(value=len(emails))},
     )
     tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-    response = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
+    # With the user, property access rules that hide email from the team default still let this user match.
+    response = execute_hogql_query(query=query, team=team, user=user, workload=Workload.OFFLINE)
     return {email: str(distinct_id) for email, distinct_id in response.results}
 
 
-def _existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:
-    found: set[str] = set()
-    for start in range(0, len(distinct_ids), PERSON_LOOKUP_CHUNK_SIZE):
-        found.update(get_persons_mapped_by_distinct_id(team_id, distinct_ids[start : start + PERSON_LOOKUP_CHUNK_SIZE]))
-    return found
-
-
-def _normalize_header(header: object) -> str:
-    return _HEADER_SEPARATORS.sub("_", str(header).strip().lower()).strip("_")
+def _column_key(header: object) -> str:
+    """The identity column a header names, or else the header itself as the person property name."""
+    name = str(header).strip()
+    loose = _HEADER_SEPARATORS.sub("_", name.lower()).strip("_")
+    return loose if loose in _IDENTITY_HEADERS else name
