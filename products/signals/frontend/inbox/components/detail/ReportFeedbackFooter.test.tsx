@@ -10,13 +10,14 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
-import { captureInboxReportFeedback } from '../../inboxAnalytics'
+import { captureInboxReportFeedback, captureInboxReportFeedbackNote } from '../../inboxAnalytics'
 import { CELEBRATION_DURATION_MS } from './ReportFeedbackCelebration'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 
 jest.mock('../../inboxAnalytics', () => ({
     ...jest.requireActual('../../inboxAnalytics'),
     captureInboxReportFeedback: jest.fn(),
+    captureInboxReportFeedbackNote: jest.fn(),
 }))
 
 const CELEBRATION_SELECTOR = '[data-attr="inbox-report-feedback-celebration"]'
@@ -62,6 +63,7 @@ describe('ReportFeedbackFooter', () => {
         featureFlagLogic.mount()
         setReducedMotion(false)
         jest.mocked(captureInboxReportFeedback).mockClear()
+        jest.mocked(captureInboxReportFeedbackNote).mockClear()
         render(<ReportFeedbackFooter report={makeReport({ id: 'report-celebration' })} />)
     })
 
@@ -89,6 +91,20 @@ describe('ReportFeedbackFooter', () => {
         await user.click(thumbsUp)
         expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends a note with Enter after a rating and shows what went through', async () => {
+        setCelebrationFlag(false)
+        expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
+
+        await user.click(screen.getByLabelText('This report was useful'))
+        await user.type(screen.getByLabelText('Add a note about this report'), 'The repro steps were right{Enter}')
+
+        expect(captureInboxReportFeedbackNote).toHaveBeenCalledWith(
+            expect.objectContaining({ sentiment: 'positive', note: 'The repro steps were right' })
+        )
+        expect(screen.getByText('Note added: The repro steps were right')).toBeVisible()
+        expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
     })
 
     it('does not pop on thumbs-down', async () => {

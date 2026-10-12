@@ -1,30 +1,31 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent } from 'react'
+import { type ChangeEvent, type KeyboardEvent } from 'react'
 
-import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
-import { Button, Text, Textarea } from '@posthog/quill'
+import { IconArrowRight, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { Text, Textarea } from '@posthog/quill'
 
 import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { TodayActionButton } from './TodayActionButton'
-import { todayReportLogic } from './todayReportLogic'
 
 const NOTE_MAX_LENGTH = 4000
 
 export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent, feedbackNoteSubmitting } =
+    const { feedbackSentiment, feedbackNoteDraft, feedbackNoteSent, feedbackSentNote, feedbackNoteSubmitting } =
         useValues(logic)
-    const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
-    const { feedbackNoteFocused } = useValues(todayReportLogic({ reportId: report.id }))
-    const { focusFeedbackNote } = useActions(todayReportLogic({ reportId: report.id }))
+    const { rateReport, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
     const { celebrate, celebration } = useReportFeedbackCelebration()
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
-    const canAddNote = !!feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent
+    const sendNote = (): void => {
+        if (feedbackNoteDraft.trim()) {
+            submitFeedbackNote(feedbackNoteDraft, 'today')
+        }
+    }
 
     return (
         <div className="flex flex-col gap-2" data-attr="today-report-feedback">
@@ -73,50 +74,42 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                 </TodayActionButton>
             </div>
-            {/* The note controls live under the row so they never push the thumbs sideways. */}
-            {canAddNote && (
-                <Button
-                    variant="link-muted"
-                    size="sm"
-                    className="self-start"
-                    onClick={() => {
-                        focusFeedbackNote()
-                        openFeedbackNote()
-                    }}
-                    data-attr="today-report-feedback-note-open"
-                >
-                    Add a note
-                </Button>
-            )}
-            {feedbackNoteSent && (
-                <Text size="xs" variant="muted" render={<span />}>
-                    Note added
-                </Text>
-            )}
-            {feedbackNoteOpen && (
-                <div className="flex flex-col items-start gap-2">
+            {/* The note lives under the row so it never pushes the thumbs sideways. */}
+            {feedbackSentiment && !feedbackNoteSent && (
+                <div className="flex w-full max-w-sm items-end gap-1">
                     <Textarea
                         value={feedbackNoteDraft}
                         onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setFeedbackNoteDraft(event.target.value)}
+                        onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
+                            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                                event.preventDefault()
+                                sendNote()
+                            }
+                        }}
                         placeholder="What was useful or off?"
                         aria-label="Add a note about this report"
                         maxLength={NOTE_MAX_LENGTH}
-                        rows={4}
-                        autoFocus={feedbackNoteFocused}
-                        className="w-full"
+                        rows={1}
+                        className="max-h-40 min-h-9! min-w-0 flex-1 resize-none"
                         data-attr="today-report-feedback-note"
                     />
                     <TodayActionButton
-                        variant="primary"
-                        size="sm"
+                        size="icon-sm"
+                        aria-label="Send note"
+                        tooltip="Send note"
                         loading={feedbackNoteSubmitting}
                         disabledReason={feedbackNoteDraft.trim() ? null : 'Write a note first'}
-                        onClick={() => submitFeedbackNote(feedbackNoteDraft, 'today')}
+                        onClick={sendNote}
                         data-attr="today-report-feedback-note-send"
                     >
-                        Send
+                        <IconArrowRight />
                     </TodayActionButton>
                 </div>
+            )}
+            {feedbackNoteSent && (
+                <Text size="xs" variant="muted" render={<p className="m-0 max-w-sm" />}>
+                    Note added: {feedbackSentNote}
+                </Text>
             )}
         </div>
     )

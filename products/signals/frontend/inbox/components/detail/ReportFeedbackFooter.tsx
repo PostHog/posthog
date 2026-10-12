@@ -1,8 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { IconArrowRight, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -19,8 +18,8 @@ const FEEDBACK_NOTE_MAX_LENGTH = 4000
 /**
  * Thumbs rating at the end of the report body, where someone has just finished reading. The rating
  * submits on the first click, so there's no text field to mistake for the dismissal reason. Only
- * once it's recorded does an optional note appear, so the note can never gate the rating, and
- * ignoring it leaves the flow exactly as it was.
+ * once it's recorded does an optional one-line note field appear under the row, so the note can
+ * never gate the rating, and ignoring it leaves the flow exactly as it was.
  */
 export function ReportFeedbackFooter({
     report,
@@ -31,16 +30,16 @@ export function ReportFeedbackFooter({
     align?: 'start' | 'end'
 }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent, feedbackNoteSubmitting } =
+    const { feedbackSentiment, feedbackNoteDraft, feedbackNoteSent, feedbackSentNote, feedbackNoteSubmitting } =
         useValues(logic)
-    const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
-
-    // Focus the note only when *this* instance opened it. `feedbackNoteOpen` is report-keyed state
-    // shared with the copy of this row on the other tab, and `LemonTabs` remounts tab content, so
-    // an unconditional `autoFocus` would grab focus and scroll on every tab switch with a draft open.
-    const [openedHere, setOpenedHere] = useState(false)
+    const { rateReport, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
 
     const { celebrate, celebration } = useReportFeedbackCelebration()
+    const sendNote = (): void => {
+        if (feedbackNoteDraft.trim()) {
+            submitFeedbackNote(feedbackNoteDraft)
+        }
+    }
 
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
@@ -101,48 +100,44 @@ export function ReportFeedbackFooter({
                     />
                 </div>
             </div>
-            {/* The note controls live under the row so they never push the thumbs sideways. */}
-            {feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent && (
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    onClick={() => {
-                        setOpenedHere(true)
-                        openFeedbackNote()
-                    }}
-                    data-attr="inbox-report-feedback-add-note"
-                >
-                    Add a note
-                </LemonButton>
-            )}
-            {feedbackNoteSent && <span className="text-xs text-tertiary">Note added</span>}
-            {feedbackNoteOpen && (
-                <div className="flex w-full max-w-prose flex-col items-start gap-2">
-                    <LemonTextArea
-                        value={feedbackNoteDraft}
-                        onChange={setFeedbackNoteDraft}
-                        placeholder="What was useful or off?"
-                        // The placeholder is the only visible prompt and it disappears on the first
-                        // keystroke, so the field carries its own name for screen readers.
-                        aria-label="Add a note about this report"
-                        maxLength={FEEDBACK_NOTE_MAX_LENGTH}
-                        minRows={5}
-                        maxRows={12}
-                        autoFocus={openedHere}
-                        className="w-full"
-                        data-attr="inbox-report-feedback-note"
-                    />
+            {/* The note lives under the row so it never pushes the thumbs sideways. */}
+            {feedbackSentiment && !feedbackNoteSent && (
+                <div className="flex w-full max-w-sm items-end gap-1">
+                    {/* `className` lands on the inner textarea too, so the flex sizing stays on a wrapper. */}
+                    <div className="min-w-0 flex-1">
+                        <LemonTextArea
+                            value={feedbackNoteDraft}
+                            // Capped here rather than with `maxLength`, whose counter footer would turn
+                            // the one-line field into a block.
+                            onChange={(value) => setFeedbackNoteDraft(value.slice(0, FEEDBACK_NOTE_MAX_LENGTH))}
+                            onPressEnter={sendNote}
+                            placeholder="What was useful or off?"
+                            // The placeholder is the only visible prompt and it disappears on the first
+                            // keystroke, so the field carries its own name for screen readers.
+                            aria-label="Add a note about this report"
+                            minRows={1}
+                            maxRows={6}
+                            className="min-h-0! resize-none"
+                            data-attr="inbox-report-feedback-note"
+                        />
+                    </div>
                     <LemonButton
-                        size="xsmall"
-                        type="primary"
+                        size="small"
+                        type="secondary"
+                        icon={<IconArrowRight />}
+                        tooltip="Send note"
+                        aria-label="Send note"
                         loading={feedbackNoteSubmitting}
                         disabledReason={feedbackNoteDraft.trim() ? undefined : 'Write a note first'}
-                        onClick={() => submitFeedbackNote(feedbackNoteDraft)}
+                        onClick={sendNote}
                         data-attr="inbox-report-feedback-note-send"
-                    >
-                        Send
-                    </LemonButton>
+                    />
                 </div>
+            )}
+            {feedbackNoteSent && (
+                <p className={clsx('m-0 max-w-sm text-xs text-tertiary', align === 'end' && 'text-end')}>
+                    Note added: {feedbackSentNote}
+                </p>
             )}
         </div>
     )
