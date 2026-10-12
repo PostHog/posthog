@@ -12,7 +12,7 @@ import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 // page as counts arrive.
 export function SessionErrorsCell({ log }: { log: ParsedLogMessage }): JSX.Element {
     const { sessionErrorCounts } = useValues(logsViewerLogic)
-    const { openLogDetails, setActiveTab } = useActions(logDetailsModalLogic)
+    const { openLogDetails, setActiveTab, setRelatedErrorsInitialScope } = useActions(logDetailsModalLogic)
     const { configuredSessionIdKeys } = useValues(logsConfigLogic)
 
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
@@ -27,8 +27,9 @@ export function SessionErrorsCell({ log }: { log: ParsedLogMessage }): JSX.Eleme
                     errorCount={errorCount}
                     onClick={() => {
                         // openLogDetails resets the drawer to its Details tab, so the tab selection
-                        // has to follow it.
+                        // has to follow it. The badge counts session errors, so the tab opens there.
                         openLogDetails(log)
+                        setRelatedErrorsInitialScope('session')
                         setActiveTab('related-errors')
                     }}
                 />

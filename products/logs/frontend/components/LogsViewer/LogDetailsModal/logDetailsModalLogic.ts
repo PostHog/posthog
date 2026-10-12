@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
+import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 
 export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
 
@@ -19,6 +20,7 @@ export interface logDetailsModalLogicValues {
     hasSessionId: boolean
     isLogDetailsOpen: boolean
     jsonParseAllFields: boolean
+    relatedErrorsInitialScope: ErrorScope | null
     selectedLog: ParsedLogMessage | null
     sessionId: string | null
 }
@@ -36,6 +38,9 @@ export interface logDetailsModalLogicActions {
     }
     setJsonParseAllFields: (enabled: boolean) => {
         enabled: boolean
+    }
+    setRelatedErrorsInitialScope: (scope: ErrorScope) => {
+        scope: ErrorScope
     }
 }
 
@@ -69,6 +74,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         closeLogDetails: true,
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
+        setRelatedErrorsInitialScope: (scope: ErrorScope) => ({ scope }),
     }),
 
     listeners(() => ({
@@ -104,6 +110,14 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
             false,
             {
                 setJsonParseAllFields: (_, { enabled }) => enabled,
+            },
+        ],
+        relatedErrorsInitialScope: [
+            null as ErrorScope | null,
+            {
+                setRelatedErrorsInitialScope: (_, { scope }) => scope,
+                openLogDetails: () => null,
+                closeLogDetails: () => null,
             },
         ],
         activeTab: [

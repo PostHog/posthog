@@ -58,7 +58,8 @@ interface LogDetailsModalProps {
 }
 
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
-    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId } = useValues(logDetailsModalLogic)
+    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId, relatedErrorsInitialScope } =
+        useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
     const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
 
@@ -199,9 +200,9 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 label: 'Related errors',
                                 content: (
                                     <RelatedErrorsTab
-                                        logUuid={selectedLog.uuid}
-                                        logTimestamp={selectedLog.timestamp}
+                                        log={selectedLog}
                                         sessionId={sessionId}
+                                        initialScope={relatedErrorsInitialScope}
                                     />
                                 ),
                             },
