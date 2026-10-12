@@ -24,6 +24,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentPromptContext,
     ExperimentStatus,
     ExperimentVariantPromptContext,
+    SessionAttribution,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
@@ -55,17 +56,28 @@ def accessible_experiment_ids(
     return set(queryset.values_list("id", flat=True))
 
 
+def launched_experiment_ids(team_id: int, experiment_ids: Collection[int]) -> set[int]:
+    """The ids in ``experiment_ids`` of live experiments in the team that have launched."""
+    return set(
+        Experiment.objects.filter(
+            team_id=team_id, id__in=experiment_ids, deleted=False, start_date__isnull=False
+        ).values_list("id", flat=True)
+    )
+
+
 def _live_experiment(team: Team, experiment_id: int) -> Experiment | None:
     return Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
 
 
-def session_variant(linkage: ExperimentExposureLinkage, distinct_id: str) -> str | None:
-    """The variant the experiment's analysis attributes to this distinct id's person, or None.
+def session_attribution(linkage: ExperimentExposureLinkage, distinct_id: str) -> SessionAttribution | None:
+    """The attribution the experiment's analysis gives this distinct id's person, or None.
 
     None means the person is not cleanly exposed within the linkage's requested variants:
     never exposed, exposed only to a variant outside the requested set, or set aside as
     multiple-variant under "exclude" handling. The attribution follows the experiment's
     ``multiple_variant_handling``, because it reads the same population the analysis buckets.
+    ``first_exposure_time`` rides along so callers can refuse sessions that predate the exposure,
+    the same bound the recordings list enforces.
 
     Runs a ClickHouse query, so call it from a run path, never while building an AST.
     """
@@ -87,7 +99,15 @@ def session_variant(linkage: ExperimentExposureLinkage, distinct_id: str) -> str
         return None
     columns = response.columns or []
     variant = rows[0][columns.index("variant")]
-    return str(variant) if variant is not None else None
+    if variant is None:
+        return None
+    return SessionAttribution(variant=str(variant), first_exposure_time=rows[0][columns.index("first_exposure_time")])
+
+
+def session_variant(linkage: ExperimentExposureLinkage, distinct_id: str) -> str | None:
+    """The variant half of :func:`session_attribution`, for callers that need no exposure time."""
+    attribution = session_attribution(linkage, distinct_id)
+    return attribution.variant if attribution is not None else None
 
 
 def variant_rollout_shares(team: Team, *, experiment_id: int) -> dict[str, float]:

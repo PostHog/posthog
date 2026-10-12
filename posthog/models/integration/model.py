@@ -127,6 +127,7 @@ def integration_kind_choices() -> list[tuple[str, str | Promise]]:
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
+        APPLE_ADS = "apple-ads"
         APPLE_PUSH = "apns"
         AWS_REDSHIFT = "aws-redshift"
         AWS_S3 = "aws-s3"

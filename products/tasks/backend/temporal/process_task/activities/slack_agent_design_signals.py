@@ -26,7 +26,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import TaskRun as TaskRunModel
 
-from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
+from ee.hogai.sandbox import is_background_turn_complete, is_turn_complete, turn_complete_trace_id
 
 # Reuse the ACP event helpers, signal dispatcher, and SSE reconnect tuning from relay_sandbox_events
 # so the two relays derive/emit signals and drive their SSE transport from identical logic.
@@ -48,6 +48,7 @@ logger = structlog.get_logger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30
 # Terminal SSE frame name emitted when the run's stream is complete (matches the stream endpoints).
 STREAM_END_EVENT_NAME = "stream-end"
+BACKGROUND_TURN_OPENERS = frozenset({"_posthog/task_notification", "_posthog/background_turn_started"})
 
 
 class SlackAgentDesignSignalEmitter:
@@ -55,7 +56,8 @@ class SlackAgentDesignSignalEmitter:
     ``SlackAgentDesignRelayWorkflow`` on the parent ``ProcessTaskWorkflow``.
 
     Stateful per run: a turn is bracketed from the first ``session/update`` after a user
-    ``session/prompt`` until the turn-complete notification, and tool-call ids are de-duplicated
+    ``session/prompt`` or a background task notification until the turn-complete or
+    background-turn-complete notification, and tool-call ids are de-duplicated
     for the lifetime of the run (the set is not cleared between turns). The inline fan-out in
     ``relay_sandbox_events._relay_loop`` shares this bracketing but still opens on any
     ``session/update`` — it needs the same prompt gate to stop trailing updates opening phantom turns.
@@ -93,7 +95,15 @@ class SlackAgentDesignSignalEmitter:
                 self._turn_message_id = _prompt_message_id(event_data)
             return []
 
-        if is_turn_complete(event_data):
+        # A finished background task makes the agent start a turn without a user prompt. The Claude
+        # adapter reports the task notification, and the Codex adapter reports the turn start.
+        if _event_method(event_data) in BACKGROUND_TURN_OPENERS:
+            if not self._turn_active:
+                self._awaiting_turn = True
+                self._turn_message_id = None
+            return []
+
+        if is_turn_complete(event_data) or is_background_turn_complete(event_data):
             if self._turn_active:
                 self._turn_active = False
                 # The trace id rides the signal because this event is the only place it

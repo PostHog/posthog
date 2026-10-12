@@ -26,6 +26,14 @@ SERVED_ROLE = RANKING_SERVED_ROLE
 DAILY_CANDIDATE_ROLE = "daily_candidate"
 # Another family's champion, scored alongside so a later interleaving needs no rescoring.
 CROSS_FAMILY_ROLE = "cross_family"
+# A model an owner keeps in the manifest through the `pin` override, so a `served` override can
+# name it, for example to roll back to an older champion.
+PINNED_ROLE = "pinned"
+# The sweep gives these two roles for one pass when a `served` override applies. A published
+# manifest never carries them. The override model keeps `served` and gains `served_override`, so a
+# reader can tell its scores apart, and the manifest's own served model loses `served`.
+SERVED_OVERRIDE_ROLE = "served_override"
+MANIFEST_SERVED_ROLE = "manifest_served"
 
 # The learner a model store loads the booster with. Every family is per-head XGBoost today, and a
 # model published before the field existed is one of those, so this is also the read fallback.

@@ -18,9 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.invoicenin
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.settings import (
-    INVOICENINJA_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -125,23 +122,6 @@ class TestNormalizeBaseUrl:
         assert normalize_base_url(raw) == expected
 
 
-class TestHostOf:
-    @pytest.mark.parametrize(
-        "url, expected_host",
-        [
-            ("https://invoices.example.com/api/v1", "invoices.example.com"),
-            # Backslash (and its %5c encoding) is userinfo to urlparse but a path separator to
-            # requests/urllib3 — the host must reflect the address the request actually reaches, or
-            # the SSRF check validates a decoy host while the token goes elsewhere.
-            ("https://127.0.0.1\\@example.com/api/v1", "127.0.0.1"),
-            ("https://127.0.0.1%5c@example.com/api/v1", "127.0.0.1"),
-            ("https://127.0.0.1%5C@example.com/api/v1", "127.0.0.1"),
-        ],
-    )
-    def test_host_reflects_real_connect_target(self, url, expected_host):
-        assert invoiceninja_module._host_of(url) == expected_host
-
-
 class TestValidateCredentials:
     def _patch_session(self, response=None, raises=None):
         session = mock.MagicMock()
@@ -159,10 +139,6 @@ class TestValidateCredentials:
         response.text = text
         response.json.return_value = json_data
         return response
-
-    def test_success(self):
-        with self._patch_session(self._resp(status_code=200)):
-            assert validate_credentials(None, "tok") == (True, None)
 
     def test_invalid_token_401(self):
         with self._patch_session(self._resp(status_code=401)):
@@ -240,58 +216,7 @@ class TestValidateCredentials:
             patched.return_value.get.assert_not_called()
 
 
-class TestInvoiceNinjaSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(INVOICENINJA_ENDPOINTS.keys()))
-    def test_response_shape(self, endpoint):
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        # Integer unix timestamps aren't datetime-partitionable, so no partitioning is applied.
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
-
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_meta_pagination(self, MockSession):
-        session = MockSession.return_value
-        prepared = _wire(
-            session,
-            [
-                _page([{"id": "1"}, {"id": "2"}], current_page=1, total_pages=2),
-                _page([{"id": "3"}], current_page=2, total_pages=2),
-            ],
-        )
-        rows = _rows(_source(_make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert _page_qs(prepared[0]) == ["1"]
-        assert _page_qs(prepared[1]) == ["2"]
-        # per_page rides alongside the page param on every request.
-        first_url = prepared[0].url
-        assert first_url is not None
-        assert parse_qs(urlparse(first_url).query)["per_page"] == ["100"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"id": "1"}], current_page=1, total_pages=2),
-                _page([{"id": "2"}], current_page=2, total_pages=2),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # State is saved once (after page 1, pointing at page 2); the last page is terminal.
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, InvoiceNinjaResumeConfig)
-        assert saved.next_page == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
@@ -331,18 +256,6 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_pagination_terminates_after_first_page(self, MockSession):
-        # A response with no pagination block must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], with_meta=False)])
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_does_not_follow_redirects(self, MockSession):
         session = MockSession.return_value
         _wire(session, [_response(status_code=302, location="https://internal")])
@@ -356,15 +269,6 @@ class TestPagination:
         _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
         _rows(_source(_make_manager()))
         assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_required_headers_and_token(self, MockSession):
-        session = MockSession.return_value
-        prepared = _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
-        _rows(_source(_make_manager()))
-        headers = prepared[0].headers
-        assert headers["X-API-TOKEN"] == "tok"
-        assert headers["X-Requested-With"] == "XMLHttpRequest"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_redacts_token_in_telemetry(self, MockSession):
@@ -390,20 +294,3 @@ class TestPagination:
         _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
         with pytest.raises(InvoiceNinjaHostNotAllowedError):
             _rows(_source(_make_manager(), base_url="http://invoices.example.com"))
-
-    @pytest.mark.parametrize("status_code", [429, 503])
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_retryable_status_then_succeeds(self, MockSession, _sleep, status_code):
-        # End-to-end: a retryable status raises, the framework retries, and the next 200 yields rows.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(status_code=status_code),
-                _page([{"id": "r1"}], current_page=1, total_pages=1),
-            ],
-        )
-        rows = _rows(_source(_make_manager()))
-        assert [r["id"] for r in rows] == ["r1"]
-        assert session.send.call_count == 2

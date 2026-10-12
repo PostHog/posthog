@@ -69,6 +69,11 @@ describe("resolveGatewayProduct", () => {
       expected: "posthog_ai",
     },
     {
+      isInternal: true,
+      originProduct: "metrics_import",
+      expected: "posthog_ai",
+    },
+    {
       isInternal: false,
       originProduct: "support_reply",
       expected: "conversations",
@@ -95,12 +100,12 @@ describe("resolveGatewayProduct", () => {
     },
     {
       isInternal: true,
-      originProduct: "onboarding_audit",
-      expected: "onboarding",
+      originProduct: "account_audit",
+      expected: "account_audit",
     },
     {
       isInternal: false,
-      originProduct: "onboarding_audit",
+      originProduct: "account_audit",
       expected: "posthog_code",
     },
     {

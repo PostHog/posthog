@@ -5,6 +5,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 """
 
 import time
+import random
 import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
@@ -36,17 +37,18 @@ from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
     get_user_friendly_message,
 )
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
-from products.experiments.backend.metric_resolution import build_metric, find_metric_dict, resolve_scheduled_metrics
+from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.temporal.models import (
-    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
+    CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
@@ -129,7 +131,7 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     """
     return [
         ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-        for metric in resolve_scheduled_metrics(experiment)
+        for metric in get_metrics_for_calculation(experiment)
     ]
 
 
@@ -437,6 +439,10 @@ def _estimated_retry_delay_seconds(attempt: int) -> float:
     )
 
 
+def _concurrency_limit_retry_delay_seconds() -> float:
+    return random.uniform(CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS, CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS)
+
+
 _RETRY_SAFE_MESSAGES: dict[str, str] = {
     "rate_limited": "The query was deferred because the cluster is at capacity.",
     "timeout": "The query timed out.",
@@ -706,8 +712,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        metric_dict = find_metric_dict(experiment, metric_uuid)
-        if metric_dict is None:
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
             return _fail(
                 recalculation_id,
                 metric_uuid,
@@ -715,6 +721,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 f"Metric {metric_uuid} not found in experiment {experiment_id}",
                 error_type="validation_error",
             )
+        metric_dict = calculation_config.definition
 
         if not experiment.start_date:
             return _fail(
@@ -725,15 +732,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = compute_recalc_fingerprint(calculation_config.calculation_key())
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.
@@ -877,6 +876,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
+            retry_delay_seconds = _concurrency_limit_retry_delay_seconds()
             if is_final_attempt:
                 record_terminal_error(message, classify_experiment_query_error(e), retriable=True)
             logger.warning(
@@ -898,7 +898,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     attempt,
                     error_type,
                     safe_message,
-                    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                    retry_delay_seconds,
                 )
                 _capture_experiment_metric_event(
                     experiment,
@@ -912,14 +912,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
                         "error_message": safe_message,
                         "attempt": attempt,
                         "max_attempts": MAX_METRIC_ATTEMPTS,
-                        "next_retry_delay_seconds": CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                        "next_retry_delay_seconds": round(retry_delay_seconds, 1),
                     },
                     trigger=state.trigger,
                 )
             raise ApplicationError(
                 message,
                 type=type(e).__name__,
-                next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
+                next_retry_delay=timedelta(seconds=retry_delay_seconds),
             ) from e
 
         except Exception as e:

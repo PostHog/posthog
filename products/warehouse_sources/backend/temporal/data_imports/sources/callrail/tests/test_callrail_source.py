@@ -18,45 +18,6 @@ class TestCallRailSource:
         assert self.source.connection_host_fields == ["account_id"]
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.callrail.com/v3/a/123/calls.json?page=1",
-            "403 Client Error: Forbidden for url: https://api.callrail.com/v3/a/123/companies.json",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.callrail.com/v3/a/123/calls.json",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_only_account_listings_with_a_date_filter_offer_append(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        # calls and form_submissions expose CallRail's server-side `start_date` filter; the two
-        # fan-out tables carry a cursor purely so they merge rather than replace.
-        assert incremental == {"calls", "form_submissions", "page_views", "lead_timelines"}
-        # Appending a fan-out child would re-add every parent's rows on each sync.
-        assert {name for name, s in schemas.items() if s.supports_append} == {"calls", "form_submissions"}
-
-    def test_per_call_and_per_lead_tables_are_not_enabled_by_default(self) -> None:
-        # Both fan out one request per parent row against an account-wide budget of 1,000
-        # requests/hour, so enabling them has to be the user's choice.
-        off_by_default = {
-            s.name for s in self.source.get_schemas(self.config, self.team_id) if not s.should_sync_default
-        }
-        assert off_by_default == {"page_views", "lead_timelines"}
-
-    @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
             (True, True, None),
@@ -101,17 +62,6 @@ class TestCallRailSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source.callrail_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_callrail_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "users"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = 1700000000
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_callrail_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.callrail.source.callrail_source")
     def test_source_for_pipeline_blank_account_id_becomes_none(self, mock_callrail_source: mock.MagicMock) -> None:

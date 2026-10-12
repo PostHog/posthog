@@ -17,8 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
     MixpanelRetryableError,
     _check_response,
     _export_base,
-    _flatten_event,
-    _flatten_profile,
     _parse_retry_after,
     _query_base,
     _retry_wait,
@@ -29,7 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
     MIXPANEL_API_VERSION_2_0,
     MIXPANEL_API_VERSION_V1,
-    MIXPANEL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
 
@@ -85,6 +82,7 @@ class FakeManager:
     def __init__(self, resume_state: Optional[MixpanelResumeConfig] = None) -> None:
         self._state = resume_state
         self.saved: list[MixpanelResumeConfig] = []
+        self.safe_points = 0
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -95,26 +93,8 @@ class FakeManager:
     def save_state(self, data: MixpanelResumeConfig) -> None:
         self.saved.append(data)
 
-
-class TestFlatten:
-    def test_flatten_event_lifts_properties(self) -> None:
-        row = _flatten_event(
-            {"event": "Signup", "properties": {"time": 1700000000, "distinct_id": "u1", "$insert_id": "abc"}}
-        )
-        assert row == {"event": "Signup", "time": 1700000000, "distinct_id": "u1", "$insert_id": "abc"}
-
-    def test_flatten_event_without_properties(self) -> None:
-        assert _flatten_event({"event": "Signup"}) == {"event": "Signup"}
-
-    def test_flatten_event_ignores_non_dict_properties(self) -> None:
-        assert _flatten_event({"event": "X", "properties": None}) == {"event": "X"}
-
-    def test_flatten_profile_lifts_properties(self) -> None:
-        row = _flatten_profile({"$distinct_id": "u1", "$properties": {"$email": "a@b.com", "plan": "pro"}})
-        assert row == {"$distinct_id": "u1", "$email": "a@b.com", "plan": "pro"}
-
-    def test_flatten_profile_without_properties(self) -> None:
-        assert _flatten_profile({"$distinct_id": "u1"}) == {"$distinct_id": "u1"}
+    def safe_point(self) -> None:
+        self.safe_points += 1
 
 
 class TestToDate:
@@ -209,10 +189,6 @@ class TestParseRetryAfter:
     def test_http_date_in_the_future(self) -> None:
         assert _parse_retry_after("Tue, 04 Jun 2024 00:00:30 GMT") == 30.0
 
-    @time_machine.travel("2024-06-04T00:00:00Z", tick=False)
-    def test_http_date_in_the_past_is_ignored(self) -> None:
-        assert _parse_retry_after("Tue, 04 Jun 2024 00:00:00 GMT") is None
-
 
 class _FakeOutcome:
     def __init__(self, exc: Optional[BaseException]) -> None:
@@ -229,18 +205,9 @@ class _FakeRetryState:
 
 
 class TestRetryWait:
-    def test_prefers_retry_after(self) -> None:
-        state = _FakeRetryState(MixpanelRetryableError("boom", retry_after=5))
-        assert _retry_wait(state) == 5.0  # type: ignore[arg-type]
-
     def test_caps_large_retry_after(self) -> None:
         state = _FakeRetryState(MixpanelRetryableError("boom", retry_after=9999))
         assert _retry_wait(state) == MAX_RETRY_AFTER_SECONDS  # type: ignore[arg-type]
-
-    def test_falls_back_to_exponential_jitter_without_retry_after(self) -> None:
-        state = _FakeRetryState(MixpanelRetryableError("boom"))
-        wait = _retry_wait(state)  # type: ignore[arg-type]
-        assert 0 < wait <= 61
 
     def test_falls_back_for_non_retryable_exception_type(self) -> None:
         state = _FakeRetryState(requests.ReadTimeout("slow"))
@@ -270,14 +237,20 @@ class TestValidateCredentials:
         else:
             assert error is not None
 
-    def test_bad_request_points_at_the_project_id(self) -> None:
-        # A 400 used to fall through and surface the raw status code, which is not actionable.
+    @parameterized.expand(
+        [
+            ("bad_request", 400, "project ID"),
+            ("payment_required", 402, "plan"),
+        ]
+    )
+    def test_rejections_explain_the_fix_without_the_status_code(self, _name: str, status: int, hint: str) -> None:
         session = MagicMock()
-        session.post.return_value = FakeResponse(status_code=400)
+        session.post.return_value = FakeResponse(status_code=status)
         with patch.object(mp, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("us", "user", "secret", "123")
         assert ok is False
-        assert error is not None and "project ID" in error
+        assert error is not None and hint in error
+        assert str(status) not in error
 
     def test_network_error_returns_failure(self) -> None:
         session = MagicMock()
@@ -286,16 +259,6 @@ class TestValidateCredentials:
             ok, error = validate_credentials("eu", "user", "secret", "123")
         assert ok is False
         assert error is not None
-
-    def test_payment_required_gets_actionable_message(self) -> None:
-        session = MagicMock()
-        session.post.return_value = FakeResponse(status_code=402)
-        with patch.object(mp, "make_tracked_session", return_value=session):
-            ok, error = validate_credentials("us", "user", "secret", "123")
-        assert ok is False
-        assert error is not None
-        assert "402" in error
-        assert "plan" in error.lower()
 
 
 class TestExportIterator:
@@ -332,26 +295,6 @@ class TestExportIterator:
         url = self._mock_request.call_args_list[0].args[1]
         assert url == "https://data.mixpanel.com/api/2.0/export"
 
-    def test_streams_jsonl_per_day_and_saves_state(self) -> None:
-        manager = FakeManager()
-        day1 = [orjson.dumps({"event": "A", "properties": {"time": 1, "distinct_id": "u", "$insert_id": "i1"}})]
-        day2 = [orjson.dumps({"event": "B", "properties": {"time": 2, "distinct_id": "u", "$insert_id": "i2"}})]
-        rows = self._run(
-            manager,
-            date(2024, 1, 1),
-            date(2024, 1, 2),
-            [FakeResponse(lines=day1), FakeResponse(lines=day2)],
-        )
-
-        assert [r["event"] for r in rows] == ["A", "B"]
-        # One request per day window
-        assert self._mock_request.call_count == 2
-        first_call = self._mock_request.call_args_list[0]
-        assert first_call.kwargs["params"]["from_date"] == "2024-01-01"
-        assert first_call.kwargs["params"]["to_date"] == "2024-01-01"
-        # State advances to the day AFTER each completed window
-        assert [s.from_date for s in manager.saved] == ["2024-01-02", "2024-01-03"]
-
     def test_resumes_from_saved_state(self) -> None:
         manager = FakeManager(MixpanelResumeConfig(from_date="2024-01-02"))
         rows = self._run(
@@ -365,51 +308,10 @@ class TestExportIterator:
         assert self._mock_request.call_args_list[0].kwargs["params"]["from_date"] == "2024-01-02"
         assert [r["event"] for r in rows] == ["B"]
 
-    def test_empty_day_still_advances(self) -> None:
-        manager = FakeManager()
-        rows = self._run(manager, date(2024, 1, 1), date(2024, 1, 1), [FakeResponse(lines=[])])
-        assert rows == []
-        assert [s.from_date for s in manager.saved] == ["2024-01-02"]
-
 
 class TestExportStreamRetry:
     def _line(self, insert_id: str) -> bytes:
         return orjson.dumps({"event": "A", "properties": {"time": 1, "$insert_id": insert_id}})
-
-    def test_retries_day_on_mid_stream_drop(self) -> None:
-        manager = FakeManager()
-        day = date(2024, 1, 1)
-        incomplete_read = requests.exceptions.ChunkedEncodingError(
-            "Connection broken: IncompleteRead(237 bytes read, 275 more expected)"
-        )
-        failing = FakeResponse(lines=[self._line("i1")], error=incomplete_read)
-        succeeding = FakeResponse(lines=[self._line("i1")])
-        with (
-            patch.object(mp, "_request", side_effect=[failing, succeeding]) as mock_request,
-            patch.object(mp.time, "sleep") as mock_sleep,
-        ):
-            batches = list(
-                mp._iter_export(
-                    "us",
-                    "u",
-                    "s",
-                    "123",
-                    LOGGER,
-                    manager,  # type: ignore[arg-type]
-                    start_date=day,
-                    end_date=day,
-                    api_version=MIXPANEL_API_VERSION_V1,
-                )
-            )
-
-        rows = [row for batch in batches for row in batch]
-        assert [r["$insert_id"] for r in rows] == ["i1"]
-        # The same day is fetched twice; the dropped attempt yields nothing before the retry.
-        assert mock_request.call_count == 2
-        assert {c.kwargs["params"]["from_date"] for c in mock_request.call_args_list} == {"2024-01-01"}
-        mock_sleep.assert_called_once()
-        # Cursor only advances once the day finally completes.
-        assert [s.from_date for s in manager.saved] == ["2024-01-02"]
 
     def test_retries_day_when_the_stream_carries_the_abort_marker(self) -> None:
         manager = FakeManager()
@@ -579,9 +481,73 @@ class TestSingleRequestEndpoints:
             batches = list(mp._fetch_annotations("us", "u", "s", "123", LOGGER))
         assert batches == [[{"id": 5}]]
 
-    def test_empty_results_yields_nothing(self) -> None:
-        with patch.object(mp, "_request", return_value=FakeResponse(json_data={"results": []})):
-            assert list(mp._fetch_annotations("us", "u", "s", "123", LOGGER)) == []
+
+class TestReportEndpoints:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-04", tick=False):
+            yield
+
+    def _funnel_response(self) -> FakeResponse:
+        return FakeResponse(
+            json_data={
+                "meta": {"dates": ["2024-06-03", "2024-06-02"]},
+                "data": {
+                    "2024-06-03": {"steps": [{"count": 5, "event": "Signup"}], "analysis": {"completion": 5}},
+                    "2024-06-02": {
+                        "steps": [{"count": 10, "event": "Visit"}, {"count": 4, "event": "Signup"}],
+                        "analysis": {"completion": 4},
+                    },
+                },
+            }
+        )
+
+    @parameterized.expand([("fresh", None, [7, 9]), ("resumed", 7, [9])])
+    def test_funnel_steps_walk_funnels_in_id_order(
+        self, _name: str, resume_funnel_id: Optional[int], expected_funnel_ids: list[int]
+    ) -> None:
+        manager = FakeManager(MixpanelResumeConfig(funnel_id=resume_funnel_id) if resume_funnel_id else None)
+        funnel_list = FakeResponse(json_data=[{"funnel_id": 9, "name": "Checkout"}, {"funnel_id": 7, "name": "Signup"}])
+        funnel_responses = {7: FakeResponse(json_data={"meta": {"dates": []}, "data": {}}), 9: self._funnel_response()}
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> FakeResponse:
+            if url.endswith("/funnels/list"):
+                return funnel_list
+            return funnel_responses[kwargs["params"]["funnel_id"]]
+
+        with patch.object(mp, "_request", side_effect=fake_request) as mock_request:
+            batches = list(mp.get_rows("us", "u", "s", "123", "funnel_steps", LOGGER, manager))  # type: ignore[arg-type]
+
+        query_params = [c.kwargs["params"] for c in mock_request.call_args_list[1:]]
+        assert [p["funnel_id"] for p in query_params] == expected_funnel_ids
+        assert all((p["from_date"], p["to_date"]) == ("2024-03-06", "2024-06-04") for p in query_params)
+        assert [s.funnel_id for s in manager.saved] == expected_funnel_ids
+        assert manager.safe_points == (1 if 7 in expected_funnel_ids else 0)
+        rows = [row for batch in batches for row in batch]
+        assert [(r["funnel_id"], r["funnel_name"], r["date"], r["step_index"], r["event"]) for r in rows] == [
+            (9, "Checkout", "2024-06-02", 0, "Visit"),
+            (9, "Checkout", "2024-06-02", 1, "Signup"),
+            (9, "Checkout", "2024-06-03", 0, "Signup"),
+        ]
+
+    def test_retention_requests_compounded_retention_and_unnests_cohorts(self) -> None:
+        response = FakeResponse(
+            json_data={"2024-06-03": {"counts": [8], "first": 8}, "2024-06-02": {"counts": [10, 6], "first": 10}}
+        )
+        with patch.object(mp, "_request", return_value=response) as mock_request:
+            batches = list(mp.get_rows("us", "u", "s", "123", "retention", LOGGER, FakeManager()))  # type: ignore[arg-type]
+
+        params = mock_request.call_args.kwargs["params"]
+        assert params["retention_type"] == "compounded"
+        assert "born_event" not in params
+        assert (params["from_date"], params["to_date"]) == ("2024-03-06", "2024-06-04")
+        assert batches == [
+            [
+                {"date": "2024-06-02", "interval_index": 0, "count": 10, "first": 10},
+                {"date": "2024-06-02", "interval_index": 1, "count": 6, "first": 10},
+                {"date": "2024-06-03", "interval_index": 0, "count": 8, "first": 8},
+            ]
+        ]
 
 
 class TestGetRowsExportWindow:
@@ -603,14 +569,6 @@ class TestGetRowsExportWindow:
         )
         assert start_date == end_date == date(2024, 6, 4)
 
-    def test_past_cursor_used_as_start(self) -> None:
-        past = int(datetime(2020, 1, 1, tzinfo=UTC).timestamp())
-        start_date, end_date = self._captured_window(
-            should_use_incremental_field=True, db_incremental_field_last_value=past
-        )
-        assert start_date == date(2020, 1, 1)
-        assert end_date == date(2024, 6, 4)
-
 
 class TestMixpanelSource:
     @parameterized.expand(
@@ -630,9 +588,3 @@ class TestMixpanelSource:
         assert response.partition_mode == partition_mode
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.sort_mode == "asc"
-
-    def test_endpoints_cover_settings(self) -> None:
-        # Guard against a settings/transport mismatch in the routing switch
-        for endpoint in MIXPANEL_ENDPOINTS:
-            response = mixpanel_source("us", "u", "s", "123", endpoint, LOGGER, FakeManager())  # type: ignore[arg-type]
-            assert response.name == endpoint

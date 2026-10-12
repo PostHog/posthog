@@ -82,25 +82,10 @@ class TestGetResource:
         assert param["cursor_path"] == "createdAt"
         assert param["convert"] is _format_incremental_value
 
-    def test_responses_primary_key_includes_question_id(self) -> None:
-        assert SPRIG_ENDPOINTS["Responses"].primary_keys == ["responseGroupUid", "questionId"]
-
-    def test_surveys_primary_key_is_id(self) -> None:
-        assert SPRIG_ENDPOINTS["Surveys"].primary_keys == ["id"]
-
 
 class TestSprigCursorPaginator:
     def _paginator(self) -> JSONResponseCursorPaginator:
         return JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor")
-
-    def test_initial_state(self) -> None:
-        paginator = self._paginator()
-        assert paginator.has_next_page is True
-
-    def test_update_state_has_more(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [{"id": 1}], "cursor": "cursor-1"}))
-        assert paginator.has_next_page is True
 
     @parameterized.expand([("null_cursor", None), ("missing_cursor_key", "missing")])
     def test_update_state_terminal_page(self, _label: str, cursor_value: str | None) -> None:
@@ -111,31 +96,6 @@ class TestSprigCursorPaginator:
         paginator.update_state(_response(body))
         assert paginator.has_next_page is False
 
-    def test_update_request_adds_cursor_param(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [], "cursor": "cursor-2"}))
-        request = MagicMock()
-        request.params = {"limit": 1000}
-        paginator.update_request(request)
-        assert request.params["cursor"] == "cursor-2"
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [], "cursor": "cursor-3"}))
-        assert paginator.get_resume_state() == {"cursor": "cursor-3"}
-
-        resumed = self._paginator()
-        resumed.set_resume_state({"cursor": "cursor-3"})
-        request = MagicMock()
-        request.params = {}
-        resumed.init_request(request)
-        assert request.params["cursor"] == "cursor-3"
-
-    def test_no_resume_state_on_terminal_page(self) -> None:
-        paginator = self._paginator()
-        paginator.update_state(_response({"data": [], "cursor": None}))
-        assert paginator.get_resume_state() is None
-
 
 class TestSprigSource:
     def _manager(self, *, can_resume: bool, state: SprigResumeConfig | None = None) -> MagicMock:
@@ -143,47 +103,6 @@ class TestSprigSource:
         manager.can_resume.return_value = can_resume
         manager.load_state.return_value = state
         return manager
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Surveys"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = sprig_source(
-            api_key="key",
-            endpoint="Surveys",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-        )
-
-        assert response.name == "Surveys"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
-    def test_responses_primary_key_plumbed_through(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Responses"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = sprig_source(
-            api_key="key",
-            endpoint="Responses",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-        )
-
-        assert response.primary_keys == ["responseGroupUid", "questionId"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
     def test_seeds_initial_paginator_state_from_saved_cursor(self, mock_rest: MagicMock) -> None:

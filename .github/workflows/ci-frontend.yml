@@ -1,7 +1,7 @@
 name: Frontend CI
 on:
     pull_request:
-        # PRs run a narrowed jest selection, draft or ready, over two shards. The
+        # PRs run a narrowed jest selection, draft or ready, over three shards. The
         # merge queue's trunk-merge/** run is the full matrix that gates master.
         # When selection can't be trusted, a ready PR falls back to the full matrix
         # and a draft skips jest instead, deferring to its ready run. To force the
@@ -426,19 +426,19 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode uses two shards because a widely imported source file
+                  # Selective mode uses three shards because a widely imported source file
                   # can make --findRelatedTests approach a full suite. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
                   # *.test.* files.
                   SELECTED_COUNT=$(echo "$CHANGED_FILES" | wc -w | tr -d ' ')
                   {
                       echo "mode=selective"
-                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":2},{"segment":"app","chunk":2,"shard_count":2}]}'
+                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":3},{"segment":"app","chunk":2,"shard_count":3},{"segment":"app","chunk":3,"shard_count":3}]}'
                       echo "should_run=true"
                       echo "changed_files=$CHANGED_FILES"
                       echo "changed_file_count=$changed_count"
                       echo "selected_file_count=$SELECTED_COUNT"
-                      echo "shard_count=2"
+                      echo "shard_count=3"
                       echo "full_run_reason_category="
                       echo "full_run_reason_detail="
                   } >> "$GITHUB_OUTPUT"
@@ -866,7 +866,7 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run two selective shards over the tests reachable from the changed
+        # PRs run three selective shards over the tests reachable from the changed
         # files. The merge queue runs the full four-shard fanout.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]

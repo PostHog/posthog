@@ -416,9 +416,7 @@ class TestFetchPrData:
         fetcher = PRFetcher("owner", "repo", 456, token="test-token")
         result = fetcher.fetch_pr_data()
 
-        # 4-tuple contract: metadata, comments, files, diff
-        assert len(result) == 4
-        metadata, comments, files, diff = result
+        metadata, comments, files, diff = result.pr_metadata, result.pr_comments, result.pr_files, result.diff
 
         assert metadata.number == 456
         assert metadata.head_sha == "abc123"
@@ -449,26 +447,74 @@ class TestFetchPrData:
 
         assert set(tmp_path.iterdir()) == before
 
-    def test_filtered_and_test_files_are_excluded(self, mock_request: Mock, mock_paginated: Mock) -> None:
-        # Test files and a lock file must be dropped from both pr_files and the diff snapshot.
+    @parameterized.expand(
+        [
+            ("pipeline", False, ["src/module.py"]),
+            ("single_agent", True, ["tests/test_module.py", "requirements.txt", "src/module.py"]),
+        ]
+    )
+    def test_filtered_and_test_files_are_excluded(
+        self, mock_request: Mock, mock_paginated: Mock, _name: str, review_tests_and_text: bool, expected: list[str]
+    ) -> None:
+        # A lock file never reaches the review. Test and `.txt` files reach only the single-agent
+        # design, which was measured with them in its diff; the pipeline was tuned without them. A
+        # comment follows its file, so dedup sees exactly the comments on reviewed files.
         _wire(
             mock_request,
             mock_paginated,
             _pr_json(),
+            comments=[_comment_json(comment_id=1, path="tests/test_module.py")],
             files=[
                 _file_json(filename="tests/test_module.py", status="added", patch="@@ -0,0 +1,1 @@\n+x"),
+                _file_json(filename="requirements.txt", status="modified", patch="@@ -1,1 +1,1 @@\n+w"),
                 _file_json(filename="yarn.lock", status="modified", patch="@@ -1,1 +1,1 @@\n+y"),
                 _file_json(filename="src/module.py", status="modified", patch="@@ -1,1 +1,1 @@\n+z"),
             ],
         )
 
         fetcher = PRFetcher("owner", "repo", 789, token="test-token")
-        _, _, files, diff = fetcher.fetch_pr_data()
+        fetched = fetcher.fetch_pr_data(review_tests_and_text=review_tests_and_text)
+        comments, files, diff = fetched.pr_comments, fetched.pr_files, fetched.diff
 
-        assert [f.filename for f in files] == ["src/module.py"]
-        assert "tests/test_module.py" not in diff
+        assert [f.filename for f in files] == expected
+        assert [comment.path for comment in comments] == (["tests/test_module.py"] if review_tests_and_text else [])
+        assert ("=== tests/test_module.py [added] ===" in diff) is review_tests_and_text
         assert "yarn.lock" not in diff
         assert "=== src/module.py [modified] ===" in diff
+
+    @parameterized.expand(
+        [
+            ("found", None, "f" * 40),
+            ("compare_fails", GitHubAPIError("GitHub API GET returned 404: Not found", status=404), None),
+        ]
+    )
+    def test_merge_base_is_best_effort(
+        self,
+        mock_request: Mock,
+        mock_paginated: Mock,
+        _name: str,
+        compare_error: Exception | None,
+        expected: str | None,
+    ) -> None:
+        # Only a prompt that leaves a diff out reads the merge base, so a failed compare call must not fail the fetch.
+        _wire(mock_request, mock_paginated, _pr_json())
+        pr_response = mock_request.return_value
+
+        def request(method: str, path: str, **kwargs: Any) -> Mock:
+            if "/compare/" not in path:
+                return pr_response
+            if compare_error is not None:
+                raise compare_error
+            comparison = Mock()
+            comparison.json.return_value = {"merge_base_commit": {"sha": "f" * 40}}
+            return comparison
+
+        mock_request.side_effect = request
+
+        fetched = PRFetcher("owner", "repo", 123, token="test-token").fetch_pr_data(with_merge_base=True)
+
+        assert fetched.merge_base_sha == expected
+        assert fetched.pr_metadata.number == 123
 
     def test_missing_patch_recorded_explicitly_in_diff(self, mock_request: Mock, mock_paginated: Mock) -> None:
         # GitHub omits the patch for binary/large files — the snapshot keeps the header with a marker
@@ -481,7 +527,8 @@ class TestFetchPrData:
         )
 
         fetcher = PRFetcher("owner", "repo", 999, token="test-token")
-        _, _, files, diff = fetcher.fetch_pr_data()
+        fetched = fetcher.fetch_pr_data()
+        files, diff = fetched.pr_files, fetched.diff
 
         assert files[0].filename == "old_module.py"
         assert files[0].changes == []
@@ -500,7 +547,7 @@ class TestFetchPrData:
         )
 
         fetcher = PRFetcher("owner", "repo", 123, token="test-token")
-        metadata, _, _, _ = fetcher.fetch_pr_data()
+        metadata = fetcher.fetch_pr_data().pr_metadata
 
         assert metadata.assignee == "assignee-user"
         assert metadata.labels == ["bug"]
@@ -514,7 +561,7 @@ class TestFetchPrData:
         _wire(mock_request, mock_paginated, _pr_json(is_fork=is_fork))
 
         fetcher = PRFetcher("owner", "repo", 123, token="test-token")
-        metadata, _, _, _ = fetcher.fetch_pr_data()
+        metadata = fetcher.fetch_pr_data().pr_metadata
 
         assert metadata.is_fork is is_fork
 

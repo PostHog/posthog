@@ -93,7 +93,7 @@ export interface pipelineOverviewSceneLogicValues {
     sourcesLoading: boolean
     syncingTableCount: number
     lastUpdatedAt: string | null
-    destinationRowSeries: { labels: string[]; series: { id: string; values: number[] }[] } | null
+    destinationRowSeries: { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null
     destinationRowSeriesLoading: boolean
     rowsByDestination: { key: string; label: string; data: number[]; type: 'area'; fill: { opacity: number } }[]
     hasIssues: boolean
@@ -200,12 +200,12 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             },
         ],
         destinationRowSeries: [
-            null as { labels: string[]; series: { id: string; values: number[] }[] } | null,
+            null as { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null,
             {
                 loadDestinationRowSeries: async () => {
                     const destinations = values.destinations ?? []
                     if (destinations.length === 0) {
-                        return { labels: [], series: [] }
+                        return { labels: [], series: [], total: [] }
                     }
                     const interval = values.window === 1 ? ('hour' as const) : ('day' as const)
                     // Both bounds are interpolated into `toDateTime(...)`, so they have to be
@@ -216,34 +216,47 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     // One request per destination, filtered on `instanceId`, rather than one
                     // breakdown over every instance. The breakdown is capped at 100 rows, and a
                     // team with thousands of tables pushes every destination out of that cap.
-                    const answers = await Promise.all(
-                        destinations.map(async (destination: ExternalDataDestinationApi) => ({
-                            id: destination.id,
-                            response: await loadAppMetricsTimeSeries(
-                                {
-                                    appSource: WAREHOUSE_APP_SOURCE,
-                                    metricName: 'rows_synced',
-                                    instanceId: destination.id,
-                                    // The time-series query interpolates `breakdownBy` with no
-                                    // fallback, so omitting it emits `undefined AS breakdown` and
-                                    // the query fails to resolve. `instance_id` is already pinned
-                                    // to one destination by `instanceId`, so this yields one series.
-                                    breakdownBy: 'instance_id',
-                                    interval,
-                                    dateFrom,
-                                    dateTo,
-                                },
-                                values.currentTeam?.timezone ?? 'UTC'
-                            ),
-                        }))
+                    const common = {
+                        appSource: WAREHOUSE_APP_SOURCE,
+                        metricName: 'rows_synced',
+                        // The time-series query interpolates `breakdownBy` with no fallback, so
+                        // omitting it emits `undefined AS breakdown` and the query fails to
+                        // resolve. Each request is already pinned to one series by its filter.
+                        breakdownBy: 'instance_id' as const,
+                        interval,
+                        dateFrom,
+                        dateTo,
+                    }
+                    const timezone = values.currentTeam?.timezone ?? 'UTC'
+                    const schemaIds = (values.sources ?? []).flatMap((source: ExternalDataSourceSerializersApi) =>
+                        (source.schemas ?? []).map((schema) => String(schema.id))
                     )
+                    const [answers, total] = await Promise.all([
+                        Promise.all(
+                            destinations.map(async (destination: ExternalDataDestinationApi) => ({
+                                id: destination.id,
+                                response: await loadAppMetricsTimeSeries(
+                                    { ...common, instanceId: destination.id },
+                                    timezone
+                                ),
+                            }))
+                        ),
+                        schemaIds.length > 0
+                            ? loadAppMetricsTimeSeries(
+                                  { ...common, instanceIds: schemaIds, breakdownBy: 'metric_name' },
+                                  timezone
+                              )
+                            : Promise.resolve({ labels: [], interval, timezone, series: [] }),
+                    ])
                     return {
-                        labels: answers.find((a) => a.response.labels.length > 0)?.response.labels ?? [],
+                        labels:
+                            answers.find((a) => a.response.labels.length > 0)?.response.labels ?? total.labels ?? [],
                         series: answers.map((a) => ({
                             id: a.id,
                             // Without a breakdown the response carries a single unnamed series.
                             values: a.response.series[0]?.values ?? [],
                         })),
+                        total: total.series[0]?.values ?? [],
                     }
                 },
             },
@@ -283,7 +296,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
     selectors({
         breadcrumbs: [
             () => [],
-            (): Breadcrumb[] => [{ key: 'PipelineOverview', name: 'ETL', iconType: 'data_pipeline' }],
+            (): Breadcrumb[] => [{ key: 'PipelineOverview', name: 'ELT', iconType: 'data_pipeline' }],
         ],
         issuesBySeverity: [
             (s: any) => [s.healthIssues],
@@ -300,11 +313,18 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): number =>
                 (healthIssues?.results ?? []).filter((issue) => issue.type === 'external_data_sync').length,
         ],
-        /** One chart series per destination, biggest first so the legend matches the stack. */
+        /**
+         * One chart series per destination, biggest first so the legend matches the stack.
+         *
+         * The PostHog warehouse series is derived rather than read directly. Runs from before
+         * destination attribution landed report no destination at all, and a run that resolves
+         * to the warehouse alone still reports none. Those rows only exist keyed by schema, in
+         * the total, so the warehouse gets whatever the other destinations did not take.
+         */
         rowsByDestination: [
             (s: any) => [s.destinationRowSeries, s.destinations],
             (
-                answer: { labels: string[]; series: { id: string; values: number[] }[] } | null,
+                answer: { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null,
                 destinations: ExternalDataDestinationApi[] | null
             ): {
                 key: string
@@ -317,15 +337,25 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     return []
                 }
                 const byId = new Map(destinations.map((d) => [d.id, d]))
-                return answer.series
+                const warehouse = destinations.find((d) => d.type === 'PostHogWarehouse')
+                const elsewhere = answer.series.filter((s) => s.id !== warehouse?.id)
+
+                const derivedWarehouse = answer.total.map((rows, i) =>
+                    Math.max(0, rows - elsewhere.reduce((sum, s) => sum + (s.values[i] ?? 0), 0))
+                )
+
+                const series = elsewhere.map((s) => ({ id: s.id, values: s.values }))
+                if (warehouse) {
+                    series.push({ id: warehouse.id, values: derivedWarehouse })
+                }
+
+                return series
                     .map((s) => ({
                         key: s.id,
                         label: byId.get(s.id)?.name ?? s.id,
                         data: s.values,
                         type: 'area' as const,
                         // `fill` is what makes an area series fill; `type` alone draws a line.
-                        // The chart stacks area series and offers no way not to, so the section
-                        // copy says the total is row-writes rather than rows.
                         fill: { opacity: 0.25 },
                         total: s.values.reduce((a, b) => a + b, 0),
                     }))
@@ -377,7 +407,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             ): boolean => (jobStatsLoading && jobStats === null) || (healthIssuesLoading && healthIssues === null),
         ],
     }),
-    listeners(({ actions }: any) => ({
+    listeners(({ actions, values }: any) => ({
         // Health is current state and rows are reported per billing period, so neither is
         // windowed. Everything else is.
         setWindow: () => {
@@ -386,9 +416,18 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadRecentRuns()
         },
         refresh: () => actions.loadEverything(),
-        // The series are fetched one destination at a time, so the destination list has to land
-        // first. Chaining on success is what guarantees that on a reload as well as on mount.
-        loadDestinationsSuccess: () => actions.loadDestinationRowSeries(),
+        // The destination and schema lists identify the two attribution key types in app_metrics.
+        // Wait for both so the overall request can select schema-keyed rows exactly.
+        loadDestinationsSuccess: () => {
+            if (values.sources !== null) {
+                actions.loadDestinationRowSeries()
+            }
+        },
+        loadSourcesSuccess: () => {
+            if (values.destinations !== null) {
+                actions.loadDestinationRowSeries()
+            }
+        },
         loadEverything: () => {
             actions.loadJobStats()
             actions.loadRowsStats()

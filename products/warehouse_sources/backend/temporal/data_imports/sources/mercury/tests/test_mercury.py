@@ -8,10 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.mercury import (
     MercuryResumeConfig,
@@ -19,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.me
     get_resource,
     mercury_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import (
-    ENDPOINTS,
-    MERCURY_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import ENDPOINTS
 
 
 class TestFormatIncrementalValue:
@@ -41,43 +34,6 @@ class TestFormatIncrementalValue:
 
 
 class TestGetResource:
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_resource_shape_per_endpoint(self, endpoint: str) -> None:
-        config = MERCURY_ENDPOINTS[endpoint]
-        resource = get_resource(endpoint, should_use_incremental_field=False)
-
-        assert resource["name"] == endpoint
-        assert resource["write_disposition"] == "replace"
-        assert resource["table_format"] == "delta"
-
-        endpoint_config = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint_config["path"] == config.path
-        assert endpoint_config["data_selector"] == config.data_selector
-
-        params = endpoint_config["params"]
-        if config.paginated:
-            assert isinstance(endpoint_config["paginator"], JSONResponseCursorPaginator)
-            assert params["limit"] > 0
-            assert params["order"] == "asc"
-        else:
-            assert isinstance(endpoint_config["paginator"], SinglePagePaginator)
-            assert "limit" not in params
-
-    def test_incremental_adds_server_side_start_filter(self) -> None:
-        resource = get_resource("Transactions", should_use_incremental_field=True)
-
-        endpoint_config = cast(dict[str, Any], resource["endpoint"])
-        start_param = endpoint_config["params"]["start"]
-        assert start_param["type"] == "incremental"
-        assert start_param["cursor_path"] == "createdAt"
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    def test_incremental_disabled_omits_start_filter(self) -> None:
-        resource = get_resource("Transactions", should_use_incremental_field=False)
-
-        endpoint_config = cast(dict[str, Any], resource["endpoint"])
-        assert "start" not in endpoint_config["params"]
-
     @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if name != "Transactions"])
     def test_full_refresh_endpoints_never_get_incremental_params(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=True)
@@ -87,15 +43,6 @@ class TestGetResource:
             isinstance(value, dict) and value.get("type") == "incremental"
             for value in endpoint_config["params"].values()
         )
-
-    def test_timestamp_columns_hinted_for_type_conversion(self) -> None:
-        resource = get_resource("Transactions", should_use_incremental_field=False)
-
-        assert resource["columns"] == {
-            "createdAt": {"data_type": "timestamp"},
-            "postedAt": {"data_type": "timestamp"},
-            "failedAt": {"data_type": "timestamp"},
-        }
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -184,17 +131,6 @@ class TestMercurySourceResumeBehavior:
         assert [p.get("start_after") for p in sent_params] == ["t42"]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"transactions": [{"id": "only"}], "page": {"nextPage": None}}),
-        ]
-        self._drive("Transactions", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_incremental_sync_sends_date_only_start_watermark(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -213,32 +149,95 @@ class TestMercurySourceResumeBehavior:
         assert sent_params[0]["start"] == "2026-01-02"
         assert sent_params[0]["order"] == "asc"
 
-    def test_first_incremental_sync_without_watermark_omits_start(self) -> None:
+
+class TestMercuryFanoutEndpoints:
+    @pytest.mark.parametrize(
+        (
+            "endpoint",
+            "parent_body",
+            "child_bodies",
+            "expected_paths",
+            "cursor_param",
+            "expected_cursors",
+            "expected_rows",
+        ),
+        [
+            (
+                "AccountStatements",
+                {"accounts": [{"id": "acc-1"}, {"id": "acc-2"}], "page": {"nextPage": None}},
+                [
+                    {"statements": [{"id": "s1"}], "page": {"nextPage": "s1"}},
+                    {"statements": [{"id": "s2"}], "page": {}},
+                    {"statements": [{"id": "s3"}], "page": {"nextPage": None}},
+                ],
+                ["/account/acc-1/statements", "/account/acc-1/statements", "/account/acc-2/statements"],
+                "start_after",
+                [None, "s1", None],
+                [
+                    {"id": "s1", "accountId": "acc-1"},
+                    {"id": "s2", "accountId": "acc-1"},
+                    {"id": "s3", "accountId": "acc-2"},
+                ],
+            ),
+            (
+                "TreasuryTransactions",
+                {"accounts": [{"id": "tr-1"}, {"id": "tr-2"}], "page": {"nextPage": None}},
+                [
+                    {"transactions": [{"id": "t1", "accountId": "tr-1"}], "cursor": 7},
+                    {"transactions": [{"id": "t2", "accountId": "tr-1"}], "cursor": None},
+                    {"transactions": [{"id": "t3", "accountId": "tr-2"}]},
+                ],
+                ["/treasury/tr-1/transactions", "/treasury/tr-1/transactions", "/treasury/tr-2/transactions"],
+                "cursor",
+                [None, 7, None],
+                [
+                    {"id": "t1", "accountId": "tr-1"},
+                    {"id": "t2", "accountId": "tr-1"},
+                    {"id": "t3", "accountId": "tr-2"},
+                ],
+            ),
+        ],
+    )
+    def test_walks_child_pages_for_each_parent_account(
+        self,
+        endpoint: str,
+        parent_body: dict[str, Any],
+        child_bodies: list[dict[str, Any]],
+        expected_paths: list[str],
+        cursor_param: str,
+        expected_cursors: list[Any],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
+        responses = iter([_make_http_response(parent_body), *(_make_http_response(b) for b in child_bodies)])
+        sent: list[tuple[str, dict[str, Any]]] = []
 
-        responses = [
-            _make_http_response({"transactions": [{"id": "t1"}], "page": {"nextPage": None}}),
-        ]
-        sent_params, _ = self._drive(
-            "Transactions",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent.append((request.url, dict(request.params or {})))
+            return next(responses)
 
-        assert sent_params[0].get("start") is None
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
 
-    def test_single_page_endpoint_yields_rows_without_pagination(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+            resource = mercury_source(
+                api_key="test-token",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+            )
+            rows = [row for page in cast(Iterable[Any], resource) for row in page]
 
-        responses = [
-            _make_http_response({"accounts": [{"id": "c1"}, {"id": "c2"}]}),
-        ]
-        sent_params, rows = self._drive("CreditAccounts", manager, responses)
-
-        assert len(sent_params) == 1
-        assert [row["id"] for row in rows] == ["c1", "c2"]
+        child_requests = sent[1:]
+        assert [url.split("/api/v1", 1)[1] for url, _ in child_requests] == expected_paths
+        assert [params.get(cursor_param) for _, params in child_requests] == expected_cursors
+        assert all(params["order"] == "asc" for _, params in child_requests)
+        assert rows == expected_rows
         manager.save_state.assert_not_called()

@@ -211,6 +211,20 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies only after a default-branch run that contains the merge renders the expected picture, and the baseline entry holds that same picture. Requesting a lift never approves a picture: approve a changed or new snapshot by identifier first. Requesting again from the same pull request replaces the pending request.
+ */
+export const visualReviewRunsLiftOnMergeCreateBodyIdentifierMax = 512
+
+export const VisualReviewRunsLiftOnMergeCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewRunsLiftOnMergeCreateBodyIdentifierMax)
+        .describe(
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture."
+        ),
+})
+
+/**
  * Mark a changed snapshot as a known tolerated alternate.
  */
 export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({

@@ -2,7 +2,13 @@ import 'jest-canvas-mock'
 
 import { configure } from '@testing-library/react'
 import { TextDecoder, TextEncoder } from 'util'
-import { deserialize, serialize } from 'v8'
+import { deserialize, serialize, setFlagsFromString } from 'v8'
+
+// On Node 24 and later, V8 can keep every finished test file in memory after it optimizes Jest's own code,
+// so the heap of a worker grows with each file that it runs. With retained maps off, V8 frees a finished file.
+// Node rejects this flag in NODE_OPTIONS, so this file sets it.
+// Remove this when the Node version in .nvmrc has the fix for https://github.com/nodejs/node/issues/66490
+setFlagsFromString('--retain-maps-for-n-gc=0')
 
 // Jest/JSDom don't know about TextEncoder but the browsers we support do
 // https://github.com/jsdom/jsdom/issues/2524
@@ -193,6 +199,7 @@ jest.mock('posthog-js', () => {
         unregister: jest.fn(),
         reset: jest.fn(),
         group: jest.fn(),
+        setPersonProperties: jest.fn(),
         updateEarlyAccessFeatureEnrollment: jest.fn(),
         people: { set: jest.fn() },
         featureFlags: { override: jest.fn() },

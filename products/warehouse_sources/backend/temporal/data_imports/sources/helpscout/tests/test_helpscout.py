@@ -9,7 +9,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.helpscout import (
-    HELP_SCOUT_API_BASE,
     HelpScoutResumeConfig,
     _client_config,
     helpscout_source,
@@ -17,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helpscout.settings import (
     ENDPOINTS,
+    HELP_SCOUT_API_BASE,
+    HELP_SCOUT_API_BASE_V3,
     HELP_SCOUT_ENDPOINTS,
 )
 
@@ -95,8 +96,16 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str]
     return url_snapshots, param_snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return helpscout_source("token", endpoint, team_id=1, job_id="job-1", resumable_source_manager=manager, **kwargs)
+def _source(endpoint: str, manager: mock.MagicMock, api_version: str = "v2", **kwargs: Any):
+    return helpscout_source(
+        "token",
+        endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager,
+        api_version=api_version,
+        **kwargs,
+    )
 
 
 def _rows(source_response: Any) -> list[dict[str, Any]]:
@@ -106,21 +115,21 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 class TestAuth:
     def test_client_config_sends_bearer_token(self) -> None:
         # The token now comes from the Integration, so the source must not mint its own.
-        auth = _client_config("token")["auth"]
+        auth = _client_config("token", HELP_SCOUT_API_BASE)["auth"]
         assert isinstance(auth, BearerTokenAuth)
         assert auth.token == "token"
 
     def test_client_config_pins_requests_to_the_api_host(self) -> None:
         # Pagination follows `_links.next.href` out of the response body, so the client must
         # refuse off-host URLs and redirects rather than replay the bearer token elsewhere.
-        config = _client_config("token")
+        config = _client_config("token", HELP_SCOUT_API_BASE)
         assert config["allowed_hosts"] == []
         assert config["allow_redirects"] is False
 
     def test_client_config_excludes_requests_from_sample_capture(self) -> None:
         # Conversation subjects and thread bodies are free-text, customer-authored support
         # content, so responses must not land in HTTP sample capture.
-        assert _client_config("token")["capture"] is False
+        assert _client_config("token", HELP_SCOUT_API_BASE)["capture"] is False
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_off_host_next_link_is_rejected(self, MockSession) -> None:
@@ -135,6 +144,36 @@ class TestAuth:
 
         with pytest.raises(ValueError, match="evil.example.com"):
             _rows(_source("mailboxes", _manager()))
+
+
+class TestVersionRouting:
+    @pytest.mark.parametrize(
+        "api_version,endpoint,base",
+        [
+            ("v2", "conversations", HELP_SCOUT_API_BASE),
+            ("v2", "customers", HELP_SCOUT_API_BASE),
+            ("v2", "mailboxes", HELP_SCOUT_API_BASE),
+            ("v3", "conversations", HELP_SCOUT_API_BASE_V3),
+            ("v3", "customers", HELP_SCOUT_API_BASE_V3),
+            # Help Scout has no v3 route for these, so a v3 pin keeps them on v2.
+            ("v3", "mailboxes", HELP_SCOUT_API_BASE),
+            ("v3", "users", HELP_SCOUT_API_BASE),
+            ("v3", "tags", HELP_SCOUT_API_BASE),
+            ("v3", "workflows", HELP_SCOUT_API_BASE),
+        ],
+    )
+    def test_request_url_follows_the_pinned_version(self, api_version: str, endpoint: str, base: str) -> None:
+        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+            urls, _params = _wire(
+                MockSession.return_value, [_response(HELP_SCOUT_ENDPOINTS[endpoint].embedded_key, [])]
+            )
+            _rows(_source(endpoint, _manager(), api_version=api_version))
+
+        assert urls[0] == f"{base}/{endpoint}"
+
+    def test_unknown_version_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported Help Scout API version"):
+            _source("conversations", _manager(), api_version="v9")
 
 
 class TestTopLevelPagination:
@@ -266,6 +305,36 @@ class TestIncrementalParams:
 
         assert params[0]["modifiedSince"] == "2024-06-01T00:00:00Z"
 
+    @pytest.mark.parametrize("endpoint", ["conversations", "customers"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v3_incremental_sends_only_modified_since(self, MockSession, endpoint) -> None:
+        session = MockSession.return_value
+        _, params = _wire(session, [_response(endpoint, [])])
+
+        _rows(
+            _source(
+                endpoint,
+                _manager(),
+                api_version="v3",
+                should_use_incremental_field=True,
+                incremental_field="modifiedAt",
+                db_incremental_field_last_value="2024-01-01T00:00:00Z",
+            )
+        )
+
+        assert params[0] == {"modifiedSince": "2024-01-01T00:00:00Z"}
+
+    @pytest.mark.parametrize("endpoint", ["conversations", "customers"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v3_full_refresh_sends_no_sort_params(self, MockSession, endpoint) -> None:
+        # v3 rejects sortField/sortOrder with a 400, so the v2 full-refresh sort must not leak in.
+        session = MockSession.return_value
+        _, params = _wire(session, [_response(endpoint, [])])
+
+        _rows(_source(endpoint, _manager(), api_version="v3"))
+
+        assert params[0] == {}
+
     @pytest.mark.parametrize("endpoint", ["mailboxes", "users", "tags", "workflows"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_endpoints_without_sort_support_send_no_extra_params(self, MockSession, endpoint) -> None:
@@ -316,14 +385,15 @@ class TestThreadsFanout:
     def _build(self, **kwargs: Any) -> tuple[_FakeResource, list[Any]]:
         child = _FakeResource("threads")
         with mock.patch(FANOUT_RESOURCES_PATCH, return_value=[_FakeResource("conversations"), child]) as mocked:
-            helpscout_source(
-                "token", "threads", team_id=1, job_id="job-1", resumable_source_manager=_manager(), **kwargs
-            )
+            _source("threads", _manager(), **kwargs)
         return child, mocked.call_args[0]
 
-    def test_parent_and_child_endpoints(self) -> None:
-        _, args = self._build()
+    @pytest.mark.parametrize("api_version,base", [("v2", HELP_SCOUT_API_BASE), ("v3", HELP_SCOUT_API_BASE_V3)])
+    def test_parent_and_child_endpoints(self, api_version: str, base: str) -> None:
+        _, args = self._build(api_version=api_version)
         parent, child = args[0]["resources"]
+
+        assert args[0]["client"]["base_url"] == base
 
         assert parent["endpoint"]["path"] == "/conversations"
         assert child["endpoint"]["path"] == "/conversations/{conversation_id}/threads"
@@ -350,7 +420,7 @@ class TestThreadsFanout:
         child = _FakeResource("threads")
 
         with mock.patch(FANOUT_RESOURCES_PATCH, return_value=[_FakeResource("conversations"), child]) as mocked:
-            helpscout_source("token", "threads", team_id=1, job_id="job-1", resumable_source_manager=manager)
+            _source("threads", manager)
 
         assert mocked.call_args.kwargs["initial_paginator_state"] == state
 
@@ -359,7 +429,7 @@ class TestThreadsFanout:
         child = _FakeResource("threads")
 
         with mock.patch(FANOUT_RESOURCES_PATCH, return_value=[_FakeResource("conversations"), child]) as mocked:
-            helpscout_source("token", "threads", team_id=1, job_id="job-1", resumable_source_manager=manager)
+            _source("threads", manager)
             resume_hook = mocked.call_args.kwargs["resume_hook"]
             resume_hook({"completed": ["/conversations/1/threads"], "current": None, "child_state": None})
 
@@ -369,17 +439,27 @@ class TestThreadsFanout:
 
 
 class TestSourceResponseShape:
+    @pytest.mark.parametrize(
+        "api_version,desc_endpoints",
+        [
+            ("v2", {}),
+            # v3 lists are newest-first, not ordered by the modifiedAt watermark.
+            ("v3", {"conversations": "desc", "customers": "desc"}),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_top_level_endpoint(self, _MockSession) -> None:
+    def test_response_metadata_per_top_level_endpoint(
+        self, _MockSession, api_version: str, desc_endpoints: dict[str, str]
+    ) -> None:
         for endpoint in ENDPOINTS:
             if endpoint == "threads":
                 continue
             config = HELP_SCOUT_ENDPOINTS[endpoint]
-            response = _source(endpoint, _manager())
+            response = _source(endpoint, _manager(), api_version=api_version)
 
             assert response.name == endpoint
             assert response.primary_keys == config.primary_key
-            assert response.sort_mode == "asc"
+            assert response.sort_mode == desc_endpoints.get(endpoint, "asc")
             assert response.partition_mode == "datetime"
             assert response.partition_keys == ["createdAt"]
 
@@ -397,7 +477,7 @@ class TestValidateCredentials:
     def test_source_create_probes_users_me(self, helpscout_session) -> None:
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        ok, error = validate_credentials("token", schema_name=None)
+        ok, error = validate_credentials("token", "v2", schema_name=None)
 
         assert ok is True
         assert error is None
@@ -409,17 +489,17 @@ class TestValidateCredentials:
         # (e.g. a conversation subject), so neither must land in HTTP sample capture.
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        validate_credentials("token", schema_name=None)
+        validate_credentials("token", "v2", schema_name=None)
         assert helpscout_session.call_args.kwargs["capture"] is False
 
-        validate_credentials("token", schema_name="mailboxes")
+        validate_credentials("token", "v2", schema_name="mailboxes")
         assert helpscout_session.call_args.kwargs["capture"] is False
 
     @mock.patch(HELPSCOUT_SESSION_PATCH)
     def test_revoked_token_fails_at_source_create(self, helpscout_session) -> None:
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=401)
 
-        ok, error = validate_credentials("token", schema_name=None)
+        ok, error = validate_credentials("token", "v2", schema_name=None)
 
         assert ok is False
         assert error is not None
@@ -428,7 +508,7 @@ class TestValidateCredentials:
     def test_schema_probe_success(self, helpscout_session) -> None:
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        ok, error = validate_credentials("token", schema_name="mailboxes")
+        ok, error = validate_credentials("token", "v2", schema_name="mailboxes")
 
         assert ok is True
         assert error is None
@@ -437,7 +517,7 @@ class TestValidateCredentials:
     def test_schema_probe_401_reports_auth_error(self, helpscout_session) -> None:
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=401)
 
-        ok, error = validate_credentials("token", schema_name="mailboxes")
+        ok, error = validate_credentials("token", "v2", schema_name="mailboxes")
 
         assert ok is False
         assert error is not None and "authentication failed" in error
@@ -446,18 +526,29 @@ class TestValidateCredentials:
     def test_unknown_schema_fails_without_probing(self, helpscout_session) -> None:
         helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        ok, error = validate_credentials("token", schema_name="not_a_table")
+        ok, error = validate_credentials("token", "v2", schema_name="not_a_table")
 
         assert ok is False
         assert error == "Unknown Help Scout table 'not_a_table'"
         helpscout_session.return_value.get.assert_not_called()
 
-    @mock.patch(HELPSCOUT_SESSION_PATCH)
-    def test_threads_probe_uses_conversations_endpoint(self, helpscout_session) -> None:
-        helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    @pytest.mark.parametrize(
+        "api_version,schema_name,expected_url",
+        [
+            ("v2", "threads", f"{HELP_SCOUT_API_BASE}/conversations"),
+            ("v3", "threads", f"{HELP_SCOUT_API_BASE_V3}/conversations"),
+            ("v3", "customers", f"{HELP_SCOUT_API_BASE_V3}/customers"),
+            ("v3", "mailboxes", f"{HELP_SCOUT_API_BASE}/mailboxes"),
+            ("v3", None, f"{HELP_SCOUT_API_BASE}/users/me"),
+        ],
+    )
+    def test_probe_url_follows_the_pinned_version(
+        self, api_version: str, schema_name: str | None, expected_url: str
+    ) -> None:
+        with mock.patch(HELPSCOUT_SESSION_PATCH) as helpscout_session:
+            helpscout_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        ok, _error = validate_credentials("token", schema_name="threads")
+            ok, _error = validate_credentials("token", api_version, schema_name=schema_name)
 
         assert ok is True
-        probed_url = helpscout_session.return_value.get.call_args.args[0]
-        assert probed_url == f"{HELP_SCOUT_API_BASE}/conversations"
+        assert helpscout_session.return_value.get.call_args.args[0] == expected_url

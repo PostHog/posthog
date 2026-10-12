@@ -19,7 +19,7 @@ from ..facade.contracts import CreateRunInput
 from ..facade.enums import RunStatus, SnapshotResult
 from ..models import Repo, Run, RunSnapshot, ToleratedHash
 from ..storage import ArtifactStorage
-from . import artifact_store, baselines, ci_status, errors, gating, repos, run_queries, uploads
+from . import artifact_store, baselines, ci_status, errors, gating, quarantine_lifts, repos, run_queries, uploads
 
 logger = structlog.get_logger(__name__)
 
@@ -395,8 +395,28 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     run.save(update_fields=["status", "error_message", "completed_at", *gating.COUNT_FIELDS])
 
     gating._post_status(run, snapshots)
+    _enqueue_quarantine_lift_check(run)
 
     return run
+
+
+def _enqueue_quarantine_lift_check(run: Run) -> None:
+    """Hand a completed full run to the task that applies pending lift requests.
+
+    Only a run without a pull request can prove a merge landed, and only a full run renders every
+    story. The task decides whether the run is on the default branch, because that needs GitHub.
+    A failure here must never fail the run: the next default-branch run checks again.
+    """
+    if run.is_partial or run.pr_number is not None:
+        return
+    try:
+        if not quarantine_lifts.has_pending_lift_requests(run.repo_id, run.team_id, run.run_type):
+            return
+        from ..tasks.tasks import reconcile_quarantine_lifts  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+        reconcile_quarantine_lifts.delay(run.team_id, str(run.id))
+    except Exception:
+        logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
 def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:

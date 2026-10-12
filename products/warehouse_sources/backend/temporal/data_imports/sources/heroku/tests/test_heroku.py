@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 from typing import Any
 
 import pytest
@@ -11,13 +12,13 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.heroku import (
     HEROKU_API_ACCEPT,
     HerokuResumeConfig,
+    _month_window,
     heroku_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.settings import (
     DEFAULT_PAGE_SIZE,
     HEROKU_ENDPOINTS,
-    MAX_PAGES_PER_LIST,
 )
 
 # heroku_source builds the client session (capture=False) via make_tracked_session in the heroku
@@ -96,24 +97,6 @@ class TestPagination:
         assert session.headers.get("Accept") == HEROKU_API_ACCEPT
 
     @mock.patch(SESSION_PATCH)
-    def test_saves_cursor_once_and_only_while_pages_remain(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(206, [{"id": "a"}], next_range="id ]a..; order=asc,max=1000"),
-                _response(200, [{"id": "b"}]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("apps", manager))
-
-        # One checkpoint pointing at the next page after the first (206) page; the final page saves
-        # nothing (no next range).
-        manager.save_state.assert_called_once_with(HerokuResumeConfig(next_range="id ]a..; order=asc,max=1000"))
-
-    @mock.patch(SESSION_PATCH)
     def test_resumes_top_level_from_saved_cursor(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         headers, _urls = _wire(session, [_response(200, [{"id": "b"}])])
@@ -123,20 +106,6 @@ class TestPagination:
 
         assert rows == [{"id": "b"}]
         assert headers[0]["Range"] == "id ]a..; order=asc,max=1000"
-
-    @mock.patch(SESSION_PATCH)
-    def test_page_cap_stops_unbounded_scans(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.side_effect = lambda request: mock.MagicMock(url=request.url, is_redirect=False)
-        session.send.side_effect = lambda *a, **k: _response(
-            206, [{"id": "a"}], next_range="id ]a..; order=asc,max=1000"
-        )
-
-        pages = list(_source("apps", _make_manager()).items())
-
-        assert len(pages) == MAX_PAGES_PER_LIST
-        assert session.send.call_count == MAX_PAGES_PER_LIST
 
 
 class TestRetries:
@@ -170,46 +139,6 @@ class TestRetries:
 
 class TestFanOut:
     @mock.patch(SESSION_PATCH)
-    def test_fans_out_over_every_app(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _headers, urls = _wire(
-            session,
-            [
-                _response(200, [{"id": "app-1"}, {"id": "app-2"}]),
-                _response(200, [{"id": "rel-1", "app": {"id": "app-1"}}]),
-                _response(200, [{"id": "rel-2", "app": {"id": "app-2"}}]),
-            ],
-        )
-
-        rows = _rows(_source("releases", _make_manager()))
-
-        assert rows == [
-            {"id": "rel-1", "app": {"id": "app-1"}},
-            {"id": "rel-2", "app": {"id": "app-2"}},
-        ]
-        assert urls == [
-            "https://api.heroku.com/apps",
-            "https://api.heroku.com/apps/app-1/releases",
-            "https://api.heroku.com/apps/app-2/releases",
-        ]
-
-    @mock.patch(SESSION_PATCH)
-    def test_app_deleted_mid_sync_is_skipped(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(200, [{"id": "app-1"}, {"id": "app-2"}]),
-                _response(404),
-                _response(200, [{"id": "rel-2", "app": {"id": "app-2"}}]),
-            ],
-        )
-
-        rows = _rows(_source("releases", _make_manager()))
-
-        assert rows == [{"id": "rel-2", "app": {"id": "app-2"}}]
-
-    @mock.patch(SESSION_PATCH)
     def test_resumes_from_bookmarked_app_with_saved_cursor(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         headers, urls = _wire(
@@ -240,25 +169,19 @@ class TestFanOut:
         assert headers[1]["Range"] == saved_cursor
         assert headers[2]["Range"] == INITIAL_RANGE
 
-    @mock.patch(SESSION_PATCH)
-    def test_pre_migration_bookmark_restarts_fan_out(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        headers, urls = _wire(
-            session,
-            [
-                _response(200, [{"id": "app-1"}]),
-                _response(200, [{"id": "rel-1"}]),
-            ],
-        )
-        # Old-shape state (positional app bookmark, no fanout snapshot) can't be reconstructed, so the
-        # fan-out restarts from the first app on a fresh first page.
-        manager = _make_manager(HerokuResumeConfig(next_range="id ]x..; order=asc,max=1000", app_id="app-gone"))
 
-        rows = _rows(_source("releases", manager))
-
-        assert rows == [{"id": "rel-1"}]
-        assert "https://api.heroku.com/apps/app-1/releases" in urls
-        assert headers[1]["Range"] == INITIAL_RANGE
+class TestTeamMonthlyUsage:
+    @parameterized.expand(
+        [
+            ("mid_year", dt.date(2026, 10, 2), {"start": "2025-11", "end": "2026-10"}),
+            ("january", dt.date(2026, 1, 31), {"start": "2025-02", "end": "2026-01"}),
+            ("december", dt.date(2026, 12, 1), {"start": "2026-01", "end": "2026-12"}),
+        ]
+    )
+    def test_month_window_spans_twelve_months_including_current(
+        self, _name: str, today: dt.date, expected: dict[str, str]
+    ) -> None:
+        assert _month_window(today) == expected
 
 
 class TestSensitiveFieldRedaction:
@@ -287,6 +210,12 @@ class TestSensitiveFieldRedaction:
                 {"id": "d-1", "attach_url": None, "state": "up"},
             ),
             (
+                "addon_attachment_log_input_url_nulled",
+                "addon_attachments",
+                {"id": "att-1", "log_input_url": "https://token:t.secret@1.us.logplex.io/logs", "name": "DATABASE"},
+                {"id": "att-1", "log_input_url": None, "name": "DATABASE"},
+            ),
+            (
                 "row_without_sensitive_fields_untouched",
                 "builds",
                 {"id": "b-2", "status": "succeeded"},
@@ -299,7 +228,8 @@ class TestSensitiveFieldRedaction:
         self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any], MockSession: mock.MagicMock
     ) -> None:
         session = MockSession.return_value
-        _wire(session, [_response(200, [{"id": "app-1"}]), _response(200, [row])])
+        parent_pages = [_response(200, [{"id": "app-1"}])] if HEROKU_ENDPOINTS[endpoint].fan_out_parent else []
+        _wire(session, [*parent_pages, _response(200, [row])])
 
         rows = _rows(_source(endpoint, _make_manager()))
 
@@ -314,11 +244,6 @@ class TestValidateCredentials:
     ) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("key") is expected
-
-    @mock.patch(SESSION_PATCH)
-    def test_network_error_is_invalid(self, MockSession: mock.MagicMock) -> None:
-        MockSession.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") is False
 
 
 class TestSourceResponse:

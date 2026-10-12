@@ -10,7 +10,9 @@ The multivariate `vision-watch-feed-ranker` flag selects one of two independent 
 Jev, the shared decision model behind the ml_inference facade, judges each observation once, in
 company: one request carries a chunk of observations as the state and one yes/no question per
 observation, with already-judged rows padding a short chunk as context, so every judgment sees the
-scanner's own recent sessions rather than standing alone. The hourly Temporal sweep
+scanner's own recent sessions rather than standing alone. A second request over the same state asks
+one multiple-choice question per watchable row, so the feed can say why Jev picked it
+(`JevWatchReason`). The hourly Temporal sweep
 (`temporal/jev_watch_rank/`) judges only the rows without a cached probability and merges the
 results into a Redis cache, so coverage accumulates across sweeps at a bounded hourly cost whatever
 the scanner's volume. The cache exists because the feed API is synchronous over up to 1,000 rows
@@ -27,8 +29,9 @@ from time import perf_counter
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from django.conf import settings
+from django.db import models
 
+import redis
 import structlog
 from prometheus_client import Counter, Histogram
 
@@ -40,6 +43,7 @@ from posthog.redis import get_client
 from products.ml_inference.backend.facade import api as decision_api
 from products.ml_inference.backend.facade.contracts import (
     MAX_QUESTIONS_PER_REQUEST,
+    ChoiceAnswer,
     DecisionGatewayError,
     DecisionQuestion,
     DecisionRequest,
@@ -69,6 +73,9 @@ JEV_TIMEOUT_SECONDS = 30.0
 # wrongly not charging re-buys one batch next sweep. Auth and routing refusals, rate limits, server
 # errors, contract breaks reported as 200, and unknown statuses all retry free.
 _BATCH_FAULT_STATUSES = frozenset({400, 413, 422})
+# The gateway's rate limit. Every product's Jev calls share that limit, so a sweep that keeps
+# sending after it would take capacity from features people are waiting on.
+_RATE_LIMITED_STATUS = 429
 # How far a viewed row drops on the 0-1 probability scale, the same intent as WATCH_SEEN_PENALTY in
 # the weighted ranker: an unviewed peer with comparable evidence comes first, and a very strong seen
 # row still holds its place above weak unseen rows.
@@ -124,6 +131,64 @@ _WINDOW_INSTRUCTIONS = (
     "worth watching; only what the recorded user experienced counts."
 )
 
+
+class JevWatchReason(models.TextChoices):
+    """Why Jev rated a session worth watching, picked from a fixed list. The frontend maps each value to
+    the sentence on the row, so a wording change needs no re-judging."""
+
+    VISIBLE_ERROR = "visible_error", "Error on screen"
+    SILENT_FAILURE = "silent_failure", "Action silently failed"
+    UNRESPONSIVE = "unresponsive", "Clicks went nowhere"
+    SLOW_OR_STUCK = "slow_or_stuck", "Slow or stuck"
+    BLOCKED = "blocked", "Blocked"
+    CANT_FIND = "cant_find", "Couldn't find it"
+    CONFUSED = "confused", "Confused"
+    WORKAROUND = "workaround", "Took a workaround"
+    ABANDONED = "abandoned", "Gave up"
+    CHURN_SIGNAL = "churn_signal", "Churn signal"
+    SUCCESS = "success", "Worked well"
+
+
+# Jev picks this option when no reason fits. It never reaches the cache, so the row shows no reason.
+_NO_WATCH_REASON = "nothing_notable"
+_WATCH_REASON_CRITERIA: dict[str, str] = {
+    JevWatchReason.VISIBLE_ERROR.value: "An error message, toast, crash, or failed request is shown to the user.",
+    JevWatchReason.SILENT_FAILURE.value: (
+        "Something the user did did not take effect and nothing told them, such as a save that did not stick "
+        "or an action they had to repeat."
+    ),
+    JevWatchReason.UNRESPONSIVE.value: "Dead clicks or rage clicks: the user clicks something that does not respond.",
+    JevWatchReason.SLOW_OR_STUCK.value: "Long loading, spinners, timeouts, or a screen stuck in one state.",
+    JevWatchReason.BLOCKED.value: (
+        "A hard stop the user cannot get past: access denied, a limit reached, a 404 or dead end, or a feature "
+        "that is not available."
+    ),
+    JevWatchReason.CANT_FIND.value: (
+        "Repeated searching or navigating without finding what the user needs, or empty results."
+    ),
+    JevWatchReason.CONFUSED.value: (
+        "Hesitation, backtracking, trial and error, or misunderstanding how something works."
+    ),
+    JevWatchReason.WORKAROUND.value: (
+        "The user gave up on the intended path and reached the goal another way, such as SQL instead of the UI "
+        "or asking support."
+    ),
+    JevWatchReason.ABANDONED.value: "The user left a task, form, or setup unfinished.",
+    JevWatchReason.CHURN_SIGNAL.value: (
+        "Cancelling, downgrading, asking for a refund, deleting a project, or contacting support in frustration."
+    ),
+    JevWatchReason.SUCCESS.value: ("A smooth, notable success: the user used a feature as intended to reach a goal."),
+    _NO_WATCH_REASON: "A routine session. None of the other reasons fits.",
+}
+# Same rule as _WINDOW_INSTRUCTIONS: user text stays in the state, referred to by id only.
+_REASON_INSTRUCTIONS = (
+    "The state holds recent AI scans of recorded product sessions, all from one scanner, keyed by "
+    "id. The session behind the scan with id {index} was judged worth watching. Pick the one reason "
+    "a product team would most want to watch it for. When several reasons apply, pick the most "
+    "severe one. Use the other scans in the state only as context. Judge only what the recorded "
+    "user experienced."
+)
+
 _CALLS = Counter(
     "replay_vision_jev_watch_rank_calls",
     "Jev watch rank chunk requests by outcome.",
@@ -144,21 +209,39 @@ _ESTIMATED_COST = Counter(
 )
 
 
-def watch_feed_ranker(team_id: int) -> RankerMode:
-    """The team's arm of the watch feed ranker experiment. Any flag failure reads as the default
-    arm, so the sweep and the feed never fail on flag evaluation."""
+def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None:
+    """The team's variant of the ranker flag, or None when the team takes no part in the experiment.
+
+    Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
+    them. A region without the decision service has no sweep to fill the cache, so its teams take
+    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
+    if not decision_api.decisions_available_here():
+        return None
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
+        # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
+        # and matches on the group below.
         f"team-{team_id}",
-        groups={"project": str(team_id)},
-        group_properties={"project": {"id": team_id}},
+        groups={"project": str(team_uuid)},
+        group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    if value == "jev-shadow":
+    return value if isinstance(value, str) else None
+
+
+def ranker_mode(variant: str | None) -> RankerMode:
+    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    if variant == "jev-shadow":
         return "jev-shadow"
-    if value == "jev":
+    if variant == "jev":
         return "jev"
     return "weighted-score"
+
+
+def watch_feed_ranker(team_id: int, team_uuid: UUID | str) -> RankerMode:
+    """The team's arm of the watch feed ranker experiment. Any flag failure reads as the default
+    arm, so the sweep and the feed never fail on flag evaluation."""
+    return ranker_mode(watch_feed_ranker_variant(team_id, team_uuid))
 
 
 @frozen
@@ -166,6 +249,10 @@ class WindowJudgment:
     """Jev's judgment of one batch of observations: a probability per observation id (as a string)."""
 
     probabilities: dict[str, float]
+    # The JevWatchReason value Jev picked for each watchable row. A row without a fitting reason, or
+    # from a chunk whose reason request failed, is absent; the row still ranks on its probability.
+    reasons: dict[str, str]
+    failed_reason_chunks: int
     # Rows with no prose to judge. The sweep records these as judged, so they settle into the
     # filler tier once instead of being refetched every sweep; a failed chunk's rows are absent
     # from `probabilities` and retry next sweep.
@@ -182,8 +269,15 @@ class WindowJudgment:
     # breakdown, but prod workers do not ship their metrics into the product; the sweep's
     # judged event does, so a failing sweep names its error without log or cluster access.
     chunk_error_types: dict[str, int]
+    # The gateway rate-limited a request, so the window stopped there. The rows it did not reach
+    # retry free on the next sweep.
+    rate_limited: bool
     input_tokens: int
     estimated_cost_usd: float
+
+
+def _is_rate_limited(error: Exception) -> bool:
+    return isinstance(error, DecisionGatewayError) and error.status_code == _RATE_LIMITED_STATUS
 
 
 def _window_entry(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -221,24 +315,19 @@ def _window_entry(row: dict[str, Any]) -> dict[str, Any] | None:
     return entry
 
 
-def _judge_chunk(
+def _decide(
     team_id: int,
     trace_id: str,
     chunk: list[tuple[str, dict[str, Any]]],
     context: list[dict[str, Any]],
-) -> tuple[dict[str, float], Any]:
-    """One request: questions about `chunk`, with `context` entries in the state as extra siblings.
-    Context pads a small chunk (a quiet hour adds only a few new rows) so its judgments still see
-    what routine looks like for this scanner."""
+    questions: dict[str, DecisionQuestion],
+) -> Any:
+    """One request over `chunk`, with `context` entries in the state as extra siblings. Context pads a
+    small chunk (a quiet hour adds only a few new rows) so its answers still see what routine looks
+    like for this scanner."""
     entries = [entry for _, entry in chunk] + context
     state: JsonValue = {"observations": {str(index): entry for index, entry in enumerate(entries)}}
-    questions = {
-        f"watch_{index}": DecisionQuestion(
-            type=DecisionQuestionType.NOUL, instructions=_WINDOW_INSTRUCTIONS.format(index=index)
-        )
-        for index in range(len(chunk))
-    }
-    result = decision_api.decide_when_available(
+    return decision_api.decide_when_available(
         DecisionRequest(
             team_id=team_id,
             state=state,
@@ -252,6 +341,22 @@ def _judge_chunk(
         ),
         timeout_seconds=JEV_TIMEOUT_SECONDS,
     )
+
+
+def _judge_chunk(
+    team_id: int,
+    trace_id: str,
+    chunk: list[tuple[str, dict[str, Any]]],
+    context: list[dict[str, Any]],
+) -> tuple[dict[str, float], Any]:
+    """One yes/no question per observation in `chunk`: is the session worth watching."""
+    questions = {
+        f"watch_{index}": DecisionQuestion(
+            type=DecisionQuestionType.NOUL, instructions=_WINDOW_INSTRUCTIONS.format(index=index)
+        )
+        for index in range(len(chunk))
+    }
+    result = _decide(team_id, trace_id, chunk, context, questions)
     probabilities: dict[str, float] = {}
     for index, (observation_id, _) in enumerate(chunk):
         answer = result.answers.get(f"watch_{index}")
@@ -263,6 +368,36 @@ def _judge_chunk(
             raise ValueError("Jev returned an invalid watchability probability")
         probabilities[observation_id] = answer.probability
     return probabilities, result
+
+
+def _pick_watch_reasons(
+    team_id: int,
+    trace_id: str,
+    chunk: list[tuple[str, dict[str, Any]]],
+    context: list[dict[str, Any]],
+    watchable_ids: set[str],
+) -> tuple[dict[str, str], Any]:
+    """One multiple-choice question per watchable observation in `chunk`: why it is worth watching.
+
+    Asked only for watchable rows, because the feed shows a reason only on them. The state is the
+    same as the yes/no request's, so the pick sees the same context. An answer outside the list, or
+    no fitting reason, leaves the row without one instead of failing the chunk."""
+    indexes = [index for index, (observation_id, _) in enumerate(chunk) if observation_id in watchable_ids]
+    questions = {
+        f"reason_{index}": DecisionQuestion(
+            type=DecisionQuestionType.CHOICE,
+            instructions=_REASON_INSTRUCTIONS.format(index=index),
+            criteria=_WATCH_REASON_CRITERIA,
+        )
+        for index in indexes
+    }
+    result = _decide(team_id, trace_id, chunk, context, questions)
+    reasons: dict[str, str] = {}
+    for index in indexes:
+        answer = result.answers.get(f"reason_{index}")
+        if isinstance(answer, ChoiceAnswer) and answer.choice in JevWatchReason.values:
+            reasons[chunk[index][0]] = answer.choice
+    return reasons, result
 
 
 def judge_scanner_window(
@@ -284,19 +419,30 @@ def judge_scanner_window(
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
     probabilities: dict[str, float] = {}
+    reasons: dict[str, str] = {}
     batch_failed_ids: list[str] = []
     model: str | None = None
     failed_chunks = 0
+    failed_reason_chunks = 0
     chunk_error_types: dict[str, int] = {}
+    rate_limited = False
     input_tokens = 0
     estimated_cost = 0.0
+
+    def charge(result: Any) -> None:
+        nonlocal input_tokens, estimated_cost
+        input_tokens += result.input_tokens
+        chunk_cost = result.input_tokens * JEV_INPUT_USD_PER_MILLION / 1_000_000
+        estimated_cost += chunk_cost
+        _INPUT_TOKENS.inc(result.input_tokens)
+        _ESTIMATED_COST.inc(chunk_cost)
+
     for chunk in chunks:
+        # The state holds at most WINDOW_CHUNK_SIZE entries, so context only pads short chunks.
+        chunk_context = context[: WINDOW_CHUNK_SIZE - len(chunk)]
         started = perf_counter()
         try:
-            # The state holds at most WINDOW_CHUNK_SIZE entries, so context only pads short chunks.
-            chunk_probabilities, result = _judge_chunk(
-                team_id, trace_id, chunk, context[: WINDOW_CHUNK_SIZE - len(chunk)]
-            )
+            chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
             error_type = type(error).__name__
@@ -319,24 +465,52 @@ def judge_scanner_window(
                 scanner_id=str(scanner_id),
                 error_type=error_type,
             )
+            if _is_rate_limited(error):
+                rate_limited = True
+                break
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("ok").inc()
         probabilities.update(chunk_probabilities)
         model = result.model
-        input_tokens += result.input_tokens
-        chunk_cost = result.input_tokens * JEV_INPUT_USD_PER_MILLION / 1_000_000
-        estimated_cost += chunk_cost
-        _INPUT_TOKENS.inc(result.input_tokens)
-        _ESTIMATED_COST.inc(chunk_cost)
+        charge(result)
+        watchable_ids = {oid for oid, probability in chunk_probabilities.items() if probability >= JEV_WATCHABLE_MIN}
+        if not watchable_ids:
+            continue
+        started = perf_counter()
+        try:
+            chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)
+        except Exception as error:
+            # A reason only labels the row, so a failed pick keeps the chunk's probabilities and is
+            # not retried: the rows are judged, and the feed shows them without a reason.
+            _LATENCY.observe(perf_counter() - started)
+            _CALLS.labels(f"reason_{type(error).__name__}").inc()
+            failed_reason_chunks += 1
+            logger.warning(
+                "Jev watch reason chunk failed",
+                team_id=team_id,
+                scanner_id=str(scanner_id),
+                error_type=type(error).__name__,
+            )
+            if _is_rate_limited(error):
+                rate_limited = True
+                break
+            continue
+        _LATENCY.observe(perf_counter() - started)
+        _CALLS.labels("reason_ok").inc()
+        reasons.update(chunk_reasons)
+        charge(reason_result)
     return WindowJudgment(
         probabilities=probabilities,
+        reasons=reasons,
+        failed_reason_chunks=failed_reason_chunks,
         skipped_no_prose=skipped_no_prose,
         batch_failed_ids=tuple(batch_failed_ids),
         model=model,
         chunks=len(chunks),
         failed_chunks=failed_chunks,
         chunk_error_types=chunk_error_types,
+        rate_limited=rate_limited,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
     )
@@ -354,8 +528,16 @@ def _judged_key(team_id: int, scanner_id: UUID | str) -> str:
     return f"{_WATCH_RANK_REDIS_PREFIX}judged:{team_id}:{scanner_id}"
 
 
+# The sweep worker writes this cache and the feed API on the web fleet reads it, so it lives on
+# the shared Redis, like the enqueue claims. The dedicated replay-vision Redis
+# (REPLAY_VISION_REDIS_URL) is mounted only on the replay-vision temporal workers, so a key
+# written there never reaches the feed.
+def _watch_rank_client() -> redis.Redis:
+    return get_client()
+
+
 def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
-    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client = _watch_rank_client()
     client.expire(_watchable_key(team_id, scanner_id), WATCH_RANK_TTL)
     client.expire(_judged_key(team_id, scanner_id), WATCH_RANK_TTL)
 
@@ -367,8 +549,9 @@ def store_watch_ranks(
     watchable: dict[str, float],
     attempts: dict[str, int],
     model: str | None,
+    reasons: dict[str, str] | None = None,
 ) -> None:
-    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client = _watch_rank_client()
     client.setex(
         _watchable_key(team_id, scanner_id),
         WATCH_RANK_TTL,
@@ -377,6 +560,7 @@ def store_watch_ranks(
                 "model": model,
                 "judged_at": datetime.now(UTC).isoformat(),
                 "probabilities": watchable,
+                "reasons": {oid: reason for oid, reason in (reasons or {}).items() if oid in watchable},
             }
         ),
     )
@@ -407,7 +591,7 @@ def load_judged_state(team_id: int, scanner_id: UUID) -> JudgedState:
     re-buys the scanner's judgments and its next write replaces entries it never saw. A stored
     value that cannot be parsed reads as empty instead, because rewriting it loses nothing.
     """
-    value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
+    value = _watch_rank_client().get(_judged_key(team_id, scanner_id))
     if not value:
         return JudgedState(ids=set(), attempts={})
     try:
@@ -431,48 +615,71 @@ def load_judged_state(team_id: int, scanner_id: UUID) -> JudgedState:
     )
 
 
-def _parse_watchable(value: Any) -> dict[str, float]:
+@frozen
+class WatchRanks:
+    """Cached Jev judgments for one or more scanners, keyed by observation id: the watchable
+    probabilities, and the JevWatchReason value for each watchable row that has one."""
+
+    probabilities: dict[str, float]
+    reasons: dict[str, str]
+
+
+def _parse_watchable(value: Any) -> WatchRanks:
     if not value:
-        return {}
+        return WatchRanks(probabilities={}, reasons={})
     try:
-        stored = json.loads(value).get("probabilities")
+        stored = json.loads(value)
     except Exception:
         logger.exception("Jev watch rank cache value malformed")
-        return {}
-    if not isinstance(stored, dict):
-        return {}
+        return WatchRanks(probabilities={}, reasons={})
+    stored_probabilities = stored.get("probabilities") if isinstance(stored, dict) else None
+    if not isinstance(stored_probabilities, dict):
+        return WatchRanks(probabilities={}, reasons={})
     probabilities: dict[str, float] = {}
-    for observation_id, probability in stored.items():
+    for observation_id, probability in stored_probabilities.items():
         # Clamped like the weighted ranker clamps notability, because a cache can carry anything
         # (and bool is an int subclass).
         if isinstance(probability, int | float) and not isinstance(probability, bool):
             probabilities[str(observation_id)] = min(1.0, max(0.0, float(probability)))
-    return probabilities
+    # Entries written before reasons shipped carry none, and a value outside the list never reaches
+    # the API, whose enum would reject it.
+    stored_reasons = stored.get("reasons")
+    reasons = (
+        {
+            str(observation_id): reason
+            for observation_id, reason in stored_reasons.items()
+            if str(observation_id) in probabilities and reason in JevWatchReason.values
+        }
+        if isinstance(stored_reasons, dict)
+        else {}
+    )
+    return WatchRanks(probabilities=probabilities, reasons=reasons)
 
 
-def load_scanner_watch_ranks(team_id: int, scanner_id: UUID) -> dict[str, float]:
+def load_scanner_watch_ranks(team_id: int, scanner_id: UUID) -> WatchRanks:
     """The sweep's read of one scanner's watchable map. Raises on a Redis read failure, because the
     sweep merges what it loads back into the store, so writing over a map it never saw drops
     entries. The feed reads through `load_watch_ranks`, which fails soft instead."""
-    return _parse_watchable(get_client(settings.REPLAY_VISION_REDIS_URL).get(_watchable_key(team_id, scanner_id)))
+    return _parse_watchable(_watch_rank_client().get(_watchable_key(team_id, scanner_id)))
 
 
-def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
-    """The cached watchable probabilities for these scanners, keyed by observation id. Fail-soft:
-    any malformed, missing, or unreachable cache entry contributes nothing, so the Jev feed degrades
-    to the recency filler tier rather than failing the request."""
-    if not scanner_ids:
-        return {}
+def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> WatchRanks:
+    """The cached watchable probabilities and reasons for these scanners. Fail-soft: any malformed,
+    missing, or unreachable cache entry contributes nothing, so the Jev feed degrades to the recency
+    filler tier rather than failing the request."""
     probabilities: dict[str, float] = {}
+    reasons: dict[str, str] = {}
+    if not scanner_ids:
+        return WatchRanks(probabilities=probabilities, reasons=reasons)
     try:
-        values = get_client(settings.REPLAY_VISION_REDIS_URL).mget(
-            [_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids]
-        )
+        values = _watch_rank_client().mget([_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids])
         for value in values:
-            probabilities |= _parse_watchable(value)
+            ranks = _parse_watchable(value)
+            probabilities |= ranks.probabilities
+            reasons |= ranks.reasons
     except Exception:
         logger.exception("Jev watch rank cache read failed", team_id=team_id)
-    return probabilities
+    return WatchRanks(probabilities=probabilities, reasons=reasons)
 
 
 def _scan_notability_reason(row: dict[str, Any]) -> str | None:
@@ -511,7 +718,9 @@ def _spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFee
     return placed + deferred
 
 
-def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, float]) -> list[WatchFeedEntry]:
+def rank_watch_feed_by_jev(
+    rows: list[dict[str, Any]], probabilities: dict[str, float], reasons: dict[str, str] | None = None
+) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `created_at`, `scanner_result`, `feed_viewed`) on
     Jev's cached watchability alone: highest probability first, one scanner held to a share of the
     tier, viewed rows docked, newest as the tiebreak.
@@ -535,6 +744,8 @@ def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, 
             # of only that the model said so; the frontend prefers it over kind-derived copy.
             if notability_reason := _scan_notability_reason(row):
                 reason["notability_reason"] = notability_reason
+            if watch_reason := (reasons or {}).get(str(row["id"])):
+                reason["watch_reason"] = watch_reason
             entry = WatchFeedEntry(observation_id=row["id"], reason=reason)
             watchable.append(
                 (probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], row.get("scanner_id"), entry)

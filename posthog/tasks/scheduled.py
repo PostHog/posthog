@@ -76,6 +76,7 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -84,9 +85,9 @@ from products.approvals.backend.tasks import (
     sync_experiment_approval_policies,
     validate_pending_change_requests,
 )
-from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
@@ -107,7 +108,6 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
 )
-from products.growth.backend.facade.tasks import reconcile_account_audits
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
@@ -153,7 +153,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
-    poll_ses_account_reputation,
+    poll_ses_account_enforcement,
+    poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -502,9 +503,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/10"),
-        poll_ses_account_reputation.s(),
-        name="poll SES account reputation",
+        poll_ses_account_enforcement.s(),
+        name="poll SES account enforcement status",
         expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        poll_ses_reputation_findings.s(),
+        name="poll SES reputation findings",
+        expires_seconds=30 * 60,
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
@@ -1091,6 +1100,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="15"),
+        purge_deleted_tickets.s(),
+        name="purge soft-deleted conversation tickets",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

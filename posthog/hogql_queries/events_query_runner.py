@@ -17,6 +17,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryResponse,
+    HogQLQueryModifiers,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -44,13 +45,14 @@ from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.dataclasses import frozen
+from posthog.date_util import start_of_day
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TTL_DAYS
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.personhog_client.caller_tag import personhog_caller_tag
@@ -58,7 +60,7 @@ from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +89,9 @@ class EventsListTable:
     looks_up_person_display_names: bool
     # Fields that join another table. The outer presorted query leaves out filters on them.
     joined_fields: frozenset[str]
+    # The list starts no earlier than the UTC start of the day this many days back.
+    retention_days: int | None
+    cache_key_variant: str
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
@@ -98,6 +103,8 @@ EVENTS_LIST_TABLE = EventsListTable(
     person_id="person.id",
     looks_up_person_display_names=False,
     joined_fields=frozenset(),
+    retention_days=None,
+    cache_key_variant="",
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     chain=("posthog", "flag_evaluations"),
@@ -113,6 +120,12 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # the query sorts by Person and joins persons anyway.
     looks_up_person_display_names=True,
     joined_fields=EVENTS_LIST_JOINED_FIELDS,
+    # flag_evaluations drops a monthly part only after its newest row passes the TTL. Rows older than the TTL can
+    # therefore remain for up to a month. This bound ends the list at the first day that the Usage tab charts show.
+    # The TTL has already expired the rows of that day when today starts, so the list can show only part of that day.
+    # The day is empty after a TTL merge drops every part that holds it.
+    retention_days=FLAG_EVALUATIONS_TTL_DAYS,
+    cache_key_variant="_flag_evaluations",
 )
 
 
@@ -178,6 +191,11 @@ def _exact_flag_keys(prop: QueryPropertyFilter) -> list[str] | None:
     if not values or not all(isinstance(value, str) for value in values):
         return None
     return [str(value) for value in values]
+
+
+def _retention_start_expr(retention_days: int) -> ast.Expr:
+    retention_start = start_of_day(now()) - timedelta(days=retention_days)
+    return parse_expr("timestamp >= {retention_start}", {"retention_start": ast.Constant(value=retention_start)})
 
 
 def split_pagination_cursor(value: str) -> tuple[str, str | None]:
@@ -389,7 +407,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 has_any_aggregation = len(aggregations) > 0
 
             where_exprs = self._filter_where_exprs(table)
-            where_exprs.extend(self._timestamp_where_exprs())
+            where_exprs.extend(self._timestamp_where_exprs(table))
 
             # where & having
             with self.timings.measure("where"):
@@ -408,15 +426,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _event_names(self) -> list[str]:
         return [e for e in [self.query.event, *(self.query.events or [])] if e]
 
+    @cached_property
     def _list_table(self) -> EventsListTable:
         if self.query.source is not None or self.query.actionId or self.query.actionSteps:
             return EVENTS_LIST_TABLE
         if set(self._event_names()) != {FLAG_EVALUATIONS_SOURCE_EVENT}:
             return EVENTS_LIST_TABLE
-        mode = get_organization_flag_evaluations_mode(self.team.organization_id)
-        if mode != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+        if get_flag_evaluations_read_mode(self.team.organization_id) == FlagEvaluationsMode.EVENTS:
             return EVENTS_LIST_TABLE
         return FLAG_EVALUATIONS_LIST_TABLE
+
+    def get_cache_key_variant(self) -> str:
+        return super().get_cache_key_variant() + self._list_table.cache_key_variant
 
     def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
         flag_keys = _exact_flag_keys(prop) if table is FLAG_EVALUATIONS_LIST_TABLE else None
@@ -429,6 +450,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             left=ast.Field(chain=["flag_key"]),
             right=ast.Tuple(exprs=[ast.Constant(value=key) for key in flag_keys]),
         )
+
+    def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
+        # flag_evaluations rows carry no person properties, so a person filter joins persons.
+        # The pushdown limits that join to the persons that the page's flag calls reach.
+        # An explicit personIdPushdown value on the team or the query still wins.
+        if table is FLAG_EVALUATIONS_LIST_TABLE and self.modifiers.personIdPushdown is None:
+            return self.modifiers.model_copy(update={"personIdPushdown": True})
+        return self.modifiers
 
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()
@@ -523,7 +552,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             op=ast.CompareOperationOp.In,
         )
 
-    def _timestamp_where_exprs(self) -> list[ast.Expr]:
+    def _timestamp_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
         with self.timings.measure("timestamps"):
             # prevent accidentally future events from being visible by default
             before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
@@ -533,6 +562,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             after = self.query.after or "-24h"
             if after != "all":
                 exprs.append(self._timestamp_boundary_expr(after, AFTER_BOUNDARY))
+            if table.retention_days is not None:
+                exprs.append(_retention_start_expr(table.retention_days))
             return exprs
 
     def _timestamp_boundary_expr(self, cursor: str, boundary: TimestampBoundary) -> ast.Expr:
@@ -694,13 +725,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         tag_contains_user_hogql()
         # Only this path reads flag_evaluations. Callers that run to_query() in their own context keep reading
         # events. Their select or database may need columns that flag_evaluations lacks.
-        table = self._list_table()
+        table = self._list_table
+        modifiers = self._query_modifiers(table)
         query_result = self.paginator.execute_hogql_query(
             query=self._build_query(table),
             team=self.team,
             query_type="EventsQuery",
             timings=self.timings,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             limit_context=self.limit_context,
             user=self.user,
             context=self._query_context(table),
@@ -723,7 +755,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             types=[t for _, t in query_result.types] if query_result.types else [],
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             nextCursor=self._next_cursor(),
             **self.paginator.response_params(),
         )

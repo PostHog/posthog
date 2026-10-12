@@ -102,7 +102,17 @@ class FunnelQueryBuilder:
 
         if self._metric_events_job_ids and not has_dw_steps:
             inject_step_columns = False
-            step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
+            # The stored step_0 flag is date-independent (see
+            # get_funnel_metric_events_query_for_precomputation), so the experiment date range
+            # is applied here. Without it, exposures in the conversion-window tail after
+            # date_to would anchor funnels the direct scan rejects.
+            step_0_extract = (
+                "if(arrayElement(t.steps, 1) = 1"
+                " AND t.timestamp >= {metric_events_date_from}"
+                " AND t.timestamp <= {metric_events_date_to}, 1, 0) AS step_0"
+            )
+            later_step_extracts = [f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(1, num_steps)]
+            step_extracts = ", ".join([step_0_extract, *later_step_extracts])
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
 
             # Filter by experiment date range: jobs can cover broader time ranges
@@ -498,8 +508,18 @@ class FunnelQueryBuilder:
             AND {test_accounts_filter}
             AND {variant_property} IN {variants}
         """
+        # The stored step_0 flag must be date-independent: {experiment_date_to} resolves to the
+        # build horizon at INSERT time, and jobs are reused by reads with an earlier end date
+        # (recalculation as_of, timeseries backfill). A baked date bound would mark exposures
+        # after the read's end date as valid funnel anchors. The read re-applies the experiment
+        # date range to step_0 instead.
+        step_0_flag_sql = """
+            {exposure_event_predicate}
+            AND {test_accounts_filter}
+            AND {variant_property} IN {variants}
+        """
         step_filter_placeholders: dict[str, ast.Expr] = {}
-        step_exprs_sql = [f"_toUInt8(if({exposure_filter_sql}, 1, 0))"]
+        step_exprs_sql = [f"_toUInt8(if({step_0_flag_sql}, 1, 0))"]
         for step_index, step_source in enumerate(self._b.metric.series, start=1):
             placeholder_name = f"step_filter_{step_index}"
             step_filter_placeholders[placeholder_name] = step_builder._build_step_filter(step_source)

@@ -1059,7 +1059,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         )
                     if (isNew && errorTrackingTriggerEvent) {
                         posthog.capture('error_tracking_alert_created', {
-                            source: 'traditional',
+                            ui_source: 'traditional',
                             trigger_event: errorTrackingTriggerEvent,
                             subtemplate_id: res.template?.id,
                             has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
@@ -1144,7 +1144,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const sampleGlobalsLoader = SAMPLE_GLOBALS_CONTEXTS[values.contextId]
                     if (sampleGlobalsLoader) {
                         try {
-                            const globals = await sampleGlobalsLoader(values.exampleInvocationGlobals)
+                            const globals = await sampleGlobalsLoader(
+                                values.exampleInvocationGlobals,
+                                values.configuration?.filters
+                            )
                             breakpoint()
                             return globals
                         } catch (e: any) {

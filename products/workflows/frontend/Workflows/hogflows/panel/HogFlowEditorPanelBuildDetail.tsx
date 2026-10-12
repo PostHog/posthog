@@ -27,6 +27,7 @@ import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySele
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { UtmTagFields } from '../steps/components/UtmTagFields'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
@@ -156,6 +157,36 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             }}
                         />
                     </div>
+                    <div className="flex gap-2 justify-between items-center px-2 py-1">
+                        <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
+                            Add UTM tags to links
+                        </LemonLabel>
+                        <LemonSwitch
+                            checked={action.config.utm_tags_enabled === true}
+                            onChange={(checked) => {
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    config: { ...action.config, utm_tags_enabled: checked },
+                                })
+                            }}
+                            data-attr="workflow-email-utm-tags-toggle"
+                        />
+                    </div>
+                    {action.config.utm_tags_enabled === true && (
+                        <div className="px-2 pb-2">
+                            <UtmTagFields
+                                value={action.config.utm_params ?? {}}
+                                onChange={(utmParams) => {
+                                    setWorkflowAction(action.id, {
+                                        ...action,
+                                        config: { ...action.config, utm_params: utmParams },
+                                    })
+                                }}
+                                campaignDefault={workflow.name || 'Workflow name'}
+                                contentDefault={action.name}
+                            />
+                        </div>
+                    )}
                 </>
             )}
 

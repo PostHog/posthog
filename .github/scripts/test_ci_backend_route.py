@@ -58,10 +58,20 @@ def test_non_pull_request_events_stay_on_github(event: str) -> None:
     assert route.decide(event, 100, None, ["ci-backend-depot"], False, False, "success").engine == "github"
 
 
-def test_merge_queue_batches_stay_on_github() -> None:
-    queued = route.decide("pull_request", 100, 124, ["ci-backend-depot"], False, True, "success", "trunk-merge/pr-1/x")
-    assert queued.engine == "github"
-    assert route.decide("pull_request", 100, 124, [], False, False, None, "feature/trunk-merge").engine == "depot"
+@pytest.mark.parametrize(
+    "head_ref,labels,percent,queue_percent,prior,expected",
+    [
+        ("trunk-merge/pr-1/x", ["ci-backend-depot"], 100, 0, None, "github"),
+        ("trunk-merge/pr-1/x", ["ci-backend-github"], 0, 100, None, "depot"),
+        ("trunk-merge/pr-1/x", [], 0, 0, "success", "depot"),
+        ("feature/trunk-merge", [], 100, 0, None, "depot"),
+    ],
+)
+def test_merge_queue_batches_route_by_their_own_percent(
+    head_ref: str, labels: list[str], percent: int, queue_percent: int, prior: str | None, expected: str
+) -> None:
+    decision = route.decide("pull_request", percent, 124, labels, False, True, prior, head_ref, queue_percent)
+    assert decision.engine == expected
 
 
 def test_missing_pr_number_stays_on_github() -> None:
@@ -162,22 +172,25 @@ def test_parse_percent_fails_closed(raw: str | None, expected: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "labels,started,expected",
+    "labels,started,head_ref,expected",
     [
-        (json.dumps(["other"]), True, "engine=depot\nreason=bucket 30 < 50%\n"),
-        ("null", True, "engine=depot\nreason=bucket 30 < 50%\n"),
-        ("", True, "engine=depot\nreason=bucket 30 < 50%\n"),
-        ("[]", False, "engine=github\nreason=Depot CI started no run for this event\n"),
-        (json.dumps(["ci-backend-depot"]), False, "engine=github\nreason=Depot CI started no run for this event\n"),
+        (json.dumps(["other"]), True, "", "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("null", True, "", "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("", True, "", "engine=depot\nreason=bucket 30 < 50%\n"),
+        ("[]", False, "", "engine=github\nreason=Depot CI started no run for this event\n"),
+        (json.dumps(["ci-backend-depot"]), False, "", "engine=github\nreason=Depot CI started no run for this event\n"),
+        ("[]", True, "trunk-merge/pr-1/x", "engine=github\nreason=merge queue bucket 30 >= 20%\n"),
     ],
 )
 def test_main_writes_outputs(
-    labels: str, started: bool, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    labels: str, started: bool, head_ref: str, expected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     output = tmp_path / "out"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("EVENT", "pull_request")
     monkeypatch.setenv("PERCENT", "50")
+    monkeypatch.setenv("MERGE_QUEUE_PERCENT", "20")
+    monkeypatch.setenv("HEAD_REF", head_ref)
     monkeypatch.setenv("PR_NUMBER", "7")
     monkeypatch.setenv("LABELS", labels)
     monkeypatch.setattr(route, "fetch_handoff_checks", lambda repo, sha, token: [])

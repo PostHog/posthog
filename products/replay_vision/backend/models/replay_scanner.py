@@ -98,6 +98,14 @@ class ScannerOrigin(models.TextChoices):
     INLINE = "inline", "Inline"
 
 
+class PromptValence(models.TextChoices):
+    """Whether the answer a monitor or scorer looks for is good or bad news for the team."""
+
+    GOOD = "good", "Good"
+    BAD = "bad", "Bad"
+    NEUTRAL = "neutral", "Neutral"
+
+
 def prompt_fingerprint(prompt: str) -> str:
     """Identifies a prompt's text, so a condensed question can be matched to the prompt it came from."""
     return hashlib.sha256(prompt.encode()).hexdigest()
@@ -259,14 +267,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="The experiment this scanner's targeting watches, if any.",
     )
 
-    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
-    # ratings, not the scanner's behavior.
-    feedback_themes = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
-    )
-
     estimated_monthly_observations = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -315,6 +315,16 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         db_default="",
         help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
     )
+    # Condensed in the same model call as `prompt_question`, so `prompt_question_source` dates it too.
+    prompt_valence = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_default="",
+        choices=PromptValence.choices,
+        help_text="Whether a yes or a high score is good or bad news, judged by AI from the prompt. Empty when "
+        "not judged: the scanner type has no direction, or the model was unavailable.",
+    )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
     # until billing syncs a real one. See quota.current_period_bounds.
@@ -336,7 +346,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     admission_budget_used = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts, in-flight reservations, and running evaluations.",
+        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts and in-flight reservations.",
     )
     admission_budget_refreshed_at = models.DateTimeField(
         null=True,

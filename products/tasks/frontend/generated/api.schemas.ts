@@ -1340,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1373,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least
@@ -2015,7 +2015,7 @@ export interface PaginatedTaskListItemListApi {
 
 /**
  * * `onboarding` - Onboarding
- * * `onboarding_audit` - Onboarding Audit
+ * * `account_audit` - Account audit
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -2039,12 +2039,13 @@ export interface PaginatedTaskListItemListApi {
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
+ * * `metrics_import` - Metrics Import
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
 export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
-    OnboardingAudit: 'onboarding_audit',
+    AccountAudit: 'account_audit',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -2068,6 +2069,7 @@ export const TaskOriginProductEnumApi = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 /**
@@ -2105,7 +2107,7 @@ export interface TaskCreateApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
-     * * `onboarding_audit` - Onboarding Audit
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2128,7 +2130,8 @@ export interface TaskCreateApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2334,7 +2337,7 @@ export interface TaskWriteApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
-     * * `onboarding_audit` - Onboarding Audit
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2357,7 +2360,8 @@ export interface TaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2470,7 +2474,7 @@ export interface PatchedTaskWriteApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
-     * * `onboarding_audit` - Onboarding Audit
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2493,7 +2497,8 @@ export interface PatchedTaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -3684,6 +3689,45 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+/**
+ * * `agent_reported` - agent_reported
+ * * `agent_server_crash` - agent_server_crash
+ * * `agent_declined` - agent_declined
+ * * `output_parse_failed` - output_parse_failed
+ * * `poll_timeout` - poll_timeout
+ * * `pi_runtime_error` - pi_runtime_error
+ * * `upstream_stream_terminated` - upstream_stream_terminated
+ * * `upstream_connection_error` - upstream_connection_error
+ * * `upstream_timeout` - upstream_timeout
+ * * `upstream_provider_failure` - upstream_provider_failure
+ * * `upstream_request_rejected` - upstream_request_rejected
+ * * `content_block_rejection` - content_block_rejection
+ * * `turn_ended_without_response` - turn_ended_without_response
+ * * `subscription_usage_limit` - subscription_usage_limit
+ * * `task_spend_limit` - task_spend_limit
+ * * `agent_error` - agent_error
+ */
+export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
+
+export const ErrorTypeEnumApi = {
+    AgentReported: 'agent_reported',
+    AgentServerCrash: 'agent_server_crash',
+    AgentDeclined: 'agent_declined',
+    OutputParseFailed: 'output_parse_failed',
+    PollTimeout: 'poll_timeout',
+    PiRuntimeError: 'pi_runtime_error',
+    UpstreamStreamTerminated: 'upstream_stream_terminated',
+    UpstreamConnectionError: 'upstream_connection_error',
+    UpstreamTimeout: 'upstream_timeout',
+    UpstreamProviderFailure: 'upstream_provider_failure',
+    UpstreamRequestRejected: 'upstream_request_rejected',
+    ContentBlockRejection: 'content_block_rejection',
+    TurnEndedWithoutResponse: 'turn_ended_without_response',
+    SubscriptionUsageLimit: 'subscription_usage_limit',
+    TaskSpendLimit: 'task_spend_limit',
+    AgentError: 'agent_error',
+} as const
+
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3717,6 +3761,25 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
+    /** Why the run failed, set by the caller that marked it failed.
+     *
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error */
+    error_type?: ErrorTypeEnumApi | null
 }
 
 /**
@@ -4903,6 +4966,22 @@ export interface TasksResolvedAIRunDefaultsApi {
 }
 
 /**
+ * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+ */
+export interface TasksTaskDefaultsApi {
+    /**
+     * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+     * @nullable
+     */
+    start_in_plan_mode: boolean | null
+    /**
+     * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+     * @nullable
+     */
+    auto_publish_cloud_runs: boolean | null
+}
+
+/**
  * The requesting user's per-project tasks configuration.
  */
 export interface TasksUserConfigResponseApi {
@@ -4912,6 +4991,8 @@ export interface TasksUserConfigResponseApi {
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
     /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
     agent_instructions: string
+    /** Your per-project defaults for new tasks. Unset defaults are false. */
+    task_defaults: TasksTaskDefaultsApi
 }
 
 /**
@@ -4923,6 +5004,16 @@ export interface TasksAgentInstructionsApi {
      * @maxLength 20000
      */
     agent_instructions: string
+}
+
+/**
+ * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+ */
+export interface TasksTaskDefaultsUpdateApi {
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
+    start_in_plan_mode?: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
+    auto_publish_cloud_runs?: boolean
 }
 
 /**
@@ -5827,7 +5918,7 @@ export type TasksListParams = {
      * Exclude tasks with this origin product from the results
      *
      * * `onboarding` - Onboarding
-     * * `onboarding_audit` - Onboarding Audit
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5851,6 +5942,7 @@ export type TasksListParams = {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5970,7 +6062,7 @@ export type TasksListExcludeOriginProduct =
 
 export const TasksListExcludeOriginProduct = {
     Onboarding: 'onboarding',
-    OnboardingAudit: 'onboarding_audit',
+    AccountAudit: 'account_audit',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -5994,6 +6086,7 @@ export const TasksListExcludeOriginProduct = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -6145,18 +6238,14 @@ export type TasksRunsStreamTokenRetrieveParams = {
     resync?: boolean
 }
 
-export type TasksThreadMessagesListParams = {
+export type TasksRunsLivingArtifactsVersionContentParams = {
     /**
-     * Number of results to return per page.
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
      */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+    download?: boolean
 }
 
-export type TasksMeConfigListParams = {
+export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
      */

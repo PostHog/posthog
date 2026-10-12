@@ -6,6 +6,8 @@ stay off the django.setup() path of the read-oriented main facade.
 
 from typing import Any
 
+from posthog.event_usage import AnalyticsProps
+
 from ..logic import symbol_sets as _logic
 from . import contracts
 
@@ -123,5 +125,7 @@ def bulk_check_upload(
     )
 
 
-def bulk_finish_upload(team: Any, content_hashes: dict[str, str]) -> None:
-    _logic.bulk_finish_upload(team, content_hashes)
+def bulk_finish_upload(
+    team: Any, content_hashes: dict[str, str], *, analytics_props: AnalyticsProps | None = None
+) -> None:
+    _logic.bulk_finish_upload(team, content_hashes, analytics_props=analytics_props)

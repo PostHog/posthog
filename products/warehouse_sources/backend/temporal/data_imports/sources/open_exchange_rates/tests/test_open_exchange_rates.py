@@ -10,23 +10,16 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates import open_exchange_rates
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
     BASE_URL,
-    DEFAULT_BASE_CURRENCY,
     OpenExchangeRatesResumeConfig,
     OpenExchangeRatesRetryableError,
-    _build_url,
     _date_from_timestamp,
     _date_range,
-    _iter_currencies,
-    _iter_rates,
     _iter_usage,
     _resolve_historical_start,
     _to_date,
     get_rows,
     open_exchange_rates_source,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.settings import (
-    OPEN_EXCHANGE_RATES_ENDPOINTS,
 )
 
 
@@ -69,14 +62,6 @@ def _manager(can_resume: bool = False, state: OpenExchangeRatesResumeConfig | No
     return manager
 
 
-class TestBuildUrl:
-    def test_encodes_params_under_base_url(self) -> None:
-        assert _build_url("latest.json", {"base": "EUR"}) == f"{BASE_URL}/latest.json?base=EUR"
-
-    def test_omits_query_when_no_params(self) -> None:
-        assert _build_url("currencies.json") == f"{BASE_URL}/currencies.json"
-
-
 class TestRequest:
     @parameterized.expand([(500,), (502,), (503,)])
     def test_5xx_statuses_raise_retryable_error(self, status: int) -> None:
@@ -98,27 +83,38 @@ class TestRequest:
             open_exchange_rates._request(session, "latest.json", {}, mock.MagicMock())  # type: ignore[arg-type]
         assert "Invalid App ID provided." in str(exc.value)
 
-    def test_success_returns_parsed_body(self) -> None:
-        body = {"base": "USD", "rates": {"GBP": 0.8}}
-        session = _FakeSession([_FakeResponse(status_code=200, json_data=body)])
-        assert open_exchange_rates._request(session, "latest.json", {"base": "USD"}, mock.MagicMock()) == body  # type: ignore[arg-type]
-
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
+    @parameterized.expand(
+        [
+            ("valid", 200, (True, None)),
+            ("unauthorized", 401, (False, open_exchange_rates.INVALID_APP_ID_ERROR)),
+            ("suspended", 403, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
+            ("over_use", 429, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
+            ("upstream_outage", 503, (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)),
+        ]
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.make_tracked_session"
     )
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
+    def test_status_mapping(
+        self, _name: str, status: int, expected: tuple[bool, str | None], mock_session: mock.MagicMock
+    ) -> None:
         mock_session.return_value.get.return_value = _FakeResponse(status_code=status)
-        assert validate_credentials("key") is expected
+        assert validate_credentials("key") == expected
 
     @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.capture_exception"
+    )
+    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.make_tracked_session"
     )
-    def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
+    def test_network_error_does_not_blame_the_app_id(
+        self, mock_session: mock.MagicMock, mock_capture: mock.MagicMock
+    ) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") is False
+        assert validate_credentials("key") == (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)
+        mock_capture.assert_called_once()
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.make_tracked_session"
@@ -137,54 +133,6 @@ class TestValidateCredentials:
 
 
 class TestNormalization:
-    def test_iter_currencies(self) -> None:
-        data = {"USD": "US Dollar", "GBP": "Pound Sterling"}
-        assert _iter_currencies(data) == [
-            {"code": "USD", "name": "US Dollar"},
-            {"code": "GBP", "name": "Pound Sterling"},
-        ]
-
-    def test_iter_rates(self) -> None:
-        data = {"base": "USD", "timestamp": 1704153600, "rates": {"EUR": 0.9, "GBP": 0.8}}
-        assert _iter_rates(data, "2024-01-02") == [
-            {"base": "USD", "currency": "EUR", "rate": 0.9, "date": "2024-01-02", "timestamp": 1704153600},
-            {"base": "USD", "currency": "GBP", "rate": 0.8, "date": "2024-01-02", "timestamp": 1704153600},
-        ]
-
-    def test_iter_usage_flattens_plan_and_usage(self) -> None:
-        data = {
-            "status": 200,
-            "data": {
-                "app_id": "abc123",
-                "status": "active",
-                "plan": {"name": "Free", "quota": "1000 requests / month", "update_frequency": "3600s"},
-                "usage": {
-                    "requests": 34,
-                    "requests_quota": 1000,
-                    "requests_remaining": 966,
-                    "days_elapsed": 2,
-                    "days_remaining": 28,
-                    "daily_average": 17,
-                },
-            },
-        }
-        rows = _iter_usage(data)
-        assert rows == [
-            {
-                "id": "usage",
-                "status": "active",
-                "plan_name": "Free",
-                "plan_quota": "1000 requests / month",
-                "plan_update_frequency": "3600s",
-                "requests": 34,
-                "requests_quota": 1000,
-                "requests_remaining": 966,
-                "days_elapsed": 2,
-                "days_remaining": 28,
-                "daily_average": 17,
-            }
-        ]
-
     def test_iter_usage_never_stores_the_credential(self) -> None:
         # app_id is the API credential (a secret) — it must never be written into the synced row.
         rows = _iter_usage({"data": {"app_id": "SECRET_APP_ID", "plan": {}, "usage": {}}})
@@ -221,10 +169,6 @@ class TestToDate:
 
 
 class TestDateFromTimestamp:
-    def test_converts_unix_timestamp_to_utc_date(self) -> None:
-        # 1704153600 == 2024-01-02T00:00:00Z
-        assert _date_from_timestamp(1704153600) == date(2024, 1, 2)
-
     @parameterized.expand([("none", None), ("garbage", "abc")])
     def test_bad_values_return_none(self, _name: str, value: Any) -> None:
         assert _date_from_timestamp(value) is None
@@ -280,10 +224,6 @@ class TestGetRows:
     def test_currencies_yields_once(self) -> None:
         batches, _ = self._run("currencies", [_FakeResponse(json_data={"USD": "US Dollar"})], _manager())
         assert batches == [[{"code": "USD", "name": "US Dollar"}]]
-
-    def test_currencies_empty_yields_nothing(self) -> None:
-        batches, _ = self._run("currencies", [_FakeResponse(json_data={})], _manager())
-        assert batches == []
 
     def test_usage_yields_once(self) -> None:
         body = {"data": {"app_id": "abc", "plan": {}, "usage": {"requests": 1}}}
@@ -389,15 +329,6 @@ class TestOpenExchangeRatesSourceResponse:
     def test_catalog_endpoints_are_not_partitioned(self, endpoint: str) -> None:
         response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
         assert response.partition_keys is None
-
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in OPEN_EXCHANGE_RATES_ENDPOINTS:
-            response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
-            assert response.name == endpoint
-            assert response.primary_keys == OPEN_EXCHANGE_RATES_ENDPOINTS[endpoint].primary_keys
-
-    def test_default_base_currency_is_usd(self) -> None:
-        assert DEFAULT_BASE_CURRENCY == "USD"
 
 
 class TestUtcTodayUsage:

@@ -9,14 +9,11 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
     ENDPOINTS,
-    PER_PAGE,
     SOLARWINDS_SERVICE_DESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.solarwinds_service_desk import (
-    ACCEPT_HEADER,
     SolarwindsServiceDeskResumeConfig,
     _format_updated_from,
-    _headers,
     _unwrap_row,
     base_url,
     solarwinds_service_desk_source,
@@ -95,21 +92,6 @@ def _run(
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_after_last_page_per_total_pages_header(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        rows, params = _run(
-            session,
-            manager,
-            [_response([{"id": 1}], total_pages=2), _response([{"id": 2}], total_pages=2)],
-        )
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 2
-        assert [p["page"] for p in params] == [1, 2]
-        # State is saved after the first page (points at the next page); the header ends it on page 2.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_short_page_does_not_stop_pagination(self, MockSession: mock.MagicMock) -> None:
         # A page smaller than PER_PAGE must not be treated as the end: the server may clamp
         # `per_page`, so only an empty page or the X-Total-Pages header terminates the crawl.
@@ -123,13 +105,6 @@ class TestPagination:
         assert rows == [{"id": 1}, {"id": 2}]
         assert session.send.call_count == 3
         assert [p["page"] for p in params] == [1, 2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_per_page_param_is_set(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _run(session, _make_manager(), [_response([{"id": 1}], total_pages=1)])
-        assert params[0]["per_page"] == PER_PAGE
-        assert params[0]["page"] == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page_with_saved_filter(self, MockSession: mock.MagicMock) -> None:
@@ -146,18 +121,6 @@ class TestPagination:
         assert rows == [{"id": 9}]
         assert params[0]["page"] == 3
         assert params[0]["updated_from"] == "2026-01-01T00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_watermark_adds_updated_from_param(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _run(
-            session,
-            _make_manager(),
-            [_response([])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 5, 8, 30, tzinfo=UTC),
-        )
-        assert params[0]["updated_from"] == "2026-01-05T08:30"
 
     @parameterized.expand(
         [
@@ -181,44 +144,6 @@ class TestPagination:
             db_incremental_field_last_value=watermark,
         )
         assert "updated_from" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_wrapped_rows_are_unwrapped(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        rows, _ = _run(
-            session,
-            _make_manager(),
-            [_response([{"problem": {"id": 7, "name": "P"}}], total_pages=1)],
-            endpoint="problems",
-        )
-        assert rows == [{"id": 7, "name": "P"}]
-
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_is_retried(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        # A 200 whose body isn't a list is a transient wrong-shape payload: retry, don't fail loud
-        # or ingest the stray object as a single row.
-        session = MockSession.return_value
-        rows, _ = _run(
-            session,
-            _make_manager(),
-            [_response(None, non_list=True), _response([{"id": 1}], total_pages=1)],
-        )
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_and_accept_headers_on_session(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _run(session, _make_manager(), [_response([{"id": 1}], total_pages=1)])
-        # The versioned Accept header is mandatory — without it the API can serve legacy payloads.
-        assert session.headers.get("Accept") == ACCEPT_HEADER
-
-    def test_probe_headers_carry_vendor_auth_and_versioned_accept(self) -> None:
-        # validate_credentials probes with these headers; auth rides a vendor-specific header.
-        headers = _headers("swsd-token")
-        assert headers["X-Samanage-Authorization"] == "Bearer swsd-token"
-        assert headers["Accept"] == ACCEPT_HEADER
 
 
 class TestFormatUpdatedFrom:

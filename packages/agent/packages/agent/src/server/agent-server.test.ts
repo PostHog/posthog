@@ -1138,6 +1138,7 @@ describe("AgentServer HTTP Mode", () => {
           {
             status: "failed",
             error_message: `agent_error: ${expected}`,
+            error_type: "agent_error",
             state: { agent_version: expect.any(String) },
           },
         );
@@ -1280,6 +1281,7 @@ describe("AgentServer HTTP Mode", () => {
         {
           status: "failed",
           error_message: "agent_error: old run failed",
+          error_type: "agent_error",
           state: { agent_version: expect.any(String) },
         },
       );
@@ -2131,6 +2133,31 @@ describe("AgentServer HTTP Mode", () => {
         expect.objectContaining({
           status: "failed",
           error_message: "agent_error: unexpected status 403",
+        }),
+      );
+    });
+
+    it("persists the gateway rejection message from a sanitized adapter cause", async () => {
+      const testServer = createFailureTestServer();
+
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.internalError(
+          {
+            classification: "upstream_request_rejected",
+            result: "router rejected request",
+          },
+          "The agent stopped before completing this request. Please try again.",
+        ),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: "upstream_request_rejected: router rejected request",
         }),
       );
     });

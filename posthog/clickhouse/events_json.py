@@ -30,12 +30,13 @@ TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
         "$session_recording_network_payload_capture",
         "$session_recording_canvas_recording",
         "$replay_script_config",
-        "$sent_at",
         "$lib_rate_limit_remaining_tokens",
         "$lib_custom_api_host",
     }
 )
 TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
+# Customers read it over windows longer than the temporary retention, so it stays permanent.
+PERMANENT_SDK_DEBUG_PROPERTIES = frozenset({"$sdk_debug_current_session_duration"})
 
 
 def is_temporary_event_property(key: str) -> bool:
@@ -43,6 +44,8 @@ def is_temporary_event_property(key: str) -> bool:
 
     A dotted key such as `$set.foo` is one flat key, so it matches only the prefix rule, never a root name.
     """
+    if key in PERMANENT_SDK_DEBUG_PROPERTIES:
+        return False
     return key in TEMPORARY_EVENT_PROPERTY_ROOTS or key.startswith(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
 
 

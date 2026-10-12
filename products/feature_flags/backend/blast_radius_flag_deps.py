@@ -13,7 +13,6 @@ from posthog.hogql.errors import (
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
-from posthog.models.filters import Filter
 from posthog.models.property import Property, PropertyGroup, PropertyOperatorType, PropertyValidationError
 from posthog.models.team.team import Team
 from posthog.utils import safe_int
@@ -94,7 +93,7 @@ class FlagDependencyEstimator:
     counting every person.
     """
 
-    def __init__(self, team: Team, clean_condition: Callable[[Team, dict], Filter]):
+    def __init__(self, team: Team, clean_condition: Callable[[Team, dict], PropertyGroup]):
         self.team = team
         # Injected rather than imported: user_blast_radius imports this module, and its cleaner
         # must normalize the dependency's stored filters the same way as the condition being sized.
@@ -216,7 +215,7 @@ class FlagDependencyEstimator:
             if plain_properties:
                 try:
                     cleaned = self.clean_condition(self.team, {"properties": plain_properties})
-                    targeting = property_to_expr(cleaned.property_groups, self.team, scope="person")
+                    targeting = property_to_expr(cleaned, self.team, scope="person")
                 except _TARGETING_BUILD_ERRORS:
                     return None
                 factors.append(self._indicator(targeting))

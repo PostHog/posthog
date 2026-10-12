@@ -3,6 +3,8 @@ owners: []
 rules:
     - match: '/HogQLEditor/'
       owners: team-data-tools
+    - match: '/LiveUserCount/'
+      owners: team-web-analytics
     - match: '/MarkdownNotebook/'
       owners: team-data-tools
     - match: '/NavPanelAdvertisement/'

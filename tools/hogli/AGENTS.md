@@ -92,6 +92,6 @@ Core and consumers share the `HOGLI_` env prefix; check both lists before mintin
 
 Core-reserved (defined in `tools/hogli/src/hogli/`): `HOGLI_DEBUG`, `HOGLI_MANIFEST`, `HOGLI_SECRETS_WRAPPED`, `HOGLI_NESTED_INVOCATION`.
 
-Consumer-owned (defined in `tools/hogli-commands/`): `HOGLI_ENVIRONMENT`, `HOGLI_AGENT`, `HOGLI_PROCESS_MANAGER` (telemetry self-declaration), `HOGLI_NO_HINTS`, `HOGLI_MPROCS_PATH`, `HOGLI_DEVBOX_CODER_URL`, `HOGLI_DEVBOX_CODER_VERSION`.
+Consumer-owned (defined in `tools/hogli-commands/`): `HOGLI_ENVIRONMENT`, `HOGLI_AGENT`, `HOGLI_ACTOR`, `HOGLI_GIT_HOOK`, `HOGLI_PROCESS_MANAGER` (telemetry self-declaration), `HOGLI_NO_HINTS`, `HOGLI_MPROCS_PATH`, `HOGLI_DEVBOX_CODER_URL`, `HOGLI_DEVBOX_CODER_VERSION`.
 
 If core needs a name a consumer already uses (or vice versa), rename rather than overload — bootstraps in other repos export these and silently changing semantics breaks them.

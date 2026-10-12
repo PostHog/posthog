@@ -27,7 +27,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { getStackBreakdownValues } from '~/queries/utils'
+import { getStackBreakdownValues, hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
@@ -118,6 +118,7 @@ export function TrendsBarChart({
         showValuesOnSeries,
         showMultipleYAxes,
         isSingleSeriesDefinition,
+        compareFilter,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -135,6 +136,14 @@ export function TrendsBarChart({
     // Per-series y-axes are only meaningful for grouped (unstacked) bars — stacked layouts share
     // one axis. Mirrors the legacy ActionsLineGraph, which assigns y0/y1/… per dataset.
     const applyMultipleYAxes = !!showMultipleYAxes && isGrouped
+    // Only a breakdown stack splits one bar into parts of a whole. A percent stack always sums to
+    // 100%, and a compare stack would add two periods together.
+    const showTooltipTotal =
+        hasBreakdownFilter(breakdownFilter) &&
+        !isAggregated &&
+        !isGrouped &&
+        !isPercentStackView &&
+        !compareFilter?.compare
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
@@ -404,6 +413,7 @@ export function TrendsBarChart({
                 onRowClick,
                 showHeader: isAggregated ? (false as const) : undefined,
                 sortedByValue: false,
+                showTotal: showTooltipTotal,
             }
             return <InsightSeriesTooltip {...sharedProps} />
         },
@@ -421,6 +431,7 @@ export function TrendsBarChart({
             canHandleClick,
             clickDeps,
             isAggregated,
+            showTooltipTotal,
         ]
     )
 

@@ -6257,6 +6257,34 @@ Second`)
         }
     })
 
+    it.each(['keydown', 'beforeinput'])('splits multiline text at the visible caret via %s', (input) => {
+        const onChange = jest.fn()
+        const value = withNotebookTitle('Red\n**Green**\nBlue ribbon')
+        const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const textBlock = getBodyTextBlock(container)
+        const range = document.createRange()
+        range.setStart(textBlock.lastChild!, 'Blue'.length)
+        range.collapse(true)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+
+        if (input === 'keydown') {
+            fireEvent.keyDown(canvas, { key: 'Enter' })
+        } else {
+            fireBeforeInput(canvas, 'insertParagraph')
+        }
+
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('Red\n**Green**\nBlue\n\n ribbon'))
+        expect(window.getSelection()?.anchorOffset).toBe(0)
+
+        fireBeforeInput(canvas, 'deleteContentBackward')
+
+        expect(onChange).toHaveBeenLastCalledWith(value)
+        expect(window.getSelection()?.anchorNode?.textContent).toBe('Blue ribbon')
+        expect(window.getSelection()?.anchorOffset).toBe('Blue'.length)
+    })
+
     it('deletes selected text when pressing Enter and splits at the selection', () => {
         const onChange = jest.fn()
         const { container } = render(

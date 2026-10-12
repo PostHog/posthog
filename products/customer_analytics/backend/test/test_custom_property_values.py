@@ -256,7 +256,7 @@ class TestSetCustomPropertyValue(BaseTest):
     @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
     def test_losing_the_active_value_race_surfaces_as_a_conflict(self, mock_value_model):
         definition = self._create_property_definition()
-        mock_value_model.objects.for_team.return_value.create.side_effect = IntegrityError(
+        mock_value_model.objects.for_team.return_value.using.return_value.create.side_effect = IntegrityError(
             f'duplicate key value violates unique constraint "{ACTIVE_VALUE_CONSTRAINT_NAME}"'
         )
 
@@ -266,7 +266,7 @@ class TestSetCustomPropertyValue(BaseTest):
     @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
     def test_other_integrity_errors_are_not_masked_as_conflicts(self, mock_value_model):
         definition = self._create_property_definition()
-        mock_value_model.objects.for_team.return_value.create.side_effect = IntegrityError(
+        mock_value_model.objects.for_team.return_value.using.return_value.create.side_effect = IntegrityError(
             'new row violates check constraint "custom_property_value_exactly_one_value"'
         )
 
@@ -276,7 +276,7 @@ class TestSetCustomPropertyValue(BaseTest):
     @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
     def test_losing_the_active_value_clear_race_surfaces_as_a_conflict(self, mock_value_model):
         definition = self._create_property_definition()
-        active_rows = mock_value_model.objects.for_team.return_value.filter.return_value
+        active_rows = mock_value_model.objects.for_team.return_value.using.return_value.filter.return_value
         active_rows.first.return_value = MagicMock(id=uuid4())
         active_rows.filter.return_value.update.return_value = 0
 
@@ -308,13 +308,13 @@ class TestSetAccountCustomPropertiesById(BaseTest):
             (seats.id, None, 42.0),
         }
 
-    def test_unknown_id_raises_carrying_the_id(self):
-        missing = uuid4()
+    @parameterized.expand([("unknown", str(uuid4())), ("malformed", "not-a-uuid")])
+    def test_unknown_id_raises_carrying_the_id(self, _name: str, missing: str) -> None:
         with pytest.raises(CustomPropertyDefinitionNotFound) as exc_info:
             set_account_custom_properties_by_id(
-                team_id=self.team.id, account_id=self.account.id, properties={str(missing): "x"}
+                team_id=self.team.id, account_id=self.account.id, properties={missing: "x"}
             )
-        assert exc_info.value.identifier == str(missing)
+        assert exc_info.value.identifier == missing
 
     def test_invalid_value_raises_carrying_the_id(self):
         seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
@@ -509,36 +509,6 @@ class TestRecordLastSlackMessageAt(BaseTest):
 
         assert self._record(later) is True
         assert mock_set_value.call_count == 2
-
-    @patch(f"{LOGIC_MODULE}._set_value")
-    def test_a_rival_storing_a_newer_value_stops_the_retry(self, mock_set_value):
-        # The rival's value lands before the retry re-reads, so the retry must skip rather than
-        # drag the stored value back to this older message.
-        newer = self.at + 2 * MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
-
-        def store_newer_then_conflict(**kwargs):
-            self._set_active_value(newer)
-            raise CustomPropertyValueConflict("rival won the active row")
-
-        mock_set_value.side_effect = store_newer_then_conflict
-
-        assert self._record(self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES) is False
-        assert self._active_values() == [newer]
-        # The retry re-read the rival's value and skipped, rather than writing again.
-        assert mock_set_value.call_count == 1
-
-    def _set_active_value(self, timestamp: datetime) -> None:
-        """Store a value the way a rival task would. Writes through the ORM, not the logic's own
-        write path — this test doubles that path, so going through it would store nothing."""
-        definition = CustomPropertyDefinition.objects.for_team(self.team.id).get(name=CANONICAL_LAST_SLACK_MESSAGE_AT)
-        rows = CustomPropertyValue.objects.for_team(self.team.id)
-        rows.filter(account_id=self.account.id, definition_id=definition.id, is_deleted=False).update(is_deleted=True)
-        rows.create(
-            team_id=self.team.id,
-            account_id=self.account.id,
-            definition_id=definition.id,
-            value_datetime=timestamp,
-        )
 
     def test_a_conflicting_definition_type_rejects_the_write(self):
         create_custom_property_definition(

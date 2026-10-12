@@ -28,14 +28,21 @@ DESKTOP_AGENT_MODELS: list[str] = list(
 MAX_GATEWAY_PIN_LENGTH = 32
 assert len(DESKTOP_AGENT_MODELS) <= MAX_GATEWAY_PIN_LENGTH, "the desktop model pin outgrew the gateway limit"
 
-FREE_TIER_MODELS: list[str] = ["@cf/zai-org/glm-5.2", "deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3"]
+# The legacy gateway's free tier. GLM-5.2 is listed twice: older clients send `@cf/`, Go serves the bare id.
+FREE_TIER_MODELS: list[str] = [
+    "@cf/zai-org/glm-5.2",
+    "zai-org/glm-5.2",
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "moonshotai/kimi-k3",
+    "zai-org/glm-5.3-flash",
+]
 
 # Stamped on a free-plan run in place of its product, so the model-change guard reads the narrower pin.
 FREE_TIER_PIN_KEY = "posthog_code:free"
 
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _FIRST_PARTY_AGENT_MODELS,
-    "onboarding": _FIRST_PARTY_AGENT_MODELS,
+    "account_audit": _FIRST_PARTY_AGENT_MODELS,
     "posthog_code": DESKTOP_AGENT_MODELS,
     FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
     "review_hog": _FIRST_PARTY_AGENT_MODELS,
