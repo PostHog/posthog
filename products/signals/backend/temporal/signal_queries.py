@@ -14,7 +14,9 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -107,6 +109,8 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         query=_signals_for_report_query(include_deleted=True, limit=5000),
         team=team,
         placeholders=_report_placeholders(report_id),
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
     )
 
     for row in result.results or []:
@@ -167,6 +171,8 @@ def retract_source_signals(*, team: Team, source_product: str, source_type: str,
                 "source_id": ast.Constant(value=source_id),
                 "after": ast.Constant(value=after),
             },
+            ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.OFFLINE,
         )
         rows = result.results or []
         for row in rows:
@@ -203,6 +209,8 @@ def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, t
         query=_signals_for_report_query(limit=REASSIGN_SIGNAL_ROW_CAP),
         team=team,
         placeholders=_report_placeholders(source_report_id),
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
     )
 
     moved = 0

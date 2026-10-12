@@ -102,6 +102,7 @@ class ClickHouseUser(StrEnum):
     # Notebook frame materializations (Temporal worker streaming to the object store)
     NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
+    SIGNALS = "signals"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
     BUSINESS_KNOWLEDGE = "business_knowledge"
@@ -214,13 +215,19 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
         password = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
         password_file = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD_FILE")
+        if (
+            u == ClickHouseUser.SIGNALS
+            and (data_stores.DEBUG or data_stores.TEST)
+            and not any((user, password, password_file))
+        ):
+            user, password = "signals", "signalspass"
         secret = password or password_file
         if user and secret:
             user_dict[u] = ClickHouseCredentials(
                 user=user,
                 password=password or "",
                 password_file=password_file,
-                require_password=u == ClickHouseUser.DELETION_EXECUTOR,
+                require_password=u in (ClickHouseUser.DELETION_EXECUTOR, ClickHouseUser.SIGNALS),
             )
         elif bool(user) != bool(secret):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
@@ -242,8 +249,8 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
 
     This function retrieves the credentials associated with a given ClickHouse
     user. Most missing dedicated users fall back to the default user credentials.
-    Business Knowledge fails closed so a deployment cannot silently bypass its
-    isolated query limit.
+    Business Knowledge and Signals fail closed so a deployment cannot silently
+    bypass their isolated query limits.
 
     The user and password must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
@@ -260,6 +267,11 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
         raise RuntimeError(
             "Business Knowledge ClickHouse credentials are missing; set "
             "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    if user == ClickHouseUser.SIGNALS:
+        raise RuntimeError(
+            "Signals ClickHouse credentials are missing; set CLICKHOUSE_SIGNALS_USER and "
+            "CLICKHOUSE_SIGNALS_PASSWORD or CLICKHOUSE_SIGNALS_PASSWORD_FILE"
         )
     if user == ClickHouseUser.DELETION_EXECUTOR:
         raise RuntimeError(

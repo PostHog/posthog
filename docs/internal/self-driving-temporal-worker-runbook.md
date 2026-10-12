@@ -32,6 +32,18 @@ Both live in `products/signals/backend/ranking/sweep.py`.
 The video-export fleet does not register them.
 All other Signals workflows (ingestion, grouping, summaries, scouts) stay on the video-export fleet.
 
+## ClickHouse identity
+
+Signals pipeline reads use `ClickHouseUser.SIGNALS` (`signals`) on the offline workload, including grouping, reingestion, source emission, inbox notifications, and ranking. Scout queries and interactive query routing keep their existing identities.
+
+The video-export and self-driving workers need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`. The Django Celery worker needs the same credentials for source retraction and report-merge tasks. These are named-user settings; each deployment keeps its default ClickHouse user for other work.
+
+Provision the `signals` user and its namespace/ServiceAccount mappings in `posthog-cloud-infra` before deploying the chart credentials, then deploy the application. The existing ClickHouse client rereads the projected token on use. Missing credentials fail explicitly instead of using `default`.
+
+Local development and tests use the `signals` user in the Docker ClickHouse configuration with its development-only password. Explicit environment credentials override those defaults.
+
+After rollout, inspect `system.query_log` for the exercised pipeline queries and verify `user` or `initial_user` is `signals`. Check workflow completion and capacity errors as well as query tags.
+
 ## The ranking sweep schedule
 
 `create_inbox_ranking_scoring_schedule` in `products/signals/backend/ranking/schedule.py` registers the schedule.

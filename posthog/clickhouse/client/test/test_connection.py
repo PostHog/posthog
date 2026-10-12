@@ -150,24 +150,49 @@ def test_read_password_uses_static_only_for_an_armed_user_with_an_expired_token(
     assert creds.read_password() == (password if expect_static else token)
 
 
-def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path):
+@pytest.mark.parametrize("user", [ClickHouseUser.COHORTS, ClickHouseUser.SIGNALS])
+def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path, user):
     token = tmp_path / "cohorts-token"
     token.write_text("cohorts-token-value")
-    monkeypatch.setenv("CLICKHOUSE_COHORTS_USER", "cohorts")
-    monkeypatch.setenv("CLICKHOUSE_COHORTS_PASSWORD_FILE", str(token))
-    monkeypatch.delenv("CLICKHOUSE_COHORTS_PASSWORD", raising=False)
+    monkeypatch.setenv(f"CLICKHOUSE_{user.name}_USER", user.value)
+    monkeypatch.setenv(f"CLICKHOUSE_{user.name}_PASSWORD_FILE", str(token))
+    monkeypatch.delenv(f"CLICKHOUSE_{user.name}_PASSWORD", raising=False)
 
-    creds = init_clickhouse_users()[ClickHouseUser.COHORTS]
-    assert creds.user == "cohorts"
+    creds = init_clickhouse_users()[user]
+    assert creds.user == user.value
     assert creds.read_password() == "cohorts-token-value"
 
 
-def test_business_knowledge_credentials_do_not_fall_back_to_default(monkeypatch):
+@pytest.mark.parametrize(
+    "debug,test,explicit_user,expected_user",
+    [
+        (False, False, None, None),
+        (True, False, None, "signals"),
+        (False, True, None, "signals"),
+        (True, False, "custom-signals", None),
+    ],
+)
+def test_signals_development_credentials_do_not_mask_deployment_config(
+    monkeypatch: pytest.MonkeyPatch, debug: bool, test: bool, explicit_user: str | None, expected_user: str | None
+) -> None:
+    monkeypatch.setattr(connection.data_stores, "DEBUG", debug)
+    monkeypatch.setattr(connection.data_stores, "TEST", test)
+    for suffix in ("USER", "PASSWORD", "PASSWORD_FILE"):
+        monkeypatch.delenv(f"CLICKHOUSE_SIGNALS_{suffix}", raising=False)
+    if explicit_user is not None:
+        monkeypatch.setenv("CLICKHOUSE_SIGNALS_USER", explicit_user)
+
+    creds = init_clickhouse_users().get(ClickHouseUser.SIGNALS)
+    assert (creds.user if creds else None) == expected_user
+
+
+@pytest.mark.parametrize("user", [ClickHouseUser.BUSINESS_KNOWLEDGE, ClickHouseUser.SIGNALS])
+def test_dedicated_credentials_do_not_fall_back_to_default(monkeypatch, user):
     default_creds = ClickHouseCredentials(user="default", password="default-password")
     monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
 
-    with pytest.raises(RuntimeError, match="CLICKHOUSE_BUSINESS_KNOWLEDGE_USER"):
-        get_clickhouse_creds(ClickHouseUser.BUSINESS_KNOWLEDGE)
+    with pytest.raises(RuntimeError, match=f"CLICKHOUSE_{user.name}_USER"):
+        get_clickhouse_creds(user)
 
 
 def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):

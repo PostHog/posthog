@@ -19,7 +19,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -476,13 +478,22 @@ def _report_placeholders(report_id: str) -> dict:
     }
 
 
-def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None = None) -> list[dict]:
+def fetch_signals_for_report_sync(
+    team: Team,
+    report_id: str,
+    newest: int | None = None,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+) -> list[dict]:
     """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
 
     With `newest`, fetch only that many of the newest signals.
     """
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
+        workload=workload,
         query_type="SignalsDebugFetchForReport",
         query=_signals_for_report_query(limit=newest, newest_first=newest is not None),
         team=team,
