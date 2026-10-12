@@ -113087,6 +113087,27 @@ export namespace Schemas {
       reachable_people: number;
       /** ISO date the numbers were measured. */
       measured_at: string;
+      /** Who enters the workflow, in plain words, e.g. 'people who start checkout'. */
+      audience?: string;
+      /** What the workflow asks people to do, e.g. 'subscribe'. */
+      goal?: string;
+      /** What one goal reached is called, plural, e.g. 'subscriptions'. */
+      goal_unit?: string;
+      /** Estimated emails the workflow sends a month at today's volume. */
+      emails_per_month?: number;
+      /**
+         * Where the email buttons link to. Null when no site was found.
+         * @nullable
+         */
+      site_url?: string | null;
+      /** The wait before each email, e.g. ['1h', '1d']. */
+      waits?: string[];
+      /** A person enters the workflow at most once in this many days. */
+      once_per_person_days?: number;
+      /** 1 is the idea to try first in this project. Orders the ideas. */
+      priority?: number;
+      /** Something to check before turning the workflow on, such as a legal requirement. */
+      review_note?: string;
     }
 
     export interface WorkflowIdea {
@@ -113127,6 +113148,11 @@ export namespace Schemas {
     export interface WorkflowIdeaAccept {
       /** The draft workflow created from this idea's definition, with origin_product 'ideas'. */
       hog_flow_id: string;
+      /**
+         * The website the person entered for the email buttons, when PostHog had none for the project.
+         * @nullable
+         */
+      site_url?: string | null;
     }
 
     export interface WorkflowIdeaDismiss {

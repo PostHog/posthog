@@ -648,6 +648,35 @@ class NewWorkflowIdea:
 
 
 @frozen
+class IdeaEmail:
+    subject: str
+    preheader: str
+    heading: str
+    paragraphs: list[str]
+    button_text: str
+    # Path on the project's site, appended to the site URL found for the project.
+    button_path: str = "/"
+
+
+@frozen
+class IdeaDraftSpec:
+    trigger_event: str
+    goal_events: list[str]
+    # Waits before each email, in the workflow delay format ("1h", "2d").
+    waits: list[str]
+    emails: list[IdeaEmail]
+    sender_name: str
+    site_url: str | None
+    campaign: str
+    # A person enters at most once in this many days, so a trigger that fires daily does not email daily.
+    once_per_person_days: int = 30
+    utm: dict[str, str] = field(default_factory=dict)
+    # Footer in the emails' language, or the default English one. {sender} is filled in, and it must keep the
+    # unsubscribe link.
+    footer_template: str | None = None
+
+
+@frozen
 class WorkflowIdeaRecord:
     id: UUID
     team_id: int
