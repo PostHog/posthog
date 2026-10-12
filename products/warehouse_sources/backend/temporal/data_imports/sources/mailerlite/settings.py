@@ -37,6 +37,16 @@ _CHILD_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignor
 AUTOMATION_ACTIVITY_STATUSES: tuple[str, ...] = ("active", "completed", "canceled", "failed")
 
 
+_SHOP_FANOUT = DependentEndpointConfig(
+    parent_name="ecommerce_shops",
+    resolve_param="shop_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "shop_id"},
+    child_response_actions=_CHILD_404_IGNORE,
+)
+
+
 def _explode_automation_statuses(automation: dict[str, Any]) -> list[dict[str, Any]]:
     return [{**automation, "activity_status": status} for status in AUTOMATION_ACTIVITY_STATUSES]
 
@@ -165,6 +175,37 @@ MAILERLITE_ENDPOINTS: dict[str, MailerLiteEndpointConfig] = {
             },
             child_response_actions=_CHILD_404_IGNORE,
         ),
+    ),
+    "ecommerce_shops": MailerLiteEndpointConfig(
+        name="ecommerce_shops",
+        path="/ecommerce/shops",
+        partition_key="created_at",
+        # The shops list defaults to 50 rows per page and documents no higher cap.
+        page_size=50,
+    ),
+    # Shop-scoped e-commerce ids aren't documented as globally unique, so the shop id is part of
+    # each child key.
+    "ecommerce_orders": MailerLiteEndpointConfig(
+        name="ecommerce_orders",
+        path="/ecommerce/shops/{shop_id}/orders",
+        partition_key="created_at",
+        primary_keys=["shop_id", "id"],
+        fanout=_SHOP_FANOUT,
+    ),
+    "ecommerce_products": MailerLiteEndpointConfig(
+        name="ecommerce_products",
+        path="/ecommerce/shops/{shop_id}/products",
+        # Product objects carry no creation timestamp.
+        partition_key=None,
+        primary_keys=["shop_id", "id"],
+        fanout=_SHOP_FANOUT,
+    ),
+    "ecommerce_categories": MailerLiteEndpointConfig(
+        name="ecommerce_categories",
+        path="/ecommerce/shops/{shop_id}/categories",
+        partition_key="created_at",
+        primary_keys=["shop_id", "id"],
+        fanout=_SHOP_FANOUT,
     ),
 }
 
