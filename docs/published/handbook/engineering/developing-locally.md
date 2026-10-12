@@ -168,14 +168,15 @@ Run the authorization checks without starting the stack:
 
 ```bash
 go run github.com/openfga/cli/cmd/fga@v0.8.1 model validate --file products/authz/model.fga
-go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --tests products/authz/model.fga.yaml
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --allow-external-files --tests products/authz/model/core.fga.yaml
+go run github.com/openfga/cli/cmd/fga@v0.8.1 model test --allow-external-files --tests 'products/authz/model/resources/*.fga.yaml'
 ```
 
 The model covers users, organizations, organization members, roles, projects, dashboards, and insights.
 It models most-specific access resolution, not legacy highest-level resolution.
 The model does not replace Django permission checks.
 The opt-in dashboard mirror populates relationships from the database as described below.
-Use the fixtures in `products/authz/model.fga.yaml` as examples when writing local tuples:
+Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next to them as examples when writing local tuples:
 
 - Use `user:<user_id>` for the actor and `organization_member:<membership_id>#user` for member overrides.
   The `identity` relation on a user points to that same user.

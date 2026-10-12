@@ -4,20 +4,21 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-import yaml
 from parameterized import parameterized
 
 from products.authz.backend.logic.model_builder import (
-    MODEL_TESTS_PATH,
     SOURCE_DIR,
     ModelBuilder,
     ModelRules,
     ModelSourceError,
     parse_types,
-    read_model_tests,
+    read_test_files,
 )
 
-NOTEBOOK_WITH = '\n[notebook]\n\n[notebook.relations.{name}]\ndefinition = "{definition}"\nwhy = "A test relation."\n'
+NOTEBOOK = "type notebook extends resource\n  relations\n{statements}"
+NOTEBOOK_TESTS = "name: Notebook\nmodel_file: ../../model.fga\ntests: []\n"
+WHY = "    # A test relation.\n"
+DASHBOARD = "resources/dashboard.fga"
 
 
 class TestModelRules(SimpleTestCase):
@@ -27,93 +28,117 @@ class TestModelRules(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "core_type_grows",
-                "core.fga",
-                "    define assignee:",
-                "    define reviewer: [user]\n    define assignee:",
-                "[core_relations] role",
-            ),
-            (
                 "permission_without_action",
-                "resources.toml",
-                "",
-                NOTEBOOK_WITH.format(name="can_publish", definition="editor"),
-                "[unmapped_permissions] notebook",
+                {
+                    "resources/notebook.fga": (
+                        None,
+                        NOTEBOOK.format(statements=WHY + "    define can_publish: can_edit\n"),
+                    )
+                },
+                "notebook.can_publish: there is no SDK Action",
             ),
             (
-                "resource_change_without_limit",
-                "resources.toml",
-                "",
-                NOTEBOOK_WITH.format(name="can_delete", definition="manager"),
-                "[resource_relations] notebook",
+                "define_reuses_an_inherited_name",
+                {DASHBOARD: ("    override can_edit:", "    define can_edit:")},
+                "already defines it",
             ),
             (
-                "complex_resource_relation",
-                "resources.toml",
-                "",
-                NOTEBOOK_WITH.format(name="can_view", definition="viewer but not creator"),
-                "[complex_resource_relations] notebook",
+                "override_a_level",
+                {
+                    DASHBOARD: (
+                        "    override can_edit: editor and legacy_editor",
+                        "    override viewer: member from project",
+                    )
+                },
+                "only permissions",
+            ),
+            ("remove_a_stored_relation", {DASHBOARD: (None, WHY + "    remove creator\n")}, "only permissions"),
+            ("remove_a_used_permission", {DASHBOARD: (None, WHY + "    remove can_edit\n")}, "still uses it"),
+            (
+                "statement_without_why",
+                {
+                    DASHBOARD: (
+                        "    # Members with a legacy collaborator privilege can edit a restricted dashboard.\n",
+                        "",
+                    )
+                },
+                "add a comment above collaborator",
+            ),
+            (
+                "extends_a_resource",
+                {"resources/insight.fga": ("extends shareable_resource", "extends dashboard")},
+                "must extend one of the bases",
+            ),
+            (
+                "type_name_differs_from_file",
+                {"resources/notebook.fga": (None, "type notebooks extends resource\n  relations\n")},
+                "named 'notebook' after the file",
+            ),
+            (
+                "unknown_resource_type",
+                {"resources/spline_reticulator.fga": (None, "type spline_reticulator extends resource\n  relations\n")},
+                "not a ResourceType value",
+            ),
+            (
+                "resource_without_tests",
+                {"resources/notebook.fga": (None, NOTEBOOK.format(statements=""))},
+                "resources/notebook.fga.yaml is missing",
+            ),
+            (
+                "untested_permission",
+                {
+                    "resources/notebook.fga": (None, NOTEBOOK.format(statements="")),
+                    "resources/notebook.fga.yaml": (None, NOTEBOOK_TESTS),
+                },
+                "notebook.can_view: resources/notebook.fga.yaml has no check that expects true",
+            ),
+            (
+                "unwritten_stored_relation",
+                {
+                    "resources/notebook.fga": (None, NOTEBOOK.format(statements="")),
+                    "resources/notebook.fga.yaml": (None, NOTEBOOK_TESTS),
+                },
+                "notebook.creator: no tuple in resources/notebook.fga.yaml",
             ),
             (
                 "unused_relation",
-                "resources.toml",
-                "",
-                NOTEBOOK_WITH.format(name="reviewer", definition="[organization_member#user]"),
+                {
+                    "resources/notebook.fga": (
+                        None,
+                        NOTEBOOK.format(statements=WHY + "    define reviewer: [organization_member#user]\n"),
+                    )
+                },
                 "notebook.reviewer: no permission",
             ),
-            (
-                "resource_replaces_a_level",
-                "resources.toml",
-                "",
-                NOTEBOOK_WITH.format(name="viewer", definition="member from project"),
-                "can replace only template permissions",
-            ),
-            ("unknown_resource_type", "resources.toml", "", "\n[spline_reticulator]\n", "not a ResourceType value"),
-            (
-                "untested_permission",
-                "resources.toml",
-                "",
-                "\n[notebook]\n",
-                "notebook.can_view: model.fga.yaml has no check",
-            ),
-            (
-                "untested_stored_relation",
-                "resources.toml",
-                "",
-                "\n[notebook]\n",
-                "notebook.creator: no tuple in model.fga.yaml",
-            ),
-            (
-                "hand_edited_model",
-                "model.fga",
-                "define can_view: viewer",
-                "define can_view: viewer or creator",
-                "does not match its sources",
-            ),
+            ("hand_edited_model", {}, "does not match its sources"),
         ]
     )
     def test_reports_a_model_that_breaks_a_rule(
-        self, _name: str, file_name: str, old: str, new: str, expected: str
+        self, _name: str, edits: dict[str, tuple[str | None, str]], expected: str
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source_dir = Path(directory)
             shutil.copytree(SOURCE_DIR, source_dir, dirs_exist_ok=True)
             original_model = ModelBuilder(source_dir).build()
-            if file_name != "model.fga":
-                source = source_dir / file_name
-                source.write_text(source.read_text().replace(old, new, 1) if old else source.read_text() + new)
+            for relative_path, (old, new) in edits.items():
+                path = source_dir / relative_path
+                if old is None:
+                    path.write_text(path.read_text() + new if path.exists() else new)
+                else:
+                    self.assertIn(old, path.read_text())
+                    path.write_text(path.read_text().replace(old, new, 1))
             builder = ModelBuilder(source_dir)
             try:
                 model = builder.build()
             except ModelSourceError:
                 model = original_model
-            if file_name == "model.fga":
-                model = model.replace(old, new, 1)
+            if not edits:
+                model = model.replace("define can_view: viewer", "define can_view: viewer or creator", 1)
             rules = ModelRules(
                 model=model,
                 builder=builder,
                 json_relations={definition.name: definition.relation_names() for definition in parse_types(model)},
-                tests=read_model_tests(yaml.safe_load(MODEL_TESTS_PATH.read_text())),
+                tests=read_test_files(builder),
             )
 
             problems = rules.problems()

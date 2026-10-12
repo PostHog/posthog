@@ -89,7 +89,7 @@
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/productScenes.tsx frontend/src/products.json'"
         ],
-        "products/authz/{model/**,model.fga,model.fga.yaml}": "sh -c 'products/authz/generate_model.sh && git add products/authz/model.fga products/authz/openfga_model.json'",
+        "products/authz/{model/**,model.fga}": "sh -c 'products/authz/generate_model.sh && git add products/authz/model.fga products/authz/openfga_model.json'",
         "!(**/.sqlx/**|products/review_hog/backend/reviewer/prompts/*/schema.json|**/chart/*/templates/**|products/metrics/agent/tests/**/golden/**)*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "frontend/src/lib/constants.tsx": [

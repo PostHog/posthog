@@ -1,18 +1,18 @@
 """Build the OpenFGA model from products/authz/model/ and check it against the model rules.
 
-Run products/authz/generate_model.sh rather than this module. The script also converts the model to JSON.
+Run products/authz/generate_model.sh rather than this module. The script also converts the model to JSON and runs the
+model tests.
 """
 
 import re
 import sys
 import json
 import hashlib
-import tomllib
 import argparse
 from collections.abc import Mapping
 from functools import cached_property
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import yaml
 
@@ -24,18 +24,23 @@ PRODUCT_DIR = Path(__file__).resolve().parents[2]
 SOURCE_DIR = PRODUCT_DIR / "model"
 MODEL_PATH = PRODUCT_DIR / "model.fga"
 JSON_MODEL_PATH = PRODUCT_DIR / "openfga_model.json"
-MODEL_TESTS_PATH = PRODUCT_DIR / "model.fga.yaml"
 
-TEMPLATE_TYPE = "resource"
+CORE_FILE = "core.fga"
+BASES_FILE = "resource.fga"
+RESOURCES_DIR = "resources"
+TESTS_SUFFIX = ".fga.yaml"
+CORE_TESTS = "core"
 PERMISSION_PREFIX = "can_"
 BANNER = "# Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit."
 DIGEST_PREFIX = "# Content digest: "
-NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+TYPE_PATTERN = re.compile(r"^type (\w+)(?: extends (\w+))?\s*$")
+STATEMENT_PATTERN = re.compile(r"^\s+(define|override) (\w+):\s*(.+?)\s*$")
+REMOVE_PATTERN = re.compile(r"^\s+remove (\w+)\s*$")
 DEFINE_PATTERN = re.compile(r"^\s+define (\w+):\s*(.+?)\s*$")
+RESTRICTION_PATTERN = re.compile(r"\[([^\]]*)\]")
 FROM_PATTERN = re.compile(r"(\w+) from (\w+)")
 IDENTIFIER_PATTERN = re.compile(r"[a-z_][a-z0-9_]*")
 OPERATOR_WORDS = frozenset({"or", "and", "but", "not", "from"})
-COMPLEX_PATTERN = re.compile(r"\bbut not\b|\band\b|:\*")
 
 
 class ModelSourceError(Exception):
@@ -59,18 +64,20 @@ class TypeDefinition:
 
 
 @frozen
-class ResourceSpec:
-    type: str
-    shareable: bool
-    relations: tuple[Relation, ...]
+class Statement:
+    kind: Literal["define", "override", "remove"]
+    name: str
+    definition: str
+    comments: tuple[str, ...]
 
 
 @frozen
-class ModelLimits:
-    core_relations: Mapping[str, int]
-    resource_relations: Mapping[str, int]
-    complex_resource_relations: Mapping[str, frozenset[str]]
-    unmapped_permissions: Mapping[str, frozenset[str]]
+class ExtendedType:
+    """A type from a base or resource file, before its base is applied."""
+
+    name: str
+    base: str | None
+    statements: tuple[Statement, ...]
 
 
 @frozen
@@ -88,7 +95,7 @@ class Assertion:
 
 @frozen
 class ModelTests:
-    """What model.fga.yaml covers: the permission results it checks and the relations its tuples write."""
+    """What one test file covers: the permission results it checks and the relations its tuples write."""
 
     assertions: frozenset[Assertion]
     written: frozenset[RelationKey]
@@ -124,6 +131,52 @@ def parse_types(dsl: str) -> tuple[TypeDefinition, ...]:
     return tuple(types)
 
 
+def parse_extended_types(text: str, source: str) -> tuple[ExtendedType, ...]:
+    """Parse a base or resource file: OpenFGA types plus `extends`, `override` and `remove`."""
+    types: list[ExtendedType] = []
+    name: str | None = None
+    base: str | None = None
+    statements: list[Statement] = []
+    comments: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            comments.append(stripped.removeprefix("#").strip())
+            continue
+        if match := TYPE_PATTERN.match(line):
+            if name is not None:
+                types.append(ExtendedType(name=name, base=base, statements=tuple(statements)))
+            name, base = match.groups()
+            statements, comments = [], []
+        elif stripped == "relations" and name is not None:
+            comments = []
+        elif name is not None and (match := STATEMENT_PATTERN.match(line)):
+            kind: Literal["define", "override"] = "define" if match.group(1) == "define" else "override"
+            statements.append(
+                Statement(kind=kind, name=match.group(2), definition=match.group(3), comments=tuple(comments))
+            )
+            comments = []
+        elif name is not None and (match := REMOVE_PATTERN.match(line)):
+            statements.append(Statement(kind="remove", name=match.group(1), definition="", comments=tuple(comments)))
+            comments = []
+        else:
+            raise ModelSourceError(f"{source}:{number}: expected a type, define, override or remove line")
+    if name is not None:
+        types.append(ExtendedType(name=name, base=base, statements=tuple(statements)))
+    return tuple(types)
+
+
+def same_type_references(definition: str) -> set[str]:
+    """Relation names on the same type that a definition reads, as bare names or as the tupleset of `x from y`."""
+    expression = RESTRICTION_PATTERN.sub(" ", definition)
+    references = {tupleset for _, tupleset in FROM_PATTERN.findall(expression)}
+    expression = FROM_PATTERN.sub(" ", expression)
+    references.update(word for word in IDENTIFIER_PATTERN.findall(expression) if word not in OPERATOR_WORDS)
+    return references
+
+
 def render_type(definition: TypeDefinition) -> str:
     lines = [f"type {definition.name}", "  relations"]
     for relation in definition.relations:
@@ -141,39 +194,65 @@ class ModelBuilder:
         self.source_dir = source_dir
 
     def core(self) -> str:
-        return (self.source_dir / "core.fga").read_text().strip()
+        return (self.source_dir / CORE_FILE).read_text().strip()
 
     def core_types(self) -> tuple[TypeDefinition, ...]:
         return parse_types(self.core())
 
-    def template(self) -> TypeDefinition:
-        types = parse_types((self.source_dir / "resource.fga").read_text())
-        if [definition.name for definition in types] != [TEMPLATE_TYPE]:
-            raise ModelSourceError(f"resource.fga must define exactly one type, named {TEMPLATE_TYPE!r}")
-        return types[0]
+    def resource_files(self) -> tuple[Path, ...]:
+        return tuple(sorted((self.source_dir / RESOURCES_DIR).glob("*.fga")))
 
-    def limits(self) -> ModelLimits:
-        data = tomllib.loads((self.source_dir / "limits.toml").read_text())
-        return ModelLimits(
-            core_relations=data.get("core_relations", {}),
-            resource_relations=data.get("resource_relations", {}),
-            complex_resource_relations={k: frozenset(v) for k, v in data.get("complex_resource_relations", {}).items()},
-            unmapped_permissions={k: frozenset(v) for k, v in data.get("unmapped_permissions", {}).items()},
-        )
+    def bases(self) -> dict[str, TypeDefinition]:
+        declared = {
+            definition.name: definition
+            for definition in parse_extended_types((self.source_dir / BASES_FILE).read_text(), BASES_FILE)
+        }
+        resolved: dict[str, TypeDefinition] = {}
 
-    def resources(self) -> tuple[ResourceSpec, ...]:
-        data = tomllib.loads((self.source_dir / "resources.toml").read_text())
-        return tuple(self._resource_spec(name, entry) for name, entry in data.items())
+        def resolve(name: str, chain: tuple[str, ...]) -> TypeDefinition:
+            if name in resolved:
+                return resolved[name]
+            if name in chain:
+                raise ModelSourceError(f"{BASES_FILE}: the bases {' -> '.join((*chain, name))} extend each other")
+            if name not in declared:
+                raise ModelSourceError(f"{BASES_FILE}: {chain[-1]} extends {name!r}, which is not a base")
+            base = declared[name]
+            parent = (
+                TypeDefinition(name=name, relations=()) if base.base is None else resolve(base.base, (*chain, name))
+            )
+            resolved[name] = self.apply(parent, base, emit_comments=False)
+            return resolved[name]
+
+        for name in declared:
+            resolve(name, ())
+        return resolved
+
+    def resources(self) -> tuple[TypeDefinition, ...]:
+        bases = self.bases()
+        taken = {definition.name for definition in self.core_types()} | set(bases)
+        resources = []
+        for path in self.resource_files():
+            source = f"{RESOURCES_DIR}/{path.name}"
+            types = parse_extended_types(path.read_text(), source)
+            if len(types) != 1 or types[0].name != path.stem:
+                raise ModelSourceError(f"{source}: a resource file holds one type, named {path.stem!r} after the file")
+            resource = types[0]
+            if resource.name in taken:
+                raise ModelSourceError(f"{source}: {resource.name!r} is already a core type or a base")
+            if resource.base not in bases:
+                raise ModelSourceError(
+                    f"{source}: {resource.name} must extend one of the bases in {BASES_FILE}: {', '.join(sorted(bases))}"
+                )
+            unexplained = [statement.name for statement in resource.statements if not statement.comments]
+            if unexplained:
+                raise ModelSourceError(
+                    f"{source}: add a comment above {', '.join(unexplained)} that says why {resource.name} needs it"
+                )
+            resources.append(self.apply(bases[resource.base], resource, emit_comments=True))
+        return tuple(resources)
 
     def build(self) -> str:
-        template = self.template()
-        core_names = {definition.name for definition in self.core_types()}
-        specs = self.resources()
-        for spec in specs:
-            if spec.type in core_names or spec.type == TEMPLATE_TYPE:
-                raise ModelSourceError(f"resources.toml: {spec.type!r} is already a core type")
-        resources = [self.expand(template, spec) for spec in specs]
-        body = "\n\n".join([self.core(), *(render_type(resource) for resource in resources)]) + "\n"
+        body = "\n\n".join([self.core(), *(render_type(resource) for resource in self.resources())]) + "\n"
         return f"{BANNER}\n{DIGEST_PREFIX}{content_digest(body)}\n{body}"
 
     def write(self, model_path: Path = MODEL_PATH, *, force: bool = False) -> None:
@@ -189,54 +268,58 @@ class ModelBuilder:
         model_path.write_text(model)
 
     @staticmethod
-    def expand(template: TypeDefinition, spec: ResourceSpec) -> TypeDefinition:
-        """Copy the template for one resource. Added permissions go last, other added relations before the permissions."""
-        relations = list(template.relations)
-        template_names = template.relation_names()
-        for relation in spec.relations:
-            if relation.name in template_names:
-                if not relation.name.startswith(PERMISSION_PREFIX):
-                    raise ModelSourceError(
-                        f"{spec.type}.{relation.name}: a resource can replace only template permissions (can_*)"
-                    )
-                relations = [relation if existing.name == relation.name else existing for existing in relations]
-            elif relation.name.startswith(PERMISSION_PREFIX):
-                relations.append(relation)
-            else:
-                first_permission = next(
+    def apply(parent: TypeDefinition, extended: ExtendedType, *, emit_comments: bool) -> TypeDefinition:
+        """Apply a type's statements to its base. Added permissions go last, other added relations before the permissions."""
+        relations = list(parent.relations)
+        removed = []
+        for statement in extended.statements:
+            label = f"{extended.name}.{statement.name}"
+            names = {relation.name for relation in relations}
+            is_permission = statement.name.startswith(PERMISSION_PREFIX)
+            if statement.kind == "define":
+                if statement.name in names:
+                    raise ModelSourceError(f"{label}: {parent.name} already defines it. Use override, or another name.")
+                relation = Relation(
+                    name=statement.name,
+                    definition=statement.definition,
+                    comments=statement.comments if emit_comments else (),
+                )
+                position = next(
                     (index for index, existing in enumerate(relations) if existing.name.startswith(PERMISSION_PREFIX)),
                     len(relations),
                 )
-                relations.insert(first_permission, relation)
-        if spec.shareable:
-            relations.append(Relation(name="can_share", definition="can_edit"))
-        return TypeDefinition(name=spec.type, relations=tuple(relations))
-
-    @staticmethod
-    def _resource_spec(name: str, entry: object) -> ResourceSpec:
-        if not isinstance(entry, dict) or set(entry) - {"shareable", "relations"}:
-            raise ModelSourceError(f"{name}: an entry is a table with only the keys shareable and relations")
-        shareable = entry.get("shareable", False)
-        raw_relations = entry.get("relations", {})
-        if not isinstance(shareable, bool) or not isinstance(raw_relations, dict):
-            raise ModelSourceError(f"{name}: shareable must be a boolean and relations must be a table")
-        if shareable and "can_share" in raw_relations:
-            raise ModelSourceError(f"{name}.can_share: remove it or remove shareable, not both")
-        relations = []
-        for relation_name, fields in raw_relations.items():
-            if (
-                not NAME_PATTERN.match(relation_name)
-                or not isinstance(fields, dict)
-                or set(fields) != {"definition", "why"}
-                or not all(isinstance(value, str) and value.strip() for value in fields.values())
-            ):
+                relations.insert(len(relations) if is_permission else position, relation)
+                continue
+            if statement.name not in names:
                 raise ModelSourceError(
-                    f"{name}.{relation_name}: a relation has a lowercase name, a definition and a why, and nothing else"
+                    f"{label}: {parent.name} does not define it, so there is nothing to {statement.kind}."
                 )
-            relations.append(
-                Relation(name=relation_name, definition=fields["definition"].strip(), comments=(fields["why"].strip(),))
-            )
-        return ResourceSpec(type=name, shareable=shareable, relations=tuple(relations))
+            if not is_permission:
+                raise ModelSourceError(
+                    f"{label}: a type can {statement.kind} only permissions (can_*). "
+                    f"Stored relations and access levels stay as {parent.name} defines them."
+                )
+            if statement.kind == "override":
+                relations = [
+                    Relation(
+                        name=statement.name,
+                        definition=statement.definition,
+                        comments=statement.comments if emit_comments else (),
+                    )
+                    if existing.name == statement.name
+                    else existing
+                    for existing in relations
+                ]
+            else:
+                relations = [existing for existing in relations if existing.name != statement.name]
+                removed.append(statement.name)
+        for name in removed:
+            users = [relation.name for relation in relations if name in same_type_references(relation.definition)]
+            if users:
+                raise ModelSourceError(
+                    f"{extended.name}.{name}: {', '.join(users)} still uses it, so it cannot be removed."
+                )
+        return TypeDefinition(name=extended.name, relations=tuple(relations))
 
     @staticmethod
     def _is_unedited_output(model: str) -> bool:
@@ -246,7 +329,7 @@ class ModelBuilder:
 
 
 class ModelRules:
-    """The rules that keep the model small. limits.toml holds the agreed exceptions, and each rule reports stale ones."""
+    """The rules that keep the model consistent with the SDK and covered by tests."""
 
     def __init__(
         self,
@@ -254,7 +337,7 @@ class ModelRules:
         model: str,
         builder: ModelBuilder,
         json_relations: Mapping[str, frozenset[str]],
-        tests: ModelTests,
+        tests: Mapping[str, ModelTests],
     ) -> None:
         self.model = model
         self.builder = builder
@@ -263,24 +346,17 @@ class ModelRules:
         self.types = {definition.name: definition for definition in parse_types(model)}
 
     @cached_property
-    def core_names(self) -> tuple[str, ...]:
-        return tuple(definition.name for definition in self.builder.core_types())
-
-    @cached_property
-    def resources(self) -> tuple[ResourceSpec, ...]:
-        return self.builder.resources()
-
-    @cached_property
-    def limits(self) -> ModelLimits:
-        return self.builder.limits()
+    def resource_names(self) -> frozenset[str]:
+        return frozenset(path.stem for path in self.builder.resource_files())
 
     @classmethod
     def load(cls) -> "ModelRules":
+        builder = ModelBuilder()
         return cls(
             model=MODEL_PATH.read_text(),
-            builder=ModelBuilder(),
+            builder=builder,
             json_relations=relations_from_json(json.loads(JSON_MODEL_PATH.read_text())),
-            tests=read_model_tests(yaml.safe_load(MODEL_TESTS_PATH.read_text())),
+            tests=read_test_files(builder),
         )
 
     def problems(self) -> list[str]:
@@ -293,13 +369,9 @@ class ModelRules:
         return [
             *self._json_matches_model(),
             *self._resources_are_resource_types(),
-            *self._core_sizes_match_limits(),
-            *self._resource_changes_match_limits(),
-            *self._complex_relations_match_limits(),
-            *self._permissions_map_to_actions(),
+            *self._resource_permissions_map_to_actions(),
             *self._relations_reach_a_permission(),
-            *self._permissions_are_tested(),
-            *self._stored_relations_are_tested(),
+            *self._types_are_tested(),
         ]
 
     def _json_matches_model(self) -> list[str]:
@@ -311,49 +383,20 @@ class ModelRules:
     def _resources_are_resource_types(self) -> list[str]:
         known = {resource_type.value for resource_type in ResourceType}
         return [
-            f"resources.toml: {spec.type!r} is not a ResourceType value in products/authz/backend/facade/enums.py."
-            for spec in self.resources
-            if spec.type not in known
+            f"{RESOURCES_DIR}/{name}.fga: {name!r} is not a ResourceType value in products/authz/backend/facade/enums.py."
+            for name in sorted(self.resource_names - known)
         ]
 
-    def _core_sizes_match_limits(self) -> list[str]:
-        actual = {name: len(self.types[name].relations) for name in self.core_names}
-        return _compare("core_relations", actual, self.limits.core_relations, "relations in this core type")
-
-    def _resource_changes_match_limits(self) -> list[str]:
-        actual = {spec.type: len(spec.relations) for spec in self.resources if spec.relations}
-        return _compare(
-            "resource_relations", actual, self.limits.resource_relations, "relations this resource adds or replaces"
-        )
-
-    def _complex_relations_match_limits(self) -> list[str]:
-        actual = {
-            spec.type: frozenset(r.name for r in spec.relations if COMPLEX_PATTERN.search(r.definition))
-            for spec in self.resources
-        }
-        actual = {name: names for name, names in actual.items() if names}
-        return _compare(
-            "complex_resource_relations",
-            actual,
-            self.limits.complex_resource_relations,
-            "resource relations with 'but not', 'and' or a type:* wildcard",
-        )
-
-    def _permissions_map_to_actions(self) -> list[str]:
+    def _resource_permissions_map_to_actions(self) -> list[str]:
         actions = {action.value for action in Action}
-        actual = {
-            name: frozenset(
-                relation.name
-                for relation in definition.relations
-                if relation.name.startswith(PERMISSION_PREFIX)
-                and relation.name.removeprefix(PERMISSION_PREFIX) not in actions
-            )
-            for name, definition in self.types.items()
-        }
-        actual = {name: names for name, names in actual.items() if names}
-        return _compare(
-            "unmapped_permissions", actual, self.limits.unmapped_permissions, "permissions without an SDK Action"
-        )
+        return [
+            f"{name}.{relation.name}: there is no SDK Action {relation.name.removeprefix(PERMISSION_PREFIX)!r}, "
+            f"so app code cannot check this permission. Add the Action, or use an existing permission name."
+            for name in sorted(self.resource_names)
+            for relation in self.types[name].relations
+            if relation.name.startswith(PERMISSION_PREFIX)
+            and relation.name.removeprefix(PERMISSION_PREFIX) not in actions
+        ]
 
     def _relations_reach_a_permission(self) -> list[str]:
         levels = {level.value for level in Level}
@@ -378,45 +421,44 @@ class ModelRules:
     @staticmethod
     def _references(key: RelationKey, definitions: Mapping[RelationKey, str]) -> list[RelationKey]:
         definition = definitions[key]
-        references = []
-        for restriction in re.findall(r"\[([^\]]*)\]", definition):
+        references = [RelationKey(type=key.type, relation=name) for name in same_type_references(definition)]
+        for restriction in RESTRICTION_PATTERN.findall(definition):
             for item in restriction.split(","):
                 subject = item.split(" with ")[0].strip()
                 if "#" in subject:
                     subject_type, relation = subject.split("#")
                     references.append(RelationKey(type=subject_type, relation=relation))
-        expression = re.sub(r"\[[^\]]*\]", " ", definition)
-        for target, tupleset in FROM_PATTERN.findall(expression):
-            tupleset_key = RelationKey(type=key.type, relation=tupleset)
-            references.append(tupleset_key)
-            parents = re.findall(r"\[([^\]]*)\]", definitions.get(tupleset_key, ""))
+        for target, tupleset in FROM_PATTERN.findall(RESTRICTION_PATTERN.sub(" ", definition)):
+            parents = RESTRICTION_PATTERN.findall(definitions.get(RelationKey(type=key.type, relation=tupleset), ""))
             for parent in (item.split(" with ")[0].strip() for group in parents for item in group.split(",")):
                 references.append(RelationKey(type=parent.split("#")[0].split(":")[0], relation=target))
-        expression = FROM_PATTERN.sub(" ", expression)
-        references.extend(
-            RelationKey(type=key.type, relation=word)
-            for word in IDENTIFIER_PATTERN.findall(expression)
-            if word not in OPERATOR_WORDS
-        )
         return references
 
-    def _permissions_are_tested(self) -> list[str]:
-        return [
-            f"{name}.{relation.name}: model.fga.yaml has no check that expects {str(expected).lower()}. Add one."
-            for name, definition in self.types.items()
-            for relation in definition.relations
-            if relation.name.startswith(PERMISSION_PREFIX)
-            for expected in (True, False)
-            if Assertion(type=name, permission=relation.name, expected=expected) not in self.tests.assertions
-        ]
+    def _types_are_tested(self) -> list[str]:
+        problems = []
+        for name, definition in self.types.items():
+            owner = name if name in self.resource_names else CORE_TESTS
+            test_file = owner_test_file(owner)
+            tests = self.tests.get(owner)
+            if tests is None:
+                problems.append(f"{test_file} is missing. Add the tests for {name}.")
+                continue
+            for relation in definition.relations:
+                if relation.name.startswith(PERMISSION_PREFIX):
+                    problems.extend(
+                        f"{name}.{relation.name}: {test_file} has no check that expects {str(expected).lower()}. Add one."
+                        for expected in (True, False)
+                        if Assertion(type=name, permission=relation.name, expected=expected) not in tests.assertions
+                    )
+                if "[" in relation.definition and RelationKey(type=name, relation=relation.name) not in tests.written:
+                    problems.append(
+                        f"{name}.{relation.name}: no tuple in {test_file} writes this relation. Add a test that uses it."
+                    )
+        return problems
 
-    def _stored_relations_are_tested(self) -> list[str]:
-        return [
-            f"{name}.{relation.name}: no tuple in model.fga.yaml writes this relation. Add a test that uses it."
-            for name, definition in self.types.items()
-            for relation in definition.relations
-            if "[" in relation.definition and RelationKey(type=name, relation=relation.name) not in self.tests.written
-        ]
+
+def owner_test_file(owner: str) -> str:
+    return f"{CORE_TESTS}{TESTS_SUFFIX}" if owner == CORE_TESTS else f"{RESOURCES_DIR}/{owner}{TESTS_SUFFIX}"
 
 
 def relations_from_json(json_model: dict[str, list[dict[str, dict[str, object]]]]) -> dict[str, frozenset[str]]:
@@ -446,13 +488,23 @@ class _TestCase(TypedDict, total=False):
 
 
 class _TestFile(TypedDict, total=False):
+    tuple_files: list[str]
     tuples: list[_TestTuple]
     tests: list[_TestCase]
 
 
-def read_model_tests(tests: _TestFile) -> ModelTests:
-    assertions = set()
+def read_test_files(builder: ModelBuilder) -> dict[str, ModelTests]:
+    owners = [CORE_TESTS, *(path.stem for path in builder.resource_files())]
+    paths = {owner: builder.source_dir / owner_test_file(owner) for owner in owners}
+    return {owner: read_model_tests(path) for owner, path in paths.items() if path.exists()}
+
+
+def read_model_tests(path: Path) -> ModelTests:
+    tests: _TestFile = yaml.safe_load(path.read_text())
     tuples = list(tests.get("tuples", []))
+    for tuple_file in tests.get("tuple_files", []):
+        tuples.extend(yaml.safe_load((path.parent / tuple_file).read_text()) or [])
+    assertions = set()
     for test in tests.get("tests", []):
         tuples.extend(test.get("tuples", []))
         for check in test.get("check", []):
@@ -462,25 +514,6 @@ def read_model_tests(tests: _TestFile) -> ModelTests:
                     assertions.add(Assertion(type=target.split(":")[0], permission=permission, expected=expected))
     written = {RelationKey(type=item["object"].split(":")[0], relation=item["relation"]) for item in tuples}
     return ModelTests(assertions=frozenset(assertions), written=frozenset(written))
-
-
-def _compare(table: str, actual: Mapping[str, object], allowed: Mapping[str, object], meaning: str) -> list[str]:
-    problems = []
-    for name in sorted(set(actual) | set(allowed)):
-        if actual.get(name) != allowed.get(name):
-            problems.append(
-                f"limits.toml [{table}] {name}: the model has {_show(actual.get(name))} {meaning}, "
-                f"the limit says {_show(allowed.get(name))}. Change the model, or agree the new limit in review."
-            )
-    return problems
-
-
-def _show(value: object) -> str:
-    if value is None:
-        return "none"
-    if isinstance(value, frozenset):
-        return ", ".join(sorted(value))
-    return str(value)
 
 
 def main(argv: list[str] | None = None) -> int:
