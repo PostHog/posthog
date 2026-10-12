@@ -246,6 +246,32 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
             })
+            it.each([
+                ['unsupported', 'Email delivery mode not supported'],
+                [
+                    'mailjet',
+                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step.",
+                ],
+            ])('fails without sending when the provider is %s', async (provider, error) => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(4),
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider,
+                    },
+                })
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBe(error)
+                expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+            })
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({
