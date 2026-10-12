@@ -14,10 +14,13 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
+    DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     DatabricksImplementation,
     clean_databricks_host,
+    run_schema_discovery_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
     DatabricksSourceConfig,
@@ -197,6 +200,34 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # not the redacted JDBC URL around it.
             "[FAILED_JDBC.CONNECTION]": "Databricks couldn't connect to a federated database backing a table you're syncing (a Lakehouse Federation connection). Check that the underlying database is reachable and its connection details in Databricks are still correct, then resync.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Raised when the SQL warehouse auto-suspended (or was manually stopped) while a
+        # command was in flight. Databricks auto-starts a stopped warehouse on the next query
+        # by default, so the fresh connection Temporal opens on its next retry attempt usually
+        # finds the warehouse running again.
+        return {"was stopped."}
+
+    def get_schemas(
+        self,
+        config: DatabricksSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return run_schema_discovery_with_deadline(
+            lambda: super(DatabricksSource, self).get_schemas(
+                config,
+                team_id,
+                with_counts=with_counts,
+                names=names,
+                force_refresh=force_refresh,
+                api_version=api_version,
+            ),
+            timeout_seconds=DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
+        )
 
     def validate_credentials(
         self,

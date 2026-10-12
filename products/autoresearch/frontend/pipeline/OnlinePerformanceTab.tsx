@@ -12,6 +12,7 @@ import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
 import { RealizedAucChart } from './RealizedAucChart'
 import { ScoreNowButton } from './ScoreNowButton'
+import { SectionCard } from './SectionCard'
 import { SegmentCalibrationBars } from './SegmentCalibrationBars'
 
 const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; label: string }> = {
@@ -89,36 +90,41 @@ export function OnlinePerformanceTab(): JSX.Element {
 
     return (
         <div className="space-y-6">
-            <div className="space-y-1">
-                <p className="text-base font-semibold mb-0">
-                    {accuracyHeadline(latestChampionPerformance, pipeline.target_event)}
-                </p>
-                {ranking && <p className="text-sm text-muted mb-0">{ranking}</p>}
-                {precisionRecall && <p className="text-sm text-muted mb-0">{precisionRecall}</p>}
-            </div>
+            <SectionCard>
+                <div className="space-y-1">
+                    <p className="text-base font-semibold mb-0">
+                        {accuracyHeadline(latestChampionPerformance, pipeline.target_event)}
+                    </p>
+                    {ranking && <p className="text-sm text-muted mb-0">{ranking}</p>}
+                    {precisionRecall && <p className="text-sm text-muted mb-0">{precisionRecall}</p>}
+                </div>
+            </SectionCard>
 
             <ConfusionMatrixCard />
 
             {segmentCalibration.length > 0 && (
-                <section className="space-y-2">
-                    <h3 className="text-sm font-semibold mb-0">Predicted and actual rate by segment, {latestDate}</h3>
+                <SectionCard title={`Predicted and actual rate by segment, ${latestDate}`}>
                     <SegmentCalibrationBars segments={segmentCalibration} />
-                </section>
+                </SectionCard>
             )}
 
             {realizedAucPoints.length > 0 && (
-                <section className="space-y-2">
-                    <h3 className="text-sm font-semibold mb-0">Realized AUC over time</h3>
-                    <p className="text-xs text-muted mb-0">
-                        Realized AUC measures how well the model ranked people who did {pipeline.target_event} above
-                        people who did not. 0.5 is a coin flip and 1 is a perfect ranking. The holdout line is the score
-                        the model got in training.
-                    </p>
+                <SectionCard
+                    title="Realized AUC over time"
+                    description={
+                        <>
+                            Realized AUC measures how well the model ranked people who did {pipeline.target_event} above
+                            people who did not. 0.5 is a coin flip and 1 is a perfect ranking. The holdout line is the
+                            score the model got in training.
+                        </>
+                    }
+                >
                     <RealizedAucChart points={realizedAucPoints} holdoutAuc={champion?.holdout_score ?? null} />
-                </section>
+                </SectionCard>
             )}
 
             <LemonCollapse
+                className="bg-surface-primary"
                 panels={[
                     {
                         key: 'history',

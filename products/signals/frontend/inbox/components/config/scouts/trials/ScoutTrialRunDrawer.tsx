@@ -79,7 +79,7 @@ export function ScoutTrialRunDrawer({
                     <LemonBanner type="warning">This run was stopped. It was not judged.</LemonBanner>
                 )}
                 {(result?.error || result?.invalid_reason) && (
-                    <LemonBanner type="error">{result.invalid_reason || result.error}</LemonBanner>
+                    <LemonBanner type="error">{result.error || result.invalid_reason}</LemonBanner>
                 )}
                 {result?.export_error && (
                     <LemonBanner type="warning">

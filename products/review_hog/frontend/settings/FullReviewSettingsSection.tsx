@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import type { UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 import { reviewHogProjectSettingsLogic } from 'products/review_hog/frontend/repositories/reviewHogProjectSettingsLogic'
@@ -11,9 +11,9 @@ import { SettingRow } from './SettingRow'
 import { SettingsTable } from './SettingsTable'
 
 const THRESHOLD_OPTIONS: { value: UrgencyThresholdEnumApi; label: string }[] = [
-    { value: 'consider', label: 'Consider (all)' },
-    { value: 'should_fix', label: 'Should fix' },
-    { value: 'must_fix', label: 'Must fix' },
+    { value: 'consider', label: 'All findings' },
+    { value: 'should_fix', label: 'Should fix and above' },
+    { value: 'must_fix', label: 'Must fix only' },
 ]
 
 type OnOff = 'on' | 'off'
@@ -30,7 +30,7 @@ const ON_OFF_OPTIONS: { value: OnOff; label: string }[] = [
 /**
  * "Mine" offers the project value as a follow option plus every other value. The project value
  * shows twice only while an own value equals it: one saved before the project value changed.
- * Picking "(project)" then clears it.
+ * Picking "Same as project" then clears it.
  */
 function mineOptions<T extends string>(
     options: { value: T; label: string }[],
@@ -39,12 +39,13 @@ function mineOptions<T extends string>(
 ): { value: T | 'project'; label: string }[] {
     const projectLabel = options.find((option) => option.value === projectValue)?.label ?? projectValue
     return [
-        { value: 'project', label: `${projectLabel} (project)` },
+        { value: 'project', label: `Same as project (${projectLabel})` },
         ...options.filter((option) => option.value !== projectValue || option.value === ownValue),
     ]
 }
 
-export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () => void }): JSX.Element {
+/** The Deep review settings with a project value: Resolve, the threshold, and the celebration. */
+export function FullReviewSettingsSection(): JSX.Element {
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
     const { updateSettings, followProjectDefault } = useActions(reviewHogSettingsLogic)
     const { projectSettings, editDisabledReason } = useValues(reviewHogProjectSettingsLogic)
@@ -64,13 +65,10 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
             : undefined
 
     return (
-        <SettingsTable
-            title="Full review settings"
-            description="Full reviews use these. Flash reads none of them. A review someone else starts on your PR uses their settings, but only your own Resolve choice can push to your branch."
-        >
+        <SettingsTable>
             <SettingRow
                 title="Resolve comments on my pull requests"
-                description="Applies on your PRs. After a Full review, ReviewHog pushes fix commits to your branch. Only your own opt-in counts, whoever starts the review. Never commits while the pull request is in the merge queue or has another pull request stacked on it. Without a PostHog account behind a PR, nothing is pushed."
+                description="Applies on your PRs. After a Deep review, ReviewHog pushes fix commits to your branch. Only your own opt-in counts, whoever starts the review. Never commits while the pull request is in the merge queue or has another pull request stacked on it. Without a PostHog account behind a PR, nothing is pushed."
                 project={<span className="text-xs text-secondary">Personal only. Default: off</span>}
                 mine={
                     <>
@@ -87,7 +85,7 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
             />
             <SettingRow
                 title="Post findings at or above"
-                description="Applies to Full reviews you start. Lower findings stay in the report on the PostHog side."
+                description="Applies to Deep reviews you start. Findings below this stay in the review report in PostHog."
                 project={
                     <LemonSelect<UrgencyThresholdEnumApi>
                         size="small"
@@ -120,7 +118,7 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
             />
             <SettingRow
                 title="Celebrate clean reviews"
-                description="Applies to Full reviews you start. A clean Full review gets a small celebration in the status comment."
+                description="Applies to Deep reviews you start. A clean Deep review gets a small celebration in the status comment."
                 project={
                     <LemonSelect<OnOff>
                         size="small"
@@ -148,24 +146,6 @@ export function FullReviewSettingsSection({ onEditSkills }: { onEditSkills: () =
                             disabledReason={mineDisabledReason}
                             data-attr="review-hog-celebrate-clean-reviews"
                         />
-                    </>
-                }
-            />
-            <SettingRow
-                title="Perspectives, blind spots, validation and resolution criteria"
-                description="Applies to Full reviews you start. Resolution criteria also pick how fixes work: default, big gaps only, or small fixes only."
-                project={<span className="text-xs text-secondary">Skills shared in this project</span>}
-                mine={
-                    <>
-                        <YouMark shown={false} />
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={onEditSkills}
-                            data-attr="review-hog-edit-skills"
-                        >
-                            Edit my skills
-                        </LemonButton>
                     </>
                 }
             />

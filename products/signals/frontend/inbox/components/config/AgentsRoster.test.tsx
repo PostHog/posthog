@@ -60,4 +60,20 @@ describe('AgentsRoster', () => {
         await userEvent.click(await screen.findByText('Show 2 more scanners'))
         expect(await screen.findByText('Scanner 9')).toBeInTheDocument()
     })
+
+    // A failed load leaves every switch reading off and every import source reading unconnected.
+    // A click then creates a row that may already exist, so the switches have to stay shut.
+    it('holds the source switches shut while the source list has failed to load', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': () => [500, { detail: 'Server error' }],
+            },
+        })
+        render(<AgentsRoster />)
+
+        expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
+        expect(screen.getByLabelText('Arm Support')).toBeDisabled()
+        expect(screen.getByLabelText('Arm GitHub issues')).toBeDisabled()
+        expect(screen.queryByText('Connect')).not.toBeInTheDocument()
+    })
 })

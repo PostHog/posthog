@@ -18,6 +18,18 @@ describe('messageDrafts', () => {
     })
 
     it.each([
+        ['a feature name', messageDraftEmail(draftMessage({ kind: 'feature_available', featureName: '{{ x }}' }))],
+        [
+            'a link',
+            messageDraftEmail(parseMessageDraftPrefill('{"subject":"{{ x }}","paragraphs":["{% endraw %}{{ x }}"]}')!),
+        ],
+    ])('makes Liquid delimiters in %s print as typed', (_label, email) => {
+        const rendered = [email.subject, email.text, email.html, JSON.stringify(email.design)].join()
+        expect(rendered).not.toMatch(/\{\{ x|\{% endraw/)
+        expect(rendered).toContain(`{{ '{{' }} x }}`)
+    })
+
+    it.each([
         ['nothing', undefined],
         ['a non-JSON string', 'not-json'],
         ['a missing subject', '{"paragraphs":["Hi"]}'],
