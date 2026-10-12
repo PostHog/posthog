@@ -34,6 +34,7 @@ from products.data_catalog.backend.facade.api import approved_metric_names_for_t
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -60,7 +61,6 @@ from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
-    resolve_scout_acting_user_id,
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import (
@@ -79,7 +79,6 @@ from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METAD
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
-    resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
@@ -259,6 +258,8 @@ async def _arun_signals_scout(
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -271,6 +272,10 @@ async def _arun_signals_scout(
     `run_note` is the one-off steering a person typed when triggering the run by hand. It renders
     its own prompt section and is stamped on the run row, so the run it steered says so in its own
     history; it is never carried into a later run.
+
+    `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
+    They render in their own prompt section as untrusted data. `precheck_query_source` says which
+    pre-check started the run, and is stamped on the run row.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     trial = (
@@ -391,26 +396,10 @@ async def _arun_signals_scout(
     # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
     # genuine "no member can act" case; like the withheld / in-flight skips it leaves no row, no
     # lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
-    user_id = (
-        trial.user_id
-        if trial is not None
-        else await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
-            team, skill.name, config
-        )
+    acting_user = await database_sync_to_async(resolve_scout_run_acting_user, thread_sensitive=False)(
+        team, skill.name, config, trial_user_id=trial.user_id if trial is not None else None
     )
-    if user_id is None:
-        user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
-        if user_id is not None and _granted_write_scopes(config):
-            # The grant was approved for the person the runs act as. The team fallback is a member
-            # who never approved it, so this run holds only the fleet posture. Cleared in memory
-            # only: the runner never saves the config row, so the grant is back the moment the
-            # author's identity resolves again.
-            logger.info(
-                "signals_scout: withholding write access, acting user is the team fallback",
-                extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id},
-            )
-            config.write_scopes = []
-    if user_id is None:
+    if acting_user is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",
             extra={"team_id": team_id, "skill_name": skill.name},
@@ -425,6 +414,17 @@ async def _arun_signals_scout(
             skill_version=skill.version,
             skip_reason="no active user to act as for team",
         )
+    if acting_user.is_team_fallback and _granted_write_scopes(config):
+        # The grant was approved for the person the runs act as. The team fallback is a member
+        # who never approved it, so this run holds only the fleet posture. Cleared in memory
+        # only: the runner never saves the config row, so the grant is back the moment the
+        # author's identity resolves again.
+        logger.info(
+            "signals_scout: withholding write access, acting user is the team fallback",
+            extra={"team_id": team_id, "skill_name": skill.name, "user_id": acting_user.user_id},
+        )
+        config.write_scopes = []
+    user_id = acting_user.user_id
 
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
@@ -524,6 +524,8 @@ async def _arun_signals_scout(
             run_note=run_note,
             trial=trial,
             check_id=check_id,
+            precheck_rows=precheck_rows,
+            precheck_query_source=precheck_query_source,
         )
         trial_status = tasks_facade.TaskRunStatus.COMPLETED.value
         runtime_s = time.monotonic() - started
@@ -723,6 +725,8 @@ async def arun_signals_scout(
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -736,6 +740,8 @@ async def arun_signals_scout(
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
             check_id=check_id,
+            precheck_rows=precheck_rows,
+            precheck_query_source=precheck_query_source,
         )
 
 
@@ -895,6 +901,8 @@ async def _spawn_and_run(
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -1011,6 +1019,7 @@ async def _spawn_and_run(
         # manual trigger carries a nudge a person typed alongside the scout's usual work.
         triggered_by=triggered_by,
         is_private_trial=trial is not None,
+        precheck_rows=precheck_rows,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1042,6 +1051,7 @@ async def _spawn_and_run(
             run_note=run_note,
             trial=trial,
             check_id=check_id,
+            precheck_query_source=precheck_query_source,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1315,6 +1325,7 @@ def _create_run_row(
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1406,6 +1417,10 @@ def _create_run_row(
     # `scout-report-check-list` read it to tie the check to this run.
     if check_id:
         metadata["check_id"] = check_id
+    # Which pre-check started this run (`config` or `skill_default`), so run outcomes can be split
+    # by it. Absent when no pre-check ran.
+    if precheck_query_source:
+        metadata["precheck_query_source"] = precheck_query_source
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run_id=task_run_id,

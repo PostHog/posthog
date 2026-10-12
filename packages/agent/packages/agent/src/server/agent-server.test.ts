@@ -1138,6 +1138,7 @@ describe("AgentServer HTTP Mode", () => {
           {
             status: "failed",
             error_message: `agent_error: ${expected}`,
+            error_type: "agent_error",
             state: { agent_version: expect.any(String) },
           },
         );
@@ -1280,6 +1281,7 @@ describe("AgentServer HTTP Mode", () => {
         {
           status: "failed",
           error_message: "agent_error: old run failed",
+          error_type: "agent_error",
           state: { agent_version: expect.any(String) },
         },
       );

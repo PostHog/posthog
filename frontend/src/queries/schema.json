@@ -18798,6 +18798,17 @@
                         }
                     ]
                 },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Period comparison forced onto every insight that supports one. Absent/null = inherit."
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
@@ -55591,6 +55602,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
                         },
                         {
                             "type": "null"

@@ -42,8 +42,12 @@ export function ExperimentLog(): JSX.Element {
                             )
                         ) : showEntries ? (
                             <div className="border-t">
-                                {group.entries.map((entry) => (
-                                    <ExperimentLogEntry key={entry.seq} entry={entry} />
+                                {group.entries.map((entry, entryIndex) => (
+                                    <ExperimentLogEntry
+                                        key={entry.seq}
+                                        entry={entry}
+                                        defaultOpen={index === 0 && entryIndex === 0}
+                                    />
                                 ))}
                             </div>
                         ) : (

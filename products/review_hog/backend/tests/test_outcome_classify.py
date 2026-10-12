@@ -10,13 +10,13 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.models.instance_setting import _clear_instance_setting_cache
 from posthog.models.team import Team
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -93,6 +93,11 @@ def _verdict(issue_key: str = _ISSUE_KEY) -> ValidationVerdict:
 class TestClassifyReportDecision:
     """The precedence + emit logic, with the DB helpers mocked so no database or thread is involved."""
 
+    @pytest.fixture(autouse=True)
+    def _our_app_login(self):
+        with patch(f"{_CLASSIFY}.posthog_app_login", return_value="reviewhog[bot]"):
+            yield
+
     def _inputs(
         self,
         *,
@@ -133,7 +138,6 @@ class TestClassifyReportDecision:
             ("only_our_queue_marker", {"login": "reviewhog[bot]", "type": "Bot"}, "addressed", "judge_confirmed"),
         ]
     )
-    @override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="reviewhog[bot]")
     def test_a_reaction_takes_precedence_unless_it_is_ours(
         self, _name: str, reactor: dict[str, Any], outcome: str, method: str
     ):
@@ -511,6 +515,35 @@ class TestClassifyReportDecision:
         assert props["source_perspective"] == "logic"
         assert props["reviewed_head"] == "base_sha"
         assert props["final_head"] == "head_sha"
+
+
+@pytest.mark.django_db
+def test_our_reaction_is_ignored_when_the_app_login_is_not_cached() -> None:
+    _clear_instance_setting_cache()
+    comment = {"id": 1, "path": "f.py", "body": "### Off-by-one\n\nbody", "reactions": {"total_count": 1}}
+    inputs = _ReportInputs(
+        compares={"base_sha": _FAR},
+        review_comments=[comment],
+        reactions_by_comment={1: [{"user": {"login": "reviewhog[bot]", "type": "Bot"}, "content": "eyes"}]},
+        published=[
+            _PublishedFinding(finding=_finding(), verdict=_verdict(), comment=comment, reviewed_head="base_sha")
+        ],
+        distinct_id="user-distinct",
+        judge_user_id=0,
+    )
+    captured: list[dict[str, Any]] = []
+    with (
+        patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
+        patch(f"{_CLASSIFY}._persist_outcomes"),
+        patch(f"{_CLASSIFY}._mark_outcomes_emitted"),
+    ):
+        async_to_sync(classify_report)(
+            team_id=1,
+            report=ReviewReport(repository="o/r", pr_number=7),
+            final_head="head_sha",
+            capture=lambda **kw: captured.append(kw),
+        )
+    assert captured[0]["properties"]["outcome"] == "ignored"
 
 
 class TestGatherAndIdempotency(BaseTest):
