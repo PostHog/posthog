@@ -5,8 +5,11 @@ import { useEffect, useState } from 'react'
 
 import { IconCopy, IconDrag, IconPlus } from '@posthog/icons'
 
+import { IconCancel } from 'lib/lemon-ui/icons'
+
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
+import { EARLY_EXIT_BLOCKED_REASONS } from '../tree/workflowTree'
 import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
 
@@ -19,7 +22,8 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     const [isHighlighted, setIsHighlighted] = useState(false)
-    const { isCopyingNode, isMovingNode } = useValues(hogFlowEditorLogic)
+    const { dropzoneNodes, isCopyingNode, isMovingNode } = useValues(hogFlowEditorLogic)
+    const blockedReason = dropzoneNodes.find((node) => node.id === id)?.data.earlyExitBlockedReason
     const { setHighlightedDropzoneNodeId, copyNodeToHighlightedDropzone, moveNodeToHighlightedDropzone } =
         useActions(hogFlowEditorLogic)
 
@@ -33,6 +37,34 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
         } else if (isMovingNode) {
             moveNodeToHighlightedDropzone()
         }
+    }
+
+    if (blockedReason) {
+        return (
+            <div
+                onDragOver={() => setIsHighlighted(true)}
+                onDragLeave={() => setIsHighlighted(false)}
+                onMouseOver={() => setIsHighlighted(true)}
+                onMouseOut={() => setIsHighlighted(false)}
+                className={clsx(
+                    'flex gap-1 justify-center items-center px-1 rounded border border-dashed transition-all cursor-not-allowed',
+                    isHighlighted ? 'border-danger bg-surface-primary' : 'border-transparent'
+                )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    width: NODE_WIDTH,
+                    height: NODE_HEIGHT,
+                }}
+                data-attr="workflow-dropzone-blocked"
+            >
+                <IconCancel className={clsx('shrink-0 text-base', isHighlighted ? 'text-danger' : 'text-muted')} />
+                {isHighlighted && (
+                    <span className="text-[9px] leading-tight text-danger">
+                        {EARLY_EXIT_BLOCKED_REASONS[blockedReason].label}
+                    </span>
+                )}
+            </div>
+        )
     }
 
     return (

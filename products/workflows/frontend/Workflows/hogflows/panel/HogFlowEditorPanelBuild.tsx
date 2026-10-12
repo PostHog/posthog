@@ -149,6 +149,12 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
             ],
         },
     },
+    {
+        type: 'exit',
+        name: 'Early exit',
+        description: 'Send users on this path straight to the exit.',
+        config: {},
+    },
 ]
 
 export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
