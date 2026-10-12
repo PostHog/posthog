@@ -21,6 +21,7 @@ from posthog.api.github import (
     relay_to_eu,
     verify_github_signature,
 )
+from posthog.egress.limiter.policies import Priority
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
@@ -92,6 +93,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "https://api.github.com/meta/public_keys/secret_scanning",
             source="secret_scanning",
             installation_id=None,
+            priority=Priority.CRITICAL,
             timeout=10,
         )
 

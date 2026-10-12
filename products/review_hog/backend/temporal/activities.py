@@ -27,6 +27,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -674,7 +675,9 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     instead of re-probing per write: the probe answers *which* installation, not *may we write* —
     GitHub enforces access server-side on every call anyway.
     """
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+    )
     if github is None:
         raise ApplicationError(
             f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
