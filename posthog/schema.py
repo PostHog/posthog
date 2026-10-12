@@ -72,6 +72,7 @@ from posthog.schema_enums import (
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
+    Calculation as Calculation,
     CalendarHeatmapMathType as CalendarHeatmapMathType,
     ChartDisplayCategory as ChartDisplayCategory,
     ChartDisplayType as ChartDisplayType,
@@ -277,6 +278,7 @@ from posthog.schema_enums import (
     RetentionType as RetentionType,
     RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
+    Scope as Scope,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
@@ -1817,10 +1819,18 @@ class GoalLine(BaseModel):
         extra="forbid",
     )
     borderColor: str | None = None
+    calculation: Calculation | None = Field(
+        default=None,
+        description=("Recalculate from returned chart marks. An absent calculation uses the fixed value."),
+    )
     displayIfCrossed: bool | None = None
     displayLabel: bool | None = None
     label: str
     position: Position | None = None
+    scope: Scope | None = Field(
+        default=None,
+        description=("SQL chart calculations use the primary axis, across all series or separately per series."),
+    )
     value: float
 
 

@@ -5313,6 +5313,17 @@ export namespace Schemas {
       formula: string;
     }
 
+    export type Calculation = typeof Calculation[keyof typeof Calculation];
+
+
+    export const Calculation = {
+      Fixed: 'fixed',
+      Mean: 'mean',
+      Median: 'median',
+      Min: 'min',
+      Max: 'max',
+    } as const;
+
     export type Position = typeof Position[keyof typeof Position];
 
 
@@ -5321,12 +5332,24 @@ export namespace Schemas {
       End: 'end',
     } as const;
 
+    export type Scope = typeof Scope[keyof typeof Scope];
+
+
+    export const Scope = {
+      All: 'all',
+      Series: 'series',
+    } as const;
+
     export interface GoalLine {
       borderColor?: string | null;
+      /** Recalculate from returned chart marks. An absent calculation uses the fixed value. */
+      calculation?: Calculation | null;
       displayIfCrossed?: boolean | null;
       displayLabel?: boolean | null;
       label: string;
       position?: Position | null;
+      /** SQL chart calculations use the primary axis, across all series or separately per series. */
+      scope?: Scope | null;
       value: number;
     }
 

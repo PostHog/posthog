@@ -227,6 +227,7 @@ describe('biSceneLogic', () => {
     it('saves the wrapper and reopens the insight without a draft or SQL editor', async () => {
         const node = worksheet()
         node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
+        node.chartSettings!.goalLines = [{ label: 'Average', value: 0, calculation: 'mean', scope: 'series' }]
         logic.actions.restoreWorksheet(node)
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
@@ -243,6 +244,7 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.worksheet.config).toEqual(config)
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
+        expect(logic.values.worksheet.chartSettings?.goalLines).toEqual(node.chartSettings!.goalLines)
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
