@@ -3473,6 +3473,22 @@ class HogFlowPublishImpactMoveTargetSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the surviving step.")
 
 
+class HogFlowInFlightSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        allow_null=True,
+        help_text="About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.",
+    )
+    by_action = serializers.DictField(
+        child=serializers.IntegerField(),
+        allow_null=True,
+        help_text="In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.",
+    )
+    position_unknown = serializers.IntegerField(
+        allow_null=True,
+        help_text="In-flight runs whose current step could not be read. Null when the count is unavailable.",
+    )
+
+
 class HogFlowPublishImpactDeletedStepSerializer(serializers.Serializer):
     action_id = serializers.CharField(help_text="Id of the step this publish deletes.")
     name = serializers.CharField(help_text="Name of the deleted step.")
@@ -5137,6 +5153,22 @@ class HogFlowViewSet(
         self._report_workflow_action("hog_flow_draft_discarded", instance)
 
         return Response(self.get_serializer(instance).data)
+
+    @extend_schema(responses={200: HogFlowInFlightSerializer})
+    @action(detail=True, methods=["GET"], url_path="in_flight", filter_backends=[], pagination_class=None)
+    def in_flight(self, request: Request, *args, **kwargs):
+        # Best-effort like the publish preview: an unreachable counting service yields nulls, not an error.
+        instance = self.get_object()
+        counts = self._get_in_flight_counts(instance) or {}
+        return Response(
+            HogFlowInFlightSerializer(
+                {
+                    "count": counts.get("count"),
+                    "by_action": counts.get("by_action"),
+                    "position_unknown": counts.get("position_unknown"),
+                }
+            ).data
+        )
 
     @extend_schema(responses={200: HogFlowRevisionBasicSerializer(many=True)})
     # filter_backends=[]: don't inherit the viewset's HogFlow filterset — its fields would be

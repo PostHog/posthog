@@ -5,12 +5,19 @@ import { Link } from '@posthog/lemon-ui'
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
 
 import { WorkflowMetricCard } from '../WorkflowMetricCard'
 import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 import { WorkflowMessageLeaderboard } from './WorkflowMessageLeaderboard'
 import { WorkflowOverviewDetails } from './WorkflowOverviewDetails'
+import { WorkflowOverviewFeedback } from './WorkflowOverviewFeedback'
+import { WorkflowOverviewHealth } from './WorkflowOverviewHealth'
+import { WorkflowOverviewInFlight } from './WorkflowOverviewInFlight'
+import { WorkflowOverviewSuggestions } from './WorkflowOverviewSuggestions'
+import { WorkflowStepReach } from './WorkflowStepReach'
 
 function total(series: AppMetricsTimeSeriesResponse | null): number {
     return series?.series.reduce((acc, s) => acc + s.values.reduce((a, v) => a + v, 0), 0) ?? 0
@@ -59,6 +66,8 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
         workflowMetricsSummaryLogic({ logicKey, id })
     )
     const { hasEmail, hasPush } = messagingChannels
+    const { featureFlags } = useValues(featureFlagLogic)
+    const selfDrivingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
 
     const sentFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
         hasEmail && hasPush
@@ -84,6 +93,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="workflow-overview">
+            <WorkflowOverviewFeedback />
             <div className="flex flex-wrap items-center justify-end gap-2">
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -174,9 +184,18 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 ) : null}
             </div>
 
+            <WorkflowOverviewHealth id={id} logicKey={logicKey} />
+
             <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-2">
-                <WorkflowOverviewDetails id={id} />
-                <WorkflowMessageLeaderboard id={id} logicKey={logicKey} />
+                <div className="flex min-w-0 flex-col gap-4">
+                    <WorkflowStepReach id={id} logicKey={logicKey} />
+                    <WorkflowOverviewDetails id={id} />
+                </div>
+                <div className="flex min-w-0 flex-col gap-4">
+                    <WorkflowOverviewInFlight id={id} logicKey={logicKey} />
+                    {selfDrivingEnabled ? <WorkflowOverviewSuggestions id={id} /> : null}
+                    <WorkflowMessageLeaderboard id={id} logicKey={logicKey} />
+                </div>
             </div>
         </div>
     )

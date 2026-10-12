@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +11,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityLogItem, ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 export const WorkflowTabs = [
     'overview',
