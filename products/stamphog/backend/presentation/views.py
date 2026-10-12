@@ -238,8 +238,13 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         )
 
     def _queue_trigger_label_creation(self, config: contracts.RepoConfigDTO) -> None:
-        if config.enabled and config.review_mode == ReviewMode.LABEL:
+        if not (config.enabled and config.review_mode == ReviewMode.LABEL):
+            return
+        # The write already committed, so an unreachable broker must not turn it into a 500.
+        try:
             create_trigger_label.delay(team_id=self.canonical_team_id, config_id=str(config.id))
+        except Exception:
+            logger.warning("stamphog_trigger_label_queue_failed", repository=config.repository, exc_info=True)
 
     def _available_count(self) -> int:
         return facade_api.list_available_repositories(self.canonical_team_id, limit=0).total_count
