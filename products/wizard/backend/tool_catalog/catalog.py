@@ -5,15 +5,18 @@ Each warehouse source declares its own `codebase_detection`. `projection.py` ren
 repo regenerate its detector registry. The backend reads the same catalog to classify reported scans.
 """
 
+import json
 from functools import cache
+from pathlib import Path
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, fields_require_ui
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 from products.wizard.backend.tool_catalog.competitors import COMPETITORS_WITHOUT_SOURCE
-from products.wizard.backend.tool_catalog.types import Tool
+from products.wizard.backend.tool_catalog.types import Tool, ToolClassification
 
 # Bump when the JSON shape changes in a way an older wizard cannot read.
 CATALOG_SCHEMA_VERSION = 1
+CATALOG_JSON = Path(__file__).resolve().parents[2] / "tool-catalog.generated.json"
 
 
 @cache
@@ -24,8 +27,7 @@ def get_tool_catalog() -> tuple[Tool, ...]:
             label=source.get_source_config.label or source_type.value,
             warehouse_source_type=source_type,
             detection=source.codebase_detection,
-            setup_requires_ui=source.codebase_detection.setup_requires_ui
-            or fields_require_ui(source.get_source_config.fields),
+            setup_requires_ui=source.setup_requires_ui or fields_require_ui(source.get_source_config.fields),
         )
         for source_type, source in SourceRegistry.get_all_sources().items()
         if isinstance(source.codebase_detection, Detection)
@@ -37,10 +39,18 @@ def get_tool_catalog() -> tuple[Tool, ...]:
     return tuple(sorted(tools, key=lambda tool: tool.kind))
 
 
+# Reads the generated JSON rather than `get_tool_catalog()`, so classifying a reported scan never
+# imports every warehouse source module into a web worker.
 @cache
-def _tools_by_kind() -> dict[str, Tool]:
-    return {tool.kind: tool for tool in get_tool_catalog()}
+def _classifications() -> dict[str, ToolClassification]:
+    tools = json.loads(CATALOG_JSON.read_text())["tools"]
+    return {
+        tool["kind"]: ToolClassification(
+            warehouse_source_type=tool["warehouse_source_type"], competes_with=tuple(tool["competes_with"])
+        )
+        for tool in tools
+    }
 
 
-def get_tool(kind: str) -> Tool | None:
-    return _tools_by_kind().get(kind)
+def classify_tool(kind: str) -> ToolClassification | None:
+    return _classifications().get(kind)

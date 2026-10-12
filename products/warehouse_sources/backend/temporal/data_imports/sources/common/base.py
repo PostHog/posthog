@@ -204,6 +204,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `tests/test_codebase_detection.py` fails for one that does not.
     codebase_detection: Detection | NotDetectable | None = None
 
+    # Makes the wizard send users to the app's new-source form even when every field could be typed in
+    # a terminal. Sources whose fields need OAuth, a file upload or an account picker go there anyway.
+    setup_requires_ui: bool = False
+
     def history_lookback_for_schema(
         self, schema_name: str, config: ConfigType | None = None
     ) -> datetime.timedelta | None:

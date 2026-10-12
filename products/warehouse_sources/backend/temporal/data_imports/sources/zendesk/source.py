@@ -52,8 +52,8 @@ class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
         rubygems=("zendesk_api",),
         swiftpm=("github.com/zendesk/sdk_messaging_ios",),
         competes_with=(ProductKey.CONVERSATIONS,),
-        setup_requires_ui=True,
     )
+    setup_requires_ui = True
 
     supported_versions = ("v2",)
     default_version = "v2"

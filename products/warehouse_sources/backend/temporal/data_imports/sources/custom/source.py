@@ -18,7 +18,7 @@ from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import is_cloud
 
-from products.warehouse_sources.backend.facade.codebase_detection import NO_CODE_SIGNAL, not_detectable
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -798,7 +798,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     REST engine.
     """
 
-    codebase_detection = not_detectable(NO_CODE_SIGNAL)
+    codebase_detection = NOT_DETECTABLE
 
     @property
     def source_type(self) -> ExternalDataSourceType:
