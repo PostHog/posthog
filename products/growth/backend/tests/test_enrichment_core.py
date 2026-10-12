@@ -614,7 +614,7 @@ class TestEnrichmentCore(BaseTest):
                 ctx, provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=payload)), pha_client=MagicMock()
             )
 
-        bridge_mock.assert_called_once_with(organization_id=str(self.organization.id))
+        bridge_mock.assert_called_once_with(organization_id=str(self.organization.id), include_wizard=True)
         assert outcome.fit is not None
         assert outcome.fit.flags["wizard_ai_sdk"] is True
         assert outcome.fit.flags["ai_pilled_source"] == "wizard"
@@ -658,13 +658,14 @@ class TestEnrichmentCore(BaseTest):
         with patch(
             "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
             return_value=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
-        ):
+        ) as bridge_mock:
             outcome = async_to_sync(enrich_organization)(
                 ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
                 pha_client=MagicMock(),
             )
 
+        bridge_mock.assert_called_once_with(organization_id=str(self.organization.id), include_wizard=False)
         assert outcome.fit is not None
         assert outcome.fit.flags["wizard_ai_sdk"] is False
         assert outcome.fit.flags["ai_pilled_source"] == "harmonic"

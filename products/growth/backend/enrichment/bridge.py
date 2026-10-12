@@ -19,7 +19,6 @@ The wizard input does not come from a group property. It is read from the wizard
 events, matched against this module's list of LLM tool kinds.
 """
 
-import json
 import dataclasses
 from typing import Any, Optional
 
@@ -36,6 +35,7 @@ from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
@@ -45,32 +45,32 @@ WIZARD_SCAN_EVENT = "wizard: warehouse sources detected"
 WIZARD_SCAN_LOOKBACK_DAYS = 365
 # Tool kinds from the wizard's scan that mean the org builds with LLMs. This list is the scoring
 # decision, so it lives here rather than in the wizard's tool catalog.
-LLM_TOOL_KINDS: frozenset[str] = frozenset(
+LLM_TOOL_KINDS: frozenset[ExternalDataSourceType] = frozenset(
     {
-        "Anthropic",
-        "AssemblyAI",
-        "Browserbase",
-        "Cohere",
-        "Deepgram",
-        "E2B",
-        "ElevenLabs",
-        "Firecrawl",
-        "FireworksAI",
-        "Groq",
-        "Helicone",
-        "HuggingFace",
-        "LangSmith",
-        "Langfuse",
-        "LlamaCloud",
-        "Mem0",
-        "MistralAI",
-        "OpenAI",
-        "OpenRouter",
-        "Replicate",
-        "TogetherAI",
-        "Vellum",
-        "WeightsAndBiases",
-        "Zep",
+        ExternalDataSourceType.ANTHROPIC,
+        ExternalDataSourceType.ASSEMBLYAI,
+        ExternalDataSourceType.BROWSERBASE,
+        ExternalDataSourceType.COHERE,
+        ExternalDataSourceType.DEEPGRAM,
+        ExternalDataSourceType.E2B,
+        ExternalDataSourceType.ELEVENLABS,
+        ExternalDataSourceType.FIRECRAWL,
+        ExternalDataSourceType.FIREWORKSAI,
+        ExternalDataSourceType.GROQ,
+        ExternalDataSourceType.HELICONE,
+        ExternalDataSourceType.HUGGINGFACE,
+        ExternalDataSourceType.LANGSMITH,
+        ExternalDataSourceType.LANGFUSE,
+        ExternalDataSourceType.LLAMACLOUD,
+        ExternalDataSourceType.MEM0,
+        ExternalDataSourceType.MISTRALAI,
+        ExternalDataSourceType.OPENAI,
+        ExternalDataSourceType.OPENROUTER,
+        ExternalDataSourceType.REPLICATE,
+        ExternalDataSourceType.TOGETHERAI,
+        ExternalDataSourceType.VELLUM,
+        ExternalDataSourceType.WEIGHTSANDBIASES,
+        ExternalDataSourceType.ZEP,
     }
 )
 # The wizard's own dependency scan reports this feature when the code imports an LLM SDK.
@@ -128,7 +128,7 @@ def _organization_group_type_index(team: Team) -> int:
     raise OrganizationGroupTypeMissing(f"no `{ORGANIZATION_GROUP_TYPE}` group type on project {team.project_id}")
 
 
-def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBridgeInputs:
+def read_organization_bridge_inputs(*, organization_id: str, include_wizard: bool = True) -> OrganizationBridgeInputs:
     """Fetch score inputs from one organization-group read. Raises when the group store cannot be read."""
     # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
     # skip the lookup entirely instead of querying a project the bridge never touched.
@@ -138,10 +138,14 @@ def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBrid
     # the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
     team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)
     group_type_index = _organization_group_type_index(team)
-    wizard = WizardBridgeInputs(
-        ai_sdk_detected=_wizard_found_llm_sdk(
-            team=team, group_type_index=group_type_index, organization_id=organization_id
+    wizard = (
+        WizardBridgeInputs(
+            ai_sdk_detected=_wizard_found_llm_sdk(
+                team=team, group_type_index=group_type_index, organization_id=organization_id
+            )
         )
+        if include_wizard
+        else WizardBridgeInputs()
     )
     group = get_group_by_key(team_id=team.id, group_type_index=group_type_index, group_key=organization_id)
     if group is None:
@@ -157,38 +161,30 @@ def read_organization_bridge_inputs(*, organization_id: str) -> OrganizationBrid
     )
 
 
-def _string_list(value: Any) -> list[str]:
-    # HogQL returns an array event property as its JSON text.
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError:
-            return []
-    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
-
-
 def _wizard_found_llm_sdk(*, team: Team, group_type_index: int, organization_id: str) -> bool:
     response = execute_hogql_query(
         parse_select(
             """
-            SELECT properties.warehouse_source_kinds, properties.discovered_features
+            SELECT count() > 0
             FROM events
             WHERE event = {event}
                 AND {organization} = {organization_id}
                 AND timestamp > now() - toIntervalDay({lookback_days})
-            LIMIT 1000
+                AND (
+                    hasAny(JSONExtract(ifNull(properties.warehouse_source_kinds, '[]'), 'Array(String)'), {llm_kinds})
+                    OR has(JSONExtract(ifNull(properties.discovered_features, '[]'), 'Array(String)'), {llm_feature})
+                )
             """,
             placeholders={
                 "event": ast.Constant(value=WIZARD_SCAN_EVENT),
                 "organization": ast.Field(chain=[f"$group_{group_type_index}"]),
                 "organization_id": ast.Constant(value=organization_id),
                 "lookback_days": ast.Constant(value=WIZARD_SCAN_LOOKBACK_DAYS),
+                "llm_kinds": ast.Array(exprs=[ast.Constant(value=kind.value) for kind in sorted(LLM_TOOL_KINDS)]),
+                "llm_feature": ast.Constant(value=LLM_DISCOVERED_FEATURE),
             },
         ),
         team,
         query_type="growth_enrichment_wizard_scans",
     )
-    for kinds, features in response.results or []:
-        if LLM_TOOL_KINDS.intersection(_string_list(kinds)) or LLM_DISCOVERED_FEATURE in _string_list(features):
-            return True
-    return False
+    return bool(response.results and response.results[0][0])

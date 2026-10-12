@@ -254,7 +254,8 @@ def _read_bridge_inputs(
     if fields is None and not ctx.is_recheck:
         return OrganizationBridgeInputs()
     try:
-        return read_organization_bridge_inputs(organization_id=ctx.organization_id)
+        # Only a recheck scores the wizard input, so a first attempt skips its query.
+        return read_organization_bridge_inputs(organization_id=ctx.organization_id, include_wizard=ctx.is_recheck)
     except Exception as e:
         capture_exception(e, {"organization_id": ctx.organization_id})
         return None
