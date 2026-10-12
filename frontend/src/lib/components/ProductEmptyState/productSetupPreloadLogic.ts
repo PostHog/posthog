@@ -75,6 +75,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
             ]
 
             let existingDefinitions: ProbeEventDefinition[]
+            cache.requestsInFlight = (cache.requestsInFlight ?? 0) + 1
             try {
                 const response = await api.eventDefinitionsList(String(teamId), {
                     names: eventNames,
@@ -88,6 +89,8 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                 // Nothing was marked seeded, so the next trigger retries; until then the
                 // in-scene detection logic answers on its own.
                 return
+            } finally {
+                cache.requestsInFlight -= 1
             }
             breakpoint()
             if (values.currentTeamId !== teamId) {
@@ -117,7 +120,12 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
         actions.preloadStatuses()
         // Defer to idle so boot-critical work (scene chunk, first queries) wins.
         cache.disposables.add(() => {
-            const run = (): void => actions.preloadStatuses()
+            // A retry for a failed mount run. A second request while one is running would cancel it.
+            const run = (): void => {
+                if (!cache.requestsInFlight) {
+                    actions.preloadStatuses()
+                }
+            }
             if (typeof window.requestIdleCallback === 'function') {
                 const id = window.requestIdleCallback(run, { timeout: 5000 })
                 return () => window.cancelIdleCallback(id)
