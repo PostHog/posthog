@@ -90,7 +90,7 @@ pub struct State {
     /// a pure mechanism layer with cheap Arc-based clones.
     pub overflow_limiter: Option<Arc<OverflowLimiter>>,
     /// Dedicated overflow limiter for the AI lane (`DataType::AiEvents` /
-    /// `Destination::AiEvents`). Same knobs as `overflow_limiter` but a
+    /// `Destination::AiMain`). Same knobs as `overflow_limiter` but a
     /// separate governor instance, so per-key budgets are isolated: analytics
     /// volume never pushes a key's AI events into AI overflow and AI volume
     /// never burns the analytics budget. Only built when both

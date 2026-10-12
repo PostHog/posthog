@@ -1327,17 +1327,17 @@ mod tests {
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_spread(
-        Stamps { spread: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { spread: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     #[case::ai_overflow_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiOverflow) },
         OrderingGuarantee::None
     )]
     // Lanes whose consumers need the key regardless: person processing being
     // off must not spread them, matching v0's route().
     #[case::ai_main_person_off(
-        Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
+        Stamps { person_off: true, ..Stamps::on(Destination::AiMain) },
         OrderingGuarantee::PerDistinctId
     )]
     #[case::historical_person_off(

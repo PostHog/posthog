@@ -228,7 +228,7 @@ async fn v1_exception_event_round_trip() -> Result<()> {
     wrapped.event.event = "$exception".to_string();
     wrapped.uuid = uuid;
     wrapped.event.uuid = uuid.to_string();
-    wrapped.destination = capture::v1::types::Destination::ExceptionErrorTracking;
+    wrapped.destination = capture::v1::types::Destination::ErrorTrackingMain;
 
     let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;

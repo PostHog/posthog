@@ -565,7 +565,7 @@ pub struct OutputsConfig {
     pub dlq_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_DLQ_PRODUCER", default = "INGESTION")]
     pub dlq_producer: ProducerName,
-    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
+    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiMain`) pipelines
     /// divert AI events here instead of the main topic on every deployment,
     /// capture-ai included.
     #[envconfig(

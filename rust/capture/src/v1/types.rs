@@ -14,11 +14,11 @@ pub enum Destination {
     AnalyticsOverflow,
     Dlq,
     Custom(String),
-    ExceptionErrorTracking,
-    HeatmapMain,
-    ClientIngestionWarning,
-    AiEvents,
-    AiEventsOverflow,
+    ErrorTrackingMain,
+    HeatmapsMain,
+    ClientWarningsMain,
+    AiMain,
+    AiOverflow,
 }
 
 impl Destination {
@@ -27,22 +27,22 @@ impl Destination {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AnalyticsOverflow => {
                 Some(Pipeline::Analytics)
             }
-            Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
-            Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
-            Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
+            Self::AiMain | Self::AiOverflow => Some(Pipeline::Ai),
+            Self::ErrorTrackingMain => Some(Pipeline::ErrorTracking),
+            Self::HeatmapsMain | Self::ClientWarningsMain | Self::Dlq | Self::Custom(_) => None,
         }
     }
 
     pub fn absorbs_hot_keys(&self) -> bool {
         match self {
-            Self::AnalyticsMain | Self::AnalyticsOverflow | Self::AiEventsOverflow => true,
+            Self::AnalyticsMain | Self::AnalyticsOverflow | Self::AiOverflow => true,
             Self::AnalyticsHistorical
             | Self::Dlq
             | Self::Custom(_)
-            | Self::ExceptionErrorTracking
-            | Self::HeatmapMain
-            | Self::ClientIngestionWarning
-            | Self::AiEvents => false,
+            | Self::ErrorTrackingMain
+            | Self::HeatmapsMain
+            | Self::ClientWarningsMain
+            | Self::AiMain => false,
         }
     }
 
@@ -50,11 +50,11 @@ impl Destination {
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AnalyticsOverflow => true,
             Self::Dlq | Self::Custom(_) => true,
-            Self::AiEvents
-            | Self::AiEventsOverflow
-            | Self::ExceptionErrorTracking
-            | Self::HeatmapMain
-            | Self::ClientIngestionWarning => false,
+            Self::AiMain
+            | Self::AiOverflow
+            | Self::ErrorTrackingMain
+            | Self::HeatmapsMain
+            | Self::ClientWarningsMain => false,
         }
     }
 
@@ -64,11 +64,11 @@ impl Destination {
             Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
             Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
             Self::AnalyticsOverflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
-            Self::AiEvents => lane(pipeline::Pipeline::Ai, Lane::Main),
-            Self::AiEventsOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
-            Self::ExceptionErrorTracking => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
-            Self::HeatmapMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
-            Self::ClientIngestionWarning => lane(pipeline::Pipeline::Warnings, Lane::Main),
+            Self::AiMain => lane(pipeline::Pipeline::Ai, Lane::Main),
+            Self::AiOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
+            Self::ErrorTrackingMain => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
+            Self::HeatmapsMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
+            Self::ClientWarningsMain => lane(pipeline::Pipeline::Warnings, Lane::Main),
             Self::Dlq => Address::Dlq,
             Self::Custom(topic) => Address::Custom(topic.clone()),
         }
@@ -101,11 +101,11 @@ mod destination_tests {
     #[case(Destination::AnalyticsMain, Some(Pipeline::Analytics))]
     #[case(Destination::AnalyticsHistorical, Some(Pipeline::Analytics))]
     #[case(Destination::AnalyticsOverflow, Some(Pipeline::Analytics))]
-    #[case(Destination::AiEvents, Some(Pipeline::Ai))]
-    #[case(Destination::AiEventsOverflow, Some(Pipeline::Ai))]
-    #[case(Destination::ExceptionErrorTracking, Some(Pipeline::ErrorTracking))]
-    #[case(Destination::HeatmapMain, None)]
-    #[case(Destination::ClientIngestionWarning, None)]
+    #[case(Destination::AiMain, Some(Pipeline::Ai))]
+    #[case(Destination::AiOverflow, Some(Pipeline::Ai))]
+    #[case(Destination::ErrorTrackingMain, Some(Pipeline::ErrorTracking))]
+    #[case(Destination::HeatmapsMain, None)]
+    #[case(Destination::ClientWarningsMain, None)]
     #[case(Destination::Dlq, None)]
     #[case(Destination::Custom("admin_topic".into()), None)]
     fn pipeline_classifies_every_destination(
@@ -124,17 +124,14 @@ mod destination_tests {
     #[case(Destination::AnalyticsOverflow, Some(V0Destination::AnalyticsOverflow))]
     #[case(Destination::Dlq, Some(V0Destination::Dlq))]
     #[case(Destination::Custom("admin_topic".into()), Some(V0Destination::Custom("admin_topic".into())))]
+    #[case(Destination::ErrorTrackingMain, Some(V0Destination::ErrorTrackingMain))]
+    #[case(Destination::HeatmapsMain, Some(V0Destination::HeatmapsMain))]
     #[case(
-        Destination::ExceptionErrorTracking,
-        Some(V0Destination::ErrorTrackingMain)
-    )]
-    #[case(Destination::HeatmapMain, Some(V0Destination::HeatmapsMain))]
-    #[case(
-        Destination::ClientIngestionWarning,
+        Destination::ClientWarningsMain,
         Some(V0Destination::ClientWarningsMain)
     )]
-    #[case(Destination::AiEvents, Some(V0Destination::AiMain))]
-    #[case(Destination::AiEventsOverflow, Some(V0Destination::AiOverflow))]
+    #[case(Destination::AiMain, Some(V0Destination::AiMain))]
+    #[case(Destination::AiOverflow, Some(V0Destination::AiOverflow))]
     fn address_matches_the_v0_destination(
         #[case] destination: Destination,
         #[case] expected: Option<V0Destination>,
