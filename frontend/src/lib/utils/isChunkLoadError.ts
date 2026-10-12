@@ -36,7 +36,9 @@ export function isGenericNetworkTypeError(error: unknown): boolean {
         return false
     }
     return (
-        info.message.includes('Load failed') || info.message.includes('NetworkError when attempting to fetch resource')
+        info.message.includes('Load failed') ||
+        info.message.includes('NetworkError when attempting to fetch resource') ||
+        info.message.includes('Cross-origin script load denied')
     )
 }
 
