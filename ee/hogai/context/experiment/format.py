@@ -46,6 +46,13 @@ def _detect_method(variant_results: list[dict]) -> str | None:
     return None
 
 
+def _baseline_key(day_response: dict[str, Any]) -> str:
+    key = (day_response.get("baseline") or {}).get("key")
+    if isinstance(key, str) and key:
+        return key
+    return "control"
+
+
 def _variant_key_order(variant_results: list[dict]) -> list[str]:
     keys: list[str] = []
     for variant in variant_results:
@@ -80,16 +87,17 @@ class ExperimentTimeseriesFormatter:
         variant_results = sample_response.get("variant_results") or []
         method = _detect_method(variant_results) or "unknown"
         variant_keys = _variant_key_order(variant_results)
+        baseline_key = _baseline_key(sample_response)
 
         header_lines = [
             f"Method: {method}",
-            f"Variants: control (baseline), {', '.join(variant_keys) if variant_keys else 'none'}",
+            f"Variants: {baseline_key} (baseline), {', '.join(variant_keys) if variant_keys else 'none'}",
         ]
         status = self._response.get("status")
         if status:
             header_lines.append(f"Status: {status}")
 
-        header_row = ["Date", "control n", "control mean"]
+        header_row = ["Date", f"{baseline_key} n", f"{baseline_key} mean"]
         for key in variant_keys:
             header_row.extend([f"{key} n", f"{key} mean", f"{key} interval", self._effect_label(method, key)])
             header_row.append(f"{key} significant")
