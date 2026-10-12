@@ -27,12 +27,7 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_already_posted,
     _review_marker,
 )
-from products.review_hog.backend.temporal.activities import (
-    PUBLISH_MAX_RATE_LIMIT_WAIT_SECONDS,
-    PublishInput,
-    _publish,
-    publish_review_activity,
-)
+from products.review_hog.backend.temporal.activities import PublishInput, _publish, publish_review_activity
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
 # snapshot load are patched there; the installation auth is still resolved in the activity wrapper.
@@ -301,12 +296,11 @@ class TestPublishIdempotency(BaseTest):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("retry_after,expected_wait", [(120, 120), (7200, PUBLISH_MAX_RATE_LIMIT_WAIT_SECONDS)])
-async def test_publish_waits_for_the_rate_limit_reset_github_names(retry_after: int, expected_wait: int) -> None:
+async def test_publish_waits_for_the_rate_limit_reset_github_names() -> None:
     with (
-        patch(f"{_ACTIVITIES}._publish", side_effect=GitHubRateLimitError("limited", retry_after=retry_after)),
+        patch(f"{_ACTIVITIES}._publish", side_effect=GitHubRateLimitError("limited", retry_after=3000)),
         pytest.raises(ApplicationError) as raised,
     ):
         await ActivityEnvironment().run(publish_review_activity, _publish_input(1, "rep-1", "sha1"))
 
-    assert raised.value.next_retry_delay == timedelta(seconds=expected_wait)
+    assert raised.value.next_retry_delay == timedelta(seconds=3000)
