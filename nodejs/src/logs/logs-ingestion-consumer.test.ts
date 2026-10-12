@@ -116,6 +116,8 @@ const createKafkaMessage = async (
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'pattern', type: ['null', 'string'], default: null },
+            { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
     })
 
