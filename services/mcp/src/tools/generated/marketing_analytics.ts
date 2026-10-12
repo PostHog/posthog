@@ -159,6 +159,31 @@ const marketingAnalyticsExplainConversionGoal = (): ToolBase<
     },
 })
 
+const MarketingAnalyticsSetupPlanSchema = () => {
+    const MarketingAnalyticsSetupPlanRetrieveQueryParams = orvalSchemas.MarketingAnalyticsSetupPlanRetrieveQueryParams()
+    return MarketingAnalyticsSetupPlanRetrieveQueryParams
+}
+
+const marketingAnalyticsSetupPlan = (): ToolBase<
+    ReturnType<typeof MarketingAnalyticsSetupPlanSchema>,
+    Schemas.SetupPlanResponse
+> => ({
+    name: 'marketing-analytics-setup-plan',
+    schema: MarketingAnalyticsSetupPlanSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MarketingAnalyticsSetupPlanSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SetupPlanResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/setup_plan/`,
+            query: {
+                date_from: params.date_from,
+                refresh: params.refresh,
+            },
+        })
+        return result
+    },
+})
+
 const MarketingAnalyticsSuggestConversionGoalsSchema = () => {
     const MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams =
         orvalSchemas.MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams()
@@ -283,6 +308,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-delete-conversion-goal': marketingAnalyticsDeleteConversionGoal,
     'marketing-analytics-diagnose': marketingAnalyticsDiagnose,
     'marketing-analytics-explain-conversion-goal': marketingAnalyticsExplainConversionGoal,
+    'marketing-analytics-setup-plan': marketingAnalyticsSetupPlan,
     'marketing-analytics-suggest-conversion-goals': marketingAnalyticsSuggestConversionGoals,
     'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,
     'marketing-analytics-update-conversion-goal': marketingAnalyticsUpdateConversionGoal,

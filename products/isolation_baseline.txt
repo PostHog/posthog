@@ -54,7 +54,6 @@ managed_migrations
 marketing_analytics
 mcp_analytics
 mcp_store
-messaging
 notebooks
 notifications
 platform_features

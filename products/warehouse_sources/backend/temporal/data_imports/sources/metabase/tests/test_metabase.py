@@ -1,7 +1,9 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -15,10 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     MetabaseAuth,
     MetabaseAuthError,
     MetabaseHostNotAllowedError,
+    MetabaseQueryLogsUnavailableError,
+    MetabaseResumeConfig,
     _resolve_auth_headers,
     get_rows,
     metabase_source,
     normalize_host,
+    query_execution_months,
     validate_credentials,
 )
 
@@ -53,6 +58,13 @@ def _real_response(*, status_code: int = 200, json_data: Any = None) -> Response
     return resp
 
 
+def _manager(next_month: Optional[str] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = next_month is not None
+    manager.load_state.return_value = MetabaseResumeConfig(next_month=next_month) if next_month else None
+    return manager
+
+
 def _api_key_auth() -> MetabaseAuth:
     return MetabaseAuth(method=API_KEY_AUTH, api_key="mb_secret")
 
@@ -79,6 +91,23 @@ class TestNormalizeHost:
     )
     def test_normalize_host(self, raw, expected):
         assert normalize_host(raw) == expected
+
+
+class TestQueryExecutionMonths:
+    @pytest.mark.parametrize(
+        "now, last_value, first, last, count",
+        [
+            # Full refresh walks back the default retention window.
+            (datetime(2026, 3, 10, tzinfo=UTC), None, "2024-03", "2026-03", 25),
+            # Incremental starts one month before the watermark, across a year boundary.
+            (datetime(2026, 2, 10, tzinfo=UTC), "2026-01-05T08:00:00Z", "2025-12", "2026-02", 3),
+            (datetime(2026, 2, 10, tzinfo=UTC), datetime(2026, 2, 1, 0, 30), "2026-01", "2026-02", 2),
+        ],
+    )
+    def test_month_windows(self, now, last_value, first, last, count):
+        months = query_execution_months(now, last_value)
+        assert (months[0], months[-1], len(months)) == (first, last, count)
+        assert months == sorted(set(months))
 
 
 class TestResolveAuthHeaders:
@@ -246,6 +275,7 @@ class TestMetabaseSourceResponse:
             endpoint=endpoint,
             logger=mock.MagicMock(),
             team_id=1,
+            resumable_source_manager=_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
@@ -293,6 +323,7 @@ class TestGetRows:
                 endpoint=endpoint,
                 logger=mock.MagicMock(),
                 team_id=1,
+                resumable_source_manager=_manager(),
             ):
                 rows.extend(table)
         return rows, session, requests_seen
@@ -327,3 +358,78 @@ class TestGetRows:
         assert auth.name == "X-Metabase-Session"
         assert auth.api_key == "tok-123"
         assert [r["id"] for r in rows] == [1]
+
+    def test_memberships_flatten_user_map(self):
+        body = {
+            "1": [{"membership_id": 10, "group_id": 1, "user_id": 1, "is_group_manager": False}],
+            "2": [
+                {"membership_id": 11, "group_id": 1, "user_id": 2, "is_group_manager": False},
+                {"membership_id": 12, "group_id": 3, "user_id": 2, "is_group_manager": True},
+            ],
+        }
+        rows, _, requests_seen = self._run([_real_response(json_data=body)], endpoint="permission_group_memberships")
+        assert requests_seen[0].url.endswith("/api/permissions/membership")
+        assert [(r["membership_id"], r["user_id"]) for r in rows] == [(10, 1), (11, 2), (12, 2)]
+
+    def test_fields_fan_out_over_databases(self):
+        rows, _, requests_seen = self._run(
+            [
+                _real_response(json_data={"data": [{"id": 1}, {"id": 2}], "total": 2}),
+                _real_response(json_data=[{"id": 100, "table_id": 5, "name": "email"}]),
+                _real_response(json_data=[{"id": 200, "table_id": 9, "name": "amount"}]),
+            ],
+            endpoint="fields",
+        )
+        assert [r.url.split("x.metabaseapp.com")[1] for r in requests_seen] == [
+            "/api/database",
+            "/api/database/1/fields",
+            "/api/database/2/fields",
+        ]
+        assert [(r["id"], r["database_id"]) for r in rows] == [(100, 1), (200, 2)]
+
+    @time_machine.travel(datetime(2026, 4, 10, tzinfo=UTC), tick=False)
+    @pytest.mark.parametrize(
+        "last_value, resume_month, expected_ids, expected_requests",
+        [
+            (None, None, [1, 2, 3, 4], 25),
+            # Rows before the watermark drop out; the month before the watermark is still fetched.
+            ("2026-03-20T00:00:00Z", None, [3, 4], 3),
+            (None, "2026-02", [1, 2, 3, 4], 3),
+        ],
+    )
+    def test_query_executions_walk_months_ascending(self, last_value, resume_month, expected_ids, expected_requests):
+        february = [{"id": 1, "started_at": "2026-02-15T10:00:00+00:00"}]
+        # Metabase returns each month newest first.
+        march = [{"id": 3, "started_at": "2026-03-25T10:00:00Z"}, {"id": 2, "started_at": "2026-03-02T10:00:00Z"}]
+        april = [{"id": 4, "started_at": "2026-04-02T10:00:00Z"}]
+        responses = [_real_response(json_data=[]) for _ in range(expected_requests - 3)] + [
+            _real_response(json_data=month) for month in (february, march, april)
+        ]
+
+        session = mock.MagicMock()
+        requests_seen = self._wire(session, responses)
+        manager = _manager(resume_month)
+        with mock.patch(METABASE_SESSION_PATCH, return_value=session):
+            rows = [
+                row
+                for page in get_rows(
+                    host="https://x.metabaseapp.com",
+                    auth=_api_key_auth(),
+                    endpoint="query_executions",
+                    logger=mock.MagicMock(),
+                    team_id=1,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=last_value,
+                )
+                for row in page
+            ]
+
+        assert [r["id"] for r in rows] == expected_ids
+        assert len(requests_seen) == expected_requests
+        assert requests_seen[-1].url.endswith("/api/ee/logs/query_execution/2026-04")
+        assert [c.args[0].next_month for c in manager.save_state.call_args_list][-2:] == ["2026-03", "2026-04"]
+
+    @pytest.mark.parametrize("status_code", [402, 404])
+    def test_query_executions_unavailable_is_typed(self, status_code):
+        with pytest.raises(MetabaseQueryLogsUnavailableError):
+            self._run([_real_response(status_code=status_code)], endpoint="query_executions")

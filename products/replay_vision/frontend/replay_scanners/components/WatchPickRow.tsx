@@ -10,7 +10,7 @@ import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
-import { watchReasonCopy } from './WatchFeedCard'
+import { watchFeedRowWhy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -62,7 +62,7 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
                         />
                     </span>
                     <span className="truncate text-xs font-normal text-secondary">
-                        {citedTextToPlainText(watchReasonCopy(reason), undefined)}
+                        {citedTextToPlainText(watchFeedRowWhy(reason), undefined)}
                     </span>
                 </span>
             </span>
