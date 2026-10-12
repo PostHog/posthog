@@ -15,6 +15,8 @@ scout's skill stops the scout just as surely as deleting its config does.
 
 from collections.abc import Mapping
 
+from django.db.models import Subquery
+
 import structlog
 from prometheus_client import Counter
 
@@ -25,7 +27,7 @@ from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.skill_loader import resolve_scout_acting_user_id
+from products.signals.backend.scout_harness.skill_loader import earliest_member_author_id, resolve_scout_acting_user_id
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -101,22 +103,13 @@ def resolve_scout_lifecycle_owner_id(team: Team, skill_name: str, config: Signal
     stamps one `updated_at` on every version it tombstones, and an older skill that once used the
     name must not give its author the claim.
     """
-    if not LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
-        archived = LLMSkill.objects.filter(team=team, name=skill_name, deleted=True)
-        last_archived_at = archived.order_by("-updated_at").values_list("updated_at", flat=True).first()
-        if last_archived_at is not None:
-            archived_author_id = (
-                archived.filter(
-                    updated_at=last_archived_at,
-                    created_by__isnull=False,
-                    created_by__in=team.all_users_with_access(),
-                )
-                .order_by("created_at", "id")
-                .values_list("created_by_id", flat=True)
-                .first()
-            )
-            if archived_author_id is not None:
-                return archived_author_id
+    if LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
+        return resolve_scout_acting_user_id(team, skill_name, config)
+    archived = LLMSkill.objects.filter(team=team, name=skill_name, deleted=True)
+    last_archive = archived.filter(updated_at=Subquery(archived.order_by("-updated_at").values("updated_at")[:1]))
+    archived_author_id = earliest_member_author_id(team, last_archive)
+    if archived_author_id is not None:
+        return archived_author_id
     return resolve_scout_acting_user_id(team, skill_name, config)
 
 
@@ -161,6 +154,33 @@ def record_lifecycle_refusal(
     )
 
 
+def _refuse_without_claim(
+    *,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig,
+    user: User,
+    authenticator: object,
+    action: str,
+    verb: str,
+) -> None:
+    """Raise `ScoutLifecycleLocked` for a locked scout unless the caller holds its claim."""
+    if not config.lifecycle_locked:
+        return
+    if user_holds_scout_lifecycle_claim(team=team, skill_name=skill_name, config=config, user=user):
+        return
+    record_lifecycle_refusal(
+        team=team,
+        skill_name=skill_name,
+        action=action,
+        auth_kind=resolve_auth_kind(authenticator),
+        user_id=user.pk,
+    )
+    raise ScoutLifecycleLocked(
+        f"This scout is locked, so only the person its runs act as or a project admin can {verb} it."
+    )
+
+
 def assert_can_archive_scout_skill(
     *,
     team: Team,
@@ -178,19 +198,16 @@ def assert_can_archive_scout_skill(
     """
     scoped_team = canonical_team(team)
     config = SignalScoutConfig.objects.for_team(scoped_team.id).filter(skill_name=skill_name).first()
-    if config is None or not config.lifecycle_locked:
+    if config is None:
         return
-    if user_holds_scout_lifecycle_claim(team=scoped_team, skill_name=skill_name, config=config, user=user):
-        return
-    record_lifecycle_refusal(
+    _refuse_without_claim(
         team=scoped_team,
         skill_name=skill_name,
+        config=config,
+        user=user,
+        authenticator=authenticator,
         action="archive_skill",
-        auth_kind=resolve_auth_kind(authenticator),
-        user_id=user.pk,
-    )
-    raise ScoutLifecycleLocked(
-        "This scout is locked, so only the person its runs act as or a project admin can delete it."
+        verb="delete",
     )
 
 
@@ -216,20 +233,15 @@ def rename_scout_with_skill(
     config = configs.select_for_update().filter(skill_name=skill_name).first()
     if config is None:
         return
-    if (
-        user is not None
-        and config.lifecycle_locked
-        and not user_holds_scout_lifecycle_claim(team=scoped_team, skill_name=skill_name, config=config, user=user)
-    ):
-        record_lifecycle_refusal(
+    if user is not None:
+        _refuse_without_claim(
             team=scoped_team,
             skill_name=skill_name,
+            config=config,
+            user=user,
+            authenticator=authenticator,
             action="rename_skill",
-            auth_kind=resolve_auth_kind(authenticator),
-            user_id=user.pk,
-        )
-        raise ScoutLifecycleLocked(
-            "This scout is locked, so only the person its runs act as or a project admin can rename it."
+            verb="rename",
         )
     if configs.filter(skill_name=new_name).exists():
         raise ScoutConfigNameTaken(

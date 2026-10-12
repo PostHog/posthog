@@ -63,11 +63,7 @@ class SignalsConfig(AppConfig):
         register_skill_archive_guard(_guard)
 
     def _register_scout_skill_rename_hook(self) -> None:
-        """Let the skills product move a scout's config with its skill, or refuse the rename.
-
-        The config is keyed on the skill name, so a rename that left it behind would stop the
-        scout. That makes a rename a lifecycle action, and a locked scout gates it like an archive.
-        """
+        """Let the skills product move or refuse a scout's config on rename without importing this one."""
         from products.skills.backend.api.archive_guards import (
             SkillRenameConflict,
             SkillRenameRefused,
