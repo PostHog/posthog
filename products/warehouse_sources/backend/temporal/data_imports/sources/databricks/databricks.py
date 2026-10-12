@@ -13,7 +13,7 @@ import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 import structlog
 from databricks import sql as databricks_sql
@@ -23,6 +23,12 @@ from databricks.sdk.core import (
 )
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.common.errors import NonReportableError
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
+    DeadlineExceededError,
+    run_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import BacktickIdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -49,9 +55,13 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
     "DatabricksImplementation",
+    "DatabricksMetadataTimeoutError",
     "clean_databricks_host",
     "filter_databricks_incremental_fields",
+    "run_schema_discovery_with_deadline",
 ]
+
+_T = TypeVar("_T")
 
 _IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
 
@@ -82,6 +92,41 @@ _SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
 def _is_transient_connect_ssl_eof(e: BaseException) -> bool:
     """Return True if connect failed on a transient SSL peer-close mid-handshake."""
     return isinstance(e, databricks_sql.Error) and _SSL_UNEXPECTED_EOF_TOKEN in str(e)
+
+
+# Schema discovery must end before the 10 minute `start_to_close_timeout` of its Temporal
+# activity (`DiscoverSchemasWorkflow.DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT`). The Thrift connector has
+# no limit of its own on the wall-clock duration of a running statement — `_socket_timeout` only
+# bounds each individual polling request, so a legitimately slow `information_schema.columns` scan
+# (e.g. listing every schema in a wide catalog) can run past the activity's budget. Temporal then
+# cancels the activity thread mid-poll, and the connector surfaces that as a generic
+# `databricks.sql.exc.RequestError: Error during request to server. Cancelled` — a confusing error
+# that hides the real cause. Run discovery under this deadline instead, so it fails with its own
+# clear, retryable error well before that happens. Mirrors the MSSQL source's
+# `MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS`.
+DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS = 300
+
+# Stable prefix, matched by tests. Kept out of `get_non_retryable_errors` — the next scheduled
+# discovery pass retries from scratch, and a transient slow catalog scan can succeed then.
+DATABRICKS_METADATA_TIMEOUT_ERROR = "Databricks did not answer in time"
+
+
+class DatabricksMetadataTimeoutError(NonReportableError):
+    """Databricks gave no answer to a schema-discovery query before the deadline."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(
+            f"{DATABRICKS_METADATA_TIMEOUT_ERROR} while PostHog listed tables and columns "
+            f"(waited {timeout_seconds:g} seconds)"
+        )
+
+
+def run_schema_discovery_with_deadline(operation: Callable[[], _T], *, timeout_seconds: float) -> _T:
+    """Run schema-discovery `operation`, and raise `DatabricksMetadataTimeoutError` when it hangs."""
+    try:
+        return run_with_deadline(operation, timeout_seconds=timeout_seconds, thread_name="databricks-metadata")
+    except DeadlineExceededError as e:
+        raise DatabricksMetadataTimeoutError(e.timeout_seconds) from e
 
 
 def _connect_with_transient_retry(**kwargs: Any) -> Any:
