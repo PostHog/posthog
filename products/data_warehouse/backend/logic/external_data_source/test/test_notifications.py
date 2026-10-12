@@ -1,12 +1,26 @@
 import uuid
 import datetime as dt
+from collections.abc import Iterator
 from urllib.parse import quote
 
 import pytest
-from unittest.mock import patch
+import time_machine
+from unittest.mock import MagicMock, patch
 
-from posthog.models import Organization, Team
+from django.conf import settings
+from django.test import override_settings
 
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.instance_setting import override_instance_config
+from posthog.models.messaging import MessagingRecord
+from posthog.tasks.email import ExternalDataFailureDigestItem
+
+from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.data_warehouse.backend.logic.external_data_source.alerts import (
+    FAILURE_DIGEST_EVENT,
+    build_failure_digest_summary,
+)
 from products.data_warehouse.backend.logic.external_data_source.notifications import (
     MAX_SCHEMAS_PER_DIGEST_EMAIL,
     get_team_ids_with_recent_sync_failures,
@@ -14,13 +28,40 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
-pytestmark = [
-    pytest.mark.django_db,
-]
-
 SENDER_PATH = (
     "products.data_warehouse.backend.logic.external_data_source.notifications.send_external_data_failure_digest"
 )
+ALERTS_PATH = "products.data_warehouse.backend.logic.external_data_source.alerts"
+
+
+@pytest.fixture(autouse=True)
+def destination_flag() -> Iterator[MagicMock]:
+    with patch(f"{ALERTS_PATH}.posthoganalytics.feature_enabled", return_value=False) as flag:
+        yield flag
+
+
+def _create_recipient(team: Team, *, opted_out: bool = False) -> User:
+    user = User.objects.create_user(
+        email=f"member-{uuid.uuid4()}@example.com",
+        password=None,
+        first_name="Test",
+        partial_notification_settings={"plugin_disabled": not opted_out},
+    )
+    OrganizationMembership.objects.create(organization=team.organization, user=user)
+    return user
+
+
+def _create_email_template() -> HogFunctionTemplate:
+    return HogFunctionTemplate.objects.create(
+        template_id="template-posthog-email",
+        name="Email project members",
+        code="return event",
+        type="internal_destination",
+        inputs_schema=[
+            {"key": key, "type": "string", "required": True}
+            for key in ("subject", "body", "action_url", "action_label")
+        ],
+    )
 
 
 def _create_team_and_source() -> tuple[Team, ExternalDataSource]:
@@ -37,7 +78,250 @@ def _create_team_and_source() -> tuple[Team, ExternalDataSource]:
     return team, source
 
 
+@pytest.mark.django_db
 class TestNotifyExternalDataSyncFailures:
+    @pytest.mark.parametrize("enabled", [False, None, True])
+    @time_machine.travel("2026-05-15T09:00:00Z", tick=False)
+    def test_digest_delivery_path(self, destination_flag: MagicMock, enabled: bool | None) -> None:
+        destination_flag.return_value = enabled
+        team, source = _create_team_and_source()
+        recipient = _create_recipient(team)
+        _create_recipient(team, opted_out=True)
+        _create_email_template()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=name,
+                team=team,
+                source=source,
+                status=ExternalDataSchema.Status.FAILED,
+                latest_error=error,
+                should_sync=not paused,
+                auto_disabled_at=dt.datetime.now(dt.UTC) if paused else None,
+            )
+            for name, error, paused in [("Invoice", "Invalid API key", True), ("Charge", "Retry needed", False)]
+        ]
+        with (
+            patch(SENDER_PATH, return_value=True) as sender,
+            patch(f"{ALERTS_PATH}.produce_internal_event") as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
+            notify_external_data_sync_failures(team.pk)
+
+        if enabled:
+            sender.assert_not_called()
+            produce.assert_called_once()
+            assert produce.call_args.kwargs["team_id"] == team.pk
+            event = produce.call_args.kwargs["event"]
+            source_url = f"{settings.SITE_URL}/project/{team.pk}/data-management/sources/managed-{source.id}/syncs"
+            assert event.event == FAILURE_DIGEST_EVENT
+            assert event.distinct_id == f"team_{team.pk}"
+            assert event.properties == {
+                "$notify_user_ids": [recipient.pk],
+                "schemas": [
+                    {
+                        "schema_name": name,
+                        "source_id": str(source.id),
+                        "source_type": "Stripe",
+                        "source_prefix": "",
+                        "source_url": source_url,
+                        "error": error,
+                        "paused": paused,
+                        "url": f"{source_url}?schema={name}",
+                    }
+                    for name, error, paused in [("Invoice", "Invalid API key", True), ("Charge", "Retry needed", False)]
+                ],
+                "schema_count": 2,
+                "omitted_count": 0,
+                "digest_day": "2026-05-14",
+                "sources_url": f"{settings.SITE_URL}/project/{team.pk}/data-management/sources",
+                "summary": "Stripe / Invoice: Invalid API key (paused)\nStripe / Charge: Retry needed",
+            }
+            assert MessagingRecord.objects.filter(
+                campaign_key=f"external_data_failure_digest_{team.pk}_2026-05-14", sent_at__isnull=False
+            ).exists()
+        else:
+            sender.assert_called_once()
+            produce.assert_not_called()
+            assert not HogFunction.objects.filter(team=team).exists()
+        for schema in schemas:
+            schema.refresh_from_db()
+            assert schema.last_error_notified_at == dt.datetime.now(dt.UTC)
+        destination_flag.assert_any_call(
+            key="dwh-failure-email-destination",
+            distinct_id=str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.pk)},
+            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.pk)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def test_event_masks_credentials_in_errors(self, destination_flag: MagicMock) -> None:
+        destination_flag.return_value = True
+        team, source = _create_team_and_source()
+        _create_recipient(team)
+        _create_email_template()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="GET https://api.example.com/v1?api_key=sk_live_abcdef123456 failed",
+        )
+        with (
+            patch(SENDER_PATH) as sender,
+            patch(f"{ALERTS_PATH}.produce_internal_event") as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
+            notify_external_data_sync_failures(team.pk)
+
+        sender.assert_not_called()
+        properties = produce.call_args.kwargs["event"].properties
+        assert "sk_live_abcdef123456" not in properties["summary"]
+        assert "sk_live_abcdef123456" not in properties["schemas"][0]["error"]
+        assert "api_key=***" in properties["schemas"][0]["error"]
+
+    @pytest.mark.parametrize("state", ["enabled", "deleted", "disabled"])
+    def test_preserves_default_destination(self, destination_flag: MagicMock, state: str) -> None:
+        destination_flag.return_value = True
+        team, source = _create_team_and_source()
+        _create_recipient(team)
+        template = _create_email_template()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="Retry needed",
+        )
+        with (
+            patch(SENDER_PATH) as sender,
+            patch(f"{ALERTS_PATH}.produce_internal_event") as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
+            with time_machine.travel("2026-05-15T12:00:00Z", tick=False):
+                notify_external_data_sync_failures(team.pk)
+            function = HogFunction.objects.get(team=team)
+            assert function.created_by is None
+            assert function.enabled
+            assert function.type == "internal_destination"
+            assert function.template_id == template.template_id
+            assert function.hog_function_template == template
+            assert function.hog == template.code
+            assert function.bytecode == template.bytecode
+            assert function.inputs_schema == template.inputs_schema
+            assert function.filters is not None
+            assert function.inputs is not None
+            assert function.filters["source"] == "internal-events"
+            assert function.filters["events"] == [{"id": FAILURE_DIGEST_EVENT, "type": "events"}]
+            assert function.inputs["body"]["value"] == "These tables failed to sync:\n\n{event.properties.summary}"
+            assert function.inputs["body"]["bytecode"]
+            HogFunction.objects.filter(pk=function.pk).update(
+                deleted=state == "deleted", enabled=state == "enabled", name="Custom email"
+            )
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(last_error_notified_at=None)
+            with time_machine.travel("2026-05-16T12:00:00Z", tick=False):
+                notify_external_data_sync_failures(team.pk)
+        sender.assert_not_called()
+        assert produce.call_count == 2
+        assert HogFunction.objects.filter(team=team).count() == 1
+        function.refresh_from_db()
+        assert function.deleted == (state == "deleted")
+        assert function.enabled == (state == "enabled")
+        assert function.name == "Custom email"
+
+    @pytest.mark.parametrize("sent", [False, True])
+    def test_missing_template_uses_email(self, destination_flag: MagicMock, sent: bool) -> None:
+        destination_flag.return_value = True
+        team, source = _create_team_and_source()
+        _create_recipient(team)
+        schema = ExternalDataSchema.objects.create(
+            name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED
+        )
+        with patch(SENDER_PATH, return_value=sent) as sender, patch(f"{ALERTS_PATH}.produce_internal_event") as produce:
+            notify_external_data_sync_failures(team.pk)
+        sender.assert_called_once()
+        produce.assert_not_called()
+        assert not HogFunction.objects.filter(team=team).exists()
+        schema.refresh_from_db()
+        assert (schema.last_error_notified_at is not None) == sent
+
+    @pytest.mark.parametrize("opted_out_member", [False, True])
+    def test_event_without_recipients(self, destination_flag: MagicMock, opted_out_member: bool) -> None:
+        destination_flag.return_value = True
+        team, source = _create_team_and_source()
+        if opted_out_member:
+            _create_recipient(team, opted_out=True)
+        _create_email_template()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED
+        )
+        with patch(SENDER_PATH) as sender, patch(f"{ALERTS_PATH}.produce_internal_event") as produce:
+            notify_external_data_sync_failures(team.pk)
+        sender.assert_not_called()
+        produce.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.last_error_notified_at is None
+        assert not MessagingRecord.objects.exists()
+
+    def test_failed_produce_does_not_stamp(self, destination_flag: MagicMock) -> None:
+        destination_flag.return_value = True
+        team, source = _create_team_and_source()
+        _create_recipient(team)
+        _create_email_template()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED
+        )
+        with (
+            patch(SENDER_PATH) as sender,
+            patch(f"{ALERTS_PATH}.produce_internal_event", side_effect=RuntimeError("Queue unavailable")) as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
+            notify_external_data_sync_failures(team.pk)
+        produce.assert_called_once()
+        sender.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.last_error_notified_at is None
+        assert not MessagingRecord.objects.exists()
+
+    @pytest.mark.parametrize("first_enabled,second_enabled", [(True, True), (True, False), (False, True)])
+    @override_settings(SITE_URL="https://example.com", TEST=True)
+    @time_machine.travel("2026-05-15T12:00:00Z", tick=False)
+    def test_dedupes_across_delivery_paths(
+        self, destination_flag: MagicMock, first_enabled: bool, second_enabled: bool
+    ) -> None:
+        team, source = _create_team_and_source()
+        _create_recipient(team)
+        _create_email_template()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED
+        )
+
+        def record_delivery(*, send_async: bool) -> None:
+            MessagingRecord.objects.create(
+                email_hash="test-recipient",
+                campaign_key=f"external_data_failure_digest_{team.pk}_2026-05-15",
+                sent_at=dt.datetime.now(dt.UTC),
+            )
+
+        with (
+            override_instance_config("EMAIL_ENABLED", True),
+            override_instance_config("EMAIL_HOST", "smtp.example.com"),
+            patch("posthog.tasks.email.EmailMessage.send", side_effect=record_delivery) as send,
+            patch(f"{ALERTS_PATH}.produce_internal_event") as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
+            destination_flag.return_value = first_enabled
+            notify_external_data_sync_failures(team.pk)
+            schema.refresh_from_db()
+            assert schema.last_error_notified_at is not None
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(last_error_notified_at=None)
+            destination_flag.return_value = second_enabled
+            notify_external_data_sync_failures(team.pk)
+        assert produce.call_count == int(first_enabled)
+        assert send.call_count == int(not first_enabled)
+        schema.refresh_from_db()
+        assert schema.last_error_notified_at is None
+
     def test_sends_digest_with_failing_schemas_classified(self):
         team, source = _create_team_and_source()
         ExternalDataSchema.objects.create(
@@ -172,8 +456,15 @@ class TestNotifyExternalDataSyncFailures:
         with patch(SENDER_PATH, side_effect=Exception("smtp down")):
             notify_external_data_sync_failures(team.pk)
 
-    def test_caps_listed_schemas_and_reports_omitted_count(self):
+    @pytest.mark.parametrize("use_destination", [False, True])
+    def test_caps_listed_schemas_and_reports_omitted_count(
+        self, destination_flag: MagicMock, use_destination: bool
+    ) -> None:
+        destination_flag.return_value = use_destination
         team, source = _create_team_and_source()
+        if use_destination:
+            _create_recipient(team)
+            _create_email_template()
         total = MAX_SCHEMAS_PER_DIGEST_EMAIL + 5
         schemas = ExternalDataSchema.objects.bulk_create(
             ExternalDataSchema(
@@ -186,12 +477,23 @@ class TestNotifyExternalDataSyncFailures:
             for i in range(total)
         )
 
-        with patch(SENDER_PATH, return_value=True) as mock_sender:
+        with (
+            patch(SENDER_PATH, return_value=True) as mock_sender,
+            patch(f"{ALERTS_PATH}.produce_internal_event") as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
             notify_external_data_sync_failures(team.pk)
 
-        (_, items) = mock_sender.call_args.args
+        if use_destination:
+            mock_sender.assert_not_called()
+            properties = produce.call_args.kwargs["event"].properties
+            items = properties["schemas"]
+            assert properties["omitted_count"] == 5
+            assert properties["schema_count"] == total
+        else:
+            (_, items) = mock_sender.call_args.args
+            assert mock_sender.call_args.kwargs["omitted_count"] == 5
         assert len(items) == MAX_SCHEMAS_PER_DIGEST_EMAIL
-        assert mock_sender.call_args.kwargs["omitted_count"] == 5
         assert (
             ExternalDataSchema.objects.filter(
                 id__in=[schema.id for schema in schemas], last_error_notified_at__isnull=False
@@ -303,6 +605,7 @@ class TestNotifyExternalDataSyncFailures:
         assert mock_sender.called == expected_sent
 
 
+@pytest.mark.django_db
 class TestGetTeamIdsWithRecentSyncFailures:
     def _create_schema_with_job(
         self,
@@ -420,3 +723,35 @@ class TestGetTeamIdsWithRecentSyncFailures:
         )
 
         assert get_team_ids_with_recent_sync_failures() == [qualifying.pk]
+
+
+@pytest.mark.parametrize(
+    "count,error,omitted_count,expected_lines,expected_omitted",
+    [
+        (0, "Retry needed", 0, 0, 0),
+        (2, "Retry needed", 0, 2, 0),
+        (2, "Retry needed", 5, 2, 5),
+        (30, "x" * 250, 0, 15, 15),
+        (30, "x" * 250, 5, 15, 20),
+        (2, "Retry\nneeded", 0, 2, 0),
+    ],
+)
+def test_failure_digest_summary(
+    count: int, error: str, omitted_count: int, expected_lines: int, expected_omitted: int
+) -> None:
+    item: ExternalDataFailureDigestItem = {
+        "schema_name": "Charge",
+        "source_type": "Stripe",
+        "source_id": "source-1",
+        "source_prefix": "",
+        "source_url": "https://example.com/syncs",
+        "url": "https://example.com/syncs?schema=Charge",
+        "error": error,
+        "paused": True,
+    }
+    summary = build_failure_digest_summary([item] * count, omitted_count)
+    expected = [f"Stripe / Charge: {' '.join(error[:200].splitlines())} (paused)"] * expected_lines
+    if expected_omitted:
+        expected.append(f"and {expected_omitted} more")
+    assert summary == "\n".join(expected)
+    assert len(summary) <= 3500

@@ -7,8 +7,14 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.tasks.email import send_external_data_failure_digest
+from posthog.models import Team
+from posthog.tasks.email import ExternalDataFailureDigestItem, send_external_data_failure_digest
 
+from products.data_warehouse.backend.logic.external_data_source.alerts import (
+    emit_failure_digest,
+    failure_email_destination_enabled,
+)
+from products.warehouse_sources.backend.facade.api import get_sync_alert_context
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
@@ -93,6 +99,10 @@ def notify_external_data_sync_failures(
     notification problem never crash-loops the task. Throttling to one email per team per
     digest day happens in the email layer via the MessagingRecord campaign key, so
     scheduling this for every failed job is safe.
+
+    The digest goes out as an internal event for a team with the email destination flag on,
+    and a default alert turns the event into the email. Both paths share the campaign key,
+    so a team gets one digest for each digest day whichever path sends it.
     """
     try:
         renotify_cutoff = dt.datetime.now(dt.UTC) - renotify_after
@@ -135,7 +145,7 @@ def notify_external_data_sync_failures(
             for schema in group
         ]
 
-        items = []
+        items: list[ExternalDataFailureDigestItem] = []
         for schema in ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
             source_url = (
                 f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{schema.source_id}/syncs"
@@ -158,7 +168,22 @@ def notify_external_data_sync_failures(
             )
 
         omitted_count = max(0, len(failing_schemas) - MAX_SCHEMAS_PER_DIGEST_EMAIL)
-        sent = send_external_data_failure_digest(team_id, items, omitted_count=omitted_count)
+        team = Team.objects.filter(pk=team_id).first()
+        if team is None:
+            return
+        sent: bool | None = None
+        if failure_email_destination_enabled(team):
+            # Any destination can subscribe to the event, so its errors get the source's
+            # stored credentials masked. The Python email goes to project members only.
+            event_items: list[ExternalDataFailureDigestItem] = []
+            for schema, item in zip(ordered_schemas, items):
+                context = get_sync_alert_context(team_id, str(schema.id), include_error=True)
+                error = context.latest_error if context else None
+                event_items.append({**item, "error": error or "Unknown error"})
+            sent = emit_failure_digest(team, event_items, omitted_count)
+        # None means the event path cannot deliver here, so the email goes out the old way.
+        if sent is None:
+            sent = send_external_data_failure_digest(team_id, items, omitted_count=omitted_count)
         if sent:
             # Mark every listed schema as communicated, so the daily catch-up only
             # re-triggers for failures that happened after this email went out.
