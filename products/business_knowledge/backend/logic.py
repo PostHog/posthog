@@ -1275,6 +1275,7 @@ def _validate_url(url: str) -> str:
 
 
 _PROCESSING_STALENESS_MINUTES = 10
+_FAILED_PROCESSING_MESSAGE = "Processing stopped before it finished. You can retry via refresh."
 
 
 def _resolve_crawl_config(raw: dict | None) -> discover.CrawlConfig:
@@ -1624,6 +1625,38 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
                 ]
             )
         raise
+
+
+@with_team_scope(canonical=True)
+def release_failed_source(*, source_id: UUID, team_id: int, discard_documents: bool) -> None:
+    """
+    Move a source out of PROCESSING once its ingest or refresh activity is out of retries.
+
+    A worker shutdown or heartbeat timeout skips the activity's own error handling, so the workflow calls this.
+    `discard_documents` drops the partial index an unfinished ingest committed, so it never turns searchable.
+    """
+    with transaction.atomic():
+        source = KnowledgeSource.objects.select_for_update().filter(id=source_id, team_id=team_id).first()
+        if source is None or source.status != SourceStatus.PROCESSING:
+            return
+        if discard_documents:
+            _delete_crawl_documents(source=source, team_id=team_id)
+        source.status = SourceStatus.READY if source.documents.exists() else SourceStatus.ERROR
+        source.last_refresh_at = timezone.now()
+        source.last_refresh_status = RefreshStatus.ERROR
+        source.last_refresh_error = _FAILED_PROCESSING_MESSAGE
+        if source.status == SourceStatus.ERROR:
+            source.error_message = _FAILED_PROCESSING_MESSAGE
+        source.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "error_message",
+                "updated_at",
+            ]
+        )
 
 
 @with_team_scope(canonical=True)

@@ -31,7 +31,13 @@ from parameterized import parameterized
 
 from products.business_knowledge.backend import crawl, discover, logic, url_fetch
 from products.business_knowledge.backend.logic import create_crawl_source, ingest_source, refresh_source
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SourceStatus
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeSource,
+    RefreshStatus,
+    SourceStatus,
+)
 
 
 def _sitemap_xml(urls: list[str]) -> str:
@@ -620,6 +626,80 @@ class TestRefreshCrawlSource(APIBaseTest):
         # /a rebuilt; /b unchanged.
         assert "updated" in doc_a.content
         assert doc_b.content_hash == b_hash_before
+
+    def test_refresh_stores_a_text_page_whose_body_has_nul_bytes(self) -> None:
+        source = self._seed(["https://example.com/a"])
+        sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/notes.txt"])
+        behaviours = {
+            "https://example.com/a": _ok(
+                "https://example.com/a", b"<html><body>body of https://example.com/a</body></html>"
+            ),
+            "https://example.com/notes.txt": url_fetch.FetchResult(
+                status=200,
+                body=b"Release notes \x00for the docs.",
+                content_type="text/plain",
+                etag=None,
+                final_url="https://example.com/notes.txt",
+            ),
+        }
+        with (
+            patch.object(discover, "_http_get_text", return_value=sitemap),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+        ):
+            refresh_source(source_id=source.id, team_id=self.team.id)
+
+        source.refresh_from_db()
+        assert source.status == SourceStatus.READY
+        assert source.last_refresh_status == RefreshStatus.SUCCESS
+        notes = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/notes.txt")
+        assert notes.content == "Release notes for the docs."
+
+    @parameterized.expand(
+        [
+            (
+                "refresh_keeps_written_documents_searchable",
+                False,
+                SourceStatus.PROCESSING,
+                SourceStatus.READY,
+                RefreshStatus.ERROR,
+                True,
+            ),
+            (
+                "unfinished_ingest_discards_partial_documents",
+                True,
+                SourceStatus.PROCESSING,
+                SourceStatus.ERROR,
+                RefreshStatus.ERROR,
+                False,
+            ),
+            (
+                "source_another_run_finished_is_left_alone",
+                True,
+                SourceStatus.READY,
+                SourceStatus.READY,
+                RefreshStatus.SUCCESS,
+                True,
+            ),
+        ]
+    )
+    def test_release_failed_source(
+        self,
+        _name: str,
+        discard_documents: bool,
+        status_before: str,
+        expected_status: str,
+        expected_refresh_status: str,
+        expect_documents_left: bool,
+    ) -> None:
+        source = self._seed(["https://example.com/a"])
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=status_before)
+
+        logic.release_failed_source(source_id=source.id, team_id=self.team.id, discard_documents=discard_documents)
+
+        source.refresh_from_db()
+        assert source.status == expected_status
+        assert source.last_refresh_status == expected_refresh_status
+        assert KnowledgeDocument.objects.unscoped().filter(source=source).exists() == expect_documents_left
 
     def test_vanished_url_is_tombstoned(self) -> None:
         source = self._seed(["https://example.com/a", "https://example.com/b"])

@@ -13,7 +13,7 @@ Refresh runs *before* classification so that documents whose content changed
 during the refresh (reset to ``unknown``) get classified in the same pass —
 otherwise they'd be searchable as ``unknown`` until the next hourly run.
 
-Per-source refresh reuses the shipped, idempotent `logic.refresh_source`; the
+Per-source refresh reuses `logic.claim_refresh_source` + `execute_refresh_source`; the
 existing per-team advisory lock ("one PROCESSING source per team") plus the
 schedule's SKIP overlap policy prevent concurrent double-refresh, so there is
 no bespoke concurrency cap here.
@@ -31,6 +31,7 @@ from uuid import UUID
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -52,7 +53,7 @@ from ..constants import (
     MAX_URLS_PER_SOURCE,
     PENDING_EMBEDDING_SCAN_CAP,
 )
-from ..models import SafetyVerdict
+from ..models import KnowledgeSource, SafetyVerdict
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +81,13 @@ class RefreshSourceInputs:
 class IngestSourceInputs:
     team_id: int
     source_id: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ReleaseFailedSourceInputs:
+    team_id: int
+    source_id: str
+    discard_documents: bool
 
 
 @activity.defn
@@ -376,6 +384,55 @@ def _crawl_activity_timeouts() -> tuple[timedelta, timedelta | None]:
     return timedelta(minutes=10), None
 
 
+# Pre-patch histories never released failed sources and refreshed due sources in one activity; replay must match.
+_RELEASE_FAILED_SOURCE_PATCH = "bk-release-failed-source"
+
+
+async def _release_failed_source(inputs: ReleaseFailedSourceInputs) -> None:
+    if not workflow.patched(_RELEASE_FAILED_SOURCE_PATCH):
+        return
+    await workflow.execute_activity(
+        release_failed_source_activity,
+        inputs,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
+async def _refresh_due_source(
+    inputs: RefreshSourceInputs, *, start_to_close: timedelta, heartbeat: timedelta | None
+) -> dict[str, Any]:
+    if not workflow.patched(_RELEASE_FAILED_SOURCE_PATCH):
+        return await workflow.execute_activity(
+            refresh_knowledge_source_activity,
+            inputs,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    claimed = await workflow.execute_activity(
+        claim_refresh_source_activity,
+        inputs,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+    if claimed.get("status") != "ok":
+        return claimed
+    try:
+        return await workflow.execute_activity(
+            execute_refresh_knowledge_source_activity,
+            inputs,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    except ActivityError:
+        await _release_failed_source(
+            ReleaseFailedSourceInputs(team_id=inputs.team_id, source_id=inputs.source_id, discard_documents=False)
+        )
+        raise
+
+
 @activity.defn
 async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
     """
@@ -405,10 +462,31 @@ async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict
 
 
 @activity.defn
+async def claim_refresh_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
+    """
+    Claim half of a coordinator refresh. Its execute half then retries without
+    re-claiming, so the per-team busy check cannot skip a retry.
+    """
+    log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
+    try:
+        await database_sync_to_async(logic.claim_refresh_source, thread_sensitive=False)(
+            source_id=UUID(inputs.source_id), team_id=inputs.team_id
+        )
+    except logic.SourceBusyError:
+        return {"status": "skipped", "reason": "busy"}
+    except KnowledgeSource.DoesNotExist:
+        return {"status": "skipped", "reason": "missing"}
+    except (logic.InvalidUrlError, logic.QuotaExceededError) as exc:
+        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+        return {"status": "error", "reason": type(exc).__name__}
+    return {"status": "ok"}
+
+
+@activity.defn
 async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
     """
     Execute the fetch+rebuild half of a refresh for a source already claimed
-    PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch").
+    PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch") and the coordinator.
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
     async with Heartbeater():
@@ -425,6 +503,19 @@ async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs)
             log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
             return {"status": "error", "reason": type(exc).__name__}
         return {"status": "ok"}
+
+
+@activity.defn
+async def release_failed_source_activity(inputs: ReleaseFailedSourceInputs) -> None:
+    logger.warning(
+        "business_knowledge.processing.released_after_failure",
+        team_id=inputs.team_id,
+        source_id=inputs.source_id,
+        discard_documents=inputs.discard_documents,
+    )
+    await database_sync_to_async(logic.release_failed_source, thread_sensitive=False)(
+        source_id=UUID(inputs.source_id), team_id=inputs.team_id, discard_documents=inputs.discard_documents
+    )
 
 
 @activity.defn
@@ -459,13 +550,19 @@ class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: IngestSourceInputs) -> dict[str, Any]:
         start_to_close, heartbeat = _crawl_activity_timeouts()
-        return await workflow.execute_activity(
-            ingest_knowledge_source_activity,
-            inputs,
-            start_to_close_timeout=start_to_close,
-            heartbeat_timeout=heartbeat,
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            return await workflow.execute_activity(
+                ingest_knowledge_source_activity,
+                inputs,
+                start_to_close_timeout=start_to_close,
+                heartbeat_timeout=heartbeat,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError:
+            await _release_failed_source(
+                ReleaseFailedSourceInputs(team_id=inputs.team_id, source_id=inputs.source_id, discard_documents=True)
+            )
+            raise
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> IngestSourceInputs:
@@ -480,13 +577,19 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: RefreshSourceInputs) -> dict[str, Any]:
         start_to_close, heartbeat = _crawl_activity_timeouts()
-        return await workflow.execute_activity(
-            execute_refresh_knowledge_source_activity,
-            inputs,
-            start_to_close_timeout=start_to_close,
-            heartbeat_timeout=heartbeat,
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            return await workflow.execute_activity(
+                execute_refresh_knowledge_source_activity,
+                inputs,
+                start_to_close_timeout=start_to_close,
+                heartbeat_timeout=heartbeat,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError:
+            await _release_failed_source(
+                ReleaseFailedSourceInputs(team_id=inputs.team_id, source_id=inputs.source_id, discard_documents=False)
+            )
+            raise
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RefreshSourceInputs:
@@ -610,16 +713,7 @@ async def _run_refresh_coordinator(*, drain_index_queues: bool) -> dict[str, Any
     start_to_close, heartbeat = _crawl_activity_timeouts()
     for batch in _host_serialized_batches(due, MAX_CONCURRENT_REFRESHES):
         results = await asyncio.gather(
-            *(
-                workflow.execute_activity(
-                    refresh_knowledge_source_activity,
-                    inputs,
-                    start_to_close_timeout=start_to_close,
-                    heartbeat_timeout=heartbeat,
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
-                for inputs in batch
-            ),
+            *(_refresh_due_source(inputs, start_to_close=start_to_close, heartbeat=heartbeat) for inputs in batch),
             return_exceptions=True,
         )
         for result in results:
