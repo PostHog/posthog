@@ -239,7 +239,8 @@ SCHEDULE_DESCRIPTION = (
     "'recurring': show it again on a fixed schedule, set with iteration_count and iteration_frequency_days. "
     "'always': show it every time the display conditions are met, also after the person responds or dismisses it. "
     "In the survey editor, 'always' is the 'Every time the display conditions are met' option "
-    "in the 'Completion conditions' section."
+    "in the 'Completion conditions' section. For a widget survey it is also the "
+    "'Allow survey to be displayed every time the button is clicked' checkbox in the 'Presentation' section."
 )
 
 SCHEDULE_PROMPT = """
@@ -251,6 +252,9 @@ SCHEDULE_PROMPT = """
       iteration_frequency_days days (defaults: 2 times, every 90 days)
     - "always" -> "Every time the display conditions are met": the survey shows again each time the
       display conditions match, also after the person responds or dismisses it
+    For a widget (feedback button) survey, the editor also shows "always" as the checkbox
+    "Allow survey to be displayed every time the button is clicked" in the "Presentation" section.
+    When you tell a user where to find this for a widget survey, name that checkbox first.
     Do not invent other options or labels. When a user asks to show a survey every time or keep showing it,
     use "always". An "always" popover with no display conditions (URL, wait period) appears again and again,
     so suggest a URL target or wait_period_days.
