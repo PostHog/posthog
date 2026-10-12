@@ -30,7 +30,7 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::commit_pacer::ImmediateCommitPacer;
+use crate::commit_pacer::CommitPacer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
 use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
@@ -453,12 +453,11 @@ impl SentinelContext {
         self.assignment_epoch = Some(epoch);
     }
 
-    /// A context with its own free-standing sentinels, ledger, and commit
-    /// pacer, for tests and tools that build the Kafka consumer separately
-    /// from the batcher.
-    pub fn detached() -> Self {
+    /// A context with its own free-standing sentinel and ledger, for tests
+    /// and tools that build the Kafka consumer separately from the batcher.
+    pub fn detached(commit_pacer: CommitPacer) -> Self {
         Self::new(
-            Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
+            Arc::new(CommitSentinel::new(commit_pacer)),
             Arc::new(TopicOffsetLedger::new()),
         )
     }
