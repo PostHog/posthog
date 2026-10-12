@@ -150,25 +150,10 @@ TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERN
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
 
-# ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
-# CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
-# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is a
-# comma-separated list of team ids using tiered review models; the FIRST id is the team that receives
-# label-triggered and automatic authored-PR reviews and sees internal UI features. Manual UI/API access
-# uses the review-hog feature flag. REVIEWHOG_RUN_USER_ID is the user the label-triggered sandbox tasks
-# run as (falls back to the team's GitHub integration creator when unset).
-REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
-# The env var stays singular (production charts provision it by that name); a single id parses to [id].
-REVIEWHOG_TEAM_IDS: list[int] = get_from_env(
-    "REVIEWHOG_TEAM_ID",
-    default=[],
-    type_cast=lambda raw: [int(part) for part in str(raw).split(",") if part.strip()],
-)
-REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
 # The GitHub App's bot login (`<app slug>[bot]`) ReviewHog posts as. When set, the marker-based
 # idempotency scans only trust comments/reviews authored by this exact identity — otherwise any
 # installed bot could paste a public marker and suppress a publish (or get its comment PATCHed).
-# Unset falls back to trusting any Bot-typed author.
+# Unset trusts no author in production, and any Bot-typed author in local development and tests.
 REVIEWHOG_GITHUB_BOT_LOGIN: str = get_from_env("REVIEWHOG_GITHUB_BOT_LOGIN", "")
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions

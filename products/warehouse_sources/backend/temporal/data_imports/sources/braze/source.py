@@ -58,7 +58,7 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
             name=ExternalDataSourceType.BRAZE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Braze",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Braze REST API key and endpoint to sync your Braze data into the PostHog Data warehouse.
 
 You can create a REST API key in your Braze dashboard under **Settings → API Keys**. Grant the following endpoint permissions for the data you want to sync:

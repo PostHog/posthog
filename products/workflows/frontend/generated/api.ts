@@ -819,7 +819,7 @@ export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) 
 export const hogFlowsOptimizationCreate = async (
     projectId: string,
     id: string,
-    hogFlowOptimizationApi: HogFlowOptimizationApi,
+    hogFlowOptimizationApi: NonReadonly<HogFlowOptimizationApi>,
     options?: RequestInit
 ): Promise<HogFlowOptimizationApi> => {
     return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {

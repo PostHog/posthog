@@ -1382,6 +1382,11 @@ class ExperimentService:
                     "launch_path": launch_path,
                     "flag_age_seconds": int(flag_age.total_seconds()),
                     "health_finding_codes": [finding.code.value for finding in findings],
+                    # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
+                    # unambiguous when two codes use the same subcode.
+                    "health_finding_subcodes": [
+                        f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
+                    ],
                     "health_finding_count": len(findings),
                 },
             )

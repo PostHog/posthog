@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -195,10 +195,11 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 }
 
 export const StatusBlock: Story = {
-    render: () => {
+    render: function RenderStatusBlock() {
+        const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
         const report = makeReport({
             status: SignalReportStatus.READY,
-            priority: 'P1',
+            priority,
             actionability: 'immediately_actionable',
             implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
             implementation_pr_state: 'open',
@@ -238,7 +239,7 @@ export const StatusBlock: Story = {
         return (
             <Frame>
                 <div className="w-[26rem] border border-primary bg-surface-primary p-5">
-                    <ReportStatusSection report={report} />
+                    <ReportStatusSection report={report} onPriorityChange={setPriority} />
                 </div>
             </Frame>
         )

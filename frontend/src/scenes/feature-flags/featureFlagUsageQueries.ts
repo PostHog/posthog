@@ -5,11 +5,9 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
-import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
-import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { Noun } from '~/models/groupsModel'
 import {
     ChartSettings,
@@ -31,9 +29,14 @@ import {
     GroupTypeIndex,
     PropertyFilterType,
     PropertyOperator,
-    TeamPublicType,
-    TeamType,
 } from '~/types'
+
+import {
+    FLAG_EVALUATIONS_RETENTION_DAYS,
+    FLAG_EVALUATIONS_TABLE,
+    flagEvaluationsRetentionStart,
+    reachesPastFlagEvaluationsRetention,
+} from './flagEvaluationsTable'
 
 export interface FlagUsageQueryOptions {
     flagKey: string
@@ -185,10 +188,6 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
-// the flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
-const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
-
 // The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
 // breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
 // The label is in the query because the SQL line chart names a NULL series "[No value]" and the SQL
@@ -196,39 +195,12 @@ const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 // editor rejects that key, but the API accepts it.
 const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
 
-/**
- * How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever.
- * Keep it equal to FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py.
- */
-export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
-
-const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
-
-export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
-
-export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null): boolean {
-    return (team?.flag_evaluations_mode ?? EVENTS_MODE) !== EVENTS_MODE
-}
-
-// Start of the oldest day the table still holds. dateStringToDayJs resolves the ranges this is
-// compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
-// which drops the 90-day preset in a timezone ahead of UTC.
-function earliestRetainedDay(): dayjs.Dayjs {
-    return dayjs.utc().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
-}
-
-export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): boolean {
-    const parsed = dateStringToDayJs(dateFrom)
-    // A null start and "all" are all time, which reaches further than any retained day.
-    return !parsed || parsed.isBefore(earliestRetainedDay())
-}
-
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {
     if (!reachesPastFlagEvaluationsRetention(dateRange.date_from ?? null)) {
         return dateRange
     }
-    const earliest = earliestRetainedDay()
+    const earliest = flagEvaluationsRetentionStart()
     const dateTo = dateStringToDayJs(dateRange.date_to ?? null)
     return {
         date_from: `-${FLAG_EVALUATIONS_RETENTION_DAYS}d`,

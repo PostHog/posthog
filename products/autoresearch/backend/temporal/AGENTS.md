@@ -39,6 +39,7 @@ Validation runs on every daily sweep, because a matured date should not wait for
 Scoring and training kickoff run on a cadence day only, compared by calendar day, and kickoff starts after scoring ends.
 Discovery pauses a pipeline whose creator has lost access to the team, and skips one outside the flag rollout.
 Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does.
+A pipeline with no iteration budget left gets no run, except when `find_unscorable_champion()` finds that its champion cannot score. Then kickoff launches a rescue run of `RESCUE_ITERATION_BUDGET` iterations that does not come out of the budget, at most once in each window of `UNSCORABLE_AFTER_FAILED_DAYS` UTC days, and reports `rescue_unscorable`.
 
 Note that training is launched by an _activity_, not a child workflow, because the actual agent run happens in a Tasks sandbox with its own lifecycle. Autoresearch does not own that workflow; it fires it and the `TaskRun` `post_save` signal (`../training/ingestion.py`) picks the result back up.
 

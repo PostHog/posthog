@@ -107,6 +107,8 @@ class CheckRunSummary:
     # Neither is an outcome: both rows are still active and still owe a verdict.
     dispatched: int = 0
     deferred: int = 0
+    # An `agent` check stopped because its project has no scout to run it.
+    cancelled: int = 0
 
 
 @frozen
@@ -696,6 +698,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         "inconclusive": 0,
         "dispatched": 0,
         "deferred": 0,
+        "cancelled": 0,
     }
     for check in collect_due_checks(now, limit=limit):
         if time.monotonic() >= deadline:

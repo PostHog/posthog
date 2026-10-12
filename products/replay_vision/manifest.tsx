@@ -59,6 +59,7 @@ export const manifest: ProductManifest = {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+        replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
         replayVisionTemplates: (): string => '/replay-vision/new/template',
         replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
         replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
@@ -82,6 +83,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
+            searchKeywords: ['scanners', 'observations'],
+            searchTabs: [
+                { name: 'Search', href: urls.replayVisionTab('search') },
+                { name: 'Usage', href: urls.replayVisionTab('usage') },
+            ],
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },
