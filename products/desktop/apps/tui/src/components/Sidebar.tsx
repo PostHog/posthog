@@ -38,7 +38,8 @@ const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
   asleep: "gray",
 };
 
-// A square marks a chat that runs on this machine, a dot one that runs in the cloud.
+// A square marks a chat that runs on this machine, a dot one that runs in the cloud, and a cross a failed run, since
+// a reply cannot bring that one back.
 // A working chat and one done but unread (PostHog orange) keep full strength in a dimmed sidebar.
 export function IndicatorGlyph({
   indicator,
@@ -56,7 +57,7 @@ export function IndicatorGlyph({
       color={INDICATOR_COLORS[indicator]}
       dimColor={dimmed && indicator !== "waiting"}
     >
-      {local ? "■" : "●"}
+      {indicator === "failed" ? "✗" : local ? "■" : "●"}
     </Text>
   ) : (
     <Text> </Text>

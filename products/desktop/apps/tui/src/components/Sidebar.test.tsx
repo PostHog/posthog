@@ -7,14 +7,15 @@ import { Sidebar } from "./Sidebar";
 
 const row = (
   title: string,
-  indicator: "waiting" | "alive" | "working",
+  indicator: "waiting" | "alive" | "working" | "failed",
+  local = false,
 ): SidebarRow => ({
   kind: "task",
   taskId: title,
   paneId: null,
   title,
   indicator,
-  local: false,
+  local,
   nested: false,
 });
 
@@ -60,9 +61,27 @@ describe("Sidebar", () => {
 
     const [done, quiet, busy] = output.split("\n");
     expect(dimAt(done, "●")).toBe(false);
+    expect(output).not.toContain("✗");
     expect(dimAt(done, "Done")).toBe(true);
     expect(dimAt(quiet, "●")).toBe(true);
     expect(dimAt(busy, "⠋")).toBe(false);
     expect(dimAt(busy, "Busy")).toBe(true);
+  });
+
+  it("marks a failed chat with a cross, since its run cannot be picked up again", () => {
+    const output = renderToString(
+      <Sidebar
+        notice={null}
+        rows={[row("Broken", "failed"), row("Local broken", "failed", true)]}
+        focused
+        selectedIndex={0}
+        activePaneId={null}
+      />,
+      { columns: 40 },
+    );
+    const [cloud, local] = output.split("\n");
+    expect(cloud).toContain("✗");
+    expect(local).toContain("✗");
+    expect(output).not.toContain("●");
   });
 });
