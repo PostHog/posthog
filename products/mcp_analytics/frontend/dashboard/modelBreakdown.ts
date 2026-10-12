@@ -11,6 +11,30 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
+import { foldedModelLabel, otherModelsLabel } from '../aiLabs'
+
+const TOP_MODEL_ROWS = 6
+
+function foldModelRows(rows: MCPModelBreakdownItem[]): MCPModelBreakdownItem[] {
+    const top = rows
+        .filter((row) => row.model !== 'Other')
+        .sort((a, b) => b.total_calls - a.total_calls)
+        .slice(0, TOP_MODEL_ROWS)
+    const topModels = new Set(top.map((row) => row.model))
+    const folded = new Map<string, number>()
+    for (const row of rows) {
+        if (!topModels.has(row.model)) {
+            const label = foldedModelLabel(row.model)
+            folded.set(label, (folded.get(label) ?? 0) + row.total_calls)
+        }
+    }
+    const isLabless = (model: string): boolean => model === otherModelsLabel('Other')
+    const foldedRows = [...folded.entries()]
+        .map(([model, total_calls]) => ({ model, total_calls }))
+        .sort((a, b) => Number(isLabless(a.model)) - Number(isLabless(b.model)) || b.total_calls - a.total_calls)
+    return [...top, ...foldedRows]
+}
+
 export function summarizeModelBreakdown(rows: MCPModelBreakdownItem[]): {
     totalCalls: number
     unknownCalls: number
@@ -26,9 +50,7 @@ export function summarizeModelBreakdown(rows: MCPModelBreakdownItem[]): {
         totalCalls,
         unknownCalls,
         identifiedShare: totalCalls > 0 ? ((totalCalls - unknownCalls) / totalCalls) * 100 : 0,
-        rankedModels: rows
-            .filter((row) => row.model !== 'Unknown')
-            .sort((a, b) => Number(a.model === 'Other') - Number(b.model === 'Other') || b.total_calls - a.total_calls),
+        rankedModels: foldModelRows(rows.filter((row) => row.model !== 'Unknown')),
     }
 }
 

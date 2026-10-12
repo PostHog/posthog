@@ -25,7 +25,7 @@ describe('colors', () => {
                 'claude-sonnet-5',
                 'claude-opus-5',
                 'claude-haiku-5',
-                'claude-opus-4-8',
+                'Other Anthropic models',
             ],
         ],
     ])('gives every model of one lab its own shade: %j', (models) => {

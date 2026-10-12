@@ -1,6 +1,6 @@
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
-import { type ModelLab, modelLab } from '../aiLabs'
+import { foldedModelLabel, isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, seriesLab } from '../aiLabs'
 import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
 
 export interface BucketedFacetRow {
@@ -88,6 +88,29 @@ export function buildShareSeries(
         })
     }
     return series
+}
+
+// The top models keep their own series, and each lab's other models fold into one series per lab. Series
+// are ordered by lab, so a lab's shades stack together and the chart still shows each lab's whole share.
+export function buildModelShareSeries(rows: BucketedFacetRow[], bucketKeys: string[], topCount: number): ShareSeries[] {
+    const named = rows.filter((row) => row.label !== UNKNOWN)
+    const totals = new Map<string, number>()
+    for (const row of named) {
+        totals.set(row.label, (totals.get(row.label) ?? 0) + row.calls)
+    }
+    const top = new Set(
+        [...totals.entries()]
+            .filter(([label]) => label !== OTHER)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, topCount)
+            .map(([label]) => label)
+    )
+    const groupOf = (label: string): string => (top.has(label) ? label : foldedModelLabel(label))
+    return buildShareSeries(named, bucketKeys, groupOf, Infinity).sort(
+        (a, b) =>
+            LAB_ORDER.indexOf(seriesLab(a.label)) - LAB_ORDER.indexOf(seriesLab(b.label)) ||
+            Number(isFoldedModelsLabel(a.label)) - Number(isFoldedModelsLabel(b.label))
+    )
 }
 
 // Shares are of calls from models that name themselves, so a lab's share is not diluted by "Unknown".

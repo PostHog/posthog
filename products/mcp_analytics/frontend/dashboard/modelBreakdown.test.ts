@@ -7,7 +7,7 @@ describe('model breakdown', () => {
     beforeEach(() => jest.useFakeTimers())
     afterEach(() => jest.useRealTimers())
 
-    it('keeps unknown calls in coverage and the denominator while ranking named models before Other', () => {
+    it('keeps unknown calls in coverage and the denominator while ranking named models before folded ones', () => {
         const rows = [
             { model: 'Unknown', total_calls: 50 },
             { model: 'Other', total_calls: 30 },
@@ -19,9 +19,39 @@ describe('model breakdown', () => {
         expect(summary.totalCalls).toBe(100)
         expect(summary.unknownCalls).toBe(50)
         expect(summary.identifiedShare).toBe(50)
-        expect(summary.rankedModels).toEqual([rows[3], rows[2], rows[1]])
+        expect(summary.rankedModels).toEqual([rows[3], rows[2], { model: 'Other models', total_calls: 30 }])
         expect(summary.rankedModels[0].total_calls / summary.totalCalls).toBe(0.15)
         expect(rows[0].model).toBe('Unknown')
+    })
+
+    it('keeps the top six models and folds the rest into one row per AI lab, with lab-less models last', () => {
+        const rows = [
+            { model: 'claude-opus-5-5', total_calls: 70 },
+            { model: 'gpt-6', total_calls: 60 },
+            { model: 'gpt-6-astra', total_calls: 50 },
+            { model: 'claude-fable-5-1', total_calls: 40 },
+            { model: 'grok-4.7', total_calls: 30 },
+            { model: 'claude-sonnet-5', total_calls: 20 },
+            { model: 'claude-haiku-5', total_calls: 3 },
+            { model: 'claude-opus-4-8', total_calls: 2 },
+            { model: 'gpt-5', total_calls: 4 },
+            { model: 'example-custom-model', total_calls: 9 },
+            { model: 'Other', total_calls: 1 },
+        ]
+
+        expect(
+            summarizeModelBreakdown(rows).rankedModels.map(({ model, total_calls }) => [model, total_calls])
+        ).toEqual([
+            ['claude-opus-5-5', 70],
+            ['gpt-6', 60],
+            ['gpt-6-astra', 50],
+            ['claude-fable-5-1', 40],
+            ['grok-4.7', 30],
+            ['claude-sonnet-5', 20],
+            ['Other Anthropic models', 5],
+            ['Other OpenAI models', 4],
+            ['Other models', 10],
+        ])
     })
 
     it.each([

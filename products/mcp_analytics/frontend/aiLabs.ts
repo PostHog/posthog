@@ -1,6 +1,8 @@
 export type AiLab = 'Anthropic' | 'OpenAI' | 'Google' | 'xAI' | 'Cursor' | 'Open weights'
 export type ModelLab = AiLab | 'Other'
 
+export const LAB_ORDER: ModelLab[] = ['Anthropic', 'OpenAI', 'xAI', 'Google', 'Open weights', 'Cursor', 'Other']
+
 const UNKNOWN = 'Unknown'
 
 // The first matching pattern wins. The SQL for the users query is built from the same list, so the
@@ -25,4 +27,22 @@ export function modelLab(model: string): ModelLab {
 export function labSqlExpression(modelSql: string): string {
     const branches = LAB_PATTERNS.map(([lab, pattern]) => `match(lower(${modelSql}), '${pattern.source}'), '${lab}'`)
     return `multiIf(${modelSql} = '${UNKNOWN}', '${UNKNOWN}', ${branches.join(', ')}, 'Other')`
+}
+
+export function otherModelsLabel(lab: ModelLab): string {
+    return lab === 'Other' ? 'Other models' : `Other ${lab} models`
+}
+
+// The series a model outside the top models folds into. The backend's own "Other" row holds the models
+// beyond its row limit, from any lab, so it folds into the lab-less series.
+export function foldedModelLabel(model: string): string {
+    return otherModelsLabel(model === 'Other' ? 'Other' : modelLab(model))
+}
+
+export function isFoldedModelsLabel(label: string): boolean {
+    return LAB_ORDER.some((lab) => otherModelsLabel(lab) === label)
+}
+
+export function seriesLab(label: string): ModelLab {
+    return LAB_ORDER.find((lab) => otherModelsLabel(lab) === label) ?? modelLab(label)
 }

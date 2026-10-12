@@ -3,7 +3,7 @@ import type { ChartTheme } from '@posthog/quill-charts'
 import { RGBToHex, hexToRGB, lightenDarkenColor, toOpaqueHex } from 'lib/utils/colors'
 import { hashCodeForString } from 'lib/utils/strings'
 
-import { type AiLab, modelLab } from './aiLabs'
+import { type AiLab, otherModelsLabel, seriesLab } from './aiLabs'
 
 // Five shades per lab, dark to light. Each ramp keeps one hue and steps lightness evenly in OKLCH
 // (L 0.46 to 0.82, chroma 0.13), so every lab's shades look equally far apart and stay readable on
@@ -27,7 +27,7 @@ export const HARNESS_BRAND_COLORS = {
 
 export type HarnessBrand = keyof typeof HARNESS_BRAND_COLORS
 
-const NEUTRAL_LABELS = new Set(['Unknown', 'Other'])
+const NEUTRAL_LABELS = new Set(['Unknown', 'Other', otherModelsLabel('Other')])
 
 export function labColor(theme: ChartTheme, lab: string): string | undefined {
     return AI_LAB_SHADES[lab as AiLab]?.[MAIN_SHADE] ?? theme.axisColor
@@ -43,7 +43,7 @@ export function modelColors(theme: ChartTheme, models: string[]): Map<string, st
     const modelsByLab = new Map<AiLab, string[]>()
     const colors = new Map<string, string | undefined>()
     for (const model of unique) {
-        const lab = modelLab(model)
+        const lab = seriesLab(model)
         if (NEUTRAL_LABELS.has(model)) {
             colors.set(model, theme.axisColor)
         } else if (lab === 'Other') {
