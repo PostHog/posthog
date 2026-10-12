@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { eventName } from '../pipelineQuestion'
 import { PredictionSegmentDefinition, formatProbability, predictionSegmentPeopleUrl } from '../predictionSegments'
 
 function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX.Element {
@@ -88,7 +89,7 @@ function SegmentCutPoints(): JSX.Element | null {
     if (!thresholds) {
         return null
     }
-    const target = pipeline?.target_event ?? 'the target event'
+    const target = pipeline ? eventName(pipeline.target_event) : 'the target event'
     return (
         <>
             <p className="text-sm text-secondary mb-0">
