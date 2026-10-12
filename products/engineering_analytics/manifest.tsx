@@ -148,7 +148,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-engineering-analytics-dark)',
             ],
             href: urls.engineeringAnalytics(),
-            searchKeywords: ['dora', 'ci health', 'cycle time'],
+            searchKeywords: ['ci', 'ci health', 'ci cost', 'github actions', 'build minutes', 'dora', 'cycle time'],
             searchTabs: [
                 { name: 'Pull requests', href: urls.engineeringAnalyticsPullRequestList() },
                 { name: 'CI workflows', href: urls.engineeringAnalyticsWorkflows() },
