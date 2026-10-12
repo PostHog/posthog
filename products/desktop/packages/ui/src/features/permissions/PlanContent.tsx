@@ -6,14 +6,32 @@ import {
   ListChecks,
   X,
 } from "@phosphor-icons/react";
+import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const planScrollPosition = new Map<string, number>();
+
+const planMarkdownComponents: Components = {
+  code: ({ children, className }) => {
+    const language = className?.match(/language-([\w-]+)/)?.[1];
+    if (!language) {
+      return <code className={className}>{children}</code>;
+    }
+    return (
+      <HighlightedCode
+        code={String(children).replace(/\n$/, "")}
+        language={language}
+        className={className}
+      />
+    );
+  },
+};
 
 interface PlanContentProps {
   id: string;
@@ -67,7 +85,12 @@ export function PlanContent({ id, plan }: PlanContentProps) {
   }, [isFullscreen]);
 
   const markdown = (
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{plan}</ReactMarkdown>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={planMarkdownComponents}
+    >
+      {plan}
+    </ReactMarkdown>
   );
 
   if (isFullscreen) {
