@@ -138,6 +138,7 @@ jobs:
                         - 'frontend/src/lib/oauthScopes.generated.ts'
                         - 'products/github_commands/commands.generated.json'
                         - 'products/github_commands/COMMANDS.generated.md'
+                        - 'products/wizard/tool-catalog.generated.json'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
