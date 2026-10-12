@@ -258,6 +258,7 @@ def start_onboarding_session(
                 origin_key=origin_key,
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
                 create_pr=False,
+                attach_github=False,
                 mode="interactive",
                 runtime_adapter=session_runtime_adapter,
                 model=session_model,

@@ -334,15 +334,16 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_CHAT,),
-            (Task.OriginProduct.SIGNAL_REPORT,),
-            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
-            (Task.OriginProduct.AUTORESEARCH,),
+            (Task.OriginProduct.SIGNALS_CHAT, {}),
+            (Task.OriginProduct.SIGNAL_REPORT, {}),
+            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, {}),
+            (Task.OriginProduct.AUTORESEARCH, {}),
+            (Task.OriginProduct.USER_CREATED, {"attach_github": False}),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_attaches_no_github_integration_to_a_repo_less_restricted_origin(
-        self, origin_product, mock_execute_workflow
+        self, origin_product, extra_kwargs, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
@@ -354,6 +355,7 @@ class TestTask(TestCase):
                 description="No repository",
                 origin_product=origin_product,
                 user_id=user.id,
+                **extra_kwargs,
             )
 
         self.assertIsNone(task.github_integration)

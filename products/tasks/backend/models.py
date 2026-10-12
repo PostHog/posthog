@@ -1143,6 +1143,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        attach_github: bool = True,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1182,11 +1183,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # A repo-less signals or autoresearch task must carry no GitHub credential at all — team
         # or personal. Provisioning injects whatever integration is attached, and these runs read
         # text any member can write, so an attached token turns planted text into repository access.
-        github_resolution_allowed = bool(repository) or origin_product not in (
-            Task.OriginProduct.SIGNALS_CHAT,
-            Task.OriginProduct.SIGNAL_REPORT,
-            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            Task.OriginProduct.AUTORESEARCH,
+        # `attach_github=False` is for callers whose run never touches GitHub: an attached team
+        # integration blocks its disconnect while the run is in progress.
+        github_resolution_allowed = attach_github and (
+            bool(repository)
+            or origin_product
+            not in (
+                Task.OriginProduct.SIGNALS_CHAT,
+                Task.OriginProduct.SIGNAL_REPORT,
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                Task.OriginProduct.AUTORESEARCH,
+            )
         )
         github_integration = None
         if github_resolution_allowed:
@@ -1526,6 +1533,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        attach_github: bool = True,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
@@ -1586,6 +1594,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            attach_github=attach_github,
         )
 
         run_extra_state = dict(extra_state or {})
