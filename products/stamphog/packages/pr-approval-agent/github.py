@@ -49,7 +49,7 @@ class PRData:
     # rename once, so a deny pattern would miss code moved out of a protected directory.
     touched_paths: list[str] = field(default_factory=list)
     # Set by the hosted server from the external reviewers it asked: one dict per reviewer with state,
-    # reviewer, review_kind, findings_count, published, head_sha, base_ref and skipped_paths. Trusted
+    # reviewer, review_kind, findings_count, published, head_sha, base_ref, base_sha and skipped_paths. Trusted
     # metadata, never PR text. Empty for the Action, which has no such source.
     review_evidence: list[dict] = field(default_factory=list)
 
@@ -62,16 +62,19 @@ class PRData:
         ]
 
     def completed_review_evidence(self) -> list[dict]:
-        """The completed external reviews of the current head against the current base.
+        """The completed external reviews of the current head against the current merge base.
 
-        A retarget keeps the head SHA but changes the diff, so a review of another base does not count.
+        A retarget keeps the head SHA but changes the diff, so a review of another merge base does
+        not count. The base branch SHA is no match key, because it moves on every merge to the base
+        while the diff stays the same. An unknown merge base on either side never matches.
         """
         return [
             item
             for item in self.review_evidence
             if item.get("head_sha") == self.head_sha
             and item.get("state") == "completed"
-            and item.get("base_ref") == self.base_ref
+            and self.merge_base_sha
+            and item.get("base_sha") == self.merge_base_sha
         ]
 
     @property
@@ -119,7 +122,10 @@ def describe_review_evidence(evidence: dict) -> str:
     name = f"{reviewer} ({kind})" if kind else str(reviewer)
     skipped = len(evidence.get("skipped_paths") or [])
     if skipped:
-        findings += f", skipped {skipped} changed file{'' if skipped == 1 else 's'}"
+        return (
+            f"{name} reviewed the current head ({findings}) but skipped {skipped} changed "
+            f"file{'' if skipped == 1 else 's'}, so it does not count as assurance"
+        )
     return f"{name} reviewed the current head: {findings}"
 
 

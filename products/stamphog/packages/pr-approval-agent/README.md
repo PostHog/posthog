@@ -125,9 +125,10 @@ Wait for in-flight bot reviews (skipped when gates already denied)
     fresh data before the LLM sees it
   - Hosted runs also get external reviewers' status for the head from the
     server (`review_evidence` in the context, for example PostHog Review). Any
-    pending review is WAIT; each completed one against the current base counts
-    as a current-head review, unless a risky area names a file it skipped, and
-    gets its own line in the assurance summary and the verdict
+    pending review is WAIT; each completed one against the current merge base
+    counts as a current-head review only when it skipped no changed file. Each
+    gets its own line in the assurance summary and the verdict, which says why
+    a review with skipped files does not count
   │
   ▼
 LLM Review

@@ -48,6 +48,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         post_verdict,
         refresh_review_evidence,
         refuse_on_pre_gates,
+        rereview_after_external_review_finished,
         review_in_sandbox,
         run_review_in_sandbox,
         signal_review_started,
@@ -186,6 +187,18 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 start_to_close_timeout=POST_VERDICT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
+            # A final dispatch failure must not fail the run, because the verdict is already posted.
+            # Gated for replay like the eyes reaction above.
+            if result.get("waited_on_external_review") and workflow.patched("stamphog-rereview-activity"):
+                try:
+                    await workflow.execute_activity(
+                        rereview_after_external_review_finished,
+                        input,
+                        start_to_close_timeout=POST_VERDICT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning(f"stamphog re-review dispatch failed for run {input.review_run_id}")
             if refused_on_pre_gates and sandbox_start is not None:
                 # After the verdict, so a pre-check verdict posts without waiting for the clone.
                 await self._discard_sandbox(input, sandbox_start, sandbox_checkout)

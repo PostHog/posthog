@@ -192,6 +192,7 @@ class TestRecordTurnMarker(BaseTest):
                 pr_comments=[],
                 pr_files=[],
                 review_design=design,
+                merge_base_sha="b" * 40,
                 skipped_paths=skipped,
             )
 
@@ -202,9 +203,10 @@ class TestRecordTurnMarker(BaseTest):
         )
         stored = parse_artefact_content(row.type, row.content)
         assert isinstance(stored, TurnMarkerArtefact)
-        assert (stored.publishes, stored.base_branch, stored.skipped_paths) == (
+        assert (stored.publishes, stored.base_branch, stored.base_sha, stored.skipped_paths) == (
             True,
             "main",
+            "b" * 40,
             ["yarn.lock", "tests/test_a.py"],
         )
 

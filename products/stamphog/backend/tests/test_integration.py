@@ -29,7 +29,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
-from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceState
+from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -53,6 +53,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
     refresh_review_evidence,
+    rereview_after_external_review_finished,
     run_review_in_sandbox,
     start_review_sandbox,
 )
@@ -1249,7 +1250,7 @@ def test_post_verdict_adopts_own_orphan_approval_instead_of_reposting(
     with override_settings(STAMPHOG_GITHUB_APP_SLUG=slug):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
-    assert result == {"verdict": str(ReviewVerdict.APPROVED)}
+    assert result == {"verdict": str(ReviewVerdict.APPROVED), "waited_on_external_review": False}
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.COMPLETED
@@ -1316,7 +1317,7 @@ def test_non_approve_terminal_sweeps_supersession_orphan(
     with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
-    assert result == {"verdict": str(ReviewVerdict.REFUSED)}
+    assert result == {"verdict": str(ReviewVerdict.REFUSED), "waited_on_external_review": False}
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
     # The orphan is always swept; a peer run's live persisted approval (9191) is never touched.
@@ -1726,6 +1727,40 @@ def test_review_evidence_providers_drive_the_reviewer_wait(
     assert [(item["reviewer"], item["state"]) for item in run.output["review_evidence"]] == stored
 
 
+def _pending_then_failing_provider() -> ReviewEvidenceProvider:
+    answers = 0
+
+    def provider(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence:
+        nonlocal answers
+        answers += 1
+        if answers > 1:
+            raise RuntimeError("review evidence unavailable")
+        return _evidence(ReviewEvidenceState.PENDING, head_sha)
+
+    return provider
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_provider_error_after_a_pending_answer_keeps_the_review_pending(team, stamphog_chain: StamphogChain) -> None:
+    # Dropping the pending review on an error would let the run approve over a review that still runs.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=127, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha127a", status=ReviewRunStatus.QUEUED
+    )
+    inp = StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
+
+    with patch.object(activities, "get_review_evidence_providers", return_value=(_pending_then_failing_provider(),)):
+        _run_activity(list_in_flight_reviewer_bots, inp)
+        result = _run_activity(list_in_flight_reviewer_bots, inp)
+
+    assert result["in_flight"] == ["Reviewer A"]
+    run.refresh_from_db()
+    assert [(item["state"], item["provider_error"]) for item in run.output["review_evidence"]] == [("pending", True)]
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_engine_context_after_the_wait_holds_the_review_posted_during_it(team, stamphog_chain: StamphogChain) -> None:
     # The context fetch runs before the wait. Without the refresh, the engine judges reviews and
@@ -1890,9 +1925,20 @@ def test_rereview_after_external_review_restarts_a_rerun_left_queued(team, stamp
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-@pytest.mark.parametrize("finished_since", [True, False])
+@pytest.mark.parametrize(
+    "state_now, dispatch_error, expected_dispatches",
+    [
+        pytest.param(ReviewEvidenceState.COMPLETED, None, 1, id="review-finished-since"),
+        pytest.param(ReviewEvidenceState.PENDING, None, 0, id="review-still-pending"),
+        pytest.param(ReviewEvidenceState.COMPLETED, RuntimeError("broker unreachable"), 1, id="dispatch-fails"),
+    ],
+)
 def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
-    team, stamphog_chain: StamphogChain, finished_since: bool
+    team,
+    stamphog_chain: StamphogChain,
+    state_now: ReviewEvidenceState,
+    dispatch_error: Exception | None,
+    expected_dispatches: int,
 ) -> None:
     # The external reviewer's own re-review request arrives while this run is still in flight and
     # finds no WAIT, so the run itself must ask once more after it saved its WAIT.
@@ -1913,18 +1959,24 @@ def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
             "review_evidence": [{"state": "pending", "reviewer": pending.reviewer, "head_sha": head_sha}],
         },
     )
-    now = _evidence(ReviewEvidenceState.COMPLETED if finished_since else ReviewEvidenceState.PENDING, head_sha)
+    inp = StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
+    now = _evidence(state_now, head_sha)
 
     with (
         patch.object(activities, "get_review_evidence_providers", return_value=(lambda *_: now,)),
-        patch.object(activities, "request_rereview_after_external_review") as rereview,
+        patch.object(activities, "request_rereview_after_external_review", side_effect=dispatch_error) as rereview,
     ):
-        _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+        posted = _run_activity(post_verdict, inp)
+        if dispatch_error is None:
+            _run_activity(rereview_after_external_review_finished, inp)
+        else:
+            with pytest.raises(type(dispatch_error)):
+                _run_activity(rereview_after_external_review_finished, inp)
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.WAIT
-    expected = [call(repository=REPO, pr_number=125, head_sha=head_sha)] if finished_since else []
-    assert rereview.call_args_list == expected
+    assert posted["waited_on_external_review"] is True
+    assert rereview.call_args_list == [call(repository=REPO, pr_number=125, head_sha=head_sha)] * expected_dispatches
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

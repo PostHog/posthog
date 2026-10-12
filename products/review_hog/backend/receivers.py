@@ -97,6 +97,7 @@ def review_evidence_for_stamphog(repository: str, pr_number: int, head_sha: str)
         published=status.published,
         head_sha=status.head_sha,
         base_ref=status.base_branch,
+        base_sha=status.base_sha,
         skipped_paths=status.skipped_paths,
     )
 

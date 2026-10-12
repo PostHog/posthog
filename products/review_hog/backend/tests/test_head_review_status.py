@@ -58,6 +58,7 @@ class TestHeadReviewStatus(BaseTest):
                 reviewhog_fingerprint="f",
                 publishes=publishes,
                 base_branch="main",
+                base_sha="b" * 40,
                 skipped_paths=["pnpm-lock.yaml"],
             ),
             attribution=ArtefactAttribution.system(),
@@ -231,7 +232,8 @@ class TestHeadReviewStatus(BaseTest):
                 evidence.reviewer,
                 evidence.review_kind,
                 evidence.base_ref,
+                evidence.base_sha,
                 evidence.skipped_paths,
-            ) == (ReviewEvidenceState.COMPLETED, "PostHog Review", "Standard", "main", ("pnpm-lock.yaml",))
+            ) == (ReviewEvidenceState.COMPLETED, "PostHog Review", "Standard", "main", "b" * 40, ("pnpm-lock.yaml",))
         else:
             assert evidence is None

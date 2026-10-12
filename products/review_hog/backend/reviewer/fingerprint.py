@@ -304,7 +304,7 @@ def record_turn_marker(
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact.
 
-    The marker also records what the turn reviewed (base branch and skipped files, from the turn's
+    The marker also records what the turn reviewed (base branch, merge base and skipped files, from the turn's
     PR snapshot), so a reader of a finished turn knows how far the review reached.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
@@ -333,6 +333,7 @@ def record_turn_marker(
             fingerprint_inputs=fingerprint.inputs,
             publishes=publishes,
             base_branch=snapshot.pr_metadata.base_branch if snapshot is not None else None,
+            base_sha=snapshot.merge_base_sha if snapshot is not None else None,
             skipped_paths=snapshot.skipped_paths if snapshot is not None else None,
         ),
         attribution=ArtefactAttribution.system(),

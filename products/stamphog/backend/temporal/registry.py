@@ -16,6 +16,7 @@ from products.stamphog.backend.temporal.activities import (
     post_verdict,
     refresh_review_evidence,
     refuse_on_pre_gates,
+    rereview_after_external_review_finished,
     review_in_sandbox,
     run_review_in_sandbox,
     signal_review_started,
@@ -37,6 +38,7 @@ ACTIVITIES = [
     review_in_sandbox,
     run_review_in_sandbox,
     destroy_review_sandbox,
+    rereview_after_external_review_finished,
     post_verdict,
     mark_review_failed,
 ]

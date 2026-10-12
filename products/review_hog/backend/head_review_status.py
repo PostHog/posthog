@@ -59,6 +59,7 @@ class HeadReviewStatusLookup:
         findings_count: int = 0,
         published: bool = False,
         base_branch: str = "",
+        base_sha: str = "",
         skipped_paths: tuple[str, ...] = (),
     ) -> HeadReviewStatus:
         return HeadReviewStatus(
@@ -68,6 +69,7 @@ class HeadReviewStatusLookup:
             published=published,
             head_sha=self.head_sha,
             base_branch=base_branch,
+            base_sha=base_sha,
             skipped_paths=skipped_paths,
         )
 
@@ -159,6 +161,7 @@ class HeadReviewStatusLookup:
             findings_count=sum(counts.values()),
             published=posted(run_index),
             base_branch=(turn.marker.base_branch or "") if turn is not None else "",
+            base_sha=(turn.marker.base_sha or "") if turn is not None else "",
             skipped_paths=tuple(turn.marker.skipped_paths or ()) if turn is not None else (),
         )
 

@@ -25,5 +25,7 @@ class HeadReviewStatus:
     head_sha: str
     # The base branch the completed turn reviewed the head against. Empty when it is not known.
     base_branch: str = ""
+    # The merge base the completed turn took the diff against. Empty when it is not known.
+    base_sha: str = ""
     # The changed files the completed turn left out of the review, for example lock or test files.
     skipped_paths: tuple[str, ...] = ()

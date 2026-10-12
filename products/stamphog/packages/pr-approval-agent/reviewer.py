@@ -149,8 +149,8 @@ def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed
     assurance for a risky change but never create it.
 
     A completed external review of the current head is the one assurance the pipeline adds by
-    itself. It comes from the hosted server's records, not from the model or the PR. It covers
-    every file it did not skip, so it counts only when no risky area names a skipped file.
+    itself. It comes from the hosted server's records, not from the model or the PR. It counts only
+    when it skipped no changed file, because the risky part could be in any file it did not read.
     """
     on_owning_team = bool(classification.get("ownership", {}).get("teams")) and bool(
         classification.get("author_on_owning_team", True)
@@ -159,8 +159,7 @@ def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed
     strong = familiarity is not None and familiarity.band == "STRONG"
     reviews_on_current_head = facts.reviews_on_current_head if head_reviewed else ()
     for completed_review in (classification.get("assurance") or {}).get("head_review_evidence") or []:
-        skipped_paths = [str(path) for path in completed_review.get("skipped_paths") or []]
-        if any(path in area for path in skipped_paths for area in facts.risky_areas):
+        if completed_review.get("skipped_paths"):
             continue
         reviewer = str(completed_review.get("reviewer"))
         if reviewer not in reviews_on_current_head:

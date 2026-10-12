@@ -270,6 +270,14 @@ class FetchedPR:
     skipped_paths: tuple[str, ...] = ()
 
 
+def _patch_omitted(file: dict[str, Any]) -> bool:
+    """True when GitHub sent no patch for a file with changed lines, for example a large file.
+
+    The review then sees the file name but none of its changes, so the file counts as skipped.
+    """
+    return not file.get("patch") and bool(file["additions"] or file["deletions"])
+
+
 def _merge_base_sha(comparison: dict[str, Any]) -> str | None:
     sha = (comparison.get("merge_base_commit") or {}).get("sha")
     return sha if isinstance(sha, str) else None
@@ -357,6 +365,8 @@ def fetch_branch_compare(
         if pr_filter.skips(file["filename"]):
             skipped_paths.append(file["filename"])
             continue
+        if _patch_omitted(file):
+            skipped_paths.append(file["filename"])
         patch = file.get("patch")
         pr_files.append(
             PRFile(
@@ -486,7 +496,7 @@ class PRFetcher:
     def fetch_pr_files(self, pr_filter: PRFilter, pr_parser: PRParser) -> FetchedFiles:
         """Fetch the PR's reviewable files and the point-in-time unified diff snapshot.
 
-        ``skipped_paths`` are the files the filter left out. The raw per-file patch is captured here — the only place with
+        ``skipped_paths`` are the files the filter left out and the files without a patch. The raw per-file patch is captured here — the only place with
         the file's ``patch`` — into the ``diff`` snapshot, kept out of ``PRFile`` so it doesn't bloat
         the prompts that dump ``pr_files``. The snapshot is the source for the durable per-turn
         `commit` artefact (it anchors a finding to the exact reviewed code even after later
@@ -505,6 +515,8 @@ class PRFetcher:
                 if pr_filter.skips(file["filename"]):
                     skipped_paths.append(file["filename"])
                     continue
+                if _patch_omitted(file):
+                    skipped_paths.append(file["filename"])
                 patch = file.get("patch")
                 pr_files.append(
                     PRFile(

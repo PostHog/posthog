@@ -452,10 +452,15 @@ class TestFetchPrData:
             (
                 "pipeline",
                 False,
-                ["src/module.py"],
-                ["tests/test_module.py", "requirements.txt", "yarn.lock"],
+                ["src/module.py", "src/large.py"],
+                ["tests/test_module.py", "requirements.txt", "yarn.lock", "src/large.py"],
             ),
-            ("single_agent", True, ["tests/test_module.py", "requirements.txt", "src/module.py"], ["yarn.lock"]),
+            (
+                "single_agent",
+                True,
+                ["tests/test_module.py", "requirements.txt", "src/module.py", "src/large.py"],
+                ["yarn.lock", "src/large.py"],
+            ),
         ]
     )
     def test_filtered_and_test_files_are_excluded(
@@ -469,7 +474,8 @@ class TestFetchPrData:
     ) -> None:
         # A lock file never reaches the review. Test and `.txt` files reach only the single-agent
         # design, which was measured with them in its diff; the pipeline was tuned without them. A
-        # comment follows its file, so dedup sees exactly the comments on reviewed files.
+        # comment follows its file, so dedup sees exactly the comments on reviewed files. GitHub sends
+        # no patch for a large file, so the review never sees its changes and must report it skipped.
         _wire(
             mock_request,
             mock_paginated,
@@ -480,6 +486,7 @@ class TestFetchPrData:
                 _file_json(filename="requirements.txt", status="modified", patch="@@ -1,1 +1,1 @@\n+w"),
                 _file_json(filename="yarn.lock", status="modified", patch="@@ -1,1 +1,1 @@\n+y"),
                 _file_json(filename="src/module.py", status="modified", patch="@@ -1,1 +1,1 @@\n+z"),
+                _file_json(filename="src/large.py", status="modified"),
             ],
         )
 

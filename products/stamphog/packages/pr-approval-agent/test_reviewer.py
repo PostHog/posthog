@@ -151,6 +151,7 @@ _COMPLETED_REVIEW = {
     "published": False,
     "head_sha": "abc123",
     "base_ref": "master",
+    "base_sha": "mb1",
     "skipped_paths": [],
 }
 
@@ -184,6 +185,18 @@ _COMPLETED_REVIEW = {
             "Assurance: PostHog Review (Deep) reviewed the current head: 2 findings, posted on the PR; "
             "2 unresolved inline threads",
             id="completed-automated-review",
+        ),
+        pytest.param(
+            {
+                "head_approvals": [],
+                "head_commented": 0,
+                "unresolved_threads": 0,
+                "discussion": 0,
+                "head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["a.lock", "b.py", "c.py"]}],
+            },
+            "Assurance: PostHog Review (Deep) reviewed the current head (no findings) but skipped 3 changed "
+            "files, so it does not count as assurance",
+            id="automated-review-with-skipped-files",
         ),
     ],
 )
@@ -286,12 +299,13 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             "ESCALATE",
             id="automated-review-skipped-the-risky-file",
         ),
+        # A risky area is free text, so a skipped file it does not name may still hold the risky part.
         pytest.param(
             _RISKY_FACTS,
             {"assurance": {"head_review_evidence": [{**_COMPLETED_REVIEW, "skipped_paths": ["pnpm-lock.yaml"]}]}},
             False,
-            "APPROVE",
-            id="automated-review-skipped-only-other-files",
+            "ESCALATE",
+            id="automated-review-skipped-any-file",
         ),
     ],
 )

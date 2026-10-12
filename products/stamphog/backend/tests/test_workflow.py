@@ -11,7 +11,13 @@ from products.stamphog.backend.temporal.constants import STAMPHOG_BOT_REVIEW_MAX
 from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 
 
-def _stub_activities(calls: list[str], in_flight_polls: int, reviews_completed: bool) -> list:
+def _stub_activities(
+    calls: list[str],
+    in_flight_polls: int,
+    reviews_completed: bool,
+    verdict: dict | None = None,
+    rereview_fails: bool = False,
+) -> list:
     def stub(name: str, result: dict):
         @activity.defn(name=name)
         async def run(input: StamphogReviewInput) -> dict:
@@ -30,8 +36,16 @@ def _stub_activities(calls: list[str], in_flight_polls: int, reviews_completed: 
             "reviews_completed": reviews_completed and not in_flight,
         }
 
+    @activity.defn(name="rereview_after_external_review_finished")
+    async def rereview(input: StamphogReviewInput) -> dict:
+        calls.append("rereview_after_external_review_finished")
+        if rereview_fails:
+            raise RuntimeError("broker unreachable")
+        return {"requested": True}
+
     return [
         list_in_flight,
+        rereview,
         stub("dismiss_stale_approvals", {}),
         stub("signal_review_started", {}),
         # No sandbox id, so the workflow skips the checkout and the sandbox review.
@@ -39,7 +53,7 @@ def _stub_activities(calls: list[str], in_flight_polls: int, reviews_completed: 
         stub("fetch_review_context", {}),
         stub("refuse_on_pre_gates", {"refused": False}),
         stub("refresh_review_evidence", {}),
-        stub("post_verdict", {"verdict": "approved"}),
+        stub("post_verdict", verdict or {"verdict": "approved"}),
     ]
 
 
@@ -82,3 +96,37 @@ async def test_evidence_is_read_again_after_waiting_for_reviewers(
         ["refresh_review_evidence"] if refreshed else []
     )
     assert calls[-1] == "post_verdict"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "waited_on_external_review, rereview_fails, expected_attempts",
+    [
+        pytest.param(False, False, 0, id="no-external-review-to-wait-for"),
+        pytest.param(True, False, 1, id="dispatches-once"),
+        pytest.param(True, True, 3, id="retries-a-failed-dispatch"),
+    ],
+)
+async def test_wait_on_an_external_review_dispatches_the_rereview_in_its_own_activity(
+    waited_on_external_review: bool, rereview_fails: bool, expected_attempts: int
+) -> None:
+    calls: list[str] = []
+    verdict = {"verdict": "wait", "waited_on_external_review": waited_on_external_review}
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        queue = str(uuid.uuid4())
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            workflows=[StamphogReviewWorkflow],
+            activities=_stub_activities(calls, 0, False, verdict=verdict, rereview_fails=rereview_fails),
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                StamphogReviewWorkflow.run,
+                StamphogReviewInput(review_run_id=str(uuid.uuid4()), team_id=1),
+                id=queue,
+                task_queue=queue,
+            )
+
+    assert result == {"status": "completed", "verdict": "wait"}
+    assert calls.count("rereview_after_external_review_finished") == expected_attempts
