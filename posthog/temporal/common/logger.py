@@ -120,6 +120,20 @@ class LogMessages(typing.TypedDict):
 DEFAULT_SERIALIZER = functools.partial(json.dumps, default=str)
 
 
+class MissingEventTolerantRenamer(EventRenamer):
+    """Rename the `event` key like `EventRenamer`, but accept a missing `event` key.
+
+    structlog omits `event` when a log method gets a None message, for example a bare
+    `logger.exception()`. Without this, the log call raises `KeyError` and hides the real error.
+    """
+
+    def __call__(
+        self, logger: typing.Any, name: str, event_dict: structlog.types.EventDict
+    ) -> structlog.types.EventDict:
+        event_dict.setdefault("event", "")
+        return super().__call__(logger, name, event_dict)
+
+
 class LogMessagesRenderer:
     """Render messages for writing and producing.
 
@@ -559,7 +573,7 @@ def configure_logger(
     if is_test_or_tty:
         logger_factory = LoggerFactory(file=file, is_test_or_tty=is_test_or_tty)
         base_processors += [
-            EventRenamer("msg"),
+            MissingEventTolerantRenamer("msg"),
             structlog.dev.ConsoleRenderer(event_key="msg"),
         ]
     else:
@@ -583,7 +597,7 @@ def configure_logger(
             # show_locals=False prevents sensitive data from being logged in exception tracebacks.
             # The default (True) dumps all local variables at each stack frame.
             structlog.processors.ExceptionRenderer(structlog.tracebacks.ExceptionDictTransformer(show_locals=False)),
-            EventRenamer("msg"),
+            MissingEventTolerantRenamer("msg"),
             LogMessagesRenderer(event_key="msg"),
         ]
 

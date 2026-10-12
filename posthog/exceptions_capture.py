@@ -75,11 +75,15 @@ def capture_exception(error=None, additional_properties=None):
 
     properties.update(celery_properties())
 
+    # structlog omits the `event` key when the event is None, and some log chains need that key.
+    # Callers in an `except` block often pass no error, so always log a string.
+    log_event = error if error is not None else "Exception captured"
+
     if api_key:
         uuid = posthog_capture_exception(error, properties=properties)
 
         # Only log if captured
         if uuid is not None:
-            logger.exception(error, event_id=uuid)
+            logger.exception(log_event, event_id=uuid)
     else:
-        logger.exception(error)
+        logger.exception(log_event)
