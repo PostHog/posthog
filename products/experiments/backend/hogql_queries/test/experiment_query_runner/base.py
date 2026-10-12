@@ -20,7 +20,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.experiments.backend.hogql_queries.experiment_query_runner import MIN_PRECOMPUTATION_DURATION_SECONDS
+from products.experiments.backend.hogql_queries.precompute_policy import MIN_PRECOMPUTATION_DURATION_SECONDS
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
