@@ -74,20 +74,31 @@ export function billingBlocker(
   return null;
 }
 
-// Takes the Claude token the Anthropic plan runs on, typed or pasted into its one item.
-export function claudeTokenSheet(draft: string, error: string | null): Sheet {
+export const TOKEN_SHEET_RUN = 0;
+export const TOKEN_SHEET_PASTE = 1;
+
+// Gets the Claude token the Anthropic plan runs on: by running `claude setup-token` here, or pasted into the second item.
+export function claudeTokenSheet(
+  draft: string,
+  error: string | null,
+  canRun: boolean,
+): Sheet {
   return {
     title: "Add your Claude token",
     description:
-      error ??
-      "Run `claude setup-token` in another terminal and paste what it prints.",
+      error ?? "Your Claude plan needs the token `claude setup-token` prints.",
     items: [
       {
-        label: "Claude token",
+        label: "Run claude setup-token",
+        detail: canRun ? "Opens your browser" : undefined,
+        disabled: canRun ? undefined : "install Claude Code first",
+      },
+      {
+        label: "Paste a token",
         input: { placeholder: "sk-ant-oat01-…", text: draft },
       },
     ],
-    footer: "Enter to save · Esc to keep PostHog billing",
+    footer: "Enter to choose · Esc to keep PostHog billing",
   };
 }
 

@@ -12,6 +12,8 @@ export interface SettingsView {
   // The ChatGPT account PostHog holds for cloud Codex runs; null when none is connected.
   cloudAccount: string | null;
   hasToken: boolean;
+  // `claude` is on PATH, so `claude setup-token` can run from its row.
+  canSetup: boolean;
   // The context donut on the composer's rule.
   showContext: boolean;
   index: number;
@@ -29,6 +31,7 @@ export type SettingsItem =
   | "logout"
   | "connectCloud"
   | "disconnectCloud"
+  | "setupToken"
   | "token"
   | "removeToken"
   | "context";
@@ -40,6 +43,7 @@ export type SettingsEffect =
   | { kind: "logout" }
   | { kind: "connectCloud" }
   | { kind: "disconnectCloud" }
+  | { kind: "runSetupToken" }
   | { kind: "saveToken"; token: string }
   | { kind: "clearToken" }
   | { kind: "showContext"; on: boolean }
@@ -53,6 +57,7 @@ export function settingsView(saved: {
   account: string | null;
   cloudAccount?: string | null;
   hasToken?: boolean;
+  canSetup?: boolean;
   showContext?: boolean;
 }): SettingsView {
   return {
@@ -60,6 +65,7 @@ export function settingsView(saved: {
     account: saved.account,
     cloudAccount: saved.cloudAccount ?? null,
     hasToken: saved.hasToken ?? false,
+    canSetup: saved.canSetup ?? false,
     showContext: saved.showContext ?? false,
     index: 0,
     busy: false,
@@ -73,6 +79,7 @@ export function settingsItems(view: SettingsView): SettingsItem[] {
   return [
     view.account ? "logout" : "login",
     view.cloudAccount ? "disconnectCloud" : "connectCloud",
+    "setupToken",
     "token",
     ...(view.hasToken ? ["removeToken" as const] : []),
     "context",
@@ -140,6 +147,20 @@ export function settingsKey(
       return {
         view: { ...view, busy: true, error: null },
         effect: { kind: "connectCloud" },
+      };
+    }
+    if (item === "setupToken") {
+      if (!view.canSetup)
+        return {
+          view: {
+            ...view,
+            error: "Install Claude Code first, or paste a token.",
+          },
+        };
+      if (view.busy) return { view };
+      return {
+        view: { ...view, busy: true, error: null },
+        effect: { kind: "runSetupToken" },
       };
     }
     if (item === "token") return { view: { ...view, draft: "" } };

@@ -185,6 +185,18 @@ export class MouseInput {
     this.stdout.write(ENABLE);
   }
 
+  // Hands the terminal to `run`, such as a child process: no mouse reports, and no reading stdin from under it.
+  async suspend<T>(run: () => Promise<T>): Promise<T> {
+    this.stdout.write(DISABLE);
+    this.source.pause();
+    try {
+      return await run();
+    } finally {
+      this.source.resume();
+      if (!this.disposed) this.stdout.write(ENABLE);
+    }
+  }
+
   dispose(): void {
     this.disposed = true;
     this.source.off("data", this.onData);

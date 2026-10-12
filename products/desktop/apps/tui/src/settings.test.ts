@@ -58,8 +58,21 @@ describe("settingsKey", () => {
     expect(saved.view).toMatchObject({ hasToken: true, draft: null });
   });
 
+  it("runs claude setup-token from its row, or says to install Claude Code first", () => {
+    const onRun = [DOWN, DOWN].reduce(
+      (current, key) => settingsKey(current, key).view,
+      view({ canSetup: true }),
+    );
+    const started = settingsKey(onRun, ENTER);
+    expect(started.effect).toEqual({ kind: "runSetupToken" });
+    expect(started.view.busy).toBe(true);
+    const missing = settingsKey({ ...onRun, canSetup: false }, ENTER);
+    expect(missing.effect).toBeUndefined();
+    expect(missing.view.error).toContain("Install Claude Code first");
+  });
+
   it("removes the saved Claude token from its own row", () => {
-    const onRemove = [DOWN, DOWN, DOWN].reduce(
+    const onRemove = [DOWN, DOWN, DOWN, DOWN].reduce(
       (current, key) => settingsKey(current, key).view,
       view({ hasToken: true }),
     );
@@ -69,7 +82,7 @@ describe("settingsKey", () => {
   });
 
   it("turns the composer's context donut on and off from its own row", () => {
-    const onContext = [DOWN, DOWN, DOWN].reduce(
+    const onContext = [DOWN, DOWN, DOWN, DOWN].reduce(
       (current, key) => settingsKey(current, key).view,
       view(),
     );

@@ -21,7 +21,11 @@ const mouse = new MouseInput();
 let generation = 0;
 const root = (Component: typeof Root) => (
   <ErrorBoundary key={generation++}>
-    <Component initialAuth={TuiAuth.load()} mouse={mouse.events} />
+    <Component
+      initialAuth={TuiAuth.load()}
+      mouse={mouse.events}
+      handoff={(run) => mouse.suspend(run)}
+    />
   </ErrorBoundary>
 );
 // cli.mjs loads the app again after an edit that left nothing on screen.

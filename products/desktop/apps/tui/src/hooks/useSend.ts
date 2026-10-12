@@ -11,9 +11,11 @@ import {
   claudeTokenSheet,
   cloudHarnessFor,
   localHarnessFor,
+  TOKEN_SHEET_RUN,
 } from "../billing";
 import { chatgptAccount } from "../chatgpt";
 import type { PiChats, StartPick } from "../chats";
+import { claudeOnPath } from "../claudeSetup";
 import {
   isValidClaudeSetupToken,
   loadClaudeToken,
@@ -85,6 +87,7 @@ export function useSend({
   notice: { flashNotice, showNotice },
   login,
   logout,
+  runSetup,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -132,6 +135,8 @@ export function useSend({
   notice: Notice;
   login: (region: CloudRegion, onAuth: (url: string) => void) => Promise<void>;
   logout: () => void;
+  // Runs `claude setup-token` on the terminal and returns the token; absent where the terminal cannot be handed over.
+  runSetup?: () => Promise<string>;
 }): Send {
   const { isLocal, localFor, markActive } = local;
   const [pending, setPending] = useState<Map<string, string>>(new Map());
@@ -178,23 +183,42 @@ export function useSend({
     );
   };
 
-  // Takes the Claude token the Anthropic plan needs, and saves the plan with it.
+  // Gets the Claude token the Anthropic plan needs, by running `claude setup-token` or from a paste, and saves the plan with it.
   const openClaudeTokenSheet = (
     paneId: string,
     draft: string,
     error: string | null,
-  ): void =>
-    openModal(paneId, claudeTokenSheet(draft, error), (_, token = "") => {
-      if (!isValidClaudeSetupToken(token))
-        return openClaudeTokenSheet(paneId, token, TOKEN_HINT);
+  ): void => {
+    const run = runSetup && claudeOnPath() ? runSetup : undefined;
+    const save = (token: string): void => {
       try {
         saveClaudeToken(token);
+        savePrefs({ billing: "anthropic" });
+        flashNotice(billingNotice("anthropic"));
       } catch (saveError) {
-        return flashNotice(`Couldn't save: ${messageOf(saveError)}`);
+        flashNotice(`Couldn't save: ${messageOf(saveError)}`);
       }
-      savePrefs({ billing: "anthropic" });
-      flashNotice(billingNotice("anthropic"));
-    });
+    };
+    openModal(
+      paneId,
+      claudeTokenSheet(draft, error, run !== undefined),
+      (index, token = "") => {
+        if (index === TOKEN_SHEET_RUN && run) {
+          run().then(save, (runError: unknown) =>
+            openClaudeTokenSheet(
+              paneId,
+              "",
+              `Couldn't get a token: ${messageOf(runError)}`,
+            ),
+          );
+          return;
+        }
+        if (!isValidClaudeSetupToken(token))
+          return openClaudeTokenSheet(paneId, token, TOKEN_HINT);
+        save(token);
+      },
+    );
+  };
 
   const openBillingSheet = (paneId: string): void => {
     const here = { taskId: findPane(layout, paneId)?.taskId ?? null };

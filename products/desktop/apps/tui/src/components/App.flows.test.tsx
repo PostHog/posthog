@@ -1,7 +1,14 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { CloudRegion, Task } from "@posthog/shared";
@@ -472,8 +479,17 @@ describe("App flows", () => {
     }
   });
 
-  it("welcomes a first run: sign in, pick who pays, and paste the Claude token that plan needs", async () => {
+  it("welcomes a first run: sign in, pick who pays, and get the Claude token that plan needs", async () => {
     saveLayout(initialLayout());
+    // A `claude` on PATH whose setup-token prints a token, as the real one does after the browser sign-in.
+    const bin = mkdtempSync(join(tmpdir(), "welcome-claude-"));
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh\necho "Browser opened"\necho "Your token: ${TOKEN}"\n`,
+    );
+    chmodSync(join(bin, "claude"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path ?? ""}`;
     const mouse: MouseEvents = new EventEmitter();
     const login = vi.fn(async (_region: CloudRegion) => {});
     // Signs in the way Root does: the session arrives once the login resolves.
@@ -497,6 +513,7 @@ describe("App flows", () => {
           }}
           logout={() => {}}
           mouse={mouse}
+          handoff={(run) => run()}
         />
       );
     }
@@ -515,14 +532,22 @@ describe("App flows", () => {
         expect(plain()).toContain("What new chats run on"),
       );
       mouse.emit("keys", "3");
-      await vi.waitFor(() => expect(plain()).toContain("claude setup-token"));
+      await vi.waitFor(() =>
+        expect(plain()).toContain("Run claude setup-token"),
+      );
+      // A pasted token that is not one asks again.
+      mouse.emit("keys", "2");
+      await vi.waitFor(() =>
+        expect(plain().slice(-1500)).toContain("❯ 2. Paste a token"),
+      );
       mouse.emit("keys", "not-a-token");
       mouse.emit("keys", "\r");
-      await vi.waitFor(() => expect(plain()).toContain("Paste the full token"));
+      await vi.waitFor(() =>
+        expect(plain().slice(-1500)).toContain("Paste the full token"),
+      );
       expect(loadPrefs().billing).toBe("posthog");
-      for (const _ of "not-a-token") mouse.emit("keys", "\u007f");
-      mouse.emit("keys", TOKEN);
-      mouse.emit("keys", "\r");
+      // Running the command takes the token from what it prints.
+      mouse.emit("keys", "1");
       await vi.waitFor(() =>
         expect(readFileSync(CLAUDE_TOKEN_PATH, "utf8").trim()).toBe(TOKEN),
       );
@@ -531,6 +556,7 @@ describe("App flows", () => {
         expect(plain().slice(-1200)).toContain("• Anthropic subscription"),
       );
     } finally {
+      process.env.PATH = path;
       instance.unmount();
     }
   });
