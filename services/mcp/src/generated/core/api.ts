@@ -2767,6 +2767,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
                     ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -5486,6 +5498,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
                     ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
             })
             .optional(),
         feature_flag_policy_config: zod

@@ -110,6 +110,7 @@ describe('HogFunctionHandler', () => {
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
+            isFrequencyCapped: jest.fn().mockResolvedValue(false),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -441,6 +442,33 @@ describe('HogFunctionHandler', () => {
                 instance_id: action.id,
                 metric_kind: 'email',
                 metric_name: 'email_suppressed',
+                count: 1,
+            },
+        ])
+        expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('should skip the send and emit message_frequency_capped when the recipient reached the frequency cap', async () => {
+        ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.logs[0].message).toContain(
+            `[Action:function] Skipping send: recipient reached the frequency cap.`
+        )
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: 'other',
+                metric_name: 'message_frequency_capped',
                 count: 1,
             },
         ])

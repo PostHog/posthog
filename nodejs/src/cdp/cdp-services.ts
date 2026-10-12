@@ -516,7 +516,10 @@ export function createCdpCoreServices(
         hogExecutorAsync
     )
 
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService, {
+        teamWorkflowsConfig: teamWorkflowsConfigService,
+        redis,
+    })
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null

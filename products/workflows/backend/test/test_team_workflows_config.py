@@ -50,6 +50,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
+            "marketing_frequency_cap_max_messages": None,
+            "marketing_frequency_cap_window_days": None,
         }
 
     def test_patch_enables_capture(self) -> None:
@@ -112,6 +114,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
             "default_email_integration_id": None,
+            "marketing_frequency_cap_max_messages": None,
+            "marketing_frequency_cap_window_days": None,
         }
 
     @parameterized.expand(
