@@ -39,11 +39,15 @@ class MistralAIUnexpectedResponseError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MistralAIResumeConfig:
     # Next 0-indexed page to fetch. Pages already yielded are persisted to staging before a crash,
     # so resuming mid-endpoint continues from here rather than restarting.
     page: int = 0
+    # Next observability search cursor, for cursor-paginated endpoints.
+    cursor: Optional[str] = None
+    # Fan-out position as a shrinking queue of parent ids still to fetch children for.
+    remaining_parent_ids: Optional[list[str]] = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -80,7 +84,7 @@ def _build_base_params(
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
     """Query params shared across every page of one endpoint (excludes page/page_size)."""
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.extra_params)
 
     if config.order_by is not None:
         order_param, order_value = config.order_by
@@ -110,8 +114,17 @@ def _build_base_params(
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, params: dict[str, Any], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+    json_body: Optional[dict[str, Any]] = None,
+) -> Any:
+    if json_body is not None:
+        response = session.post(url, params=params, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+    else:
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # 429 (rate limit) and 5xx are transient — retry. Everything else (esp. 401/403) is terminal and
     # surfaces via raise_for_status so get_non_retryable_errors can permanently fail the sync.
@@ -146,6 +159,132 @@ def _extract_rows(config: MistralAIEndpointConfig, data: Any) -> list[dict[str, 
     )
 
 
+def _extract_feed(config: MistralAIEndpointConfig, data: Any) -> tuple[list[dict[str, Any]], Optional[str]]:
+    """Pull rows and the next cursor out of an observability search response.
+
+    The body is `{<data_key>: {"results": [...], "cursor": ..., "next": ...}}`.
+    """
+    feed = data.get(config.data_key) if isinstance(data, dict) and config.data_key is not None else None
+    rows = feed.get("results") if isinstance(feed, dict) else None
+    if not isinstance(rows, list):
+        raise MistralAIUnexpectedResponseError(
+            f"Mistral AI {config.name}: unexpected response shape (expected an object with "
+            f"{config.data_key!r}.results, got {type(data).__name__})"
+        )
+    cursor = feed.get("cursor") if isinstance(feed, dict) else None
+    return rows, cursor or None
+
+
+def _get_cursor_rows(
+    session: requests.Session,
+    config: MistralAIEndpointConfig,
+    url: str,
+    base_params: dict[str, Any],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MistralAIResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    cursor = resume.cursor if resume is not None else None
+    if cursor is not None:
+        logger.debug(f"Mistral AI: resuming {config.name} from saved cursor")
+
+    for _ in range(MAX_PAGES):
+        params = {**base_params, "page_size": config.page_size}
+        if cursor is not None:
+            params["cursor"] = cursor
+        rows, next_cursor = _extract_feed(config, _fetch_page(session, url, params, logger, json_body={}))
+        if not rows:
+            return
+
+        if next_cursor is not None:
+            resumable_source_manager.save_state(MistralAIResumeConfig(cursor=next_cursor))
+        yield rows
+        if next_cursor is None or next_cursor == cursor:
+            return
+        cursor = next_cursor
+
+    logger.warning(f"Mistral AI: hit page cap ({MAX_PAGES}) for {config.name}, stopping pagination")
+
+
+def _iter_parent_ids(
+    session: requests.Session,
+    parent_config: MistralAIEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MistralAIResumeConfig],
+) -> Iterator[str]:
+    url = f"{MISTRAL_AI_BASE_URL}{parent_config.path}"
+    for page in range(MAX_PAGES):
+        params = {"page": page, "page_size": parent_config.page_size}
+        rows = _extract_rows(parent_config, _fetch_page(session, url, params, logger))
+        if not rows:
+            return
+        for row in rows:
+            yield str(row["id"])
+        # Nothing has been yielded yet, so a hand-off here restarts the enumeration and loses no rows.
+        resumable_source_manager.safe_point()
+
+    logger.warning(f"Mistral AI: hit page cap ({MAX_PAGES}) for {parent_config.name}, stopping pagination")
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    config: MistralAIEndpointConfig,
+    base_params: dict[str, Any],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MistralAIResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None and config.parent_id_field is not None
+    parent_config = MISTRAL_AI_ENDPOINTS[config.parent]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.remaining_parent_ids is not None:
+        parent_ids = list(resume.remaining_parent_ids)
+        logger.debug(f"Mistral AI: resuming {config.name} with {len(parent_ids)} {config.parent} remaining")
+    else:
+        # Enumerated up front so the fan-out position can be saved as a shrinking queue.
+        parent_ids = list(_iter_parent_ids(session, parent_config, logger, resumable_source_manager))
+
+    while parent_ids:
+        parent_id = parent_ids[0]
+        remaining = parent_ids[1:]
+        parent_ids = remaining
+        url = f"{MISTRAL_AI_BASE_URL}{config.path.format(parent_id=parent_id)}"
+        try:
+            for page in range(MAX_PAGES if config.paginated else 1):
+                params = (
+                    {**base_params, "page": page, "page_size": config.page_size} if config.paginated else base_params
+                )
+                data = _fetch_page(session, url, params, logger)
+                rows = _extract_rows(config, data)
+                pagination = data.get("pagination") if isinstance(data, dict) else None
+                last_page = (
+                    not config.paginated
+                    or not rows
+                    or (isinstance(pagination, dict) and pagination.get("has_more") is False)
+                )
+
+                # Keep this parent at the head until its last page: a resume re-fetches its rows,
+                # which merge dedupes.
+                resumable_source_manager.save_state(
+                    MistralAIResumeConfig(remaining_parent_ids=remaining if last_page else [parent_id, *remaining])
+                )
+                if not rows:
+                    resumable_source_manager.safe_point()
+                    break
+                yield [{**row, config.parent_id_field: row.get(config.parent_id_field) or parent_id} for row in rows]
+                if last_page:
+                    break
+            else:
+                logger.warning(f"Mistral AI: hit page cap ({MAX_PAGES}) for {config.name} of {parent_id}")
+        except requests.HTTPError as e:
+            # The parent can be deleted between enumeration (or a saved queue) and this fetch.
+            if e.response is None or e.response.status_code != 404:
+                raise
+            logger.warning(f"Mistral AI: {config.parent} {parent_id} no longer exists, skipping {config.name}")
+            resumable_source_manager.save_state(MistralAIResumeConfig(remaining_parent_ids=remaining))
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -162,6 +301,14 @@ def get_rows(
     session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
     base_params = _build_base_params(config, should_use_incremental_field, db_incremental_field_last_value)
     url = f"{MISTRAL_AI_BASE_URL}{config.path}"
+
+    if config.parent is not None:
+        yield from _get_fan_out_rows(session, config, base_params, logger, resumable_source_manager)
+        return
+
+    if config.pagination == "cursor":
+        yield from _get_cursor_rows(session, config, url, base_params, logger, resumable_source_manager)
+        return
 
     if not config.paginated:
         rows = _extract_rows(config, _fetch_page(session, url, base_params, logger))

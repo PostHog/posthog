@@ -3,8 +3,6 @@ import { fireEvent, waitFor, within } from '@testing-library/dom'
 import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
@@ -280,7 +278,6 @@ const modelsTabDecorator = mswDecorator({
 })
 
 export const DraggableNodes: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING] },
     render: () => <ModelsLineageTab />,
     decorators: [modelsTabDecorator],
     play: async ({ canvasElement }) => {
@@ -325,10 +322,7 @@ export const DraggableNodes: Story = {
 // The play function leaves the menu open, so this story takes no snapshot. Opening the menu in
 // DraggableNodes instead would paint it over that story's picture on every run.
 export const NodeMenu: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING],
-        testOptions: { snapshotBrowsers: [] },
-    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
     render: () => <ModelsLineageTab />,
     decorators: [modelsTabDecorator],
     play: async ({ canvasElement }) => {

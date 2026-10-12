@@ -1067,6 +1067,8 @@ describe('Tool Filtering - Feature Flags', () => {
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
+            'replay-vision-scanner-dashboard',
+            'metrics-dashboard-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1114,10 +1116,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
+                'subscription-source-summaries',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(40)
     })
 
     it('every loops tool is gated on the loops flag', () => {

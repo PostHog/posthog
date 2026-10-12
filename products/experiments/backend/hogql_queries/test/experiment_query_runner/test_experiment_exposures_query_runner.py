@@ -161,11 +161,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     @parameterized.expand(
         [
             # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
-            ("fully_before_cutoff", True, -14, -7, -14, {"control": 2, "test": 1}),
-            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 2, "test": 1}),
+            ("fully_before_cutoff", True, -14, -7, -14, {"control": 3, "test": 3}),
+            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 3, "test": 3}),
             ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
-            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 2, "test": 1}),
-            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
+            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 3, "test": 3}),
+            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 3, "test": 3}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
@@ -207,7 +207,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both events are seeded inside every experiment window, with disjoint user sets and
         # asymmetric counts, so total_exposures reveals which event the query counted:
         # $feature_flag_called yields control=2/test=1, $experiment_exposure yields
-        # control=1/test=2, and counting both would yield control=3/test=3.
+        # control=1/test=2, and counting both yields control=3/test=3. The users with only
+        # $experiment_exposure stand for exposures after ingestion stops writing
+        # $feature_flag_called, which an experiment on $feature_flag_called must still count.
         journeys_for(
             {
                 "user_legacy_control_1": [exposure("$feature_flag_called", "control", legacy_ts)],

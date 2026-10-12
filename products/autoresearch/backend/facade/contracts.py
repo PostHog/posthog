@@ -80,6 +80,7 @@ class LiveTrainingRun:
     experiment_count: int
     best_holdout_score: float | None
     latest_agent_description: str
+    latest_summary: str | None
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,7 @@ class IterationTrailEntry:
     holdout_score: float | None
     train_score: float | None
     agent_description: str
+    summary: str | None
     model_spec: dict[str, Any]
     recipe_snapshot: dict[str, Any]
 
@@ -230,6 +232,8 @@ class TrainingRun:
     iteration_count: int
     best_holdout_score: float | None
     summary: dict[str, Any] | None
+    reader_summary: str | None
+    next_steps: list[str] | None
     iterations: list[IterationTrailEntry]
     error: str
     started_at: datetime | None
@@ -252,6 +256,7 @@ class Iteration:
     holdout_score: float | None
     status: str
     agent_description: str
+    summary: str | None
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
