@@ -118,6 +118,18 @@ _PLACEHOLDER_PATTERNS = {
 }
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
 
+# Stored patterns carry the ingestion consumer's mask tokens, and grouping them adds Drain's `<*>`
+# on top, so the same message can render as `job <ID> done` in one window and `job <*> done` in
+# the next. `<JSON:keys>` is left out on purpose: the key set is the identity of that pattern.
+_FINGERPRINT_PLACEHOLDER_RE = re.compile(
+    "|".join(
+        [
+            _PLACEHOLDER_RE.pattern,
+            r"<(?:N|TIMESTAMP|KLOGTIME|UUID|IP|HOST|HEX|ID|EMAIL|JSON_ARRAY)>",
+        ]
+    )
+)
+
 # Templates whose literal content is thinner than this compile to uselessly broad
 # predicates (worst case "<*> <*> <*>" matches everything), so they get no regex.
 _MIN_LITERAL_CHARS = 3
@@ -328,7 +340,9 @@ def pattern_fingerprint(template: str) -> str:
     *inside* a literal run splits it and changes the fingerprint — that is content-level
     divergence, not wobble, so the two templates are correctly treated as different patterns.
     """
-    literals = sorted(set(_literal_runs(template)))
+    literals = sorted(
+        {stripped for literal in _FINGERPRINT_PLACEHOLDER_RE.split(template) if (stripped := literal.strip())}
+    )
     return "\x00".join(literals) if literals else template
 
 
