@@ -66,15 +66,8 @@
                             "type": "string"
                         },
                         "provider_key_id": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned."
+                            "description": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.",
+                            "type": ["string", "null"]
                         }
                     },
                     "required": ["provider", "model"],

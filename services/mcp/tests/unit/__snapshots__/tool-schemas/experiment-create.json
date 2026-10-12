@@ -27,26 +27,12 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
+                                            "type": ["string", "null"]
                                         },
                                         "id": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Action ID. Required when kind is 'ActionsNode'."
+                                            "description": "Action ID. Required when kind is 'ActionsNode'.",
+                                            "type": ["number", "null"]
                                         },
                                         "kind": {
                                             "anyOf": [
@@ -70,14 +56,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "anyOf": [
@@ -140,17 +119,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -178,14 +147,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -240,17 +202,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -278,14 +230,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -340,17 +285,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -379,14 +314,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -440,17 +368,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -478,14 +396,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -539,17 +450,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -577,14 +478,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -638,17 +532,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -673,14 +557,7 @@
                                                     {
                                                         "properties": {
                                                             "cohort_name": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "key": {
                                                                 "const": "id",
@@ -688,14 +565,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "anyOf": [
@@ -778,14 +648,7 @@
                                                                 ]
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -839,17 +702,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -877,14 +730,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -938,17 +784,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -989,27 +825,13 @@
                                                                 ]
                                                             },
                                                             "group_type_index": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["number", "null"]
                                                             },
                                                             "key": {
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1063,17 +885,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1101,14 +913,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1163,17 +968,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1202,14 +997,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "const": "flag_evaluates_to",
@@ -1224,15 +1012,8 @@
                                                                 "type": "string"
                                                             },
                                                             "value": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "boolean"
-                                                                    },
-                                                                    {
-                                                                        "type": "string"
-                                                                    }
-                                                                ],
-                                                                "description": "The value can be true, false, or a variant name"
+                                                                "description": "The value can be true, false, or a variant name",
+                                                                "type": ["boolean", "string"]
                                                             }
                                                         },
                                                         "required": ["key", "value"],
@@ -1244,14 +1025,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "type": {
                                                                 "const": "hogql",
@@ -1262,17 +1036,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1310,14 +1074,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1371,17 +1128,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1409,14 +1156,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1470,17 +1210,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1508,14 +1238,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1569,17 +1292,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1607,14 +1320,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1671,17 +1377,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1709,14 +1405,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1770,17 +1459,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1808,14 +1487,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1872,17 +1544,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -1910,14 +1572,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -1971,17 +1626,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -2009,14 +1654,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -2071,17 +1709,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -2109,14 +1737,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -2170,17 +1791,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -2215,14 +1826,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "anyOf": [
@@ -2285,16 +1889,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -2323,14 +1921,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "enum": [
@@ -2385,16 +1976,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -2429,14 +2014,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "enum": [
@@ -2490,16 +2068,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -2528,14 +2100,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "enum": [
@@ -2590,16 +2155,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -2628,14 +2187,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "type": {
                                                                                             "const": "hogql",
@@ -2646,16 +2198,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -2693,50 +2239,22 @@
                                                                 "type": "string"
                                                             },
                                                             "explicit_datetime": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"
+                                                                "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                                                                "type": ["string", "null"]
                                                             },
                                                             "explicit_datetime_to": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "key": {
                                                                 "description": "Event name, or action id when event_type is 'actions'",
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "negation": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "boolean"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators"
+                                                                "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                                                                "type": ["boolean", "null"]
                                                             },
                                                             "operator": {
                                                                 "anyOf": [
@@ -2790,15 +2308,8 @@
                                                                 "description": "Count comparison for performed_event_multiple, defaults to exact"
                                                             },
                                                             "operator_value": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Count threshold for performed_event_multiple"
+                                                                "description": "Count threshold for performed_event_multiple",
+                                                                "type": ["number", "null"]
                                                             },
                                                             "time_interval": {
                                                                 "anyOf": [
@@ -2812,15 +2323,8 @@
                                                                 ]
                                                             },
                                                             "time_value": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Relative time window size, paired with time_interval"
+                                                                "description": "Relative time window size, paired with time_interval",
+                                                                "type": ["number", "null"]
                                                             },
                                                             "type": {
                                                                 "const": "behavioral",
@@ -2855,26 +2359,12 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
+                                            "type": ["string", "null"]
                                         },
                                         "id": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Action ID. Required when kind is 'ActionsNode'."
+                                            "description": "Action ID. Required when kind is 'ActionsNode'.",
+                                            "type": ["number", "null"]
                                         },
                                         "kind": {
                                             "anyOf": [
@@ -2898,14 +2388,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "anyOf": [
@@ -2968,17 +2451,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3006,14 +2479,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3068,17 +2534,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3106,14 +2562,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3168,17 +2617,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3207,14 +2646,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3268,17 +2700,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3306,14 +2728,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3367,17 +2782,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3405,14 +2810,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3466,17 +2864,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3501,14 +2889,7 @@
                                                     {
                                                         "properties": {
                                                             "cohort_name": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "key": {
                                                                 "const": "id",
@@ -3516,14 +2897,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "anyOf": [
@@ -3606,14 +2980,7 @@
                                                                 ]
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3667,17 +3034,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3705,14 +3062,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3766,17 +3116,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3817,27 +3157,13 @@
                                                                 ]
                                                             },
                                                             "group_type_index": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["number", "null"]
                                                             },
                                                             "key": {
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3891,17 +3217,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -3929,14 +3245,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -3991,17 +3300,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4030,14 +3329,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "const": "flag_evaluates_to",
@@ -4052,15 +3344,8 @@
                                                                 "type": "string"
                                                             },
                                                             "value": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "boolean"
-                                                                    },
-                                                                    {
-                                                                        "type": "string"
-                                                                    }
-                                                                ],
-                                                                "description": "The value can be true, false, or a variant name"
+                                                                "description": "The value can be true, false, or a variant name",
+                                                                "type": ["boolean", "string"]
                                                             }
                                                         },
                                                         "required": ["key", "value"],
@@ -4072,14 +3357,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "type": {
                                                                 "const": "hogql",
@@ -4090,17 +3368,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4138,14 +3406,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4199,17 +3460,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4237,14 +3488,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4298,17 +3542,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4336,14 +3570,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4397,17 +3624,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4435,14 +3652,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4499,17 +3709,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4537,14 +3737,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4598,17 +3791,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4636,14 +3819,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4700,17 +3876,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4738,14 +3904,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4799,17 +3958,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4837,14 +3986,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4899,17 +4041,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -4937,14 +4069,7 @@
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "operator": {
                                                                 "enum": [
@@ -4998,17 +4123,7 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "items": {
-                                                                            "anyOf": [
-                                                                                {
-                                                                                    "type": "string"
-                                                                                },
-                                                                                {
-                                                                                    "type": "number"
-                                                                                },
-                                                                                {
-                                                                                    "type": "boolean"
-                                                                                }
-                                                                            ]
+                                                                            "type": ["string", "number", "boolean"]
                                                                         },
                                                                         "type": "array"
                                                                     },
@@ -5043,14 +4158,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "anyOf": [
@@ -5113,16 +4221,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -5151,14 +4253,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "enum": [
@@ -5213,16 +4308,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -5257,14 +4346,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "enum": [
@@ -5318,16 +4400,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -5356,14 +4432,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "operator": {
                                                                                             "enum": [
@@ -5418,16 +4487,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -5456,14 +4519,7 @@
                                                                                             "type": "string"
                                                                                         },
                                                                                         "label": {
-                                                                                            "anyOf": [
-                                                                                                {
-                                                                                                    "type": "string"
-                                                                                                },
-                                                                                                {
-                                                                                                    "type": "null"
-                                                                                                }
-                                                                                            ]
+                                                                                            "type": ["string", "null"]
                                                                                         },
                                                                                         "type": {
                                                                                             "const": "hogql",
@@ -5474,16 +4530,10 @@
                                                                                             "anyOf": [
                                                                                                 {
                                                                                                     "items": {
-                                                                                                        "anyOf": [
-                                                                                                            {
-                                                                                                                "type": "string"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "number"
-                                                                                                            },
-                                                                                                            {
-                                                                                                                "type": "boolean"
-                                                                                                            }
+                                                                                                        "type": [
+                                                                                                            "string",
+                                                                                                            "number",
+                                                                                                            "boolean"
                                                                                                         ]
                                                                                                     },
                                                                                                     "type": "array"
@@ -5521,50 +4571,22 @@
                                                                 "type": "string"
                                                             },
                                                             "explicit_datetime": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"
+                                                                "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                                                                "type": ["string", "null"]
                                                             },
                                                             "explicit_datetime_to": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "key": {
                                                                 "description": "Event name, or action id when event_type is 'actions'",
                                                                 "type": "string"
                                                             },
                                                             "label": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "null"]
                                                             },
                                                             "negation": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "boolean"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators"
+                                                                "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                                                                "type": ["boolean", "null"]
                                                             },
                                                             "operator": {
                                                                 "anyOf": [
@@ -5618,15 +4640,8 @@
                                                                 "description": "Count comparison for performed_event_multiple, defaults to exact"
                                                             },
                                                             "operator_value": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Count threshold for performed_event_multiple"
+                                                                "description": "Count threshold for performed_event_multiple",
+                                                                "type": ["number", "null"]
                                                             },
                                                             "time_interval": {
                                                                 "anyOf": [
@@ -5640,15 +4655,8 @@
                                                                 ]
                                                             },
                                                             "time_value": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "null"
-                                                                    }
-                                                                ],
-                                                                "description": "Relative time window size, paired with time_interval"
+                                                                "description": "Relative time window size, paired with time_interval",
+                                                                "type": ["number", "null"]
                                                             },
                                                             "type": {
                                                                 "const": "behavioral",
@@ -5678,14 +4686,7 @@
                             ]
                         },
                         "filterTestAccounts": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "multiple_variant_handling": {
                             "anyOf": [
@@ -5712,29 +4713,15 @@
             "description": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.",
             "properties": {
                 "ensure_experience_continuity": {
-                    "anyOf": [
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Whether the flag persists variant assignment across authentication steps."
+                    "description": "Whether the flag persists variant assignment across authentication steps.",
+                    "type": ["boolean", "null"]
                 },
                 "filters": {
                     "description": "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
                     "properties": {
                         "aggregation_group_type_index": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Group type index for group-based feature flags."
+                            "description": "Group type index for group-based feature flags.",
+                            "type": ["number", "null"]
                         },
                         "groups": {
                             "description": "Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].",
@@ -5826,15 +4813,8 @@
             "type": "string"
         },
         "holdout_id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of a holdout group to exclude from the experiment."
+            "description": "ID of a holdout group to exclude from the experiment.",
+            "type": ["number", "null"]
         },
         "name": {
             "description": "Name of the experiment.",
@@ -5855,26 +4835,12 @@
                                             "type": "string"
                                         },
                                         "manualBaselineValue": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode."
+                                            "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+                                            "type": ["number", "null"]
                                         },
                                         "manualExposureRate": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode."
+                                            "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+                                            "type": ["number", "null"]
                                         },
                                         "manualMetricType": {
                                             "anyOf": [
@@ -5899,37 +4865,16 @@
                             "description": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data."
                         },
                         "minimum_detectable_effect": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes."
+                            "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+                            "type": ["number", "null"]
                         },
                         "recommended_running_time": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Estimated number of days needed to reach the recommended sample size."
+                            "description": "Estimated number of days needed to reach the recommended sample size.",
+                            "type": ["number", "null"]
                         },
                         "recommended_sample_size": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Recommended number of exposed users needed for statistical significance."
+                            "description": "Recommended number of exposed users needed for statistical significance.",
+                            "type": ["number", "null"]
                         }
                     },
                     "type": "object"

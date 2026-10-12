@@ -6,15 +6,8 @@
                 {
                     "properties": {
                         "customTitle": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Optional user-provided title that overrides `title` in the navigation UI."
+                            "description": "Optional user-provided title that overrides `title` in the navigation UI.",
+                            "type": ["string", "null"]
                         },
                         "hash": {
                             "description": "Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.",
@@ -37,26 +30,12 @@
                             "type": "boolean"
                         },
                         "sceneId": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints."
+                            "description": "Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.",
+                            "type": ["string", "null"]
                         },
                         "sceneKey": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context."
+                            "description": "Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.",
+                            "type": ["string", "null"]
                         },
                         "sceneParams": {
                             "description": "Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination."
@@ -83,15 +62,8 @@
             "items": {
                 "properties": {
                     "customTitle": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Optional user-provided title that overrides `title` in the navigation UI."
+                        "description": "Optional user-provided title that overrides `title` in the navigation UI.",
+                        "type": ["string", "null"]
                     },
                     "hash": {
                         "description": "Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.",
@@ -114,26 +86,12 @@
                         "type": "boolean"
                     },
                     "sceneId": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints."
+                        "description": "Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.",
+                        "type": ["string", "null"]
                     },
                     "sceneKey": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context."
+                        "description": "Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.",
+                        "type": ["string", "null"]
                     },
                     "sceneParams": {
                         "description": "Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination."

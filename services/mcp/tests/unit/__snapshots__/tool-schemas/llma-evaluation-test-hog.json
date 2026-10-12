@@ -25,26 +25,12 @@
                     "type": "boolean"
                 },
                 "max": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min."
+                    "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
+                    "type": ["number", "null"]
                 },
                 "min": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models."
+                    "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
+                    "type": ["number", "null"]
                 },
                 "options": {
                     "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",

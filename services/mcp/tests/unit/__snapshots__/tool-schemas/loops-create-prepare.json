@@ -66,15 +66,8 @@
                             "description": "What the loop maintains in this context each run.",
                             "properties": {
                                 "canvas_id": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Id of a canvas in this context the loop keeps up to date each run, or null to maintain none."
+                                    "description": "Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.",
+                                    "type": ["string", "null"]
                                 },
                                 "post_to_feed": {
                                     "default": false,
@@ -279,15 +272,8 @@
             "type": "string"
         },
         "sandbox_environment": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Sandbox environment carrying encrypted env vars and the network allowlist into every run."
+            "description": "Sandbox environment carrying encrypted env vars and the network allowlist into every run.",
+            "type": ["string", "null"]
         },
         "take_ownership": {
             "default": false,

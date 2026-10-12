@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "expected_current_version_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded."
+            "description": "The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "ID of the grid canvas whose layout to publish.",
@@ -69,15 +62,8 @@
                         "description": "One placed widget on a grid canvas.",
                         "properties": {
                             "component": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Id of the component canvas this placement renders. Required once the placement is live."
+                                "description": "Id of the component canvas this placement renders. Required once the placement is live.",
+                                "type": ["string", "null"]
                             },
                             "config": {
                                 "anyOf": [
@@ -95,15 +81,8 @@
                                 "description": "Per-placement settings, validated against the component's configSchema."
                             },
                             "generationTaskId": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Id of the agent task currently filling this placement, when one is running."
+                                "description": "Id of the agent task currently filling this placement, when one is running.",
+                                "type": ["string", "null"]
                             },
                             "h": {
                                 "description": "Height, in grid rows.",
@@ -134,15 +113,8 @@
                                 "type": "string"
                             },
                             "version": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id."
+                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id.",
+                                "type": ["string", "null"]
                             },
                             "w": {
                                 "description": "Width, in grid columns.",

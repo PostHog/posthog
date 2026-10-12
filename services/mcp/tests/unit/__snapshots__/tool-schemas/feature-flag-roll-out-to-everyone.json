@@ -6,15 +6,8 @@
             "type": "number"
         },
         "variant_key": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get."
+            "description": "The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.",
+            "type": ["string", "null"]
         },
         "version": {
             "anyOf": [

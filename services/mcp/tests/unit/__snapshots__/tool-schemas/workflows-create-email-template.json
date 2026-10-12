@@ -101,15 +101,8 @@
             "type": "string"
         },
         "message_category": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Message category ID to file the template under. Must belong to the same project."
+            "description": "Message category ID to file the template under. Must belong to the same project.",
+            "type": ["string", "null"]
         },
         "name": {
             "description": "Human-readable template name shown in the library.",

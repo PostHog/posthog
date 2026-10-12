@@ -36,14 +36,7 @@
                             {
                                 "properties": {
                                     "id": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "number"
-                                            }
-                                        ]
+                                        "type": ["string", "number"]
                                     },
                                     "type": {
                                         "enum": ["user", "role"],
@@ -63,26 +56,12 @@
                     "type": "string"
                 },
                 "dateFrom": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound."
+                    "description": "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.",
+                    "type": ["string", "null"]
                 },
                 "dateTo": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Only include tickets updated on or before this date. Same format as dateFrom."
+                    "description": "Only include tickets updated on or before this date. Same format as dateFrom.",
+                    "type": ["string", "null"]
                 },
                 "priority": {
                     "description": "Ticket priorities to include. Empty or omitted means all priorities.",

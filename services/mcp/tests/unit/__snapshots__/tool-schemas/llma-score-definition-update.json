@@ -6,15 +6,8 @@
             "type": "boolean"
         },
         "description": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Updated scorer description."
+            "description": "Updated scorer description.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "A UUID string identifying this score definition.",
