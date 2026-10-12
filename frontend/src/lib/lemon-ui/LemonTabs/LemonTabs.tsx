@@ -26,6 +26,7 @@ export interface AbstractLemonTab<T extends string | number> {
 /** A tab with content. In this case the LemonTabs component automatically renders content of the active tab. */
 export interface ConcreteLemonTab<T extends string | number> extends AbstractLemonTab<T> {
     content: JSX.Element
+    keepMounted?: boolean
 }
 
 export type LemonTab<T extends string | number> = AbstractLemonTab<T> | ConcreteLemonTab<T>
@@ -70,7 +71,6 @@ export function LemonTabs<T extends string | number>({
 
     /** Tabs with falsy entries filtered out. */
     const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
-    const activeTab = realTabs.find((tab) => tab.key === activeKey)
 
     return (
         <div
@@ -164,11 +164,16 @@ export function LemonTabs<T extends string | number>({
                     </div>
                 )}
             </ul>
-            {activeTab && 'content' in activeTab && (
-                <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={activeKey}>
-                    {activeTab.content}
-                </div>
-            )}
+            {realTabs.map((tab) => {
+                const isActive = tab.key === activeKey
+                const shouldRender = 'content' in tab && (isActive || tab.keepMounted)
+
+                return shouldRender ? (
+                    <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={tab.key} hidden={!isActive}>
+                        {tab.content}
+                    </div>
+                ) : null
+            })}
         </div>
     )
 }

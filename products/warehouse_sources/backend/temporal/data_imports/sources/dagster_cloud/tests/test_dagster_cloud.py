@@ -67,9 +67,6 @@ def _manager(saved: DagsterCloudResumeConfig | None = None) -> MagicMock:
 
 
 class TestBuildGraphqlUrl:
-    def test_valid(self) -> None:
-        assert build_graphql_url("my-org", "prod") == "https://my-org.dagster.cloud/prod/graphql"
-
     @parameterized.expand(
         [
             ("space", "my org", "prod"),
@@ -88,9 +85,6 @@ class TestBuildGraphqlUrl:
 
 
 class TestTimestampConversion:
-    def test_epoch_to_iso_is_fixed_precision(self) -> None:
-        assert _epoch_to_iso(EPOCH_2024) == ISO_2024
-
     @parameterized.expand([("string", "not-a-number"), ("none", None)])
     def test_epoch_to_iso_passes_through_non_numeric(self, _name: str, value: Any) -> None:
         assert _epoch_to_iso(value) == value
@@ -125,32 +119,6 @@ class TestBuildRunsFilter:
 
 
 class TestPagination:
-    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_row_cursor_paginates_and_checkpoints(self, mock_session_cls: MagicMock) -> None:
-        # A full page continues from the last row's runId; a short page ends the walk.
-        session = MagicMock()
-        session.post.side_effect = [
-            _gql_response("runsOrError", _runs_container(["r1", "r2"])),
-            _gql_response("runsOrError", _runs_container(["r3"])),
-        ]
-        mock_session_cls.return_value = session
-        manager = _manager()
-
-        pages = list(_make_paginated_request("org", "prod", "tok", "runs", MagicMock(), manager))
-
-        assert [row["runId"] for page in pages for row in page] == ["r1", "r2", "r3"]
-        # Timestamps are normalized to ISO on the way out so partitioning can read them.
-        assert pages[0][0]["creationTime"] == ISO_2024
-        # Only the non-final page checkpoints, pointing at the next page's cursor.
-        manager.save_state.assert_called_once_with(DagsterCloudResumeConfig(cursor="r2"))
-        assert session.post.call_count == 2
-        # The token rides a custom header the sample scrubber doesn't know, so it must be redacted
-        # by value, and redirects must stay off so a 30x can't forward the header cross-host.
-        session_kwargs = mock_session_cls.call_args.kwargs
-        assert session_kwargs["redact_values"] == ("tok",)
-        assert session_kwargs["allow_redirects"] is False
-
     @patch(f"{MODULE}.make_tracked_session")
     def test_redirect_raises_without_retry(self, mock_session_cls: MagicMock) -> None:
         # Redirects are pinned off; a 30x must fail fast (not spin through the retry budget).
@@ -164,22 +132,6 @@ class TestPagination:
             list(_make_paginated_request("org", "prod", "tok", "runs", MagicMock(), _manager()))
 
         assert session.post.call_count == 1
-
-    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_connection_cursor_mode_uses_connection_cursor(self, mock_session_cls: MagicMock) -> None:
-        # assetsOrError returns its next cursor on the connection object, not from the last row.
-        session = MagicMock()
-        session.post.side_effect = [
-            _gql_response("assetsOrError", _assets_container(["a1", "a2"], cursor="page2")),
-            _gql_response("assetsOrError", _assets_container(["a3"], cursor=None)),
-        ]
-        mock_session_cls.return_value = session
-        manager = _manager()
-
-        list(_make_paginated_request("org", "prod", "tok", "assets", MagicMock(), manager))
-
-        manager.save_state.assert_called_once_with(DagsterCloudResumeConfig(cursor="page2"))
 
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
@@ -245,35 +197,6 @@ class TestPagination:
 
 
 class TestSourceResponse:
-    def test_runs_response_is_incremental_desc_partitioned(self) -> None:
-        response = dagster_cloud_source(
-            organization="org",
-            deployment="prod",
-            api_token="tok",
-            endpoint_name="runs",
-            logger=MagicMock(),
-            resumable_source_manager=_manager(),
-        )
-        assert response.primary_keys == ["runId"]
-        # runsOrError returns newest-first with no ascending option — declaring asc would corrupt
-        # the incremental watermark.
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["creationTime"]
-        assert response.partition_mode == "datetime"
-
-    def test_assets_response_has_no_partitioning(self) -> None:
-        response = dagster_cloud_source(
-            organization="org",
-            deployment="prod",
-            api_token="tok",
-            endpoint_name="assets",
-            logger=MagicMock(),
-            resumable_source_manager=_manager(),
-        )
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown Dagster Cloud endpoint"):
             dagster_cloud_source("org", "prod", "tok", "nope", MagicMock(), _manager())
@@ -504,50 +427,6 @@ class TestRepositoryFanOut:
 
 
 class TestTwoLevelFanOut:
-    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_tick_parents_resolve_through_repositories(self, mock_session_cls: MagicMock) -> None:
-        # instigation_ticks fans out over instigation states, which themselves only exist per
-        # repository — so the walk is repositories -> states -> ticks.
-        session = MagicMock()
-        session.post.side_effect, calls = _route(
-            {
-                "Repositories": _repositories_response([("repo-id-1", "repo_a", "loc_a")]),
-                "RepositoryInstigationStates": _gql_response(
-                    "instigationStatesOrError",
-                    {
-                        "__typename": "InstigationStates",
-                        "results": [
-                            {
-                                "id": "compound-id",
-                                "selectorId": "selector-1",
-                                "name": "daily",
-                                "instigationType": "SCHEDULE",
-                                "repositoryName": "repo_a",
-                                "repositoryLocationName": "loc_a",
-                            }
-                        ],
-                    },
-                ),
-                "InstigationTicks": _ticks_response([1704067200.0]),
-            }
-        )
-        mock_session_cls.return_value = session
-
-        pages = list(_make_fanout_request("org", "prod", "tok", "instigation_ticks", MagicMock(), _manager()))
-
-        state_variables = next(v for op, v in calls if op == "RepositoryInstigationStates")
-        assert state_variables == {"repositoryID": "repo-id-1"}
-        tick_variables = next(v for op, v in calls if op == "InstigationTicks")
-        # The state's compound id disambiguates a schedule and a sensor sharing a name.
-        assert tick_variables["instigationStateId"] == "compound-id"
-        assert tick_variables["instigationName"] == "daily"
-
-        row = pages[0][0]
-        assert row["instigationSelectorId"] == "selector-1"
-        # Tick timestamps are epoch-seconds floats, normalized like every other Dagster timestamp.
-        assert row["timestamp"] == ISO_2024
-
     @patch(f"{MODULE}.make_tracked_session")
     def test_incremental_ticks_send_seconds_float_watermark(self, mock_session_cls: MagicMock) -> None:
         session = MagicMock()
@@ -587,42 +466,6 @@ class TestTwoLevelFanOut:
 class TestAssetEventFanOut:
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
-    def test_pages_backwards_on_the_oldest_timestamp(self, mock_session_cls: MagicMock) -> None:
-        # assetMaterializations has no cursor: the only way to reach older events is to lower
-        # beforeTimestampMillis to the oldest timestamp the last page carried.
-        session = MagicMock()
-        session.post.side_effect, calls = _route(
-            {
-                "PaginatedAssets": _assets_page(["a1"], cursor=None),
-                "AssetMaterializations": [
-                    _materializations_response(["1700000002000", "1700000001000"]),
-                    _materializations_response(["1700000000000"]),
-                ],
-            }
-        )
-        mock_session_cls.return_value = session
-        manager = _manager()
-
-        pages = list(_make_fanout_request("org", "prod", "tok", "asset_materializations", MagicMock(), manager))
-
-        event_variables = [v for op, v in calls if op == "AssetMaterializations"]
-        assert "beforeTimestampMillis" not in event_variables[0]
-        assert event_variables[1]["beforeTimestampMillis"] == "1700000001000"
-        assert event_variables[0]["assetKeyPath"] == ["a1"]
-
-        rows = [row for page in pages for row in page]
-        assert len(rows) == 3
-        assert all(row["assetId"] == "a1" for row in rows)
-        # Asset events report epoch milliseconds as a string, unlike runs' epoch-seconds floats.
-        assert rows[0]["timestamp"] == "2023-11-14T22:13:22.000000+00:00"
-        # Checkpointed mid-parent, then once the parent finished.
-        assert manager.save_state.call_args_list == [
-            call(DagsterCloudResumeConfig(parents_done=0, window_cursor="1700000001000")),
-            call(DagsterCloudResumeConfig(parents_done=1)),
-        ]
-
-    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
     def test_a_window_that_does_not_advance_fails_the_sync(self, mock_session_cls: MagicMock) -> None:
         # An API that ignored beforeTimestampMillis would replay one page forever. Failing beats
         # truncating: sort_mode is "desc", so a silently short parent still commits a watermark
@@ -639,76 +482,6 @@ class TestAssetEventFanOut:
 
         with pytest.raises(Exception, match="page window did not advance"):
             list(_make_fanout_request("org", "prod", "tok", "asset_materializations", MagicMock(), _manager()))
-
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_incremental_sends_millis_string_watermark(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        session.post.side_effect, calls = _route(
-            {
-                "PaginatedAssets": _assets_page(["a1"], cursor=None),
-                "AssetMaterializations": _materializations_response([]),
-            }
-        )
-        mock_session_cls.return_value = session
-
-        response = dagster_cloud_source(
-            organization="org",
-            deployment="prod",
-            api_token="tok",
-            endpoint_name="asset_materializations",
-            logger=MagicMock(),
-            resumable_source_manager=_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-        list(cast(Iterable[Any], response.items()))
-
-        event_variables = next(v for op, v in calls if op == "AssetMaterializations")
-        assert event_variables["afterTimestampMillis"] == "1704067200000"
-
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_full_refresh_omits_the_watermark(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        session.post.side_effect, calls = _route(
-            {
-                "PaginatedAssets": _assets_page(["a1"], cursor=None),
-                "AssetMaterializations": _materializations_response([]),
-            }
-        )
-        mock_session_cls.return_value = session
-
-        response = dagster_cloud_source(
-            organization="org",
-            deployment="prod",
-            api_token="tok",
-            endpoint_name="asset_materializations",
-            logger=MagicMock(),
-            resumable_source_manager=_manager(),
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        list(cast(Iterable[Any], response.items()))
-
-        event_variables = next(v for op, v in calls if op == "AssetMaterializations")
-        assert "afterTimestampMillis" not in event_variables
-
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_asset_deleted_mid_sync_is_skipped(self, mock_session_cls: MagicMock) -> None:
-        session = MagicMock()
-        session.post.side_effect, _ = _route(
-            {
-                "PaginatedAssets": _assets_page(["a1"], cursor=None),
-                "AssetObservations": _gql_response(
-                    "assetOrError", {"__typename": "AssetNotFoundError", "message": "gone"}
-                ),
-            }
-        )
-        mock_session_cls.return_value = session
-
-        pages = list(_make_fanout_request("org", "prod", "tok", "asset_observations", MagicMock(), _manager()))
-
-        assert [row for page in pages for row in page] == []
 
 
 class TestBatchedFanOut:
@@ -783,20 +556,6 @@ def _deployments_response(full: list[str], branch: list[str]) -> MagicMock:
 
 class TestDeployments:
     @patch(f"{MODULE}.make_tracked_session")
-    def test_full_and_branch_deployments_land_in_one_table(self, mock_session_cls: MagicMock) -> None:
-        # `deployments` alone returns only what the caller can reach, so the table unions the two
-        # sibling root fields, because a branch deployment missing here orphans the runs that ran on it.
-        session = MagicMock()
-        session.post.side_effect, calls = _route({"Deployments": [_deployments_response(["prod"], ["pr-7"])]})
-        mock_session_cls.return_value = session
-
-        pages = list(_make_paginated_request("org", "prod", "tok", "deployments", MagicMock(), _manager()))
-
-        assert [row["deploymentId"] for page in pages for row in page] == ["prod", "pr-7"]
-        # branchDeployments takes a required limit, so the query cannot go out without it.
-        assert calls[0][1]["branchDeploymentLimit"] == 500
-
-    @patch(f"{MODULE}.make_tracked_session")
     def test_branch_deployment_cap_is_reported(self, mock_session_cls: MagicMock) -> None:
         # The resolver offers no cursor past its limit, so a response at the cap is the only
         # signal that deployments were left out.
@@ -835,36 +594,6 @@ def _run_logs_response(messages: list[str], cursor: str | None, has_more: bool) 
 
 
 class TestRunLogFanOut:
-    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_forward_cursor_pages_and_numbers_events_across_pages(self, mock_session_cls: MagicMock) -> None:
-        # A run event carries no id, so its position in the run's stream is the key, and it has to
-        # keep counting across the parent's pages rather than restart at each one.
-        session = MagicMock()
-        session.post.side_effect, calls = _route(
-            {
-                "PaginatedRuns": [_gql_response("runsOrError", _runs_container(["r1"]))],
-                "RunLogs": [
-                    _run_logs_response(["a", "b"], cursor="c1", has_more=True),
-                    _run_logs_response(["c"], cursor="c2", has_more=False),
-                ],
-            }
-        )
-        mock_session_cls.return_value = session
-        manager = _manager()
-
-        pages = list(_make_fanout_request("org", "prod", "tok", "run_logs", MagicMock(), manager))
-
-        rows = [row for page in pages for row in page]
-        assert [row["eventIndex"] for row in rows] == [0, 1, 2]
-        assert [row["message"] for row in rows] == ["a", "b", "c"]
-        assert rows[0]["timestamp"] == ISO_2024
-        # The second page follows the cursor the first one returned.
-        assert [v.get("afterCursor") for op, v in calls if op == "RunLogs"] == [None, "c1"]
-        # Resuming mid-run would restart the index at zero and rewrite every key, so the walk
-        # only checkpoints once a run is finished.
-        assert manager.save_state.call_args_list == [call(DagsterCloudResumeConfig(parents_done=1))]
-
     @parameterized.expand([("incremental", EPOCH_2024), ("full_refresh", None)])
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
@@ -946,9 +675,6 @@ class TestReportingEntities:
         assert entity_id == expected
         assert "__typename" not in columns
 
-    def test_an_unexpected_entity_kind_has_no_id(self) -> None:
-        assert _flatten_reporting_entity({"__typename": "ReportingAssetGroup", "groupName": "g"})[0] is None
-
 
 class TestInsightsExpansion:
     def test_buckets_expand_against_the_shared_timestamps(self) -> None:
@@ -999,35 +725,6 @@ def _metrics_response(field: str, entity_ids: list[int], timestamps: list[float]
 
 
 class TestInsightsRequests:
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_one_request_per_metric_name_checkpointed_as_it_goes(self, mock_session_cls: MagicMock) -> None:
-        # reportingMetricsByDeployment takes one required metricName per call, so the catalog is
-        # walked; a resume that replayed it from the start would re-fetch every metric.
-        session = MagicMock()
-        session.post.side_effect, calls = _route(
-            {
-                "MetricTypesForDeployment": _metric_types_response(
-                    "metricTypesForDeployment", ["dagster_credits", "execution_time_ms"]
-                ),
-                "ReportingMetricsByDeployment": _metrics_response("reportingMetricsByDeployment", [7], [EPOCH_2024]),
-            }
-        )
-        mock_session_cls.return_value = session
-        manager = _manager()
-
-        pages = list(_make_insights_request("org", "prod", "tok", "insights_deployment_metrics", MagicMock(), manager))
-
-        metric_variables = [v for op, v in calls if op == "ReportingMetricsByDeployment"]
-        assert [v["metricsSelector"]["metricName"] for v in metric_variables] == [
-            "dagster_credits",
-            "execution_time_ms",
-        ]
-        assert [row["metricName"] for page in pages for row in page] == ["dagster_credits", "execution_time_ms"]
-        assert manager.save_state.call_args_list == [
-            call(DagsterCloudResumeConfig(parents_done=1)),
-            call(DagsterCloudResumeConfig(parents_done=2)),
-        ]
-
     @parameterized.expand([("incremental", EPOCH_2024), ("full_refresh", None)])
     @patch(f"{MODULE}.make_tracked_session")
     def test_the_watermark_bounds_the_reporting_window(

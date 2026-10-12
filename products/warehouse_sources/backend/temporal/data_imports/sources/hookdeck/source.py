@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -7,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -34,10 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class HookdeckSource(ResumableSource[HookdeckSourceConfig, HookdeckResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Hookdeck dates its API versions and carries the version in the URL path. An unversioned
-    # request resolves to the OLDEST supported version, so the pin is always sent.
-    supported_versions = ("2025-07-01",)
-    default_version = "2025-07-01"
+    # request tracks the latest version, so the pin is always sent. 2026-09-01 only reshapes the
+    # destination `config` JSON (rate limit fields move under `delivery_policy`), which is passed
+    # through untouched, so both versions share one request path.
+    supported_versions = ("2025-07-01", "2026-09-01")
+    default_version = "2026-09-01"
     api_docs_url = "https://hookdeck.com/docs/api"
+    # Hookdeck supports each dated version for one year after its release.
+    deprecated_versions = (VersionDeprecation(version="2025-07-01", sunset_at=date(2026, 7, 1)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

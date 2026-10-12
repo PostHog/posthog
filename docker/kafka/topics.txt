@@ -54,3 +54,4 @@ heatmaps_ingestion
 ingestion-clientwarnings-main-1
 log_entries
 plugin_log_entries
+realtime_only_events_json

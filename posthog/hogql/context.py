@@ -1,4 +1,5 @@
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
@@ -120,6 +121,9 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
     referenced_saved_query_ids: set[str] = field(default_factory=set)
+    referenced_warehouse_table_ids: set[str] = field(default_factory=set)
+    directly_read_ids: set[str] = field(default_factory=set)
+    view_body_depth: int = 0
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
@@ -238,6 +242,27 @@ class HogQLContext:
             from posthog.schema import HogQLNotice  # noqa: PLC0415
 
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    def clear_reads(self) -> None:
+        self.referenced_saved_query_ids.clear()
+        self.referenced_warehouse_table_ids.clear()
+        self.directly_read_ids.clear()
+
+    def read_tags(self) -> dict[str, list[str] | None]:
+        return {
+            "saved_query_ids": sorted(self.referenced_saved_query_ids) or None,
+            "warehouse_table_ids": sorted(self.referenced_warehouse_table_ids) or None,
+            "directly_read_ids": sorted(self.directly_read_ids) or None,
+        }
+
+    @contextmanager
+    def entering_select(self, view_name: str | None) -> Iterator[None]:
+        step = 0 if view_name is None else 1
+        self.view_body_depth += step
+        try:
+            yield
+        finally:
+            self.view_body_depth -= step
 
     def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
         self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning

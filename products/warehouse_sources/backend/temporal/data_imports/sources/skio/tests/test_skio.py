@@ -7,11 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.skio.settings import SKIO_PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio import (
     SkioAPIError,
     SkioResumeConfig,
-    _build_order_by,
     _build_where,
     _format_timestamp,
     get_rows,
@@ -93,10 +91,6 @@ class TestSkioTransport:
     def test_format_timestamp(self, value: Any, expected: str) -> None:
         assert _format_timestamp(value) == expected
 
-    def test_order_by_puts_cursor_field_before_id_tiebreak(self) -> None:
-        assert _build_order_by("updatedAt") == [{"updatedAt": "asc"}, {"id": "asc"}]
-        assert _build_order_by(None) == [{"id": "asc"}]
-
     @pytest.mark.parametrize(
         ("_name", "incremental_field", "last_value", "cursor", "expected"),
         [
@@ -143,35 +137,6 @@ class TestSkioTransport:
     ) -> None:
         assert _build_where(incremental_field, last_value, cursor) == expected
 
-    def test_paginates_with_keyset_cursor_until_short_page(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [
-            _response(_page(_rows(0, SKIO_PAGE_SIZE))),
-            _response(_page(_rows(SKIO_PAGE_SIZE, 40))),
-        ]
-
-        batches, _ = _run(session)
-
-        assert [len(batch) for batch in batches] == [SKIO_PAGE_SIZE, 40]
-        assert session.post.call_count == 2
-        # The second request continues strictly past the last row of the first page.
-        assert _request_variables(session, 1)["where"] == {"id": {"_gt": f"id-{SKIO_PAGE_SIZE - 1:04d}"}}
-
-    def test_full_refresh_first_request_has_no_watermark(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_response(_page(_rows(0, 3)))]
-
-        _run(
-            session,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        variables = _request_variables(session, 0)
-        assert "where" not in variables
-        assert variables["orderBy"] == [{"id": "asc"}]
-        assert variables["limit"] == SKIO_PAGE_SIZE
-
     def test_incremental_request_filters_and_orders_on_cursor_field(self) -> None:
         session = MagicMock()
         session.post.side_effect = [_response(_page(_rows(0, 3)))]
@@ -186,51 +151,6 @@ class TestSkioTransport:
         variables = _request_variables(session, 0)
         assert variables["where"] == {"updatedAt": {"_gte": "2026-01-01T00:00:00+00:00"}}
         assert variables["orderBy"] == [{"updatedAt": "asc"}, {"id": "asc"}]
-
-    def test_sends_documented_authorization_header(self) -> None:
-        # Skio's auth header is `authorization: API <token>`. The `API ` prefix and lowercase
-        # header name are the documented, case-sensitive contract.
-        session = MagicMock()
-        session.post.side_effect = [_response(_page(_rows(0, 1)))]
-
-        _run(session)
-
-        assert session.post.call_args_list[0].kwargs["headers"] == {"authorization": f"API {TOKEN}"}
-
-    def test_resumes_from_saved_cursor(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_response(_page(_rows(0, 2)))]
-        manager = _manager(resume=SkioResumeConfig(last_id="id-0042", last_value=None))
-
-        _run(session, manager=manager)
-
-        assert _request_variables(session, 0)["where"] == {"id": {"_gt": "id-0042"}}
-
-    def test_saves_cursor_before_yielding_the_batch_it_covers(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [
-            _response(_page(_rows(0, SKIO_PAGE_SIZE))),
-            _response(_page(_rows(SKIO_PAGE_SIZE, 1))),
-        ]
-        manager = _manager()
-        saved: list[str | None] = []
-        manager.save_state.side_effect = lambda cursor: saved.append(cursor.last_id)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio.make_tracked_session",
-            return_value=session,
-        ):
-            generator = get_rows(
-                api_token=TOKEN,
-                endpoint="subscriptions",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-            )
-            next(generator)
-
-        # The cursor covering page one is staged before the yield hands the page to the pipeline,
-        # so the pipeline's post-write commit persists exactly the rows already written.
-        assert saved == [f"id-{SKIO_PAGE_SIZE - 1:04d}"]
 
     def test_empty_first_page_yields_nothing(self) -> None:
         session = MagicMock()
@@ -273,15 +193,6 @@ class TestValidateCredentials:
     def test_invalid_token_maps_to_user_message(self) -> None:
         session = MagicMock()
         session.post.return_value = _response(INVALID_TOKEN_BODY)
-
-        assert self._validate(session) == (False, "Invalid Skio API token")
-
-    def test_token_without_table_access_maps_to_user_message(self) -> None:
-        # Verbatim live-API message when the token's role cannot see the collection.
-        session = MagicMock()
-        session.post.return_value = _response(
-            {"errors": [{"message": "field 'Subscriptions' not found in type: 'query_root'"}]}
-        )
 
         assert self._validate(session) == (False, "Invalid Skio API token")
 

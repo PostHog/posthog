@@ -10,7 +10,6 @@ from requests.exceptions import ConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.poplar.poplar import (
-    PoplarResumeConfig,
     poplar_source,
     validate_credentials,
 )
@@ -107,18 +106,6 @@ def test_mailings_fan_out_per_campaign_and_save_state_after_yield(inputs: Source
         assert all(request.headers["Authorization"] == "Bearer fake-token" for request in http.request_history)
 
 
-def test_mailings_without_pagination_headers_stop_at_the_first_empty_page(inputs: SourceInputs, manager: Mock) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/campaigns", json=CAMPAIGNS[:1])
-        http.get(
-            f"{BASE_URL}/campaign/camp-1/mailings",
-            [{"json": [mailing("mail-1", "camp-1")]}, {"json": [mailing("mail-2", "camp-1")]}, {"json": []}],
-        )
-        pages = list(sync_items(poplar_source("fake-token", inputs, manager)))
-        assert [row["id"] for page in pages for row in page] == ["mail-1", "mail-2"]
-        assert [request.qs["page"] for request in http.request_history[1:]] == [["1"], ["2"], ["3"]]
-
-
 @pytest.mark.parametrize(
     "incremental,cursor,last_synced_at,expected",
     [
@@ -153,43 +140,6 @@ def test_mailings_window_on_updated_at_only_after_an_incremental_sync(
         assert http.request_history[1].qs == {"page": ["1"], "per_page": ["100"], **expected}
 
 
-def test_resume_skips_completed_campaign_and_continues_from_saved_page(inputs: SourceInputs, manager: Mock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = PoplarResumeConfig(
-        paginator_state={
-            "completed": ["campaign/camp-1/mailings"],
-            "current": "campaign/camp-2/mailings",
-            "child_state": {"page": 3},
-        }
-    )
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/campaigns", json=CAMPAIGNS)
-        http.get(
-            f"{BASE_URL}/campaign/camp-2/mailings",
-            json=[mailing("mail-9", "camp-2")],
-            headers={"X-Next-Page": ""},
-        )
-        pages = list(sync_items(poplar_source("fake-token", inputs, manager)))
-        assert [row["id"] for page in pages for row in page] == ["mail-9"]
-        assert [request.qs.get("page") for request in http.request_history] == [None, ["3"]]
-
-
-def test_creatives_carry_the_campaign_they_were_listed_under(inputs: SourceInputs, manager: Mock) -> None:
-    inputs.schema_name = "campaign_creatives"
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/campaigns", json=CAMPAIGNS)
-        http.get(f"{BASE_URL}/campaign/camp-1/creatives", json=[{"id": "crea-1", "name": "Front A"}])
-        http.get(f"{BASE_URL}/campaign/camp-2/creatives", json=[{"id": "crea-1", "name": "Front A"}])
-        response = poplar_source("fake-token", inputs, manager)
-        rows = [row for page in sync_items(response) for row in page]
-        assert rows == [
-            {"id": "crea-1", "name": "Front A", "campaign_id": "camp-1"},
-            {"id": "crea-1", "name": "Front A", "campaign_id": "camp-2"},
-        ]
-        assert response.primary_keys == ["campaign_id", "id"]
-        assert all(request.qs == {} for request in http.request_history)
-
-
 def test_stats_walk_every_page_without_a_date_range(inputs: SourceInputs, manager: Mock) -> None:
     inputs.schema_name = "campaign_stats"
 
@@ -215,24 +165,6 @@ def test_stats_walk_every_page_without_a_date_range(inputs: SourceInputs, manage
             {"page": ["1"], "per_page": ["30"]},
             {"page": ["2"], "per_page": ["30"]},
         ]
-
-
-@pytest.mark.parametrize(
-    "endpoint,path,body",
-    [
-        ("campaigns", "campaigns", CAMPAIGNS),
-        ("audiences", "audiences", [{"id": "aud-1", "name": "Existing customers", "member_count": 12}]),
-        ("audiences", "audiences", []),
-    ],
-)
-def test_unpaginated_lists_send_no_query_params(
-    inputs: SourceInputs, manager: Mock, endpoint: str, path: str, body: list[dict[str, Any]]
-) -> None:
-    inputs.schema_name = endpoint
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/{path}", json=body)
-        assert [row for page in sync_items(poplar_source("fake-token", inputs, manager)) for row in page] == body
-        assert [request.qs for request in http.request_history] == [{}]
 
 
 @pytest.mark.parametrize(

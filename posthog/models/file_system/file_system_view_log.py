@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import is_dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
@@ -109,7 +109,7 @@ def recent_view_logs(
     user_id: int,
     surface: str = DEFAULT_SURFACE,
     type: Optional[str] = None,
-    exclude_types: Optional[Sequence[str]] = None,
+    exclude_types: Optional[Collection[str]] = None,
     limit: Optional[int] = None,
     descending: bool = True,
 ) -> QuerySet[FileSystemViewLog]:

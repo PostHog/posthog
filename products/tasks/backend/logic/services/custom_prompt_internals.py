@@ -4,14 +4,16 @@ import re
 import json
 import asyncio
 import logging
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
+from pydantic import JsonValue
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
@@ -19,7 +21,9 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.facade.api import upload_task_run_artifacts
+from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -43,7 +47,7 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1200s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
@@ -127,6 +131,9 @@ class CustomPromptSandboxContext:
     Codex-only: the claude adapter ignores it. ``None`` keeps the provider default. ``"flex"`` buys
     a cheaper, slower queue, but codex omits any tier its model catalogue does not advertise, so a
     tier the pinned model doesn't list is a no-op (codex logs it and sends the request untiered)."""
+    codex_max_subagents: int | None = None
+    """Codex sub-agents one session may run at once, not counting the main agent. Codex-only.
+    ``None`` keeps the Codex default of 3."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -255,7 +262,47 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
-async def create_task_and_trigger(
+SESSION_FILE_ARTIFACT_TYPE = "context"
+
+
+def _with_session_files(
+    files: Sequence[SessionFile],
+    description: str,
+    team_id: int,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None,
+) -> Callable[[UUID], dict[str, JsonValue] | None]:
+    """Wrap `before_task_dispatch` so the run has its files before the workflow starts."""
+
+    def attach(run_id: UUID) -> dict[str, JsonValue] | None:
+        state = before_task_dispatch(run_id) if before_task_dispatch is not None else None
+        task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).get()
+        artifact_ids: list[JsonValue] = [uuid4().hex for _ in files]
+        artifacts = [
+            {
+                "id": artifact_id,
+                "name": file.name,
+                "type": SESSION_FILE_ARTIFACT_TYPE,
+                "content_bytes": file.content.encode("utf-8"),
+                "content_type": "text/plain; charset=utf-8",
+            }
+            for artifact_id, file in zip(artifact_ids, files, strict=True)
+        ]
+        if upload_task_run_artifacts(run_id, task_id, team_id, artifacts=artifacts) is None:
+            raise RuntimeError(f"Could not attach session files to run {run_id}")
+        # The prompt goes as the pending message, because only that path sends the files with it.
+        pending: dict[str, JsonValue] = {
+            **(state or {}),
+            "pending_user_message": description,
+            "pending_user_artifact_ids": artifact_ids,
+        }
+        # Startup and the pending-message forwarder both deliver this prompt and dedupe on the id.
+        stamp_pending_user_message_id(pending)
+        return pending
+
+    return attach
+
+
+async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
     branch: str | None = None,
@@ -269,8 +316,12 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    origin_key: str | None = None,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
-):
+    analytics_query_context: list[dict[str, object]] | None = None,
+    files: Sequence[SessionFile] = (),
+) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
     # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
@@ -283,6 +334,14 @@ async def create_task_and_trigger(
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
         extra_run_state["caller_ends_run"] = True
+    if context.codex_max_subagents is not None:
+        extra_run_state["codex_max_subagents"] = context.codex_max_subagents
+    if analytics_query_context is not None:
+        queries = [query for query in analytics_query_context if query is not None]
+        if queries:
+            extra_run_state["analytics_query_context"] = queries
+    if files:
+        before_task_dispatch = _with_session_files(files, description, context.team_id, before_task_dispatch)
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -316,13 +375,59 @@ async def create_task_and_trigger(
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
+        origin_key=origin_key,
+        before_task_dispatch=before_task_dispatch,
         output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
-    if not task_run:
+    if task_run is None:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run
+
+
+async def create_task_and_trigger(
+    description: str,
+    context: CustomPromptSandboxContext,
+    branch: str | None = None,
+    step_name: str = "",
+    origin_product: Task.OriginProduct | None = None,
+    signal_report_id: str | None = None,
+    ai_stage: str | None = None,
+    ai_agent_name: str | None = None,
+    internal: bool = False,
+    workflow_id_prefix: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    mcp_credential_owner_id: int | None = None,
+    mcp_gateway_server_ids: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    analytics_query_context: list[dict[str, object]] | None = None,
+) -> AgentTaskRunDTO:
+    task, task_run = await _create_task_and_trigger(
+        description,
+        context,
+        branch=branch,
+        step_name=step_name,
+        origin_product=origin_product,
+        signal_report_id=signal_report_id,
+        ai_stage=ai_stage,
+        ai_agent_name=ai_agent_name,
+        internal=internal,
+        workflow_id_prefix=workflow_id_prefix,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        mcp_credential_owner_id=mcp_credential_owner_id,
+        mcp_gateway_server_ids=mcp_gateway_server_ids,
+        output_schema=output_schema,
+        analytics_query_context=analytics_query_context,
+    )
+
+    return AgentTaskRunDTO(
+        task_id=task.id,
+        run_id=task_run.id,
+        team_id=task.team_id,
+        # Dispatch can be deferred until commit, before the prefixed workflow ID is persisted.
+        workflow_id=TaskRun.get_workflow_id(task.id, task_run.id, workflow_id_prefix),
+    )
 
 
 async def _refresh_task_run(task_run_id) -> TaskRun:
@@ -582,6 +687,30 @@ async def poll_for_turn(
         stale_seconds=stale_seconds,
         total_lines=skip_lines,
         turn_relevant_lines=turn_relevant_lines,
+    )
+
+
+async def poll_for_agent_task(
+    task_run: AgentTaskRunDTO,
+    *,
+    skip_lines: int = 0,
+    printed_lines: int = 0,
+    verbose: bool = False,
+    output_fn: OutputFn = None,
+    workflow_handle: WorkflowHandle | None = None,
+    max_poll_seconds: int | None = None,
+) -> TurnPollResult:
+    run = await sync_to_async(TaskRun.objects.get)(
+        id=task_run.run_id, task_id=task_run.task_id, team_id=task_run.team_id
+    )
+    return await poll_for_turn(
+        run,
+        skip_lines=skip_lines,
+        printed_lines=printed_lines,
+        verbose=verbose,
+        output_fn=output_fn,
+        workflow_handle=workflow_handle,
+        max_poll_seconds=max_poll_seconds,
     )
 
 
@@ -889,6 +1018,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
             continue
         result = notification.get("result")
         stop_reason = result.get("stopReason") if isinstance(result, dict) else None
+        if stop_reason == "cancelled" and isinstance(result, dict):
+            metadata = result.get("_meta")
+            if isinstance(metadata, dict) and metadata.get("interruptReason") == "budget_exhausted":
+                # Budget stops cannot retry or return partial output through the final-log drain.
+                message = "The agent run reached its model budget."
+                raise AgentTurnFailed(message, category="task_spend_limit", agent_message=message)
         if stop_reason == "end_turn":
             # A successful end_turn outranks a refusal in the same slice, in either order:
             # once the turn finished, failing it as refused would discard a good response.

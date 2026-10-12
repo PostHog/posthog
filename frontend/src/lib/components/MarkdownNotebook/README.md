@@ -2,7 +2,7 @@
 
 A notebook editor that uses markdown as its storage format. The document model is parsed from and serialized back to markdown on every edit, so the markdown string is always the source of truth.
 
-See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (`<Query ... />`-style tags) and [TODO.md](./TODO.md) for open work.
+See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (`<Query ... />`-style tags).
 
 ## Module layout
 

@@ -166,9 +166,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Opt-in for the flagged combined event scan. Only the recordings list opts in, so deletes and
         # background scans keep the separate queries while the flag is tested.
         allow_combined_event_filters: bool = False,
+        # Opt-in for callers whose extra_having_predicates read the exposed person's attributed
+        # variant (as `any(exposure.variant)`): the experiment-exposure join then projects it.
+        # The population is unchanged, so plain listings never need this.
+        project_exposure_variant: bool = False,
         **_,
     ):
         self._user = user
+        self._project_exposure_variant = project_exposure_variant
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
         # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
@@ -445,7 +450,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """
         # Deferred: the experiments facade package imports posthog.api on init, which
         # circles back into this module through the replay-deletion temporal activities.
-        from products.experiments.backend.facade.replay import exposed_distinct_ids_select  # noqa: PLC0415
+        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+            exposed_distinct_ids_select,
+            exposed_persons_select,
+        )
 
         self._resolve_experiment_exposure()
         assert self._experiment_exposure_linkage is not None
@@ -471,13 +479,23 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         assert join is not None
         while join.next_join is not None:
             join = join.next_join
+        exposure_select = (
+            exposed_persons_select(
+                self._experiment_exposure_linkage,
+                include_multiple_variant=False,
+                candidate_distinct_ids=candidate_distinct_ids,
+            )
+            if self._project_exposure_variant
+            # Same population either way: the persons select only adds the attribution columns.
+            else exposed_distinct_ids_select(
+                self._experiment_exposure_linkage, candidate_distinct_ids=candidate_distinct_ids
+            )
+        )
         join.next_join = ast.JoinExpr(
             # GLOBAL: the subquery scans events over the whole experiment window; without it,
             # every shard of the sharded replay table re-evaluates that scan independently.
             join_type="GLOBAL INNER JOIN",
-            table=exposed_distinct_ids_select(
-                self._experiment_exposure_linkage, candidate_distinct_ids=candidate_distinct_ids
-            ),
+            table=exposure_select,
             alias="exposure",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(

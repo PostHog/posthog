@@ -208,6 +208,37 @@ const autoresearchModelsRetrieve = (): ToolBase<
     },
 })
 
+const AutoresearchOnlinePerformanceRetrieveSchema = () => {
+    const AutoresearchOnlinePerformanceRetrieveParams = orvalSchemas.AutoresearchOnlinePerformanceRetrieveParams()
+    const AutoresearchOnlinePerformanceRetrieveQueryParams =
+        orvalSchemas.AutoresearchOnlinePerformanceRetrieveQueryParams()
+    return AutoresearchOnlinePerformanceRetrieveParams.omit({ project_id: true }).extend(
+        AutoresearchOnlinePerformanceRetrieveQueryParams.shape
+    )
+}
+
+const autoresearchOnlinePerformanceRetrieve = (): ToolBase<
+    ReturnType<typeof AutoresearchOnlinePerformanceRetrieveSchema>,
+    Schemas.OnlinePerformance
+> => ({
+    name: 'autoresearch-online-performance-retrieve',
+    schema: AutoresearchOnlinePerformanceRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof AutoresearchOnlinePerformanceRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.OnlinePerformance>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/online_performance/`,
+            query: {
+                limit: params.limit,
+            },
+        })
+        return result
+    },
+})
+
 const AutoresearchResolveTemplateCreateSchema = () => {
     const AutoresearchResolveTemplateCreateBody = orvalSchemas.AutoresearchResolveTemplateCreateBody()
     return AutoresearchResolveTemplateCreateBody
@@ -595,6 +626,15 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.distillation !== undefined) {
             body['distillation'] = params.distillation
         }
+        if (params.reader_summary !== undefined) {
+            body['reader_summary'] = params.reader_summary
+        }
+        if (params.next_steps !== undefined) {
+            body['next_steps'] = params.next_steps
+        }
+        if (params.report_notebook_short_id !== undefined) {
+            body['report_notebook_short_id'] = params.report_notebook_short_id
+        }
         const result = await context.api.request<Schemas.AutoresearchTrainingRun>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/complete/`,
@@ -711,6 +751,9 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
         }
         if (params.agent_description !== undefined) {
             body['agent_description'] = params.agent_description
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
         }
         if (params.agent_confidence !== undefined) {
             body['agent_confidence'] = params.agent_confidence
@@ -829,6 +872,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-materialize-features': autoresearchMaterializeFeatures,
     'autoresearch-models-list': autoresearchModelsList,
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
+    'autoresearch-online-performance-retrieve': autoresearchOnlinePerformanceRetrieve,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
     'autoresearch-runs-list': autoresearchRunsList,

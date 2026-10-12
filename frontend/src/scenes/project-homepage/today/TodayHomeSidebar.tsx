@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconHome, IconPlus } from '@posthog/icons'
-import { Button, Skeleton } from '@posthog/quill'
+import { Button, MenuLabel, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -10,7 +10,9 @@ import { urls } from 'scenes/urls'
 
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
-import { isExternalHref, itemHref, itemSource, itemStateLabel } from './todayBriefingItems'
+import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
+
+import { isExternalHref, itemHref, itemReportId, itemSource, itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 import { TodayMoreReports } from './TodayMoreReports'
@@ -18,7 +20,7 @@ import { TodayNavItem } from './TodayNavItem'
 import { TodayReportNavItem } from './TodayReportNavItem'
 
 function PersonalBriefingNavItems(): JSX.Element {
-    const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, reportPreviews, hoveredItemKey, reportStateOverrides } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const { location } = useValues(router)
     const currentPath = removeProjectIdIfPresent(location.pathname)
@@ -29,18 +31,20 @@ function PersonalBriefingNavItems(): JSX.Element {
                 const href = itemHref(item)
                 const source = itemSource(item)
                 const preview = reportPreviews.sidebar[item.key]
+                const reportId = itemReportId(item)
+                const state = (reportId ? reportStateOverrides[reportId] : undefined) ?? item.state
                 const row = (
                     <TodayNavItem
                         key={item.key}
-                        title={item.label}
-                        meta={itemStateLabel(item) ?? (item.signal || source.label)}
+                        title={displayConventionalCommitTitle(item.title, 'Untitled report')}
+                        meta={itemStateLabel({ state }) ?? (item.signal || source.label)}
                         color={source.color}
                         icon={<TodayIcon icon={source.icon} />}
                         to={href}
                         target={isExternalHref(href) ? '_blank' : undefined}
                         active={hoveredItemKey === item.key}
                         current={removeProjectIdIfPresent(href) === currentPath}
-                        state={item.state}
+                        state={state}
                         dataAttr="today-nav-item"
                         onClick={() => itemOpened(item, 'sidebar')}
                         onHoverChange={(hovered) => setHoveredItemKey(hovered ? item.key : null)}
@@ -83,17 +87,18 @@ export function TodayHomeSidebar(): JSX.Element {
     return (
         <div className="TodayPane" data-quill>
             <Button
-                variant="primary"
+                elevated
+                variant="outline"
                 size="lg"
-                className="w-full"
-                render={<LinkPrimitive to={urls.ai()} />}
+                className="mb-1 w-full"
+                nativeButton={false}
+                render={<LinkPrimitive to={urls.taskNewSession()} />}
                 data-attr="today-new-chat"
             >
                 <IconPlus />
                 New chat
             </Button>
             <div className="TodayPane__scroll">
-                <div className="TodayPane__heading Today__label">Today</div>
                 <div className="TodaySidebar__list">
                     <TodayNavItem
                         title="Home"
@@ -104,12 +109,15 @@ export function TodayHomeSidebar(): JSX.Element {
                         current={reportId === null}
                         dataAttr="today-nav-home"
                     />
+                    {(loading || showPersonalBriefing || reports.length > 0) && (
+                        <MenuLabel className="mt-3">{showPersonalBriefing ? 'Your briefing' : 'Reports'}</MenuLabel>
+                    )}
                     {showPersonalBriefing ? (
                         <PersonalBriefingNavItems />
                     ) : loading ? (
                         <>
-                            <Skeleton className="h-12" />
-                            <Skeleton className="h-12" />
+                            <Skeleton className="h-13" />
+                            <Skeleton className="h-13" />
                         </>
                     ) : (
                         reports.map((report) => (

@@ -74,6 +74,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
 
 logger = structlog.get_logger(__name__)
@@ -351,6 +352,7 @@ def _assess_team(team_id: int, skill_names: list[str], now: datetime) -> TeamAss
             skill_name__in=skill_names,
             created_at__gte=now - TOUCHED_REPORT_LOOKBACK,
         )
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .values_list("skill_name", "created_at", "emitted_finding_ids", "emitted_report_ids", "edited_report_ids")
     )
 

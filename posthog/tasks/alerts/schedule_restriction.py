@@ -11,7 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
-from products.alerts.backend.facade.scheduling import (
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.scheduling import (
     MAX_BLOCKED_WINDOWS,
     MAX_UNBLOCK_STEPS,
     MIN_BLOCKED_WINDOW_MINUTES,
@@ -26,7 +27,6 @@ from products.alerts.backend.facade.scheduling import (
     to_calendar_interval,
     validate_and_normalize_schedule_restriction,
 )
-from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 

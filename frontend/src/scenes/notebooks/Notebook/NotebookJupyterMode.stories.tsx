@@ -1,12 +1,11 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-
-import { waitFor } from 'storybook/test'
 
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
@@ -143,5 +142,28 @@ export const JupyterMode: Story = {
         ;[CELLS.load, CELLS.count, CELLS.frame, CELLS.error, CELLS.sql].forEach((nodeId, index) =>
             logic?.actions.assignExecutionCount(nodeId, index + 1)
         )
+
+        const canvas = within(canvasElement)
+        await waitFor(() => {
+            if (!canvasElement.querySelector('.DataVisualization')) {
+                throw new Error('SQL chart has not rendered by default')
+            }
+            canvas.getByText('Pageview')
+            canvas.getByText('Autocapture')
+        })
+        fireEvent.click(canvas.getByRole('button', { name: 'Show table' }))
+        await waitFor(() => {
+            canvas.getByRole('button', { name: 'Show chart' })
+            canvas.getByRole('cell', { name: '$pageview' })
+            if (canvasElement.querySelector('.DataVisualization')) {
+                throw new Error('SQL chart is still visible after switching to the table')
+            }
+        })
+        fireEvent.click(canvas.getByRole('button', { name: 'Show chart' }))
+        await waitFor(() => {
+            canvas.getByRole('button', { name: 'Show table' })
+            canvas.getByText('Pageview')
+            canvas.getByText('Autocapture')
+        })
     },
 }

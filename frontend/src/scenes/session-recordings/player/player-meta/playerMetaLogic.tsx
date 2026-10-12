@@ -411,8 +411,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     : {}
                 const personProperties = getAllPersonProperties(sessionPlayerMetaData)
 
-                // Combine both recording and person properties
-                const allProperties = { ...recordingProperties, ...personProperties }
+                // session properties win, person properties may be from a later session
+                const allProperties = { ...personProperties, ...recordingProperties }
                 if (allProperties['$os_name'] && allProperties['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
                     delete allProperties['$os']

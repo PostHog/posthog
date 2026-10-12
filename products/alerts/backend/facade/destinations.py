@@ -15,8 +15,7 @@ from uuid import UUID
 
 from posthog.kafka_client.client import ProduceResult
 
-from ..logic import destination_configs, destinations, insight_alert_destinations
-from .contracts import (
+from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
@@ -26,6 +25,8 @@ from .contracts import (
     EventKindSpec,
     OwnedAlertDestination,
 )
+
+from ..logic import alert_email, destination_configs, destinations, insight_alert_destinations
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -55,6 +56,15 @@ def validate_destination_data(
 ) -> None:
     """Raise `AlertDestinationValidationError` when the payload cannot become a destination."""
     destination_configs.validate_destination_data(data, allowed_destination_types=allowed_destination_types)
+
+
+def destination_handles_event_kind(destination_type: DestinationType, spec: EventKindSpec) -> bool:
+    """Whether a destination type has something to send for one event kind.
+
+    An incident manager such as PagerDuty follows only the kinds that trigger or resolve an
+    incident, so a product filters its event kinds with this before it builds configs.
+    """
+    return destination_configs.destination_handles_event_kind(destination_type, spec)
 
 
 def build_alert_destination_config(
@@ -198,4 +208,13 @@ def alert_internal_event_delivered(
     """Whether the broker acknowledged the event. This does not confirm the destination ran."""
     return destinations.alert_internal_event_delivered(
         produce_result, team_id=team_id, alert_id=alert_id, event_name=event_name
+    )
+
+
+def list_delivery_destination_groups(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> list[AlertDestinationGroup]:
+    """Everything the shared platform delivers one alert's events to, including subscriber email."""
+    return alert_email.list_delivery_destination_groups(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )

@@ -45,12 +45,14 @@ import {
     logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
+    parseMinTimestampHeader,
     parseSizeHeader,
 } from './logs-ingestion-consumer'
 import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -115,6 +117,8 @@ const createKafkaMessage = async (
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'pattern', type: ['null', 'string'], default: null },
+            { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
     })
 
@@ -171,7 +175,7 @@ const createMultiRecordKafkaMessage = async (
         trace_id: null,
         span_id: null,
         trace_flags: null,
-        timestamp: DateTime.now().toMillis() * 1000,
+        timestamp: logData.timestampMicros ?? DateTime.now().toMillis() * 1000,
         observed_timestamp: DateTime.now().toMillis() * 1000,
         body: JSON.stringify(logData),
         severity_text: logData.level || 'info',
@@ -214,7 +218,11 @@ describe('LogsIngestionConsumer', () => {
         depsPartial: Partial<
             Pick<
                 LogsIngestionConsumerDeps,
-                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+                | 'samplingRulesCache'
+                | 'metricRulesCache'
+                | 'metricsEmitter'
+                | 'logsTransformer'
+                | 'patternMessageKeysCache'
             >
         > = {}
     ) => {
@@ -759,6 +767,17 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('parseMinTimestampHeader', () => {
+        it.each([
+            ['1790000000000000', 1790000000000000],
+            [undefined, undefined],
+            ['', undefined],
+            ['not-a-number', undefined],
+        ])('parses %p as %p', (raw, expected) => {
+            expect(parseMinTimestampHeader(raw)).toEqual(expected)
+        })
+    })
+
     describe('message routing', () => {
         it('should route messages to correct ClickHouse topic', async () => {
             const logData = createLogMessage()
@@ -980,6 +999,41 @@ describe('LogsIngestionConsumer', () => {
             expect(getProducedKafkaMessages()).toHaveLength(1)
             expect(bytesReceivedSpy).toHaveBeenCalledWith(0)
             expect(recordsReceivedSpy).toHaveBeenCalledWith(0)
+        })
+    })
+
+    describe('backfill gate', () => {
+        it.each([
+            {
+                name: 'refuses a backfill request from a team not on the list',
+                header: true,
+                listed: false,
+                produced: 0,
+            },
+            { name: 'accepts a backfill request from a listed team', header: true, listed: true, produced: 1 },
+            { name: 'leaves live traffic alone', header: false, listed: false, produced: 1 },
+        ])('$name', async ({ header, listed, produced }) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_BACKFILL_ENABLED_TEAMS: listed ? String(team.id) : String(team2.id),
+            })
+
+            // The row is recent on purpose: a backfill request can carry rows from the last day.
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                record_count: '1',
+                ...(header ? { backfill_days: '540' } : {}),
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(produced)
+            if (produced === 0) {
+                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                    { reason: 'backfill_not_enabled', team_id: team.id.toString() },
+                    1
+                )
+            }
         })
     })
 
@@ -1872,6 +1926,29 @@ describe('LogsIngestionConsumer', () => {
             expect(droppedMetrics).toHaveLength(0)
         })
 
+        it('drops a row already past retention and reports it, when the header says the message can hold one', async () => {
+            const fourHundredDaysAgoMicros = DateTime.now().minus({ days: 400 }).toMillis() * 1000
+            const message = await createMultiRecordKafkaMessage(
+                [{ level: 'info', timestampMicros: fourHundredDaysAgoMicros }],
+                {
+                    token: team.api_token,
+                    bytes_uncompressed: '400',
+                    record_count: '1',
+                    min_timestamp: fourHundredDaysAgoMicros.toString(),
+                }
+            )
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const produced = getProducedKafkaMessages()
+            expect(produced.some((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toBe(false)
+            const expiredMetric = produced
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                .map((m) => parseMetricValue(m.value))
+                .find((v) => v.metric_name === 'records_dropped_retention_expired' && v.team_id === team.id)
+            expect(expiredMetric?.count).toBe(1)
+        })
+
         describe('sampling usage to app_metrics2', () => {
             let mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'>
 
@@ -2605,6 +2682,28 @@ describe('LogsIngestionConsumer', () => {
             } else {
                 expect(bodyKindIncSpy).not.toHaveBeenCalled()
             }
+        })
+
+        it("derives the pattern from the team's message keys, not the defaults", async () => {
+            const patternMessageKeysCache = {
+                getMessageKeys: jest.fn().mockResolvedValue(['log']),
+            } as unknown as PatternMessageKeysCache
+            maskingConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' },
+                { patternMessageKeysCache }
+            )
+            const messages = await createKafkaMessages(
+                [createLogMessage({ message: 'default key wins', log: 'team key wins' })],
+                {
+                    token: team.api_token,
+                }
+            )
+            await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            const [, , records] = await decodeLogRecords(logsMessages[0].value as Buffer)
+            expect(records.map((r) => r.pattern)).toEqual(['team key wins'])
         })
     })
 })

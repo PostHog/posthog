@@ -1,0 +1,153 @@
+from datetime import timedelta
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition
+from posthog.test.persons import create_group_type_mapping
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+
+class TestLivestreamAuthorization(APIBaseTest):
+    def _token(self, audience: PosthogJwtAudience = PosthogJwtAudience.LIVESTREAM) -> str:
+        return encode_jwt(
+            {
+                "user_id": self.user.id,
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "api_token": self.team.api_token,
+            },
+            timedelta(days=7),
+            audience,
+        )
+
+    @parameterized.expand(
+        [
+            ("membership", 403),
+            ("project_access", 403),
+            ("user", 401),
+            ("project_token", 401),
+            ("inactive_organization", 403),
+            ("organization_with_unknown_active_state", 403),
+            ("organization_pending_deletion", 403),
+            ("unverified_email_domain", 403),
+        ]
+    )
+    def test_rechecks_current_access(self, revoked: str, expected_status: int) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        authorization = f"Bearer {self._token()}"
+        initial = self.client.get(
+            "/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization, HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(initial.status_code, 200)
+        self.assertEqual(initial["Cache-Control"], "no-store")
+        self.assertEqual(
+            initial.json(),
+            {"restricted_event_properties": [], "restricted_person_properties": [], "restricted_group_properties": {}},
+        )
+        legacy = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
+        self.assertEqual(legacy.status_code, 204)
+        self.assertEqual(legacy["Cache-Control"], "no-store")
+
+        if revoked == "membership":
+            self.organization_membership.delete()
+        elif revoked == "project_access":
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        elif revoked == "user":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif revoked == "project_token":
+            self.team.api_token = "test-rotated-project-token"
+            self.team.save(update_fields=["api_token"])
+        elif revoked == "inactive_organization":
+            self.organization.is_active = False
+            self.organization.save(update_fields=["is_active"])
+        elif revoked == "organization_with_unknown_active_state":
+            self.organization.is_active = None
+            self.organization.save(update_fields=["is_active"])
+        elif revoked == "organization_pending_deletion":
+            self.organization.is_pending_deletion = True
+            self.organization.save(update_fields=["is_pending_deletion"])
+        else:
+            OrganizationDomain.objects.create(
+                domain="example.com", organization=self.organization, verified_at=timezone.now()
+            )
+            self.organization.enforce_verified_domains = True
+            self.organization.save(update_fields=["enforce_verified_domains"])
+
+        self.assertEqual(
+            self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, expected_status
+        )
+
+    @parameterized.expand([(None,), (PosthogJwtAudience.IMPERSONATED_USER,)])
+    def test_rejects_other_authentication(self, audience: PosthogJwtAudience | None) -> None:
+        authorization = f"Bearer {self._token(audience)}" if audience else ""
+        self.assertEqual(
+            self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
+        )
+
+    def test_lists_the_properties_hidden_from_the_user(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        create_group_type_mapping(
+            team=self.team, project=self.team.project, group_type="organization", group_type_index=0
+        )
+        for name, property_type, group_type_index in (
+            ("$ip", PropertyDefinition.Type.EVENT, None),
+            ("email", PropertyDefinition.Type.PERSON, None),
+            ("$browser", PropertyDefinition.Type.EVENT, None),
+            ("email", PropertyDefinition.Type.GROUP, 0),
+        ):
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name=name, type=property_type, group_type_index=group_type_index
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                access_level=PropertyAccessLevel.NONE.value if name != "$browser" else PropertyAccessLevel.READ.value,
+            )
+
+        response = self.client.get(
+            "/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}", HTTP_ACCEPT="application/json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "restricted_event_properties": ["$ip"],
+                "restricted_person_properties": ["email"],
+                "restricted_group_properties": {"organization": ["email"]},
+            },
+        )
+
+        # When the group types cannot be loaded the rule still applies, to every type.
+        with patch("posthog.api.livestream.get_group_types_for_project", return_value=[]):
+            response = self.client.get(
+                "/api/livestream/authorize/",
+                HTTP_AUTHORIZATION=f"Bearer {self._token()}",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(response.json()["restricted_group_properties"], {"*": ["email"]})
+
+    def test_refuses_an_account_an_access_rule_blocks(self) -> None:
+        with patch("posthog.auth.security_access_refused", return_value=True):
+            response = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "access_blocked")

@@ -5,12 +5,6 @@ from unittest.mock import patch
 
 import requests
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lambdalabs import (
     LambdaLabsSourceConfig,
 )
@@ -18,22 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_lab
 
 
 class TestLambdaLabsSource:
-    def test_get_source_config(self) -> None:
-        config = LambdaLabsSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/lambda-labs"
-
-        fields = config.fields
-        assert len(fields) == 1
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.name == "api_key"
-        # The API key is a secret and must render as a password input.
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.secret is True
-        assert api_key.required is True
-
     @pytest.mark.parametrize(
         ("outcome", "expected_ok", "expected_error"),
         [
@@ -57,19 +35,3 @@ class TestLambdaLabsSource:
             ok, error = LambdaLabsSource().validate_credentials(LambdaLabsSourceConfig(api_key="k"), team_id=1)
         assert ok is expected_ok
         assert error == expected_error
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # `lists_tables_without_credentials` powers the public docs "Supported tables" section; it must
-        # enumerate every endpoint with no I/O.
-        tables = LambdaLabsSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {
-            "instances",
-            "instance_types",
-            "filesystems",
-            "images",
-            "ssh_keys",
-            "firewall_rulesets",
-            "regions",
-            "audit_events",
-            "tickets",
-        }

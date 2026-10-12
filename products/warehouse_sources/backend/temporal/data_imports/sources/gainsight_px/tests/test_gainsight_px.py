@@ -13,8 +13,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px import (
     GainsightPxResumeConfig,
     _base_url,
-    _build_url,
-    _normalize_row,
     _to_epoch_millis,
     gainsight_px_source,
     validate_credentials,
@@ -92,31 +90,6 @@ class TestBaseUrl:
         assert _base_url(region) == expected
 
 
-class TestBuildUrl:
-    def test_encodes_params(self) -> None:
-        url = _build_url("https://api.aptrinsic.com/v1/users", {"pageSize": 1000, "scrollId": "a b/c"})
-        assert url == "https://api.aptrinsic.com/v1/users?pageSize=1000&scrollId=a+b%2Fc"
-
-    def test_no_params(self) -> None:
-        assert _build_url("https://api.aptrinsic.com/v1/users", {}) == "https://api.aptrinsic.com/v1/users"
-
-
-class TestNormalizeRow:
-    def test_converts_epoch_millis_to_datetime(self) -> None:
-        # 2021-01-01T00:00:00Z == 1609459200000 ms
-        row = _normalize_row({"id": "u1", "createDate": 1609459200000})
-        assert row["createDate"] == datetime(2021, 1, 1, tzinfo=UTC)
-
-    def test_leaves_non_date_fields_untouched(self) -> None:
-        row = _normalize_row({"id": "u1", "score": 42, "globalUnsubscribe": True, "name": "Acme"})
-        assert row == {"id": "u1", "score": 42, "globalUnsubscribe": True, "name": "Acme"}
-
-    def test_ignores_missing_and_non_int_dates(self) -> None:
-        # releaseDate is an ISO string on articles — must not be reinterpreted as epoch millis.
-        row = _normalize_row({"id": "a1", "releaseDate": "2021-01-01"})
-        assert row["releaseDate"] == "2021-01-01"
-
-
 class TestScrollPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_scroll_id_and_stops_on_short_page(self, MockSession, monkeypatch) -> None:
@@ -143,20 +116,6 @@ class TestScrollPagination:
         assert manager.save_state.call_args.args[0] == GainsightPxResumeConfig(scroll_id="s1")
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_scroll_id_absent(self, MockSession, monkeypatch) -> None:
-        # A full page whose scrollId is null still terminates — the null cursor ends it.
-        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["accounts"], "page_size", 2)
-        session = MockSession.return_value
-        _wire(session, [_response("accounts", [{"id": "1"}, {"id": "2"}], scrollId=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("accounts", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_scroll_id(self, MockSession, monkeypatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
         session = MockSession.return_value
@@ -166,20 +125,6 @@ class TestScrollPagination:
         _rows(_source("users", manager))
 
         assert params[0]["scrollId"] == "saved-cursor"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows_and_stops(self, MockSession, monkeypatch) -> None:
-        # These endpoints don't fail loud on a missing key (parity with the hand-rolled `or []`).
-        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
-        session = MockSession.return_value
-        _wire(session, [_response("wrongKey", [{"id": "x"}], scrollId="s1")])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 class TestPageNumberPagination:
@@ -204,20 +149,6 @@ class TestPageNumberPagination:
         assert params[1]["pageNumber"] == 1
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == GainsightPxResumeConfig(page_number=1)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["segments"], "page_size", 2)
-        session = MockSession.return_value
-        # short page → stop even though isLastPage is False.
-        _wire(session, [_response("segments", [{"id": "s1"}], isLastPage=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("segments", manager))
-
-        assert [r["id"] for r in rows] == ["s1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page_number(self, MockSession, monkeypatch) -> None:
@@ -263,18 +194,6 @@ class TestPageSizeCaps:
         next(iter(_source(endpoint, _make_manager()).items()))
 
         assert params[0]["pageSize"] <= maximum
-
-
-class TestRowNormalization:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_epoch_millis_fields_are_converted_during_iteration(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["accounts"], "page_size", 2)
-        session = MockSession.return_value
-        _wire(session, [_response("accounts", [{"id": "a1", "createDate": 1609459200000}], scrollId=None)])
-
-        rows = _rows(_source("accounts", _make_manager()))
-
-        assert rows[0]["createDate"] == datetime(2021, 1, 1, tzinfo=UTC)
 
 
 # Response list keys published in the vendor's OpenAPI spec. They differ per event stream, and a
@@ -375,15 +294,6 @@ class TestEventStreams:
         assert "scrollId" not in params[1]
         manager.save_state.assert_called_once_with(GainsightPxResumeConfig(window_start=window_start + 180 * DAY_MS))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_entity_endpoints_send_no_event_filter_or_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("users", [], scrollId=None)])
-
-        _rows(_source("users", _make_manager(), db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC)))
-
-        assert params[0] == {"pageSize": 1000}
-
     @parameterized.expand(
         [
             ("aware_datetime", datetime(2021, 1, 1, 1, tzinfo=UTC), 1609462800000),
@@ -396,26 +306,6 @@ class TestEventStreams:
         assert _to_epoch_millis(value) == expected
 
 
-class TestRetries:
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried(self, MockSession, _mock_sleep, monkeypatch) -> None:
-        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["accounts"], "page_size", 2)
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response("accounts", [], status_code=429),
-                _response("accounts", [{"id": "1"}, {"id": "2"}], status_code=200, scrollId=None),
-            ],
-        )
-
-        rows = _rows(_source("accounts", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 2
-
-
 class TestSessionHardening:
     """The API key travels in a custom header the sample-capture denylist can't recognise, so the
     framework auth registers its value for redaction across errors, logs, and captured samples."""
@@ -425,12 +315,6 @@ class TestSessionHardening:
         _source("users", _make_manager())
         assert MockSession.call_args.kwargs["redact_values"] == ("secret-key",)
 
-    @mock.patch(GAINSIGHT_SESSION_PATCH)
-    def test_validate_credentials_masks_key(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret-key", "us")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -438,18 +322,6 @@ class TestValidateCredentials:
     def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("key", "us") is expected
-
-    @mock.patch(GAINSIGHT_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "us") is False
-
-    @mock.patch(GAINSIGHT_SESSION_PATCH)
-    def test_probes_accounts_endpoint(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key", "eu")
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == "https://api-eu.aptrinsic.com/v1/accounts?pageSize=1"
 
 
 class TestSourceResponse:

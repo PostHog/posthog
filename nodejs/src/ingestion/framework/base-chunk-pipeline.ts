@@ -1,4 +1,6 @@
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { Context } from '@opentelemetry/api'
+
+import { instrumentFn, startDetachedSpan } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
@@ -13,6 +15,16 @@ function isSuccessResultWithContext<T, C, R extends string>(
     resultWithContext: PipelineResultWithContext<T, C, R>
 ): resultWithContext is PipelineResultWithContext<T, C, R> & { result: PipelineResultOk<T> } {
     return isOkResult(resultWithContext.result)
+}
+
+function distinctTraceContexts<T, C, R extends string>(items: PipelineResultWithContext<T, C, R>[]): Context[] {
+    const contexts = new Set<Context>()
+    for (const item of items) {
+        if (item.context.traceContext) {
+            contexts.add(item.context.traceContext)
+        }
+    }
+    return Array.from(contexts)
 }
 
 /**
@@ -37,21 +49,20 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
     items: PipelineResultWithContext<TIn, C, RPrev>[],
     builderContext?: PipelineBuilderContext<D>
 ): Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]> {
-    const successfulValues = items
-        .filter(isSuccessResultWithContext)
-        .map((resultWithContext) => resultWithContext.result.value)
+    const successfulItems = items.filter(isSuccessResultWithContext)
+    const successfulValues = successfulItems.map((resultWithContext) => resultWithContext.result.value)
 
     let stepResults: PipelineResult<TOut, RStep>[] = []
     if (successfulValues.length > 0) {
+        const attributes = { chunk_size: successfulValues.length }
+        // With concurrent batches a chunk can mix batches. The step runs once, so every batch past the
+        // first gets a mirror span with the same timing, which keeps each batch trace complete.
+        const [parentContext, ...otherContexts] = distinctTraceContexts(successfulItems)
+        const mirrors = otherContexts.map((traceContext) => startDetachedSpan(stepName, attributes, traceContext))
         const end = pipelineStepDurationHistogram.startTimer({ step_name: stepName, step_type: 'chunk' })
         try {
             stepResults = await instrumentFn(
-                {
-                    key: stepName,
-                    sendException: false,
-                    measureTime: false,
-                    attributes: { chunk_size: successfulValues.length },
-                },
+                { key: stepName, sendException: false, measureTime: false, attributes, parentContext },
                 () => step(successfulValues)
             )
             end({ result: 'chunk' })
@@ -75,6 +86,10 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
                 debugContext: aggregate && debugContexts.length > 0 ? aggregate(debugContexts) : debugContexts,
             })
             throw e
+        } finally {
+            for (const mirror of mirrors) {
+                mirror?.span.end()
+            }
         }
         if (stepResults.length !== successfulValues.length) {
             throw new Error(

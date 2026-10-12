@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -13,7 +14,7 @@ import { Scene } from 'scenes/sceneTypes'
 import type { SceneConfig } from '../../scenes/sceneTypes'
 import { navigationLogic } from '../navigation/navigationLogic'
 
-export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
+export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'embedded' | 'full'
 
 export type ZenModeTrigger = 'shortcut' | 'account_menu' | 'help_menu' | 'exit_button' | 'url'
 
@@ -120,6 +121,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 activeSceneId: string | null,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): Navigation3000Mode => {
+                // An embedded page frame sits inside another app page, so it shows the scene alone.
+                if (isEmbeddedPageFrame()) {
+                    return 'embedded'
+                }
                 if (zenMode) {
                     return 'zen'
                 }

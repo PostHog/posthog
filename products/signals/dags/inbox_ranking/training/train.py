@@ -225,6 +225,7 @@ def holdout_calibration_rows(trained: Sequence[TrainedHead]) -> list[dict[str, o
 class HoldoutGrade:
     auc: float | None
     expected_calibration_error: float | None
+    positives: int
 
 
 def booster_holdout_grade(
@@ -252,4 +253,5 @@ def booster_holdout_grade(
     return HoldoutGrade(
         auc=_auc(y, scores),
         expected_calibration_error=expected_calibration_error(calibration_buckets(y.astype(bool), scores)),
+        positives=int(y.sum()),
     )

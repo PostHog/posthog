@@ -17,10 +17,9 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-from products.workflows.backend.facade.contracts import WorkflowTemplate
+from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.facade.templates import (
-    WorkflowTemplateNotFound,
     create_template,
     delete_template,
     function_template_exists,

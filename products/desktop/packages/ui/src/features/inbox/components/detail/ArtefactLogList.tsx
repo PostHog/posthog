@@ -5,6 +5,11 @@ import {
   InfoIcon,
 } from "@phosphor-icons/react";
 import { attributionLabel } from "@posthog/core/inbox/activityLog";
+import {
+  formatRankingLift,
+  formatRankingProbability,
+  rankingLiftBarPercent,
+} from "@posthog/core/inbox/rankingFormat";
 import type {
   ActionabilityJudgmentContent,
   AnySignalReportArtefact,
@@ -251,28 +256,37 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
   );
 }
 
+function RankingLiftBar({ head }: { head: RankingHead }) {
+  return (
+    <div className="relative h-1.5 overflow-hidden rounded-full bg-(--gray-4)">
+      {head.lift !== null ? (
+        <div
+          className={`h-full rounded-full ${head.readable ? "bg-(--accent-9)" : "bg-(--gray-8)"}`}
+          style={{ width: `${rankingLiftBarPercent(head.lift)}%` }}
+        />
+      ) : null}
+      <span
+        className="absolute inset-y-0 left-1/2 w-px bg-(--gray-9)"
+        aria-hidden
+      />
+    </div>
+  );
+}
+
 function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
   return (
-    <Box className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto] items-center justify-start gap-x-2 gap-y-1 text-[12px]">
+    <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto_auto] items-center justify-start gap-x-2 gap-y-1 text-[12px]">
       {heads.map((head) => {
-        const percent = Math.round(head.probability * 100);
         const tone = head.readable ? "text-(--gray-12)" : "text-(--gray-10)";
         return (
           <Fragment key={head.name}>
-            <Text className={`truncate ${tone}`}>{prettify(head.name)}</Text>
-            <Box className="h-1.5 overflow-hidden rounded-full bg-(--gray-4)">
-              <Box
-                className={`h-full rounded-full ${head.readable ? "bg-(--accent-9)" : "bg-(--gray-8)"}`}
-                style={{ width: `${percent}%` }}
-              />
-            </Box>
-            <Flex
-              align="center"
-              justify="end"
-              gap="1"
-              className={`tabular-nums ${tone}`}
-            >
-              {percent}%
+            <span className={`truncate ${tone}`}>{prettify(head.name)}</span>
+            <RankingLiftBar head={head} />
+            <span className={`text-right tabular-nums ${tone}`}>
+              {head.lift !== null ? formatRankingLift(head.lift) : null}
+            </span>
+            <div className="flex items-center justify-end gap-1 text-(--gray-10) tabular-nums">
+              {formatRankingProbability(head.probability)}
               {head.readable ? (
                 <span className="size-3" aria-hidden />
               ) : (
@@ -285,11 +299,11 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
                   <InfoIcon size={12} />
                 </span>
               )}
-            </Flex>
+            </div>
           </Fragment>
         );
       })}
-    </Box>
+    </div>
   );
 }
 

@@ -21,7 +21,6 @@ export const FILE_UPLOAD_SOURCE_CONFIG: SourceConfigResponseApi = {
     label: 'File upload',
     caption: 'Upload a CSV, JSON, or Parquet file to query it in the PostHog data warehouse.',
     iconPath: '/static/services/file-upload.svg',
-    releaseStatus: 'alpha',
     // The upload form is bespoke (`FileUploadSourceForm`), so no generic connection fields.
     fields: [],
     // No vendor API sits behind an upload, so the version fields the response type requires stay empty.

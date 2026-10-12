@@ -1340,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1373,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least
@@ -2038,6 +2038,7 @@ export interface PaginatedTaskListItemListApi {
  * * `workflow` - Workflow
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
+ * * `metrics_import` - Metrics Import
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -2066,6 +2067,7 @@ export const TaskOriginProductEnumApi = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 /**
@@ -2125,7 +2127,8 @@ export interface TaskCreateApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2353,7 +2356,8 @@ export interface TaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2488,7 +2492,8 @@ export interface PatchedTaskWriteApi {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
-     * * `business_knowledge` - Business Knowledge */
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -3679,6 +3684,45 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+/**
+ * * `agent_reported` - agent_reported
+ * * `agent_server_crash` - agent_server_crash
+ * * `agent_declined` - agent_declined
+ * * `output_parse_failed` - output_parse_failed
+ * * `poll_timeout` - poll_timeout
+ * * `pi_runtime_error` - pi_runtime_error
+ * * `upstream_stream_terminated` - upstream_stream_terminated
+ * * `upstream_connection_error` - upstream_connection_error
+ * * `upstream_timeout` - upstream_timeout
+ * * `upstream_provider_failure` - upstream_provider_failure
+ * * `upstream_request_rejected` - upstream_request_rejected
+ * * `content_block_rejection` - content_block_rejection
+ * * `turn_ended_without_response` - turn_ended_without_response
+ * * `subscription_usage_limit` - subscription_usage_limit
+ * * `task_spend_limit` - task_spend_limit
+ * * `agent_error` - agent_error
+ */
+export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
+
+export const ErrorTypeEnumApi = {
+    AgentReported: 'agent_reported',
+    AgentServerCrash: 'agent_server_crash',
+    AgentDeclined: 'agent_declined',
+    OutputParseFailed: 'output_parse_failed',
+    PollTimeout: 'poll_timeout',
+    PiRuntimeError: 'pi_runtime_error',
+    UpstreamStreamTerminated: 'upstream_stream_terminated',
+    UpstreamConnectionError: 'upstream_connection_error',
+    UpstreamTimeout: 'upstream_timeout',
+    UpstreamProviderFailure: 'upstream_provider_failure',
+    UpstreamRequestRejected: 'upstream_request_rejected',
+    ContentBlockRejection: 'content_block_rejection',
+    TurnEndedWithoutResponse: 'turn_ended_without_response',
+    SubscriptionUsageLimit: 'subscription_usage_limit',
+    TaskSpendLimit: 'task_spend_limit',
+    AgentError: 'agent_error',
+} as const
+
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3712,6 +3756,25 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
+    /** Why the run failed, set by the caller that marked it failed.
+     *
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error */
+    error_type?: ErrorTypeEnumApi | null
 }
 
 /**
@@ -4901,10 +4964,16 @@ export interface TasksResolvedAIRunDefaultsApi {
  * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
  */
 export interface TasksTaskDefaultsApi {
-    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
-    start_in_plan_mode: boolean
-    /** When true, a cloud run that changes code always opens a draft pull request. */
-    auto_publish_cloud_runs: boolean
+    /**
+     * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+     * @nullable
+     */
+    start_in_plan_mode: boolean | null
+    /**
+     * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+     * @nullable
+     */
+    auto_publish_cloud_runs: boolean | null
 }
 
 /**
@@ -4936,9 +5005,9 @@ export interface TasksAgentInstructionsApi {
  * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
  */
 export interface TasksTaskDefaultsUpdateApi {
-    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
     start_in_plan_mode?: boolean
-    /** When true, a cloud run that changes code always opens a draft pull request. */
+    /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
     auto_publish_cloud_runs?: boolean
 }
 
@@ -5867,6 +5936,7 @@ export type TasksListParams = {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -6009,6 +6079,7 @@ export const TasksListExcludeOriginProduct = {
     Workflow: 'workflow',
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -6158,6 +6229,13 @@ export type TasksRunsStreamTokenRetrieveParams = {
      * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
      */
     resync?: boolean
+}
+
+export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean
 }
 
 export type TasksThreadMessagesListParams = {

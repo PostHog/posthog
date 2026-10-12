@@ -21,7 +21,14 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -413,6 +420,57 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "delete_test")
+
+    def test_delete_endpoint_is_refused_when_a_model_depends_on_it(self):
+        endpoint = create_endpoint_with_version(
+            name="blocked_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+        backing_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="blocked_endpoint_v1",
+            query=self.sample_hogql_query,
+        )
+        version.enable_materialization(backing_query)
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_view",
+            query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
+        )
+        dag = DAG.get_or_create_default(self.team)
+        endpoint_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=backing_query,
+            type=NodeType.ENDPOINT,
+        )
+        downstream_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=downstream_query,
+            type=NodeType.VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=endpoint_node, target=downstream_node)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "has_dependents")
+        self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't delete blocked_endpoint_v1 yet. Something else reads from it. Update or delete it first.",
+        )
+        endpoint.refresh_from_db()
+        backing_query.refresh_from_db()
+        version.refresh_from_db()
+        self.assertFalse(endpoint.deleted)
+        self.assertFalse(backing_query.deleted)
+        self.assertEqual(version.saved_query_id, backing_query.id)
+        self.assertTrue(Node.objects.filter(id=endpoint_node.id).exists())
 
     def test_delete_endpoint_prevents_hard_delete(self):
         endpoint = create_endpoint_with_version(
@@ -1347,6 +1405,42 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["execution_query"] is not None
         assert data["display_execution_query"] is not None
 
+    def test_preview_of_materialized_version_returns_execution_query(self):
+        endpoint = create_endpoint_with_version(
+            name="orders_summary",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() AS total FROM events"},
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=version.materialized_view_name,
+            query=version.query,
+            is_materialized=True,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            table=DataWarehouseTable.objects.create(
+                team=self.team,
+                name="orders_summary_backing_table",
+                columns={"total": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://test-bucket/orders_summary/*.parquet",
+            ),
+        )
+        endpoint.versions.update(saved_query=saved_query)
+
+        with mock.patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/orders_summary/materialization_preview/",
+                {},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        execution_query = response.json()["execution_query"]
+        assert execution_query is not None
+        assert "orders_summary_v1" in execution_query
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
@@ -1916,7 +2010,7 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
 class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "endpoints"
 
-    def _create_endpoints(self, count: int) -> None:
+    def _create_endpoints(self, count: int, materialized: bool) -> None:
         for i in range(count):
             endpoint_name = f"list_perf_{count}_{i}"
             endpoint = create_endpoint_with_version(
@@ -1929,6 +2023,8 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 },
                 created_by=self.user,
             )
+            if not materialized:
+                continue
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=endpoint_name,
@@ -1957,9 +2053,9 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 last_run_at=timezone.now(),
             )
 
-    def _list_query_count(self, endpoint_count: int) -> int:
+    def _list_query_count(self, endpoint_count: int, materialized: bool) -> int:
         Endpoint.objects.all().delete()
-        self._create_endpoints(endpoint_count)
+        self._create_endpoints(endpoint_count, materialized)
         url = f"/api/environments/{self.team.id}/endpoints/"
         self.client.get(url)
         with CaptureQueriesContext(connection) as ctx:
@@ -1968,13 +2064,14 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint_count, len(response.json()["results"]))
         return len(ctx.captured_queries)
 
-    def test_list_query_count_does_not_grow_with_endpoint_count(self):
-        few = self._list_query_count(2)
-        many = self._list_query_count(8)
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_list_query_count_does_not_grow_with_endpoint_count(self, _name: str, materialized: bool):
+        few = self._list_query_count(2, materialized)
+        many = self._list_query_count(8, materialized)
 
         self.assertEqual(few, many, f"listing 8 endpoints cost {many} queries vs {few} for 2, so something N+1s")
 
-    def _versions_query_count(self, version_count: int) -> int:
+    def _versions_query_count(self, version_count: int, materialized: bool) -> int:
         Endpoint.objects.all().delete()
         endpoint = create_endpoint_with_version(
             name=f"versions_perf_{version_count}",
@@ -1996,6 +2093,8 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                     columns=[{"name": "result", "type": "integer"}],
                 )
             )
+            if not materialized:
+                continue
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=f"versions_perf_{version_count}_v{version_number}",
@@ -2023,9 +2122,10 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(version_count, len(response.json()["results"]))
         return len(ctx.captured_queries)
 
-    def test_versions_query_count_does_not_grow_with_version_count(self):
-        few = self._versions_query_count(2)
-        many = self._versions_query_count(8)
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_versions_query_count_does_not_grow_with_version_count(self, _name: str, materialized: bool):
+        few = self._versions_query_count(2, materialized)
+        many = self._versions_query_count(8, materialized)
 
         self.assertEqual(few, many, f"listing 8 versions cost {many} queries vs {few} for 2, so something N+1s")
 

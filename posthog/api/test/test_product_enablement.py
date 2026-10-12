@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import OrganizationMembership
@@ -50,7 +51,11 @@ class TestProductEnablementAPI(APIBaseTest):
         self.team.refresh_from_db()
         self.assertTrue(self.team.autocapture_exceptions_opt_in)
 
-    def test_enables_conversations_mints_token_but_leaves_widget_off(self):
+    @parameterized.expand([(None,), ("legacy string",), (1,)])
+    def test_enables_conversations_mints_token_but_leaves_widget_off(self, stored_settings):
+        self.team.conversations_settings = stored_settings
+        self.team.save()
+
         response = self._enable(["conversations"])
         self.assertEqual(response.json(), {"results": {"conversations": "enabled"}})
 

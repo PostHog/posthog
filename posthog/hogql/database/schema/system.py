@@ -1525,6 +1525,29 @@ survey_response_archives: PostgresTable = PostgresTable(
     },
 )
 
+revenue_analytics_config: PostgresTable = PostgresTable(
+    name="revenue_analytics_config",
+    postgres_table_name="posthog_teamrevenueanalyticsconfig",
+    access_scope="revenue_analytics",
+    description="Revenue analytics settings for the project; at most one row. "
+    "No row means revenue analytics was never configured.",
+    fields={
+        "id": IntegerDatabaseField(name="team_id", description="Alias of team_id."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "events": StringJSONDatabaseField(
+            name="events",
+            description="JSON array of configured revenue events, one object per event with its eventName and "
+            "revenue, currency, subscription, product and coupon property mapping. '[]' when none are configured.",
+        ),
+        "_filter_test_accounts": BooleanDatabaseField(name="filter_test_accounts", hidden=True),
+        "filter_test_accounts": ExpressionField(
+            name="filter_test_accounts",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_filter_test_accounts"])]),
+            description="1 if event-based revenue views exclude test accounts, 0 otherwise.",
+        ),
+    },
+)
+
 teams: PostgresTable = PostgresTable(
     name="teams",
     postgres_table_name="posthog_team",
@@ -2492,8 +2515,10 @@ ticket_assignment_lazy_join: LazyJoin = LazyJoin(
 support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
+    # A deleted ticket waits for its purge, and its content must not stay readable until then.
+    predicates=[parse_expr("_deleted_at IS NULL")],
     access_scope="ticket",
-    description="Customer support tickets/conversations; one row per ticket, with channel, status, and message counts.",
+    description="Customer support tickets/conversations; one row per ticket, with channel, status, and message counts (deleted tickets are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Ticket UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2564,6 +2589,7 @@ support_tickets: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the ticket was opened."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the ticket was last updated."),
+        "_deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True, hidden=True),
         "tags": ticket_tags_lazy_join,
         "assignee": ticket_assignment_lazy_join,
     },
@@ -3838,6 +3864,7 @@ class SystemTables(TableNode):
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
+        "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "signal_reports": TableNode(name="signal_reports", table=signal_reports),
         "signal_report_artifacts": TableNode(name="signal_report_artifacts", table=signal_report_artifacts),

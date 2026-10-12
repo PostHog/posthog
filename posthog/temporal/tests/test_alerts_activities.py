@@ -83,8 +83,8 @@ from products.alerts.backend.facade.api import (
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -1463,7 +1463,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics"),
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -1487,7 +1487,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=[_email_delivery("alice@posthog.com")],
@@ -1720,7 +1720,7 @@ class TestNotifyAlert:
 
     async def test_error_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
         with patch(
-            "posthog.tasks.alerts.utils.UserAccessControl.check_access_level_for_object",
+            "products.alerts.backend.logic.alert_email.UserAccessControl.check_access_level_for_object",
             return_value=False,
         ):
             recipients = await sync_to_async(get_alert_error_notification_recipients)(alert_with_user)
@@ -1793,7 +1793,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

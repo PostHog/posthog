@@ -679,9 +679,7 @@ class TrinoImplementation(SQLSourceImplementation[TrinoSourceConfig, Any, Any], 
                 arrow_schema = restrict_schema_to_columns(read_plan.arrow_schema, column_names)
                 converters = [read_plan.converters.get(name) for name in column_names]
 
-                for rows in fetch_row_batches(
-                    cursor.fetchmany, max_rows=DEFAULT_CHUNK_SIZE, byte_bounded=inputs.byte_bounded_extraction
-                ):
+                for rows in fetch_row_batches(cursor.fetchmany, max_rows=DEFAULT_CHUNK_SIZE):
                     yield table_from_iterator(
                         (_row_to_dict(column_names, converters, row) for row in rows),
                         arrow_schema,

@@ -402,6 +402,7 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
                 search: params.search,
             },
         })
@@ -586,6 +587,7 @@ const canvasStateRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/`,
             query: {
+                cursor: params.cursor,
                 key: params.key,
                 key_prefix: params.key_prefix,
                 keys_only: params.keys_only,
