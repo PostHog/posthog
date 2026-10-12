@@ -610,6 +610,8 @@ class StatusCommentInput:
     report_id: str
     review_mode: str = REVIEW_MODE_FULL
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # The failed turn, for the failure edit. None in payloads from before the field existed.
+    run_index: int | None = None
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -2240,25 +2242,28 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
     await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
     report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
-    if report is not None:
-        record_run_outcome(
-            team_id,
-            report_id,
-            stage=RUN_STAGE_REVIEW,
-            outcome=RUN_OUTCOME_FAILED,
-            reason=REVIEW_FAILED_REASON,
-            # A run that dies in the publish window already counts its turn in `run_count`.
-            run_index=report.run_count if in_publish_window(report) else report.run_count + 1,
-            review_mode=review_mode,
-            head_sha=report.head_sha,
-        )
-    fail_status_comment(team_id, report_id, review_mode=review_mode)
+    if report is None:
+        return
+    if run_index is None:
+        # A run that dies in the publish window already counts its turn in `run_count`.
+        run_index = report.run_count if in_publish_window(report) else report.run_count + 1
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_FAILED,
+        reason=REVIEW_FAILED_REASON,
+        run_index=run_index,
+        review_mode=review_mode,
+        head_sha=report.head_sha,
+    )
+    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
@@ -2270,7 +2275,9 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(
+        input.team_id, input.report_id, input.review_mode, input.run_index
+    )
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

@@ -798,6 +798,7 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             review_mode=inputs.review_mode,
                             review_design=review_design,
+                            run_index=meta.run_index,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,

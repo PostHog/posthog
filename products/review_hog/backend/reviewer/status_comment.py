@@ -605,9 +605,10 @@ def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnStat
     )
 
 
-def _render_live_body(team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, failed: bool) -> str:
-    # The in-flight turn's findings live one run_index ahead of the completed watermark.
-    state = _turn_state(team_id, report, report.run_count + 1)
+def _render_live_body(
+    team_id: int, report: ReviewReport, review_mode: str, review_design: str, *, run_index: int, failed: bool
+) -> str:
+    state = _turn_state(team_id, report, run_index)
     return render_in_progress_body(
         str(report.id),
         progress_payload(team_id, report, state.snapshot, state.turn, state.pairs),
@@ -655,7 +656,10 @@ def maybe_refresh_status_comment(
             return
         token, installation_id = auth
         owner, repo = _split_repository(report.repository)
-        body = _render_live_body(team_id, report, review_mode, review_design, failed=False)
+        # The in-flight turn's findings live one run_index ahead of the completed watermark.
+        body = _render_live_body(
+            team_id, report, review_mode, review_design, run_index=report.run_count + 1, failed=False
+        )
         _patch_comment(owner, repo, report.status_comment_id, body, token=token, installation_id=installation_id)
     except Exception:
         logger.exception("Could not refresh the ReviewHog status comment; the review continues without it")
@@ -715,15 +719,18 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 
 
-def fail_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
-    """Rewrite the status comment as failed, so a dead run never reads as forever in progress."""
+def fail_status_comment(team_id: int, report_id: str, *, run_index: int, review_mode: str = REVIEW_MODE_FULL) -> None:
+    """Rewrite the status comment as failed, so a dead run never reads as forever in progress.
+
+    `run_index` is the failed turn. A publish that fails after finalize already counts that turn in
+    `run_count`, so `run_count + 1` would render the next, empty turn.
+    """
     try:
         report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
-        _edit_and_stamp(
-            team_id, report, _render_live_body(team_id, report, review_mode, REVIEW_DESIGN_PIPELINE, failed=True)
-        )
+        body = _render_live_body(team_id, report, review_mode, REVIEW_DESIGN_PIPELINE, run_index=run_index, failed=True)
+        _edit_and_stamp(team_id, report, body)
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
 
