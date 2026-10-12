@@ -568,6 +568,50 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.ticketsLoading).toBe(false)
     })
 
+    // The panel-bar badge mounts this logic on every page, so a poll that outlives the unmount reads
+    // a logic that is gone from the store and throws.
+    it.each([
+        ['a poll timer is pending', false],
+        ['a tickets fetch is in flight', true],
+    ])('stops polling when it unmounts while %s', async (_name, unmountDuringFetch) => {
+        jest.useFakeTimers()
+        try {
+            const ticket = {
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket
+            let resolveTickets!: (value: { results: ConversationTicket[] }) => void
+            const getTickets = jest.fn().mockReturnValue(
+                new Promise((resolve) => {
+                    resolveTickets = resolve
+                })
+            )
+            ;(posthog as any).conversations.getTickets = getTickets
+
+            const unmountedLogic = sidepanelTicketsLogic.build()
+            unmountedLogic.mount()
+            unmountedLogic.actions.setTickets([ticket])
+            if (unmountDuringFetch) {
+                unmountedLogic.unmount()
+            }
+            resolveTickets({ results: [ticket] })
+            // toFinishAllListeners waits on timers, which are fake here
+            for (let i = 0; i < 5; i++) {
+                await Promise.resolve()
+            }
+            if (!unmountDuringFetch) {
+                unmountedLogic.unmount()
+            }
+
+            expect(() => jest.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
+            expect(getTickets).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     // TicketsList renders filteredTickets, so a broken selector would show the wrong chats
     // (or none) once someone picks a status.
     it.each([
