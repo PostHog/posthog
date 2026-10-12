@@ -700,8 +700,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/jenkins.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jfrog_artifactory/jfrog_artifactory.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/jira.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jobnimbus/jobnimbus.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jobnimbus/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jotform/jotform.py
@@ -770,7 +768,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailersend/mailersend.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailersend/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailgun/mailgun.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailgun/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/mailjet.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/mailosaur.py
@@ -793,8 +790,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/metorial.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/mixmax.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/mixpanel.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/mollie.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/monday/settings.py
@@ -803,10 +798,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mux/mux.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mux/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/my_hours/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/n8n/n8n.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/n8n/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/nebius_ai/nebius_ai.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/nebius_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/netlify.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/new_relic/new_relic.py
