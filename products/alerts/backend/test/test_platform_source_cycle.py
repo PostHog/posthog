@@ -99,14 +99,31 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id) == before
         assert not AlertCheck.objects.filter(alert_configuration=alert).exists()
 
-    @parameterized.expand([("allowlisted", True), ("not_allowlisted", False)])
-    def test_only_an_allowlisted_alert_asks_for_a_delivery(self, _name: str, allowlisted: bool) -> None:
+    @parameterized.expand(
+        [
+            ("allowlisted", True, False),
+            ("not_allowlisted", False, False),
+            ("allowlisted_resolve", True, True),
+        ]
+    )
+    def test_only_an_allowlisted_firing_or_failure_asks_for_a_delivery(
+        self, _name: str, allowlisted: bool, was_firing: bool
+    ) -> None:
         alert = self._alert()
         configuration = self._copy(alert)
         allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
+        if was_firing:
+            fired, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+            assert fired is not None
+            record_outcomes(self.team.id, (fired,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
 
         with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
-            self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+            self._evaluate(
+                configuration,
+                result=AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+            )
 
         expected = [
             (
@@ -118,7 +135,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert [
             (delivery.configuration_id, delivery.destination_alert_id, delivery.event_ids_by_kind)
             for delivery in self.deliveries
-        ] == (expected if allowlisted else [])
+        ] == (expected if allowlisted and not was_firing else [])
 
     @parameterized.expand(
         [
