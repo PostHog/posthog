@@ -131,9 +131,9 @@ class CustomPromptSandboxContext:
     Codex-only: the claude adapter ignores it. ``None`` keeps the provider default. ``"flex"`` buys
     a cheaper, slower queue, but codex omits any tier its model catalogue does not advertise, so a
     tier the pinned model doesn't list is a no-op (codex logs it and sends the request untiered)."""
-    codex_max_threads: int | None = None
-    """Codex agent threads one session may run at once, the main thread included. Codex-only.
-    ``None`` keeps the Codex default of 4, which leaves room for 3 sub-agents."""
+    codex_max_subagents: int | None = None
+    """Codex sub-agents one session may run at once, not counting the main agent. Codex-only.
+    ``None`` keeps the Codex default of 3."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -334,8 +334,8 @@ async def _create_task_and_trigger(
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
         extra_run_state["caller_ends_run"] = True
-    if context.codex_max_threads is not None:
-        extra_run_state["codex_max_threads"] = context.codex_max_threads
+    if context.codex_max_subagents is not None:
+        extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:

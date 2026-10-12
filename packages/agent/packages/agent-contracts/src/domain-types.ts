@@ -362,7 +362,7 @@ const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
-  codex_max_threads: optionalField(z.number().int().positive()),
+  codex_max_subagents: optionalField(z.number().int().positive()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(

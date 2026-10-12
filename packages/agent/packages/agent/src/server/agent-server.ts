@@ -2354,12 +2354,12 @@ export class AgentServer {
                   ? this.config.reasoningEffort
                   : undefined,
               serviceTier: this.config.serviceTier,
-              // Codex runs 4 agent threads per session by default, the main one included. A run that
-              // starts more sub-agents than that at once sets its own limit.
-              ...(runState?.codex_max_threads && {
+              // Codex runs at most 3 sub-agents per session at once by default; the main agent does
+              // not count. A run that starts more sub-agents at once sets its own limit.
+              ...(runState?.codex_max_subagents && {
                 configOverrides: {
                   "agents.max_concurrent_threads_per_session":
-                    runState.codex_max_threads,
+                    runState.codex_max_subagents,
                 },
               }),
               developerInstructions: codexInstructions,
